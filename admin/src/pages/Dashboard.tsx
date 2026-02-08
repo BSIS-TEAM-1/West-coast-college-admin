@@ -32,7 +32,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
           {view === 'profile' ? (
             <Profile onProfileUpdated={handleProfileUpdated} />
           ) : view === 'settings' ? (
-            <Settings onProfileUpdated={handleProfileUpdated} />
+            <Settings onProfileUpdated={handleProfileUpdated} onLogout={onLogout} />
           ) : view === 'add-account' ? (
             <AddAccount />
           ) : view === 'account-logs' ? (

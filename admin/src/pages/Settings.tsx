@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { updateProfile } from '../lib/authApi';
+import { updateProfile, clearStoredToken } from '../lib/authApi';
 import type { ProfileResponse, UpdateProfileRequest } from '../lib/authApi';
 import { LogOut } from 'lucide-react';
 import './Settings.css';
@@ -8,9 +8,10 @@ type Theme = 'light' | 'dark' | 'auto';
 
 type SettingsProps = {
   onProfileUpdated?: (profile: ProfileResponse) => void;
+  onLogout?: () => void;
 };
 
-export default function Settings({ onProfileUpdated }: SettingsProps) {
+export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) {
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
 
@@ -78,11 +79,8 @@ export default function Settings({ onProfileUpdated }: SettingsProps) {
   };
 
   const handleSignOut = () => {
-    // Clear any stored authentication data
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    // Redirect to login page or reload
-    window.location.href = '/login';
+    clearStoredToken();
+    onLogout?.();
   };
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {

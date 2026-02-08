@@ -5,11 +5,10 @@ type LoginProps = {
   onLogin: (username: string, password: string) => void
   error?: string
   signUpSuccess?: string
-  onSwitchToSignUp: () => void
   loading?: boolean
 }
 
-export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, onSwitchToSignUp, loading }: LoginProps) {
+export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, loading }: LoginProps) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
 
@@ -57,12 +56,12 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, o
           </button>
         </form>
 
-        <p className="login-footer">
+        {/* <p className="login-footer">
           No account?{' '}
           <button type="button" className="login-link" onClick={onSwitchToSignUp}>
             Create admin account
           </button>
-        </p>
+        </p> */}
       </div>
     </div>
   )
