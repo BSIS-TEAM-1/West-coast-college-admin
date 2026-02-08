@@ -32,6 +32,7 @@ function authMiddleware(req, res, next) {
     const payload = jwt.verify(token, JWT_SECRET)
     req.adminId = payload.id
     req.username = payload.username
+    req.accountType = payload.accountType
     next()
   } catch {
     return res.status(401).json({ error: 'Unauthorized.' })

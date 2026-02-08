@@ -35,9 +35,9 @@ function App() {
     try {
       const data = await apiLogin(username, password)
       setStoredToken(data.token)
-      // Use account type from login response, fallback to profile fetch if needed
-      const accountType = data.accountType || (await getProfile()).accountType
-      setUser({ username: data.username, accountType })
+      // Always fetch profile to get accurate account type
+      const profile = await getProfile()
+      setUser({ username: data.username, accountType: profile.accountType })
     } catch (err) {
       setLoginError(err instanceof Error ? err.message : 'Invalid username or password.')
     } finally {
