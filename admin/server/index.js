@@ -174,13 +174,17 @@ app.get('/api/admin/profile', authMiddleware, async (req, res) => {
   try {
     const admin = await Admin.findById(req.adminId).select('-password')
     if (!admin) return res.status(404).json({ error: 'Admin not found.' })
-    res.json({
+    
+    const profileData = {
       username: admin.username,
       displayName: admin.displayName || '',
       email: admin.email || '',
       avatar: admin.avatar || '',
       accountType: admin.accountType,
-    })
+    }
+    
+    console.log('Profile data being returned:', profileData)
+    res.json(profileData)
   } catch (err) {
     console.error('Profile get error:', err)
     res.status(500).json({ error: 'Failed to load profile.' })
