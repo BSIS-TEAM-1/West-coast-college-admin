@@ -53,6 +53,15 @@ function App() {
     )
   }
 
+  // Show loading spinner while checking auth state to prevent login flash
+  if (!authChecked) {
+    return (
+      <div className="app-loading">
+        <div className="spinner"></div>
+      </div>
+    )
+  }
+
   return (
     <Login
       onLogin={handleLogin}
