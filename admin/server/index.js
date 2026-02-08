@@ -175,6 +175,10 @@ app.get('/api/admin/profile', authMiddleware, async (req, res) => {
     const admin = await Admin.findById(req.adminId).select('-password')
     if (!admin) return res.status(404).json({ error: 'Admin not found.' })
     
+    console.log('Raw admin document from DB:', admin)
+    console.log('admin.accountType value:', admin.accountType)
+    console.log('typeof admin.accountType:', typeof admin.accountType)
+    
     const profileData = {
       username: admin.username,
       displayName: admin.displayName || '',
