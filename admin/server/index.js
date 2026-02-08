@@ -450,6 +450,11 @@ app.delete('/api/admin/accounts/:id', authMiddleware, async (req, res) => {
 
 // SPA fallback: serve index.html for non-API routes (must be last)
 app.get('*', (req, res) => {
+  // Don't intercept API routes
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'API endpoint not found.' })
+  }
+  
   const indexFile = path.join(distPath, 'index.html')
   res.sendFile(indexFile, (err) => {
     if (err) res.status(404).send('Frontend not built. Run: npm run build')
