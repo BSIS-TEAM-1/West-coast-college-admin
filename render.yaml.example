@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: wcc-admin-backend
+    env: node
+    repo: https://github.com/rence141/west-coast-college-admin
+    rootDir: admin
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        value: YOUR_MONGODB_URI_HERE
+      - key: JWT_SECRET
+        value: YOUR_JWT_SECRET_HERE
