@@ -146,10 +146,14 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       const newMedia = await uploadMediaFiles(mediaFiles)
       
       // Combine existing media with new media
-      const allMedia = newMedia
-      if (editingAnnouncement.media && editingAnnouncement.media.length > 0) {
-        allMedia.unshift(...editingAnnouncement.media)
-      }
+      const combined = [
+        ...(editingAnnouncement.media || []),
+        ...newMedia,
+      ]
+      const allMedia = combined.map((m) => ({
+        ...m,
+        fileSize: (m as any).fileSize ?? 0,
+      })) as NonNullable<Announcement['media']>
       
       const token = getStoredToken()
       const response = await fetch(`${API_URL}/api/admin/announcements/${editingAnnouncement._id}`, {
@@ -191,7 +195,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       title: '',
       message: '',
       type: 'info',
-      targetAudience: 'All Users',
+      targetAudience: 'all',
       isActive: true,
       isPinned: false,
       media: []
@@ -204,7 +208,12 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       const newMedia = await uploadMediaFiles(mediaFiles)
       
       // Combine with existing media
-      const allMedia = [...(newAnnouncement.media || []), ...newMedia]
+      const allMediaRaw = [...(newAnnouncement.media || []), ...newMedia]
+      const allMedia = allMediaRaw.map((m) => ({
+        ...m,
+        // Ensure fileSize is present for backend schema
+        fileSize: (m as any).fileSize ?? 0,
+      })) as NonNullable<Announcement['media']>
       
       const token = getStoredToken()
       const response = await fetch(`${API_URL}/api/admin/announcements`, {
@@ -215,6 +224,11 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
         },
         body: JSON.stringify({
           ...newAnnouncement,
+          // Normalize targetAudience to allowed enum values
+          targetAudience:
+            newAnnouncement.targetAudience && audienceOptions.some(a => a.value === newAnnouncement.targetAudience)
+              ? newAnnouncement.targetAudience
+              : 'all',
           media: allMedia
         })
       })
@@ -230,7 +244,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
         title: '',
         message: '',
         type: 'info',
-        targetAudience: 'All Users',
+        targetAudience: 'all',
         isActive: true,
         isPinned: false,
         media: []
@@ -247,7 +261,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       title: '',
       message: '',
       type: 'info',
-      targetAudience: 'All Users',
+      targetAudience: 'all',
       isActive: true,
       isPinned: false,
       media: []
