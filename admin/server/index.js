@@ -689,7 +689,7 @@ app.put('/api/admin/announcements/:id', authMiddleware, async (req, res) => {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
-    const { title, message, type, targetAudience, expiresAt, isPinned, isActive } = req.body
+    const { title, message, type, targetAudience, expiresAt, isPinned, isActive, media } = req.body
     
     const announcement = await Announcement.findById(req.params.id)
     if (!announcement) {
@@ -705,6 +705,15 @@ app.put('/api/admin/announcements/:id', authMiddleware, async (req, res) => {
     if (expiresAt !== undefined) announcement.expiresAt = new Date(expiresAt)
     if (isPinned !== undefined) announcement.isPinned = isPinned
     if (isActive !== undefined) announcement.isActive = isActive
+
+    // Allow media to be fully replaced when provided
+    if (Array.isArray(media)) {
+      announcement.media = media.map((m) => ({
+        ...m,
+        // Ensure fileSize is present to satisfy schema
+        fileSize: m.fileSize ?? 0,
+      }))
+    }
 
     await announcement.save()
     await announcement.populate('createdBy', 'username displayName')
