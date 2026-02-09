@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Search, Filter, Download, AlertTriangle, CheckCircle, XCircle, Clock } from 'lucide-react'
 import { getStoredToken } from '../lib/authApi'
-import './AuditLogs.css'
+import './auditlogs-test.css'
 
 interface AuditLog {
   _id: string
