@@ -73,6 +73,7 @@ if (!uri) {
 
 console.log('JWT_SECRET:', process.env.JWT_SECRET)
 console.log('JWT_SECRET length:', process.env.JWT_SECRET?.length)
+console.log('Environment:', process.env.NODE_ENV || 'development')
 
 let dbReady = false
 mongoose.connect(uri)
