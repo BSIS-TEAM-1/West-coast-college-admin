@@ -1,0 +1,115 @@
+.maintenance-container {
+  min-height: calc(100vh - 120px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem;
+}
+
+.maintenance-card {
+  position: relative;
+  max-width: 480px;
+  width: 100%;
+  padding: 2.5rem 2rem;
+  border-radius: 1rem;
+  background: var(--color-surface, #020617);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  box-shadow:
+    0 18px 40px rgba(15, 23, 42, 0.55),
+    0 0 0 1px rgba(15, 23, 42, 0.7);
+  text-align: center;
+  overflow: hidden;
+}
+
+.maintenance-icon-wrapper {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 1.5rem auto;
+}
+
+.maintenance-orbit {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px dashed rgba(148, 163, 184, 0.45);
+  animation: maintenance-spin 8s linear infinite;
+}
+
+.maintenance-icon {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  padding: 0.75rem;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 30% 0, #4f46e5, #0ea5e9);
+  color: #e5e7eb;
+  box-shadow:
+    0 0 0 4px rgba(56, 189, 248, 0.15),
+    0 18px 30px rgba(15, 23, 42, 0.7);
+  animation: maintenance-pulse 2.4s ease-in-out infinite;
+}
+
+.maintenance-card h1 {
+  margin: 0 0 0.75rem 0;
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--color-text, #e5e7eb);
+}
+
+.maintenance-card p {
+  margin: 0 0 1.75rem 0;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--color-text-muted, #9ca3af);
+}
+
+.maintenance-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 9999px;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  color: #e5e7eb;
+  font-size: 0.8rem;
+}
+
+.maintenance-status svg {
+  color: #38bdf8;
+}
+
+@keyframes maintenance-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes maintenance-pulse {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+    box-shadow:
+      0 0 0 4px rgba(56, 189, 248, 0.12),
+      0 18px 30px rgba(15, 23, 42, 0.7);
+  }
+  50% {
+    transform: translateY(-2px) scale(1.03);
+    box-shadow:
+      0 0 0 8px rgba(56, 189, 248, 0.22),
+      0 22px 40px rgba(15, 23, 42, 0.85);
+  }
+}
+
+@media (max-width: 768px) {
+  .maintenance-card {
+    padding: 2rem 1.5rem;
+  }
+}
+
