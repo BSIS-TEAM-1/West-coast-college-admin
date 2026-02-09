@@ -46,6 +46,14 @@ interface AnnouncementsProps {
   onNavigate?: (view: string, announcementId?: string) => void
 }
 
+const audienceOptions = [
+  { value: 'all', label: 'All users' },
+  { value: 'students', label: 'Students' },
+  { value: 'faculty', label: 'Faculty' },
+  { value: 'staff', label: 'Staff' },
+  { value: 'admin', label: 'Admins' },
+]
+
 export default function Announcements({ onNavigate }: AnnouncementsProps) {
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [loading, setLoading] = useState(true)
@@ -64,7 +72,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
     title: '',
     message: '',
     type: 'info',
-    targetAudience: 'All Users',
+    targetAudience: 'all',
     isActive: true,
     isPinned: false,
     media: []
@@ -342,8 +350,10 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
         url: `data:${file.type};base64,${base64}`,
         fileName: `${Date.now()}-${file.name}`,
         originalFileName: file.name,
-        mimeType: file.type
-      })
+        mimeType: file.type,
+        // Include fileSize to satisfy backend schema requirements
+        fileSize: file.size,
+      } as any)
     }
     
     return uploadedMedia
@@ -543,14 +553,21 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
               
               <div className="form-group">
                 <label>Target Audience</label>
-                <input
-                  type="text"
+                <select
                   value={editingAnnouncement.targetAudience}
-                  onChange={(e) => setEditingAnnouncement({
-                    ...editingAnnouncement,
-                    targetAudience: e.target.value
-                  })}
-                />
+                  onChange={(e) =>
+                    setEditingAnnouncement({
+                      ...editingAnnouncement,
+                      targetAudience: e.target.value,
+                    })
+                  }
+                >
+                  {audienceOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </div>
               
               <div className="form-group">
@@ -755,14 +772,21 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
               
               <div className="form-group">
                 <label>Target Audience</label>
-                <input
-                  type="text"
-                  value={newAnnouncement.targetAudience}
-                  onChange={(e) => setNewAnnouncement({
-                    ...newAnnouncement,
-                    targetAudience: e.target.value
-                  })}
-                />
+                <select
+                  value={newAnnouncement.targetAudience || 'all'}
+                  onChange={(e) =>
+                    setNewAnnouncement({
+                      ...newAnnouncement,
+                      targetAudience: e.target.value,
+                    })
+                  }
+                >
+                  {audienceOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </div>
               
               <div className="form-group">

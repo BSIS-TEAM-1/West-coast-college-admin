@@ -28,6 +28,77 @@
   padding: 2rem;
 }
 
+.dashboard-header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.dashboard-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 0.25rem 0;
+}
+
+.dashboard-subtitle {
+  margin: 0;
+  color: #6b7280;
+  font-size: 0.95rem;
+}
+
+[data-theme="dark"] .dashboard-title {
+  color: #e5e7eb;
+}
+
+[data-theme="dark"] .dashboard-subtitle {
+  color: #9ca3af;
+}
+
+.dashboard-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.dashboard-stat-card {
+  background: white;
+  border-radius: 0.75rem;
+  border: 1px solid #e2e8f0;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.dashboard-stat-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6b7280;
+}
+
+.dashboard-stat-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+[data-theme="dark"] .dashboard-stat-card {
+  background: #111827;
+  border-color: #1f2937;
+}
+
+[data-theme="dark"] .dashboard-stat-label {
+  color: #9ca3af;
+}
+
+[data-theme="dark"] .dashboard-stat-value {
+  color: #e5e7eb;
+}
+
 .dashboard-header {
   display: flex;
   justify-content: space-between;
@@ -436,6 +507,41 @@
   transform: translateY(-2px);
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
   border-color: #3b82f6;
+}
+
+/* Dark theme overrides for dashboard cards */
+[data-theme="dark"] .announcement-card {
+  background: #111827;
+  border-color: #1f2937;
+  box-shadow: none;
+}
+
+[data-theme="dark"] .dashboard-announcement-card {
+  background: #111827;
+  border-color: #1f2937;
+  box-shadow: none;
+}
+
+[data-theme="dark"] .news-card {
+  background: #111827;
+  border-color: #1f2937;
+  box-shadow: none;
+}
+
+[data-theme="dark"] .dashboard-card-title,
+[data-theme="dark"] .news-title {
+  color: #e5e7eb;
+}
+
+[data-theme="dark"] .dashboard-card-message,
+[data-theme="dark"] .news-summary {
+  color: #9ca3af;
+}
+
+[data-theme="dark"] .dashboard-card-footer,
+[data-theme="dark"] .news-read-time {
+  border-top-color: #1f2937;
+  color: #9ca3af;
 }
 
 .news-card.featured {

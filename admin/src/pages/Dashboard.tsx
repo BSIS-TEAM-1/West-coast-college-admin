@@ -10,7 +10,7 @@ import AuditLogs from './AuditLogs'
 import DocumentManagement from './DocumentManagement'
 import AnnouncementDetail from './AnnouncementDetail'
 import { Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Users, Video } from 'lucide-react'
-import { getStoredToken, API_URL } from '../lib/authApi'
+import { getStoredToken, API_URL, getAccountCount } from '../lib/authApi'
 import type { ProfileResponse } from '../lib/authApi'
 import './Dashboard.css'
 
@@ -52,9 +52,17 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string | null>(null)
+  const [stats, setStats] = useState({
+    adminCount: 0,
+    registrarCount: 0,
+    documentCount: 0,
+    recentLogs: 0,
+  })
+  const [statsLoading, setStatsLoading] = useState(true)
 
   useEffect(() => {
     fetchAnnouncements()
+    fetchStats()
   }, [])
 
   // Debug logging
@@ -96,6 +104,38 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
     } catch (error) {
       console.error('Failed to fetch announcements:', error)
       setLoading(false)
+    }
+  }
+
+  const fetchStats = async () => {
+    try {
+      setStatsLoading(true)
+      const token = getStoredToken()
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      }
+
+      const [adminCount, registrarCount, documentsRes, logsRes] = await Promise.all([
+        getAccountCount('admin'),
+        getAccountCount('registrar'),
+        fetch(`${API_URL}/api/admin/documents?limit=1`, { headers }),
+        fetch(`${API_URL}/api/admin/audit-logs/stats`, { headers }),
+      ])
+
+      const documentsData = await documentsRes.json().catch(() => ({}))
+      const logsData = await logsRes.json().catch(() => ({}))
+
+      setStats({
+        adminCount,
+        registrarCount,
+        documentCount: typeof documentsData.total === 'number' ? documentsData.total : 0,
+        recentLogs: typeof logsData.recentLogs === 'number' ? logsData.recentLogs : 0,
+      })
+    } catch (error) {
+      console.error('Failed to fetch dashboard stats:', error)
+    } finally {
+      setStatsLoading(false)
     }
   }
 
@@ -156,6 +196,42 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
             />
           ) : (
             <div className="dashboard-content">
+              <div className="dashboard-header-content">
+                <div>
+                  <h1 className="dashboard-title">Admin overview</h1>
+                  <p className="dashboard-subtitle">
+                    Quick snapshot of accounts, documents, and recent activity.
+                  </p>
+                </div>
+              </div>
+
+              <div className="dashboard-stats-grid">
+                <div className="dashboard-stat-card">
+                  <span className="dashboard-stat-label">Admin accounts</span>
+                  <span className="dashboard-stat-value">
+                    {statsLoading ? '—' : stats.adminCount}
+                  </span>
+                </div>
+                <div className="dashboard-stat-card">
+                  <span className="dashboard-stat-label">Registrar accounts</span>
+                  <span className="dashboard-stat-value">
+                    {statsLoading ? '—' : stats.registrarCount}
+                  </span>
+                </div>
+                <div className="dashboard-stat-card">
+                  <span className="dashboard-stat-label">Managed documents</span>
+                  <span className="dashboard-stat-value">
+                    {statsLoading ? '—' : stats.documentCount}
+                  </span>
+                </div>
+                <div className="dashboard-stat-card">
+                  <span className="dashboard-stat-label">Audit log entries (30 days)</span>
+                  <span className="dashboard-stat-value">
+                    {statsLoading ? '—' : stats.recentLogs}
+                  </span>
+                </div>
+              </div>
+
               <div className="dashboard-announcements-container">
                 {loading ? (
                   <div className="dashboard-loading">

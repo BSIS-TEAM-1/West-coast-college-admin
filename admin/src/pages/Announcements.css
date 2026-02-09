@@ -663,6 +663,64 @@
   border-color: #d1d5db;
 }
 
+/* Dark theme overrides for announcements page */
+[data-theme="dark"] .announcements-page {
+  background: #020617;
+}
+
+[data-theme="dark"] .announcements-list {
+  background: #020617;
+  border-color: #1f2937;
+}
+
+[data-theme="dark"] .announcements-table-header {
+  background: #020617;
+  border-bottom-color: #1f2937;
+  color: #9ca3af;
+}
+
+[data-theme="dark"] .announcements-table-row {
+  border-bottom-color: #111827;
+}
+
+[data-theme="dark"] .announcements-table-row:hover {
+  background: #111827;
+}
+
+[data-theme="dark"] .announcements-search,
+[data-theme="dark"] .announcements-filters,
+[data-theme="dark"] .announcements-filter-btn,
+[data-theme="dark"] .announcements-refresh-btn {
+  background: #020617;
+  border-color: #1f2937;
+  color: #e5e7eb;
+}
+
+[data-theme="dark"] .announcement-title-content,
+[data-theme="dark"] .announcement-message,
+[data-theme="dark"] .table-audience,
+[data-theme="dark"] .table-date {
+  color: #e5e7eb;
+}
+
+[data-theme="dark"] .announcements-edit-form {
+  background: #020617;
+  border: 1px solid #1f2937;
+}
+
+[data-theme="dark"] .form-group input,
+[data-theme="dark"] .form-group textarea,
+[data-theme="dark"] .form-group select {
+  background: #020617;
+  border-color: #1f2937;
+  color: #e5e7eb;
+}
+
+[data-theme="dark"] .media-file-item {
+  background: #020617;
+  border-color: #1f2937;
+}
+
 /* Responsive Design */
 @media (max-width: 1200px) {
   .announcements-table-header,
