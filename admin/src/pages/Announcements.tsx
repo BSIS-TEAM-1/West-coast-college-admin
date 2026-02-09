@@ -4,7 +4,7 @@ import {
   Wrench, Users, Edit, Trash2, Eye, MoreVertical, ChevronDown,
   CheckCircle, XCircle, Archive, RefreshCw, Upload, X
 } from 'lucide-react'
-import { getStoredToken, clearStoredToken } from '../lib/authApi'
+import { getStoredToken, clearStoredToken, API_URL } from '../lib/authApi'
 import './Announcements.css'
 
 interface Announcement {
@@ -80,7 +80,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       setLoading(true)
       const token = getStoredToken()
       console.log('Fetching announcements with token:', token ? 'valid token' : 'no token')
-      const response = await fetch('http://localhost:3001/api/admin/announcements', {
+      const response = await fetch(`${API_URL}/api/admin/announcements`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -144,7 +144,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       }
       
       const token = getStoredToken()
-      const response = await fetch(`http://localhost:3001/api/admin/announcements/${editingAnnouncement._id}`, {
+      const response = await fetch(`${API_URL}/api/admin/announcements/${editingAnnouncement._id}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -199,7 +199,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       const allMedia = [...(newAnnouncement.media || []), ...newMedia]
       
       const token = getStoredToken()
-      const response = await fetch('http://localhost:3001/api/admin/announcements', {
+      const response = await fetch(`${API_URL}/api/admin/announcements`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -390,7 +390,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
   const handleToggleStatus = async (id: string, currentStatus: boolean) => {
     try {
       const token = getStoredToken()
-      const response = await fetch(`http://localhost:3001/api/admin/announcements/${id}`, {
+      const response = await fetch(`${API_URL}/api/admin/announcements/${id}`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,

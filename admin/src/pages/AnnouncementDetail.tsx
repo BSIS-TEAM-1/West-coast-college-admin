@@ -5,7 +5,7 @@ import {
   Users, Zap, MoreVertical,
   Copy, ExternalLink, Bookmark, Play, Video
 } from 'lucide-react'
-import { getStoredToken } from '../lib/authApi'
+import { getStoredToken, API_URL } from '../lib/authApi'
 import './AnnouncementDetail.css'
 
 interface Announcement {
@@ -70,7 +70,7 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
     try {
       setLoading(true)
       const token = getStoredToken()
-      const response = await fetch(`http://localhost:3001/api/announcements/${announcementId}`, {
+      const response = await fetch(`${API_URL}/api/announcements/${announcementId}`, {
         headers: {
           Authorization: `Bearer ${token}`
         }
@@ -127,7 +127,7 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
     
     try {
       const token = getStoredToken()
-      const response = await fetch(`http://localhost:3001/api/announcements/${announcement._id}/like`, {
+      const response = await fetch(`${API_URL}/api/announcements/${announcement._id}/like`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -149,7 +149,7 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
     
     try {
       const token = getStoredToken()
-      const response = await fetch(`http://localhost:3001/api/announcements/${announcement._id}/bookmark`, {
+      const response = await fetch(`${API_URL}/api/announcements/${announcement._id}/bookmark`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -214,7 +214,7 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
     if (announcement && window.confirm('Are you sure you want to delete this announcement?')) {
       try {
         const token = getStoredToken()
-        const response = await fetch(`http://localhost:3001/api/admin/announcements/${announcement._id}`, {
+        const response = await fetch(`${API_URL}/api/admin/announcements/${announcement._id}`, {
           method: 'DELETE',
           headers: {
             Authorization: `Bearer ${token}`

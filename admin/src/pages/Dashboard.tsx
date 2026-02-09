@@ -10,7 +10,7 @@ import AuditLogs from './AuditLogs'
 import DocumentManagement from './DocumentManagement'
 import AnnouncementDetail from './AnnouncementDetail'
 import { Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Users, Video } from 'lucide-react'
-import { getStoredToken } from '../lib/authApi'
+import { getStoredToken, API_URL } from '../lib/authApi'
 import type { ProfileResponse } from '../lib/authApi'
 import './Dashboard.css'
 
@@ -71,7 +71,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
       const token = getStoredToken()
       console.log('Dashboard: Token exists:', !!token)
       
-      const response = await fetch('http://localhost:3001/api/admin/announcements', {
+      const response = await fetch(`${API_URL}/api/admin/announcements`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
