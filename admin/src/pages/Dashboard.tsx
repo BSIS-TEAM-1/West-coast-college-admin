@@ -10,7 +10,7 @@ import AuditLogs from './AuditLogs'
 import DocumentManagement from './DocumentManagement'
 import AnnouncementDetail from './AnnouncementDetail'
 import { Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Users, Video } from 'lucide-react'
-import { getProfile, getStoredToken } from '../lib/authApi'
+import { getStoredToken } from '../lib/authApi'
 import type { ProfileResponse } from '../lib/authApi'
 import './Dashboard.css'
 

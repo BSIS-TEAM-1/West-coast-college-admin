@@ -44,7 +44,7 @@ const DocumentManagement: React.FC = () => {
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [editingDocument, setEditingDocument] = useState<Document | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(1)
+  const [totalPages] = useState(1)
   const [filters, setFilters] = useState({
     category: '',
     status: '',
@@ -188,7 +188,7 @@ const DocumentManagement: React.FC = () => {
       const token = localStorage.getItem('token')
       
       // Track download
-      const response = await fetch(`http://localhost:3001/api/admin/documents/${document._id}/download`, {
+      await fetch(`http://localhost:3001/api/admin/documents/${document._id}/download`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
       })

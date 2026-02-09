@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { 
   Bell, Plus, Search, Filter, Pin, Clock, AlertTriangle, Info, AlertCircle, 
   Wrench, Users, Edit, Trash2, Eye, MoreVertical, ChevronDown,
-  CheckCircle, XCircle, Archive, RefreshCw, Upload, X, X as CloseIcon
+  CheckCircle, XCircle, Archive, RefreshCw, Upload, X
 } from 'lucide-react'
 import { getStoredToken, clearStoredToken } from '../lib/authApi'
 import './Announcements.css'
@@ -267,7 +267,6 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
     )
     
     // Create previews for image files
-    const newPreviews: {[key: string]: string} = {}
     validFiles.forEach(file => {
       if (file.type.startsWith('image/')) {
         const reader = new FileReader()
@@ -291,7 +290,6 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
     )
     
     // Create previews for image files
-    const newPreviews: {[key: string]: string} = {}
     validFiles.forEach(file => {
       if (file.type.startsWith('image/')) {
         const reader = new FileReader()
@@ -612,7 +610,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                             onClick={() => removeMediaFile(index)}
                             title="Remove file"
                           >
-                            <CloseIcon size={20} strokeWidth={2.5} />
+                            <X size={20} strokeWidth={2.5} />
                             <span className="remove-text">×</span>
                           </button>
                         </div>
@@ -852,7 +850,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                             onClick={() => removeMediaFile(index)}
                             title="Remove file"
                           >
-                            <CloseIcon size={20} strokeWidth={2.5} />
+                            <X size={20} strokeWidth={2.5} />
                             <span className="remove-text">×</span>
                           </button>
                         </div>
@@ -916,7 +914,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
               <div className="table-actions">Actions</div>
             </div>
 
-            {filteredAnnouncements.map((announcement, index) => (
+            {filteredAnnouncements.map((announcement) => (
               <div className="announcements-table-row" key={announcement._id}>
                 <div className="table-checkbox">
                   <input
