@@ -144,6 +144,14 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
     }
   }
 
+  const resolveMediaUrl = (url: string) => {
+    if (!url) return ''
+    if (url.startsWith('data:')) return url
+    if (url.startsWith('http://') || url.startsWith('https://')) return url
+    const normalized = url.startsWith('/') ? url : `/${url}`
+    return `${API_URL}${normalized}`
+  }
+
   const handleBookmark = async () => {
     if (!announcement) return
     
@@ -308,14 +316,14 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
                 >
                   {media.type === 'image' ? (
                     <img 
-                      src={media.url} 
+                      src={resolveMediaUrl(media.url)} 
                       alt={media.caption || announcement.title}
                       className="detail-image"
                     />
                   ) : (
                     <div className="video-container">
                       <video 
-                        src={media.url} 
+                        src={resolveMediaUrl(media.url)} 
                         className="detail-video"
                         muted
                       />
@@ -338,11 +346,11 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
                     className={`thumbnail ${selectedMediaIndex === index ? 'active' : ''}`}
                     onClick={() => setSelectedMediaIndex(index)}
                   >
-                    {media.type === 'image' ? (
-                      <img src={media.url} alt="" />
-                    ) : (
-                      <Video size={16} />
-                    )}
+                      {media.type === 'image' ? (
+                        <img src={resolveMediaUrl(media.url)} alt="" />
+                      ) : (
+                        <Video size={16} />
+                      )}
                   </button>
                 ))}
               </div>

@@ -159,6 +159,15 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
     }
   }
 
+  const resolveMediaUrl = (url: string) => {
+    if (!url) return ''
+    if (url.startsWith('data:')) return url
+    if (url.startsWith('http://') || url.startsWith('https://')) return url
+    // Treat as path on the API server (handles "/uploads/..." or "uploads/...")
+    const normalized = url.startsWith('/') ? url : `/${url}`
+    return `${API_URL}${normalized}`
+  }
+
   const handleAnnouncementClick = (announcement: Announcement) => {
     setSelectedAnnouncementId(announcement._id)
     setView('announcement-detail')
@@ -256,7 +265,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
                         <div className="dashboard-media-section">
                           {announcement.media[0].type === 'image' ? (
                             <img 
-                              src={announcement.media[0].url} 
+                              src={resolveMediaUrl(announcement.media[0].url)} 
                               alt={announcement.title}
                               className="dashboard-cover-image"
                             />
