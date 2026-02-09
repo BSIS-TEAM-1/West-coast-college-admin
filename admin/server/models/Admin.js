@@ -23,7 +23,7 @@ const adminSchema = new mongoose.Schema({
   avatarMimeType: { type: String, default: '' },
   accountType: {
     type: String,
-    enum: ['admin', 'registrar'],
+    enum: ['admin', 'registrar', 'professor'],
     default: 'admin'
   },
   uid: {

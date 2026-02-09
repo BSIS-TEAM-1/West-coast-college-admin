@@ -401,16 +401,26 @@ app.post('/api/admin/accounts', authMiddleware, async (req, res) => {
   try {
     const { username, displayName, accountType, password, uid } = req.body
     
+    console.log('Create account request body:', req.body)
+    console.log('username:', username, 'typeof:', typeof username)
+    console.log('displayName:', displayName, 'typeof:', typeof displayName)
+    console.log('accountType:', accountType, 'typeof:', typeof accountType)
+    console.log('password length:', password ? password.length : 'undefined')
+    console.log('uid:', uid, 'typeof:', typeof uid)
+    
     // Validation
     if (!username || !password || !uid) {
+      console.log('Validation failed: missing required fields')
       return res.status(400).json({ error: 'Username, password, and UID are required.' })
     }
     
-    if (!['admin', 'registrar'].includes(accountType)) {
+    if (!['admin', 'registrar', 'professor'].includes(accountType)) {
+      console.log('Validation failed: invalid account type:', accountType)
       return res.status(400).json({ error: 'Invalid account type.' })
     }
     
     if (password.length < 8) {
+      console.log('Validation failed: password too short:', password.length)
       return res.status(400).json({ error: 'Password must be at least 8 characters long.' })
     }
 
@@ -467,6 +477,7 @@ app.post('/api/admin/accounts', authMiddleware, async (req, res) => {
     })
   } catch (err) {
     console.error('Create account error:', err)
+    console.error('Error stack:', err.stack)
     res.status(500).json({ error: 'Failed to create account.' })
   }
 })

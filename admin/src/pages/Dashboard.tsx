@@ -10,7 +10,7 @@ import AuditLogs from './AuditLogs'
 import DocumentManagement from './DocumentManagement'
 import AnnouncementDetail from './AnnouncementDetail'
 import { Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Users, Video } from 'lucide-react'
-import { getStoredToken, API_URL, getAccountCount } from '../lib/authApi'
+import { getStoredToken, API_URL } from '../lib/authApi'
 import type { ProfileResponse } from '../lib/authApi'
 import './Dashboard.css'
 
@@ -48,21 +48,11 @@ type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings'
 
 export default function Dashboard({ username, onLogout, onProfileUpdated }: DashboardProps) {
   const [view, setView] = useState<View>('dashboard')
-  const [profileUpdateTrigger, setProfileUpdateTrigger] = useState(0)
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string | null>(null)
-  const [stats, setStats] = useState({
-    adminCount: 0,
-    registrarCount: 0,
-    documentCount: 0,
-    recentLogs: 0,
-  })
-  const [statsLoading, setStatsLoading] = useState(true)
 
   useEffect(() => {
     fetchAnnouncements()
-    fetchStats()
   }, [])
 
   // Debug logging
@@ -107,43 +97,6 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
     }
   }
 
-  const fetchStats = async () => {
-    try {
-      setStatsLoading(true)
-      const token = getStoredToken()
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      }
-
-      const [adminCount, registrarCount, documentsRes, logsRes] = await Promise.all([
-        getAccountCount('admin'),
-        getAccountCount('registrar'),
-        fetch(`${API_URL}/api/admin/documents?limit=1`, { headers }),
-        fetch(`${API_URL}/api/admin/audit-logs/stats`, { headers }),
-      ])
-
-      const documentsData = await documentsRes.json().catch(() => ({}))
-      const logsData = await logsRes.json().catch(() => ({}))
-
-      setStats({
-        adminCount,
-        registrarCount,
-        documentCount: typeof documentsData.total === 'number' ? documentsData.total : 0,
-        recentLogs: typeof logsData.recentLogs === 'number' ? logsData.recentLogs : 0,
-      })
-    } catch (error) {
-      console.error('Failed to fetch dashboard stats:', error)
-    } finally {
-      setStatsLoading(false)
-    }
-  }
-
-  const handleProfileUpdated = (profile: ProfileResponse) => {
-    setProfileUpdateTrigger(prev => prev + 1) // Trigger sidebar re-fetch
-    onProfileUpdated?.(profile)
-  }
-
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
     return date.toLocaleDateString() + ' ' + 
@@ -172,31 +125,25 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
       }
     }
     if (url.startsWith('http://') || url.startsWith('https://')) return url
-    // Treat as path on the API server (handles "/uploads/..." or "uploads/...")
+    // Treat as path on API server (handles "/uploads/..." or "uploads/...")
     const normalized = url.startsWith('/') ? url : `/${url}`
     return `${API_URL}${normalized}`
   }
 
-  const handleAnnouncementClick = (announcement: Announcement) => {
-    setSelectedAnnouncementId(announcement._id)
+  const handleAnnouncementClick = () => {
     setView('announcement-detail')
-  }
-
-  const handleBackFromDetail = () => {
-    setSelectedAnnouncementId(null)
-    setView('dashboard')
   }
 
   return (
     <div className="dashboard">
-      <Sidebar activeLink={view} onNavigate={setView} profileUpdateTrigger={profileUpdateTrigger} />
+      <Sidebar activeLink={view} onNavigate={setView} />
       <div className="dashboard-body">
         <Navbar username={username} onLogout={onLogout} />
         <main className="dashboard-main">
           {view === 'profile' ? (
-            <Profile onProfileUpdated={handleProfileUpdated} />
+            <Profile onProfileUpdated={onProfileUpdated} />
           ) : view === 'settings' ? (
-            <Settings onProfileUpdated={handleProfileUpdated} onLogout={onLogout} />
+            <Settings onProfileUpdated={onProfileUpdated} onLogout={onLogout} />
           ) : view === 'add-account' ? (
             <AddAccount />
           ) : view === 'account-logs' ? (
@@ -209,8 +156,8 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
             <DocumentManagement />
           ) : view === 'announcement-detail' ? (
             <AnnouncementDetail 
-              announcementId={selectedAnnouncementId!} 
-              onBack={handleBackFromDetail}
+              announcementId={''} 
+              onBack={() => setView('dashboard')}
             />
           ) : (
             <div className="dashboard-content">
@@ -220,33 +167,6 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
                   <p className="dashboard-subtitle">
                     Quick snapshot of accounts, documents, and recent activity.
                   </p>
-                </div>
-              </div>
-
-              <div className="dashboard-stats-grid">
-                <div className="dashboard-stat-card">
-                  <span className="dashboard-stat-label">Admin accounts</span>
-                  <span className="dashboard-stat-value">
-                    {statsLoading ? '—' : stats.adminCount}
-                  </span>
-                </div>
-                <div className="dashboard-stat-card">
-                  <span className="dashboard-stat-label">Registrar accounts</span>
-                  <span className="dashboard-stat-value">
-                    {statsLoading ? '—' : stats.registrarCount}
-                  </span>
-                </div>
-                <div className="dashboard-stat-card">
-                  <span className="dashboard-stat-label">Managed documents</span>
-                  <span className="dashboard-stat-value">
-                    {statsLoading ? '—' : stats.documentCount}
-                  </span>
-                </div>
-                <div className="dashboard-stat-card">
-                  <span className="dashboard-stat-label">Audit log entries (30 days)</span>
-                  <span className="dashboard-stat-value">
-                    {statsLoading ? '—' : stats.recentLogs}
-                  </span>
                 </div>
               </div>
 
@@ -267,7 +187,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
                     <div 
                       key={announcement._id} 
                       className="dashboard-announcement-card clickable"
-                      onClick={() => handleAnnouncementClick(announcement)}
+                      onClick={() => handleAnnouncementClick()}
                     >
                       {/* Media Section */}
                       {announcement.media && announcement.media.length > 0 && (

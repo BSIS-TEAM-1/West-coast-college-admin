@@ -4,7 +4,7 @@ import { getProfile, createAccount, getAccountCount } from '../lib/authApi';
 import type { ProfileResponse } from '../lib/authApi';
 import './AddAccount.css';
 
-type AccountType = 'admin' | 'registrar';
+type AccountType = 'admin' | 'registrar' | 'professor';
 
 interface AccountFormData {
   username: string;
@@ -15,13 +15,13 @@ interface AccountFormData {
   uid: string;
 }
 
-const ACCOUNT_TYPES: { type: AccountType; label: string; icon: any; description: string; permissions: string[] }[] = [
+const accountTypes = [
   {
     type: 'admin',
-    label: 'Admin',
+    label: 'Administrator',
     icon: Shield,
-    description: 'Administrative access with limited permissions',
-    permissions: ['View dashboard', 'Manage users', 'View reports']
+    description: 'Full system access and user management',
+    permissions: ['Manage all accounts', 'System configuration', 'Full access to all features']
   },
   {
     type: 'registrar',
@@ -29,6 +29,13 @@ const ACCOUNT_TYPES: { type: AccountType; label: string; icon: any; description:
     icon: BookOpen,
     description: 'Handle student records and registration',
     permissions: ['Manage student records', 'Process registrations', 'Generate reports']
+  },
+  {
+    type: 'professor',
+    label: 'Professor',
+    icon: Crown,
+    description: 'Academic faculty with teaching privileges',
+    permissions: ['Manage courses', 'Grade students', 'View academic records']
   }
 ];
 
@@ -39,15 +46,20 @@ const generateUID = (accountType: AccountType, accountCount: number): string => 
   const militaryTime = now.toTimeString().slice(0, 5).replace(':', ''); // HHMM format
   
   switch (accountType) {
-    case 'registrar':
-      // Registrar format: YYYYXXXHHMM (continuous numeric string)
-      const paddedCount = accountCount.toString().padStart(3, '0');
-      return `${currentYear}${paddedCount}${militaryTime}`;
+    case 'professor':
+      // Professor format: 1YYYYXXXHHMM (starts with 1 for professor, begins at 3000)
+      const paddedProfessorCount = (accountCount + 3000).toString().padStart(4, '0');
+      return `1${currentYear}${paddedProfessorCount}${militaryTime}`;
     
     case 'admin':
-      // Admin format: 1YYYYXXXHHMM (starts with 1 for admin)
-      const paddedAdminCount = accountCount.toString().padStart(3, '0');
+      // Admin format: 1YYYYXXXHHMM (starts with 1 for admin, begins at 6000)
+      const paddedAdminCount = (accountCount + 6000).toString().padStart(4, '0');
       return `1${currentYear}${paddedAdminCount}${militaryTime}`;
+    
+    case 'registrar':
+      // Registrar format: 1YYYYXXXHHMM (starts with 1 for registrar, begins at 9000)
+      const paddedRegistrarCount = (accountCount + 9000).toString().padStart(4, '0');
+      return `1${currentYear}${paddedRegistrarCount}${militaryTime}`;
     
     default:
       // Fallback format
@@ -67,6 +79,8 @@ const getCurrentAccountCount = async (accountType: AccountType): Promise<number>
       case 'registrar':
         return 1;
       case 'admin':
+        return 1;
+      case 'professor':
         return 1;
       default:
         return 1;
@@ -156,7 +170,8 @@ export default function AddAccount() {
     
     // Auto-generate display name if blank
     const finalDisplayName = formData.displayName.trim() || 
-      (formData.accountType === 'admin' ? 'Administrator' : 'Registrar');
+      (formData.accountType === 'admin' ? 'Administrator' : 
+       formData.accountType === 'professor' ? 'Professor' : 'Registrar');
     
     if (!validateForm()) return;
 
@@ -241,11 +256,11 @@ export default function AddAccount() {
         <div className="account-type-section">
           <h2 className="section-title">Select Account Type</h2>
           <div className="account-types-grid">
-            {ACCOUNT_TYPES.map(({ type, label, icon: Icon, description, permissions }) => (
+            {accountTypes.map(({ type, label, icon: Icon, description, permissions }) => (
               <div
                 key={type}
                 className={`account-type-card ${selectedType === type ? 'selected' : ''}`}
-                onClick={() => handleAccountTypeSelect(type)}
+                onClick={() => handleAccountTypeSelect(type as AccountType)}
               >
                 <div className="account-type-header">
                   <Icon size={24} className="account-type-icon" />

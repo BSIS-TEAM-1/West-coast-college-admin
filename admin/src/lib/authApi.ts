@@ -17,8 +17,8 @@ export function clearStoredToken(): void {
 }
 
 export type SignUpResponse = { message: string; username: string }
-export type LoginResponse = { message: string; username: string; token: string; accountType?: 'admin' | 'registrar' }
-export type ProfileResponse = { username: string; displayName: string; email: string; avatar: string; accountType: 'admin' | 'registrar' }
+export type LoginResponse = { message: string; username: string; token: string; accountType?: 'admin' | 'registrar' | 'professor' }
+export type ProfileResponse = { username: string; displayName: string; email: string; avatar: string; accountType: 'admin' | 'registrar' | 'professor' }
 export type UpdateProfileRequest = {
   displayName?: string
   email?: string
@@ -33,7 +33,7 @@ export type AccountLog = {
   displayName: string
   email: string
   avatar: string
-  accountType: 'admin' | 'registrar'
+  accountType: 'admin' | 'registrar' | 'professor'
   uid: string
   status: 'active' | 'inactive' | 'suspended'
   createdAt: string
@@ -43,7 +43,7 @@ export type AccountLog = {
 export type CreateAccountRequest = {
   username: string
   displayName: string
-  accountType: 'admin' | 'registrar'
+  accountType: 'admin' | 'registrar' | 'professor'
   password: string
   uid: string
 }
@@ -181,7 +181,7 @@ export async function createAccount(accountData: CreateAccountRequest): Promise<
   return data as { message: string; account: AccountLog }
 }
 
-export async function getAccountCount(accountType: 'admin' | 'registrar'): Promise<number> {
+export async function getAccountCount(accountType: 'admin' | 'registrar' | 'professor'): Promise<number> {
   const res = await fetch(`${API_URL}/api/admin/accounts/count?type=${accountType}`, { headers: authHeaders() })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {

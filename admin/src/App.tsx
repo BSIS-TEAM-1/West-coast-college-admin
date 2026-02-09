@@ -3,6 +3,7 @@ import { login as apiLogin, getStoredToken, setStoredToken, clearStoredToken, ge
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import RegistrarDashboard from './pages/RegistrarDashboard'
+import ProfessorDashboard from './pages/ProfessorDashboard.tsx'
 import './App.css'
 import type { ProfileResponse } from './lib/authApi'
 
@@ -66,6 +67,16 @@ function App() {
       console.log('Rendering RegistrarDashboard')
       return (
         <RegistrarDashboard
+          username={user.username}
+          onLogout={handleLogout}
+          onProfileUpdated={handleProfileUpdated}
+        />
+      )
+    }
+    if (user.accountType === 'professor') {
+      console.log('Rendering ProfessorDashboard')
+      return (
+        <ProfessorDashboard
           username={user.username}
           onLogout={handleLogout}
           onProfileUpdated={handleProfileUpdated}
