@@ -71,6 +71,9 @@ if (!uri) {
   process.exit(1)
 }
 
+console.log('JWT_SECRET:', process.env.JWT_SECRET)
+console.log('JWT_SECRET length:', process.env.JWT_SECRET?.length)
+
 let dbReady = false
 mongoose.connect(uri)
   .then(() => {
