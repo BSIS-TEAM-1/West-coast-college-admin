@@ -147,6 +147,14 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
   const resolveMediaUrl = (url: string) => {
     if (!url) return ''
     if (url.startsWith('data:')) return url
+    if (url.startsWith('http://localhost') || url.startsWith('https://localhost')) {
+      try {
+        const u = new URL(url)
+        return `${API_URL}${u.pathname}${u.search || ''}`
+      } catch {
+        // fall through
+      }
+    }
     if (url.startsWith('http://') || url.startsWith('https://')) return url
     const normalized = url.startsWith('/') ? url : `/${url}`
     return `${API_URL}${normalized}`

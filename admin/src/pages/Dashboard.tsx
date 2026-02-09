@@ -162,6 +162,15 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
   const resolveMediaUrl = (url: string) => {
     if (!url) return ''
     if (url.startsWith('data:')) return url
+    // Fix older records that stored absolute localhost URLs
+    if (url.startsWith('http://localhost') || url.startsWith('https://localhost')) {
+      try {
+        const u = new URL(url)
+        return `${API_URL}${u.pathname}${u.search || ''}`
+      } catch {
+        // fall through to generic handling
+      }
+    }
     if (url.startsWith('http://') || url.startsWith('https://')) return url
     // Treat as path on the API server (handles "/uploads/..." or "uploads/...")
     const normalized = url.startsWith('/') ? url : `/${url}`
