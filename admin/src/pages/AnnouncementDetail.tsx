@@ -56,9 +56,9 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
   const [isBookmarked, setIsBookmarked] = useState(false)
   const [hasLiked, setHasLiked] = useState(false)
   const [likeCount, setLikeCount] = useState(0)
-  const [showShareModal, setShowShareModal] = useState(false)
+  const [_showShareModal, _setShowShareModal] = useState(false)
   const [selectedMediaIndex, setSelectedMediaIndex] = useState(0)
-  const [showMediaViewer, setShowMediaViewer] = useState(false)
+  const [_showMediaViewer, _setShowMediaViewer] = useState(false)
 
   useEffect(() => {
     if (announcementId) {
@@ -175,10 +175,10 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
         })
       } catch (err) {
         console.log('Share failed:', err)
-        setShowShareModal(true)
+        _setShowShareModal(true)
       }
     } else {
-      setShowShareModal(true)
+      _setShowShareModal(true)
     }
   }
 
@@ -189,7 +189,7 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
 
   const handleMediaClick = (index: number) => {
     setSelectedMediaIndex(index)
-    setShowMediaViewer(true)
+    _setShowMediaViewer(true)
   }
 
   const handleDownload = () => {
