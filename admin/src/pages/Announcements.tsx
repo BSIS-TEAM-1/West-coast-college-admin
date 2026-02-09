@@ -401,7 +401,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
     try {
       const token = getStoredToken()
       const response = await fetch(`${API_URL}/api/admin/announcements/${id}`, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -409,9 +409,12 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
         body: JSON.stringify({ isActive: !currentStatus })
       })
       
-      if (response.ok) {
-        fetchAnnouncements()
+      if (!response.ok) {
+        console.error('Failed to toggle announcement status. HTTP status:', response.status)
+        return
       }
+
+      fetchAnnouncements()
     } catch (error) {
       console.error('Failed to toggle announcement status:', error)
     }
