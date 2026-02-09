@@ -145,12 +145,14 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       // Upload new media files first
       const newMedia = await uploadMediaFiles(mediaFiles)
       
-      // Combine existing media with new media
-      const combined = [
-        ...(editingAnnouncement.media || []),
-        ...newMedia,
-      ]
-      const allMedia = combined.map((m) => ({
+      // If user uploaded new media, treat it as a replacement for existing media.
+      // Otherwise, keep the current media array as-is.
+      const sourceMedia =
+        mediaFiles.length > 0
+          ? newMedia
+          : (editingAnnouncement.media || [])
+
+      const allMedia = sourceMedia.map((m) => ({
         ...m,
         fileSize: (m as any).fileSize ?? 0,
       })) as NonNullable<Announcement['media']>
