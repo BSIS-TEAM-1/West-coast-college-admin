@@ -41,6 +41,8 @@ interface Announcement {
   }
   priority?: 'low' | 'medium' | 'high'
   scheduledFor?: string
+  notificationSent?: boolean
+  notificationSentAt?: string
 }
 
 interface AnnouncementDetailProps {
@@ -363,6 +365,31 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
                 ))}
               </div>
             )}
+
+            {/* Title Card */}
+            <div className="title-card">
+              <h2 className="title-card-text">{announcement.title}</h2>
+            </div>
+
+            {/* Author Card */}
+            <div className="author-card">
+              <div className="author-info">
+                <span className="published-by">Published by: {announcement.createdBy.displayName || announcement.createdBy.username}</span>
+                <span className="author-username">@{announcement.createdBy.username}</span>
+              </div>
+            </div>
+
+            {/* Tags Card */}
+            {announcement.tags && announcement.tags.length > 0 && (
+              <div className="tags-card">
+                <h3 className="tags-card-title">Tags</h3>
+                <div className="tags-container">
+                  {announcement.tags.map((tag, index) => (
+                    <span key={index} className="tag-pill">#{tag}</span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -387,17 +414,22 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
                   Inactive
                 </span>
               )}
-              {announcement.priority && (
-                <span className={`priority-badge priority-${announcement.priority}`}>
-                  <Zap size={10} />
-                  {announcement.priority}
-                </span>
-              )}
             </div>
             <div className="post-meta">
               <div className="post-date" style={{ color: '#64748b', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                 <Clock size={14} />
                 {formatDate(announcement.createdAt)}
+              </div>
+              <div className="header-actions">
+                <button className="action-btn" title="Share">
+                  <Share2 size={16} />
+                </button>
+                <button className="action-btn" title="Edit">
+                  <Edit size={16} />
+                </button>
+                <button className="action-btn danger" title="Delete">
+                  <Trash2 size={16} />
+                </button>
               </div>
               {announcement.views !== undefined && (
                 <div className="view-count">
@@ -408,33 +440,9 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
             </div>
           </div>
 
-          <h1 className="detail-title">{announcement.title}</h1>
-
-          <div className="author-row">
-            <div className="author-avatar">
-              {announcement.createdBy.avatar ? (
-                <img src={announcement.createdBy.avatar} alt={announcement.createdBy.displayName} />
-              ) : (
-                <span>{(announcement.createdBy.displayName || announcement.createdBy.username).charAt(0).toUpperCase()}</span>
-              )}
-            </div>
-            <div className="author-info">
-              <span className="author-name">{announcement.createdBy.displayName || announcement.createdBy.username}</span>
-              <span style={{ fontSize: '0.875rem', color: '#64748b' }}>@{announcement.createdBy.username}</span>
-            </div>
-          </div>
-
           <div className="detail-message">
             {announcement.message}
           </div>
-
-          {announcement.tags && announcement.tags.length > 0 && (
-            <div style={{ marginBottom: '2rem' }}>
-              {announcement.tags.map((tag, index) => (
-                <span key={index} className="tag-pill">#{tag}</span>
-              ))}
-            </div>
-          )}
 
           <div className="detail-footer">
             <div className="footer-info">
