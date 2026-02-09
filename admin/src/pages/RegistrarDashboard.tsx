@@ -1,13 +1,50 @@
 import { useState, useEffect } from 'react'
-import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap } from 'lucide-react'
+import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Plus, Video, Users } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
-import { getProfile } from '../lib/authApi'
+import { getProfile, getStoredToken } from '../lib/authApi'
 import type { ProfileResponse } from '../lib/authApi'
+import Announcements from './Announcements'
+import AnnouncementDetail from './AnnouncementDetail'
 import './RegistrarDashboard.css'
 
-type RegistrarView = 'dashboard' | 'students' | 'courses' | 'reports' | 'profile' | 'settings'
+interface Announcement {
+  _id: string
+  title: string
+  message: string
+  type: 'info' | 'warning' | 'urgent' | 'maintenance'
+  targetAudience: string
+  isActive: boolean
+  isPinned: boolean
+  expiresAt: string
+  createdAt: string
+  updatedAt?: string
+  tags?: string[]
+  media?: Array<{
+    type: 'image' | 'video'
+    url: string
+    fileName: string
+    originalFileName: string
+    mimeType: string
+    caption?: string
+  }>
+  createdBy: {
+    username: string
+    displayName: string
+    avatar?: string
+  }
+  views?: number
+  engagement?: {
+    likes: number
+    comments: number
+    shares: number
+  }
+  priority?: 'low' | 'medium' | 'high'
+  scheduledFor?: string
+}
+
+type RegistrarView = 'dashboard' | 'students' | 'courses' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail'
 
 type RegistrarDashboardProps = {
   username: string
@@ -19,6 +56,7 @@ const REGISTRAR_NAV_ITEMS: { id: RegistrarView; label: string; icon: any }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'students', label: 'Student Management', icon: GraduationCap },
   { id: 'courses', label: 'Course Management', icon: BookOpen },
+  { id: 'announcements', label: 'Announcements', icon: Bell },
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'profile', label: 'Profile', icon: User },
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
@@ -27,6 +65,8 @@ const REGISTRAR_NAV_ITEMS: { id: RegistrarView; label: string; icon: any }[] = [
 export default function RegistrarDashboard({ username, onLogout, onProfileUpdated }: RegistrarDashboardProps) {
   const [view, setView] = useState<RegistrarView>('dashboard')
   const [profile, setProfile] = useState<ProfileResponse | null>(null)
+  const [announcements, setAnnouncements] = useState<Announcement[]>([])
+  const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -37,12 +77,50 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
         // Fallback handled in JSX
       })
 
+    // Fetch announcements for dashboard
+    fetchAnnouncements()
+
     return () => controller.abort()
   }, [])
 
   const handleProfileUpdated = (profile: ProfileResponse) => {
     setProfile(profile)
     onProfileUpdated?.(profile)
+  }
+
+  const fetchAnnouncements = async () => {
+    try {
+      const token = getStoredToken()
+      const response = await fetch('http://localhost:3001/api/admin/announcements', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (!response.ok) {
+        if (response.status === 401) {
+          // Token expired, will be handled by auth context
+          return
+        }
+        throw new Error(`Failed to fetch announcements: ${response.status}`)
+      }
+      
+      const data = await response.json()
+      setAnnouncements(data.announcements || [])
+    } catch (error) {
+      console.error('Failed to fetch announcements:', error)
+    }
+  }
+
+  const handleAnnouncementClick = (announcement: Announcement) => {
+    setSelectedAnnouncementId(announcement._id)
+    setView('announcement-detail')
+  }
+
+  const handleBackFromDetail = () => {
+    setSelectedAnnouncementId(null)
+    setView('dashboard')
   }
 
   const renderContent = () => {
@@ -57,8 +135,15 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
         return <Profile onProfileUpdated={handleProfileUpdated} />
       case 'settings':
         return <SettingsPage onProfileUpdated={handleProfileUpdated} onLogout={onLogout} />
+      case 'announcements':
+        return <Announcements />
+      case 'announcement-detail':
+        return <AnnouncementDetail 
+          announcementId={selectedAnnouncementId!} 
+          onBack={handleBackFromDetail}
+        />
       default:
-        return <RegistrarHome />
+        return <RegistrarHome announcements={announcements} onAnnouncementClick={handleAnnouncementClick} setView={setView} />
     }
   }
 
@@ -147,27 +232,140 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
 }
 
 // Placeholder Components
-function RegistrarHome() {
+interface RegistrarHomeProps {
+  announcements: Announcement[]
+  onAnnouncementClick: (announcement: Announcement) => void
+  setView: (view: RegistrarView) => void
+}
+
+function RegistrarHome({ announcements, onAnnouncementClick, setView }: RegistrarHomeProps) {
+
+  const getTypeIcon = (type: string) => {
+    switch (type) {
+      case 'urgent': return <AlertTriangle size={12} />
+      case 'warning': return <AlertCircle size={12} />
+      case 'maintenance': return <Wrench size={12} />
+      default: return <Info size={12} />
+    }
+  }
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleDateString() + ' ' + 
+           date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+
+  const sortedAnnouncements = [...announcements].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  const activeAnnouncements = sortedAnnouncements.filter(a => a.isActive).slice(0, 3)
+
   return (
     <div className="registrar-home">
       <h2 className="registrar-welcome-title">Welcome to the Registrar Portal</h2>
       <p className="registrar-welcome-desc">Manage student records, courses, and generate reports from your dashboard.</p>
       
-      <div className="registrar-quick-actions">
-        <div className="quick-action-card">
-          <GraduationCap size={32} className="quick-action-icon" />
-          <h3>Student Management</h3>
-          <p>Enroll new students and manage existing records</p>
+      <div className="registrar-dashboard-content">
+        <div className="registrar-quick-actions">
+          <div className="quick-action-card">
+            <GraduationCap size={32} className="quick-action-icon" />
+            <h3>Student Management</h3>
+            <p>Enroll new students and manage existing records</p>
+          </div>
+          <div className="quick-action-card">
+            <BookOpen size={32} className="quick-action-icon" />
+            <h3>Course Management</h3>
+            <p>Create courses and manage class schedules</p>
+          </div>
+          <div className="quick-action-card">
+            <FileText size={32} className="quick-action-icon" />
+            <h3>Reports</h3>
+            <p>Generate enrollment and academic reports</p>
+          </div>
         </div>
-        <div className="quick-action-card">
-          <BookOpen size={32} className="quick-action-icon" />
-          <h3>Course Management</h3>
-          <p>Create courses and manage class schedules</p>
-        </div>
-        <div className="quick-action-card">
-          <FileText size={32} className="quick-action-icon" />
-          <h3>Reports</h3>
-          <p>Generate enrollment and academic reports</p>
+
+        <div className="registrar-news-section">
+          <div className="news-header">
+            <Bell size={20} className="news-icon" />
+            <h3>Latest Announcements</h3>
+            <button 
+              className="section-action-btn"
+              onClick={() => setView('announcements')}
+            >
+              <Plus size={16} />
+              View All
+            </button>
+          </div>
+          
+          {activeAnnouncements.length > 0 ? (
+            <div className="dashboard-announcements-container">
+              {activeAnnouncements.map((announcement) => (
+                <div 
+                  key={announcement._id} 
+                  className="dashboard-announcement-card clickable"
+                  onClick={() => onAnnouncementClick(announcement)}
+                >
+                  {/* Media Section */}
+                  {announcement.media && announcement.media.length > 0 && (
+                    <div className="dashboard-media-section">
+                      {announcement.media[0].type === 'image' ? (
+                        <img 
+                          src={announcement.media[0].url} 
+                          alt={announcement.title}
+                          className="dashboard-cover-image"
+                        />
+                      ) : (
+                        <div className="dashboard-cover-video">
+                          <Video size={24} color="white" />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Content Section */}
+                  <div className="dashboard-content-section">
+                    <div className="dashboard-card-header">
+                      <div className="dashboard-badges">
+                        <span className={`dashboard-type-badge type-${announcement.type}`}>
+                          {getTypeIcon(announcement.type)}
+                          {announcement.type}
+                        </span>
+                        {announcement.isPinned && (
+                          <span className="dashboard-type-badge" style={{ background: '#f1f5f9', color: '#92400e' }}>
+                            <Pin size={10} />
+                            Pinned
+                          </span>
+                        )}
+                      </div>
+                      <div className="dashboard-meta-item">
+                        <Clock size={12} />
+                        <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{formatDate(announcement.createdAt)}</span>
+                      </div>
+                    </div>
+
+                    <h3 className="dashboard-card-title">{announcement.title}</h3>
+                    <p className="dashboard-card-message">{announcement.message}</p>
+
+                    <div className="dashboard-card-footer">
+                      <div className="dashboard-meta-item">
+                        <Users size={12} />
+                        <span>{announcement.targetAudience}</span>
+                      </div>
+                      {announcement.expiresAt && (
+                        <div className="dashboard-meta-item" style={{ marginLeft: 'auto', color: '#ef4444' }}>
+                          <Clock size={12} />
+                          <span>Exp: {formatDate(announcement.expiresAt)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="no-news">
+              <Bell size={48} className="no-news-icon" />
+              <p>No active announcements at this time.</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

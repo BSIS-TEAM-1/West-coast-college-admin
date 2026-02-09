@@ -1,10 +1,10 @@
-import { LayoutDashboard, User, Settings, Users } from 'lucide-react';
+import { LayoutDashboard, User, Settings, Users, Bell, FileText, Shield } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { getProfile } from '../lib/authApi';
 import type { ProfileResponse } from '../lib/authApi';
 import './Sidebar.css';
 
-type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings';
+type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'documents' | 'announcement-detail';
 
 type SidebarProps = {
   activeLink?: View;
@@ -14,9 +14,12 @@ type SidebarProps = {
 
 const NAV_ITEMS: { id: View; label: string; icon: any }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'profile', label: 'Profile', icon: User },
+  { id: 'announcements', label: 'Manage Announcements', icon: Bell },
+  { id: 'documents', label: 'Document Management', icon: FileText },
+  { id: 'audit-logs', label: 'System Audit Logs', icon: Shield },
   { id: 'add-account', label: 'Add Account', icon: User },
-  { id: 'account-logs', label: 'Account Registration Logs', icon: Users },
+  { id: 'account-logs', label: 'Staff Registration Logs', icon: Users },
+  { id: 'profile', label: 'Profile', icon: User },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -65,7 +68,13 @@ export default function Sidebar({ activeLink = 'dashboard', onNavigate, profileU
       </div>
 
       <nav className="sidebar-nav" aria-label="Admin navigation">
-        {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
+        {NAV_ITEMS.filter(({ id }) => {
+          // Hide announcements for registrar users
+          if (id === 'announcements' && profile?.accountType === 'registrar') {
+            return false
+          }
+          return true
+        }).map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             type="button"

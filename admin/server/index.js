@@ -6,6 +6,9 @@ const cors = require('cors')
 const mongoose = require('mongoose')
 const jwt = require('jsonwebtoken')
 const Admin = require('./models/Admin')
+const Announcement = require('./models/Announcement')
+const AuditLog = require('./models/AuditLog')
+const Document = require('./models/Document')
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -36,6 +39,29 @@ function authMiddleware(req, res, next) {
     next()
   } catch {
     return res.status(401).json({ error: 'Unauthorized.' })
+  }
+}
+
+// Audit logging helper function
+async function logAudit(action, resourceType, resourceId, resourceName, description, performedBy, performedByRole, oldValue = null, newValue = null, status = 'SUCCESS', severity = 'LOW') {
+  try {
+    await AuditLog.create({
+      action,
+      resourceType,
+      resourceId,
+      resourceName,
+      description,
+      performedBy,
+      performedByRole,
+      ipAddress: null, // Could be extracted from req.ip
+      userAgent: null, // Could be extracted from req.get('User-Agent')
+      oldValue,
+      newValue,
+      status,
+      severity
+    })
+  } catch (error) {
+    console.error('Failed to create audit log:', error)
   }
 }
 
@@ -162,6 +188,22 @@ app.post('/api/admin/login', async (req, res) => {
       accountType: admin.accountType 
     }
     console.log('Login response being sent:', loginResponse)
+
+    // Log the login action
+    await logAudit(
+      'LOGIN',
+      'ADMIN',
+      admin._id.toString(),
+      admin.username,
+      `Admin login: ${admin.username}`,
+      admin._id.toString(),
+      admin.accountType,
+      null,
+      null,
+      'SUCCESS',
+      'LOW'
+    )
+
     res.json(loginResponse)
   } catch (err) {
     console.error('Login error:', err)
@@ -399,6 +441,21 @@ app.post('/api/admin/accounts', authMiddleware, async (req, res) => {
     
     // Return account without password
     const accountResponse = await Admin.findById(newAccount._id).select('-password')
+
+    // Log the account creation
+    await logAudit(
+      'CREATE',
+      'ADMIN',
+      newAccount._id.toString(),
+      newAccount.username,
+      `Created admin account: ${newAccount.username} (${accountType})`,
+      req.adminId,
+      req.accountType,
+      null,
+      accountResponse.toObject(),
+      'SUCCESS',
+      'MEDIUM'
+    )
     
     res.status(201).json({ 
       message: 'Account created successfully.',
@@ -440,11 +497,639 @@ app.delete('/api/admin/accounts/:id', authMiddleware, async (req, res) => {
 
     // Delete the account
     await Admin.findByIdAndDelete(req.params.id)
+
+    // Log the account deletion
+    await logAudit(
+      'DELETE',
+      'ADMIN',
+      accountToDelete._id.toString(),
+      accountToDelete.username,
+      `Deleted admin account: ${accountToDelete.username} (${accountToDelete.accountType})`,
+      req.adminId,
+      req.accountType,
+      accountToDelete.toObject(),
+      null,
+      'SUCCESS',
+      'HIGH'
+    )
     
     res.json({ message: `Account "${accountToDelete.username}" deleted successfully.` })
   } catch (err) {
     console.error('Delete account error:', err)
     res.status(500).json({ error: 'Failed to delete account.' })
+  }
+})
+
+// ==================== ANNOUNCEMENTS ====================
+
+// GET /api/announcements - get all active announcements
+app.get('/api/announcements', async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const { targetAudience } = req.query
+    const filter = { isActive: true }
+    
+    if (targetAudience && targetAudience !== 'all') {
+      filter.$or = [
+        { targetAudience: 'all' },
+        { targetAudience }
+      ]
+    }
+
+    const announcements = await Announcement.find(filter)
+      .populate('createdBy', 'username displayName')
+      .sort({ isPinned: -1, createdAt: -1 })
+    
+    res.json(announcements)
+  } catch (err) {
+    console.error('Get announcements error:', err)
+    res.status(500).json({ error: 'Failed to load announcements.' })
+  }
+})
+
+// GET /api/announcements/:id - get individual announcement (public)
+app.get('/api/announcements/:id', async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const announcement = await Announcement.findById(req.params.id)
+      .populate('createdBy', 'username displayName')
+    
+    if (!announcement) {
+      return res.status(404).json({ error: 'Announcement not found.' })
+    }
+    
+    // Temporarily remove isActive filter for debugging
+    // if (!announcement.isActive) {
+    //   return res.status(404).json({ error: 'Announcement not found.' })
+    // }
+    
+    console.log('Found announcement:', announcement._id, 'Active:', announcement.isActive)
+    res.json(announcement)
+  } catch (err) {
+    console.error('Get announcement error:', err)
+    res.status(500).json({ error: 'Failed to load announcement.' })
+  }
+})
+
+// GET /api/admin/announcements - get all announcements (admin)
+app.get('/api/admin/announcements', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const { page = 1, limit = 10, type, targetAudience, status } = req.query
+    const filter = {}
+    
+    if (type) filter.type = type
+    if (targetAudience) filter.targetAudience = targetAudience
+    if (status) filter.isActive = status === 'active'
+
+    const announcements = await Announcement.find(filter)
+      .populate('createdBy', 'username displayName')
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+    
+    const total = await Announcement.countDocuments(filter)
+    
+    res.json({
+      announcements,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+      total
+    })
+  } catch (err) {
+    console.error('Get admin announcements error:', err)
+    res.status(500).json({ error: 'Failed to load announcements.' })
+  }
+})
+
+// POST /api/admin/announcements - create new announcement
+app.post('/api/admin/announcements', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const { title, message, type, targetAudience, expiresAt, isPinned, media } = req.body
+    
+    if (!title || !message) {
+      return res.status(400).json({ error: 'Title and message are required.' })
+    }
+
+    const announcement = new Announcement({
+      title,
+      message,
+      type: type || 'info',
+      targetAudience: targetAudience || 'all',
+      expiresAt: expiresAt ? new Date(expiresAt) : undefined,
+      isPinned: isPinned || false,
+      media: media || [],
+      createdBy: req.adminId
+    })
+
+    await announcement.save()
+    await announcement.populate('createdBy', 'username displayName')
+
+    // Log the action
+    await logAudit(
+      'CREATE',
+      'ANNOUNCEMENT',
+      announcement._id.toString(),
+      title,
+      `Created announcement: ${title}`,
+      req.adminId,
+      req.accountType,
+      null,
+      announcement.toObject(),
+      'SUCCESS',
+      type === 'urgent' ? 'HIGH' : 'MEDIUM'
+    )
+
+    res.status(201).json({ 
+      message: 'Announcement created successfully.',
+      announcement
+    })
+  } catch (err) {
+    console.error('Create announcement error:', err)
+    res.status(500).json({ error: 'Failed to create announcement.' })
+  }
+})
+
+// GET /api/admin/announcements/:id - get individual announcement
+app.get('/api/admin/announcements/:id', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const announcement = await Announcement.findById(req.params.id)
+      .populate('createdBy', 'username displayName')
+    
+    if (!announcement) {
+      return res.status(404).json({ error: 'Announcement not found.' })
+    }
+    
+    res.json(announcement)
+  } catch (err) {
+    console.error('Get announcement error:', err)
+    res.status(500).json({ error: 'Failed to load announcement.' })
+  }
+})
+
+// PUT /api/admin/announcements/:id - update announcement
+app.put('/api/admin/announcements/:id', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const { title, message, type, targetAudience, expiresAt, isPinned, isActive } = req.body
+    
+    const announcement = await Announcement.findById(req.params.id)
+    if (!announcement) {
+      return res.status(404).json({ error: 'Announcement not found.' })
+    }
+
+    const oldValue = announcement.toObject()
+    
+    if (title) announcement.title = title
+    if (message) announcement.message = message
+    if (type) announcement.type = type
+    if (targetAudience) announcement.targetAudience = targetAudience
+    if (expiresAt !== undefined) announcement.expiresAt = new Date(expiresAt)
+    if (isPinned !== undefined) announcement.isPinned = isPinned
+    if (isActive !== undefined) announcement.isActive = isActive
+
+    await announcement.save()
+    await announcement.populate('createdBy', 'username displayName')
+
+    // Log the action
+    await logAudit(
+      'UPDATE',
+      'ANNOUNCEMENT',
+      announcement._id.toString(),
+      announcement.title,
+      `Updated announcement: ${announcement.title}`,
+      req.adminId,
+      req.accountType,
+      oldValue,
+      announcement.toObject(),
+      'SUCCESS',
+      'MEDIUM'
+    )
+
+    res.json({ 
+      message: 'Announcement updated successfully.',
+      announcement
+    })
+  } catch (err) {
+    console.error('Update announcement error:', err)
+    res.status(500).json({ error: 'Failed to update announcement.' })
+  }
+})
+
+// DELETE /api/admin/announcements/:id - delete announcement
+app.delete('/api/admin/announcements/:id', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const announcement = await Announcement.findById(req.params.id)
+    if (!announcement) {
+      return res.status(404).json({ error: 'Announcement not found.' })
+    }
+
+    await Announcement.findByIdAndDelete(req.params.id)
+
+    // Log the action
+    await logAudit(
+      'DELETE',
+      'ANNOUNCEMENT',
+      announcement._id.toString(),
+      announcement.title,
+      `Deleted announcement: ${announcement.title}`,
+      req.adminId,
+      req.accountType,
+      announcement.toObject(),
+      null,
+      'SUCCESS',
+      'MEDIUM'
+    )
+
+    res.json({ message: 'Announcement deleted successfully.' })
+  } catch (err) {
+    console.error('Delete announcement error:', err)
+    res.status(500).json({ error: 'Failed to delete announcement.' })
+  }
+})
+
+// ==================== AUDIT LOGS ====================
+
+// GET /api/admin/audit-logs - get audit logs with pagination and filtering
+app.get('/api/admin/audit-logs', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const { 
+      page = 1, 
+      limit = 20, 
+      action, 
+      resourceType, 
+      severity, 
+      performedBy,
+      startDate,
+      endDate 
+    } = req.query
+    
+    const filter = {}
+    
+    if (action) filter.action = action
+    if (resourceType) filter.resourceType = resourceType
+    if (severity) filter.severity = severity
+    if (performedBy) filter.performedBy = performedBy
+    
+    if (startDate || endDate) {
+      filter.createdAt = {}
+      if (startDate) filter.createdAt.$gte = new Date(startDate)
+      if (endDate) filter.createdAt.$lte = new Date(endDate)
+    }
+
+    const logs = await AuditLog.find(filter)
+      .populate('performedBy', 'username displayName')
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+    
+    const total = await AuditLog.countDocuments(filter)
+    
+    res.json({
+      logs,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+      total
+    })
+  } catch (err) {
+    console.error('Get audit logs error:', err)
+    res.status(500).json({ error: 'Failed to load audit logs.' })
+  }
+})
+
+// GET /api/admin/audit-logs/stats - get audit log statistics
+app.get('/api/admin/audit-logs/stats', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const last30Days = new Date()
+    last30Days.setDate(last30Days.getDate() - 30)
+
+    const [
+      totalLogs,
+      recentLogs,
+      criticalLogs,
+      actionStats,
+      resourceStats
+    ] = await Promise.all([
+      AuditLog.countDocuments(),
+      AuditLog.countDocuments({ createdAt: { $gte: last30Days } }),
+      AuditLog.countDocuments({ severity: 'CRITICAL' }),
+      AuditLog.aggregate([
+        { $match: { createdAt: { $gte: last30Days } } },
+        { $group: { _id: '$action', count: { $sum: 1 } } },
+        { $sort: { count: -1 } }
+      ]),
+      AuditLog.aggregate([
+        { $match: { createdAt: { $gte: last30Days } } },
+        { $group: { _id: '$resourceType', count: { $sum: 1 } } },
+        { $sort: { count: -1 } }
+      ])
+    ])
+
+    res.json({
+      totalLogs,
+      recentLogs,
+      criticalLogs,
+      actionStats,
+      resourceStats
+    })
+  } catch (err) {
+    console.error('Get audit log stats error:', err)
+    res.status(500).json({ error: 'Failed to load audit log statistics.' })
+  }
+})
+
+// ==================== DOCUMENTS ====================
+
+// GET /api/documents - get public documents
+app.get('/api/documents', async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const { category, search, page = 1, limit = 10 } = req.query
+    const filter = { isPublic: true, status: 'ACTIVE' }
+    
+    if (category) filter.category = category
+    if (search) {
+      filter.$text = { $search: search }
+    }
+
+    const documents = await Document.find(filter)
+      .populate('createdBy', 'username displayName')
+      .sort({ updatedAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+    
+    const total = await Document.countDocuments(filter)
+    
+    res.json({
+      documents,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+      total
+    })
+  } catch (err) {
+    console.error('Get documents error:', err)
+    res.status(500).json({ error: 'Failed to load documents.' })
+  }
+})
+
+// GET /api/admin/documents - get all documents (admin)
+app.get('/api/admin/documents', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const { category, status, search, page = 1, limit = 20 } = req.query
+    const filter = {}
+    
+    if (category) filter.category = category
+    if (status) filter.status = status
+    if (search) {
+      filter.$text = { $search: search }
+    }
+
+    const documents = await Document.find(filter)
+      .populate('createdBy', 'username displayName')
+      .populate('updatedBy', 'username displayName')
+      .sort({ updatedAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+    
+    const total = await Document.countDocuments(filter)
+    
+    res.json({
+      documents,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+      total
+    })
+  } catch (err) {
+    console.error('Get admin documents error:', err)
+    res.status(500).json({ error: 'Failed to load documents.' })
+  }
+})
+
+// POST /api/admin/documents - upload new document
+app.post('/api/admin/documents', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const { 
+      title, description, category, subcategory, fileName, originalFileName, 
+      mimeType, fileSize, fileData, version, isPublic, allowedRoles, tags,
+      effectiveDate, expiryDate 
+    } = req.body
+    
+    if (!title || !category || !fileName || !originalFileName || !mimeType || !fileData) {
+      return res.status(400).json({ error: 'Missing required fields.' })
+    }
+
+    // Create file path (you might want to store files in a dedicated uploads folder)
+    const filePath = `documents/${Date.now()}-${originalFileName}`
+
+    const document = new Document({
+      title,
+      description,
+      category,
+      subcategory,
+      fileName,
+      originalFileName,
+      mimeType,
+      fileSize,
+      filePath,
+      version: version || '1.0',
+      isPublic: isPublic || false,
+      allowedRoles: allowedRoles || [],
+      tags: tags || [],
+      effectiveDate: effectiveDate ? new Date(effectiveDate) : undefined,
+      expiryDate: expiryDate ? new Date(expiryDate) : undefined,
+      status: 'ACTIVE',
+      createdBy: req.adminId
+    })
+
+    await document.save()
+    await document.populate('createdBy', 'username displayName')
+
+    // Log the action
+    await logAudit(
+      'UPLOAD',
+      'DOCUMENT',
+      document._id.toString(),
+      document.title,
+      `Uploaded document: ${document.title}`,
+      req.adminId,
+      req.accountType,
+      null,
+      document.toObject(),
+      'SUCCESS',
+      'MEDIUM'
+    )
+
+    res.status(201).json({ 
+      message: 'Document uploaded successfully.',
+      document
+    })
+  } catch (err) {
+    console.error('Upload document error:', err)
+    res.status(500).json({ error: 'Failed to upload document.' })
+  }
+})
+
+// PUT /api/admin/documents/:id - update document
+app.put('/api/admin/documents/:id', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const { title, description, category, subcategory, isPublic, allowedRoles, tags, effectiveDate, expiryDate, status } = req.body
+    
+    const document = await Document.findById(req.params.id)
+    if (!document) {
+      return res.status(404).json({ error: 'Document not found.' })
+    }
+
+    const oldValue = document.toObject()
+    
+    if (title) document.title = title
+    if (description !== undefined) document.description = description
+    if (category) document.category = category
+    if (subcategory !== undefined) document.subcategory = subcategory
+    if (isPublic !== undefined) document.isPublic = isPublic
+    if (allowedRoles !== undefined) document.allowedRoles = allowedRoles
+    if (tags !== undefined) document.tags = tags
+    if (effectiveDate !== undefined) document.effectiveDate = effectiveDate ? new Date(effectiveDate) : undefined
+    if (expiryDate !== undefined) document.expiryDate = expiryDate ? new Date(expiryDate) : undefined
+    if (status) document.status = status
+    document.updatedBy = req.adminId
+
+    await document.save()
+    await document.populate('createdBy', 'username displayName')
+    await document.populate('updatedBy', 'username displayName')
+
+    // Log the action
+    await logAudit(
+      'UPDATE',
+      'DOCUMENT',
+      document._id.toString(),
+      document.title,
+      `Updated document: ${document.title}`,
+      req.adminId,
+      req.accountType,
+      oldValue,
+      document.toObject(),
+      'SUCCESS',
+      'MEDIUM'
+    )
+
+    res.json({ 
+      message: 'Document updated successfully.',
+      document
+    })
+  } catch (err) {
+    console.error('Update document error:', err)
+    res.status(500).json({ error: 'Failed to update document.' })
+  }
+})
+
+// POST /api/admin/documents/:id/download - track document download
+app.post('/api/admin/documents/:id/download', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const document = await Document.findById(req.params.id)
+    if (!document) {
+      return res.status(404).json({ error: 'Document not found.' })
+    }
+
+    // Update download tracking
+    document.downloadCount += 1
+    document.lastDownloadedBy = req.adminId
+    document.lastDownloadedAt = new Date()
+    await document.save()
+
+    // Log the action
+    await logAudit(
+      'DOWNLOAD',
+      'DOCUMENT',
+      document._id.toString(),
+      document.title,
+      `Downloaded document: ${document.title}`,
+      req.adminId,
+      req.accountType,
+      null,
+      null,
+      'SUCCESS',
+      'LOW'
+    )
+
+    res.json({ 
+      message: 'Download tracked successfully.',
+      downloadUrl: `/uploads/${document.filePath}`
+    })
+  } catch (err) {
+    console.error('Track download error:', err)
+    res.status(500).json({ error: 'Failed to track download.' })
+  }
+})
+
+// DELETE /api/admin/documents/:id - delete document
+app.delete('/api/admin/documents/:id', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const document = await Document.findById(req.params.id)
+    if (!document) {
+      return res.status(404).json({ error: 'Document not found.' })
+    }
+
+    await Document.findByIdAndDelete(req.params.id)
+
+    // Log the action
+    await logAudit(
+      'DELETE',
+      'DOCUMENT',
+      document._id.toString(),
+      document.title,
+      `Deleted document: ${document.title}`,
+      req.adminId,
+      req.accountType,
+      document.toObject(),
+      null,
+      'SUCCESS',
+      'HIGH'
+    )
+
+    res.json({ message: 'Document deleted successfully.' })
+  } catch (err) {
+    console.error('Delete document error:', err)
+    res.status(500).json({ error: 'Failed to delete document.' })
   }
 })
 

@@ -3,7 +3,9 @@ const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 const TOKEN_KEY = 'wcc_admin_token'
 
 export function getStoredToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY)
+  const token = localStorage.getItem(TOKEN_KEY)
+  console.log('Retrieved token:', token ? 'exists' : 'null')
+  return token
 }
 
 export function setStoredToken(token: string): void {

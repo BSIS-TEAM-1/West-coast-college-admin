@@ -131,7 +131,7 @@ export default function AccountLogs() {
     return (
       <div className="account-logs-page">
         <header>
-          <h1 className="logs-title">Account Registration Logs</h1>
+          <h1 className="logs-title">Staff Registration Logs</h1>
           <p className="logs-desc">View and manage account creation history</p>
         </header>
         <div className="error-state">
@@ -149,8 +149,8 @@ export default function AccountLogs() {
   return (
     <div className="account-logs-page">
       <header>
-        <h1 className="logs-title">Account Registration Logs</h1>
-        <p className="logs-desc">View and manage account creation history</p>
+        <h1 className="logs-title">Staff Registration Logs</h1>
+        <p className="logs-desc">View and manage staff creation history</p>
       </header>
 
       {/* Filters and Search */}
