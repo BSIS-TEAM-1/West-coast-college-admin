@@ -507,10 +507,11 @@
 
 @media (prefers-color-scheme: dark) {
   .modal-content {
-    background: #1e293b;
+    background: #1e293b !important;
     box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3);
   }
   .modal-header {
+    background: #1e293b !important;
     border-bottom-color: #334155;
   }
   .modal-header h2 {
@@ -559,6 +560,7 @@
 
 @media (prefers-color-scheme: dark) {
   .logs-header {
+    background: #1e293b;
     background: #0f172a;
     color: #cbd5e1;
     border-bottom-color: #334155;
@@ -734,18 +736,18 @@
     background: #0f172a;
   }
   .modal-body form {
-    background: #1e293b;
+    background: #1e293b !important;
   }
   .modal-body form h3 {
-    color: #f1f5f9;
+    color: #f1f5f9 !important;
   }
   .modal-body form label {
-    color: #cbd5e1;
+    color: #e2e8f0 !important;
   }
   .modal-body form input,
   .modal-body form select {
-    background: #0f172a;
-    color: #f1f5f9;
+    background: #0f172a !important;
+    color: #f1f5f9 !important;
     border-color: #334155;
   }
   .modal-body form input:focus,
@@ -759,5 +761,12 @@
   }
   .modal-body table td {
     border-bottom-color: #334155;
+    color: #e2e8f0 !important;
+  }
+  .modal-body table button {
+    background-color: #dc2626;
+  }
+  .modal-body table button:hover {
+    background-color: #b91c1c;
   }
 }
