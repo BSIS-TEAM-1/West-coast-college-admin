@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { TrendingUp, TrendingDown, Users, Database, Server, Clock, AlertTriangle, Activity } from 'lucide-react'
+import { TrendingUp, TrendingDown, Users, Database, Server, Activity } from 'lucide-react'
 import './StatisticsCard.css'
 
 interface Statistic {
@@ -66,10 +66,10 @@ export default function StatisticsCard({ title, statistics, graphData = [], time
   const databaseData = generateHistoricalData(67, 24);
 
   const timeRanges = [
-    { value: '1h', label: '1 Hour' },
-    { value: '24h', label: '24 Hours' },
-    { value: '7d', label: '7 Days' },
-    { value: '30d', label: '30 Days' }
+    { value: '1h' as const, label: '1 Hour' },
+    { value: '24h' as const, label: '24 Hours' },
+    { value: '7d' as const, label: '7 Days' },
+    { value: '30d' as const, label: '30 Days' }
   ];
 
   const getTrendIcon = (changeType?: string) => {

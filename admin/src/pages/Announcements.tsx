@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react'
 import { 
-  Bell, Plus, Search, Filter, Pin, Clock, AlertTriangle, Info, AlertCircle, 
-  Wrench, Users, Edit, Trash2, Eye, MoreVertical, ChevronDown,
+  Bell, Plus, Search, Filter, Clock, AlertTriangle, Info, AlertCircle, 
+  Wrench, Users, Edit, Trash2, Eye, ChevronDown,
   CheckCircle, XCircle, Archive, RefreshCw, Upload, X
 } from 'lucide-react'
 import { getStoredToken, clearStoredToken, API_URL, getProfile, type ProfileResponse } from '../lib/authApi'
-import type { AccountLog } from '../lib/authApi'
 import './Announcements.css'
 
 interface Announcement {
@@ -386,21 +385,6 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
            date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   }
 
-  const getAccountTypeColor = (type: string) => {
-    switch (type) {
-      case 'info':
-        return '#3b82f6'
-      case 'warning':
-        return '#f59e0b'
-      case 'urgent':
-        return '#ef4444'
-      case 'maintenance':
-        return '#8b5cf6'
-      default:
-        return '#6b7280'
-    }
-  }
-
   const filteredAnnouncements = announcements.filter(announcement => {
     const matchesSearch = announcement.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          announcement.message.toLowerCase().includes(searchTerm.toLowerCase())
@@ -448,10 +432,6 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
 
     // Check if user can edit this announcement based on role
     const canEdit = 
-      currentUser.accountType === 'admin' ||
-      announcement.createdBy.username === currentUser.username
-
-  const canDelete = 
       currentUser.accountType === 'admin' ||
       announcement.createdBy.username === currentUser.username
 

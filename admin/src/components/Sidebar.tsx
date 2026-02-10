@@ -4,7 +4,7 @@ import { getProfile } from '../lib/authApi';
 import type { ProfileResponse } from '../lib/authApi';
 import './Sidebar.css';
 
-type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'documents' | 'announcement-detail' | 'personal-details' | 'system-health';
+type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'documents' | 'announcement-detail' | 'personal-details' | 'system-health' | 'security';
 
 type SidebarProps = {
   activeLink?: View;

@@ -61,7 +61,7 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
         {value: 1.5, duration: 300, easing: 'easeOutQuad'},
         {value: 1, duration: 500, delay: 500, easing: 'easeOutElastic(1, .5)'}
       ],
-      delay: (target: any, i: number) => {
+      delay: (_: any, i: number) => {
         const distance = Math.abs(i - index);
         const rowDistance = Math.floor(distance / 6);
         const colDistance = distance % 6;
