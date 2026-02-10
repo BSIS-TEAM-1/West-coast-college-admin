@@ -15,7 +15,7 @@
 .dashboard-main {
   flex: 1;
   padding: 2rem 1.5rem;
-  background: var(--color-bg-soft);
+  background: #f8fafc;
 }
 
 .dashboard-welcome {
@@ -38,23 +38,16 @@
 .dashboard-title {
   font-size: 1.75rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--color-text);
   margin: 0 0 0.25rem 0;
 }
 
 .dashboard-subtitle {
   margin: 0;
-  color: #6b7280;
+  color: var(--color-text-muted);
   font-size: 0.95rem;
 }
 
-[data-theme="dark"] .dashboard-title {
-  color: #e5e7eb;
-}
-
-[data-theme="dark"] .dashboard-subtitle {
-  color: #9ca3af;
-}
 
 .dashboard-stats-grid {
   display: grid;
@@ -64,9 +57,9 @@
 }
 
 .dashboard-stat-card {
-  background: white;
+  background: var(--color-surface);
   border-radius: 0.75rem;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   padding: 1.25rem 1.5rem;
   display: flex;
   flex-direction: column;
@@ -77,27 +70,15 @@
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #6b7280;
+  color: var(--color-text-muted);
 }
 
 .dashboard-stat-value {
   font-size: 1.6rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--color-text);
 }
 
-[data-theme="dark"] .dashboard-stat-card {
-  background: #111827;
-  border-color: #1f2937;
-}
-
-[data-theme="dark"] .dashboard-stat-label {
-  color: #9ca3af;
-}
-
-[data-theme="dark"] .dashboard-stat-value {
-  color: #e5e7eb;
-}
 
 .dashboard-header {
   display: flex;
@@ -258,8 +239,8 @@
 .dashboard-announcement-card {
   display: flex;
   flex-direction: column;
-  background: white;
-  border: 1px solid #e2e8f0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   overflow: hidden;
   transition: all 0.2s ease;
@@ -267,7 +248,8 @@
 
 .dashboard-announcement-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  border-color: var(--color-primary);
 }
 
 .dashboard-media-section {
@@ -332,13 +314,13 @@
 .dashboard-card-title {
   font-size: 1.1rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--color-text);
   margin: 0 0 0.25rem 0;
   line-height: 1.3;
 }
 
 .dashboard-card-message {
-  color: #475569;
+  color: var(--color-text-secondary);
   font-size: 0.875rem;
   line-height: 1.5;
   margin-bottom: 0.5rem;
@@ -349,9 +331,9 @@
   display: flex;
   align-items: center;
   gap: 1rem;
-  color: #64748b;
+  color: var(--color-text-muted);
   font-size: 0.75rem;
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid var(--color-border);
   padding-top: 0.5rem;
   margin-top: auto;
 }
@@ -372,12 +354,12 @@
 .dashboard-title {
   font-size: 2rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--color-text);
   margin: 0 0 0.5rem 0;
 }
 
 .dashboard-subtitle {
-  color: #64748b;
+  color: var(--color-text-secondary);
   margin: 0;
 }
 
@@ -399,12 +381,12 @@
 }
 
 .dashboard-btn-primary {
-  background: #3b82f6;
+  background: var(--color-primary);
   color: white;
 }
 
 .dashboard-btn-primary:hover {
-  background: #2563eb;
+  background: var(--color-primary-hover);
   transform: translateY(-1px);
 }
 
@@ -440,7 +422,7 @@
   background: #fef2f2;
   border: 1px solid #fecaca;
   border-radius: 0.5rem;
-  color: #dc2626;
+  color: var(--color-error);
 }
 
 .dashboard-empty {
@@ -455,7 +437,7 @@
 
 .dashboard-empty h3 {
   margin: 1rem 0 0.5rem 0;
-  color: #0f172a;
+  color: var(--color-text);
 }
 
 .dashboard-empty p {
@@ -494,8 +476,8 @@
 }
 
 .news-card {
-  background: white;
-  border: 1px solid #e2e8f0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
   padding: 1.5rem;
   position: relative;
@@ -506,46 +488,12 @@
 .news-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-  border-color: #3b82f6;
+  border-color: var(--color-primary);
 }
 
-/* Dark theme overrides for dashboard cards */
-[data-theme="dark"] .announcement-card {
-  background: #111827;
-  border-color: #1f2937;
-  box-shadow: none;
-}
-
-[data-theme="dark"] .dashboard-announcement-card {
-  background: #111827;
-  border-color: #1f2937;
-  box-shadow: none;
-}
-
-[data-theme="dark"] .news-card {
-  background: #111827;
-  border-color: #1f2937;
-  box-shadow: none;
-}
-
-[data-theme="dark"] .dashboard-card-title,
-[data-theme="dark"] .news-title {
-  color: #e5e7eb;
-}
-
-[data-theme="dark"] .dashboard-card-message,
-[data-theme="dark"] .news-summary {
-  color: #9ca3af;
-}
-
-[data-theme="dark"] .dashboard-card-footer,
-[data-theme="dark"] .news-read-time {
-  border-top-color: #1f2937;
-  color: #9ca3af;
-}
 
 .news-card.featured {
-  border-color: #3b82f6;
+  border-color: var(--color-primary);
   box-shadow: 0 4px 6px rgba(59, 130, 246, 0.1);
 }
 
@@ -553,7 +501,7 @@
   position: absolute;
   top: -8px;
   right: 1rem;
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
   color: white;
   padding: 0.25rem 0.75rem;
   border-radius: 20px;
@@ -587,20 +535,21 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  background: var(--color-primary);
 }
 
 .news-date-info {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  color: #64748b;
+  color: var(--color-text-muted);
   font-size: 0.875rem;
 }
 
 .news-title {
   font-size: 1.125rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--color-text);
   margin: 0 0 0.75rem 0;
   line-height: 1.4;
   display: -webkit-box;
@@ -609,18 +558,21 @@
 }
 
 .news-summary {
-  color: #475569;
+  color: var(--color-text-secondary);
   font-size: 0.875rem;
   line-height: 1.6;
   margin: 0 0 1.5rem 0;
   flex: 1;
   display: -webkit-box;
+  display: -moz-box;
   display: box;
   -webkit-line-clamp: 3;
   line-clamp: 3;
   -webkit-box-orient: vertical;
+  -moz-box-orient: vertical;
   box-orient: vertical;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .news-footer {
@@ -634,7 +586,7 @@
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  color: #64748b;
+  color: var(--color-text-muted);
   font-size: 0.875rem;
 }
 
@@ -644,7 +596,7 @@
   gap: 0.5rem;
   background: none;
   border: none;
-  color: #3b82f6;
+  color: var(--color-primary);
   font-weight: 500;
   font-size: 0.875rem;
   cursor: pointer;
@@ -655,6 +607,7 @@
 
 .news-read-more:hover {
   background: #eff6ff;
+  color: var(--color-primary-dark);
   color: #2563eb;
 }
 
@@ -756,7 +709,7 @@
 .modal-title {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--color-text);
   margin: 0 0 0.5rem 0;
   line-height: 1.3;
 }
@@ -893,4 +846,9 @@
 .dashboard-announcement-card.clickable:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+/* Dark theme overrides for dashboard */
+[data-theme="dark"] .dashboard-main {
+  background: #334155;
 }

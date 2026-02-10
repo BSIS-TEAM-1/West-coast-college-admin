@@ -10,9 +10,8 @@ export default function AccountLogs() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'admin' | 'registrar'>('all');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive' | 'suspended'>('all');
-  const [selectedLog, setSelectedLog] = useState<AccountLog | null>(null);
+  const [filterType, setFilterType] = useState<'all' | 'admin' | 'registrar' | 'professor'>('all');
+    const [selectedLog, setSelectedLog] = useState<AccountLog | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<AccountLog | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [currentUser, setCurrentUser] = useState<ProfileResponse | null>(null);
@@ -59,13 +58,9 @@ export default function AccountLogs() {
       filtered = filtered.filter(log => log.accountType === filterType);
     }
 
-    // Filter by status
-    if (filterStatus !== 'all') {
-      filtered = filtered.filter(log => log.status === filterStatus);
-    }
-
+    
     setFilteredLogs(filtered);
-  }, [logs, searchTerm, filterType, filterStatus]);
+  }, [logs, searchTerm, filterType]);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -78,21 +73,18 @@ export default function AccountLogs() {
     });
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active':
-        return '#16a34a';
-      case 'inactive':
-        return '#6b7280';
-      case 'suspended':
-        return '#dc2626';
+  
+  const getAccountTypeColor = (type: string) => {
+    switch (type) {
+      case 'admin':
+        return '#2563eb';
+      case 'registrar':
+        return '#7c3aed';
+      case 'professor':
+        return '#059669';
       default:
         return '#6b7280';
     }
-  };
-
-  const getAccountTypeColor = (type: string) => {
-    return type === 'admin' ? '#2563eb' : '#7c3aed';
   };
 
   const handleExport = () => {
@@ -179,23 +171,11 @@ export default function AccountLogs() {
               <option value="all">All Types</option>
               <option value="admin">Admin</option>
               <option value="registrar">Registrar</option>
+              <option value="professor">Professor</option>
             </select>
           </div>
 
-          <div className="filter-group">
-            <label className="filter-label">Status:</label>
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as any)}
-              className="filter-select"
-            >
-              <option value="all">All Status</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="suspended">Suspended</option>
-            </select>
-          </div>
-
+          
           <button className="export-btn" onClick={handleExport}>
             <Download size={16} />
             Export
@@ -213,14 +193,13 @@ export default function AccountLogs() {
               <th>Account Type</th>
               <th>Created</th>
               <th>Created By</th>
-              <th>Status</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {filteredLogs.length === 0 ? (
               <tr>
-                <td colSpan={7} className="no-results">
+                <td colSpan={6} className="no-results">
                   <div className="no-results-content">
                     <Users size={48} />
                     <p>No logs found matching your criteria</p>
@@ -254,14 +233,6 @@ export default function AccountLogs() {
                     </div>
                   </td>
                   <td className="creator-cell">{log.createdBy}</td>
-                  <td className="status-cell">
-                    <span
-                      className="status-badge"
-                      style={{ color: getStatusColor(log.status) }}
-                    >
-                      {log.status.charAt(0).toUpperCase() + log.status.slice(1)}
-                    </span>
-                  </td>
                   <td className="actions-cell">
                     <button
                       className="action-btn"

@@ -430,7 +430,21 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
         return
       }
 
-      fetchAnnouncements()
+      // Update local state immediately to show the change
+      setAnnouncements(prev => {
+        const updated = prev.map(announcement => 
+          announcement._id === id 
+            ? { ...announcement, isActive: !currentStatus }
+            : announcement
+        )
+        return updated
+      })
+
+            
+      // Refresh data after a short delay to ensure server sync
+      setTimeout(() => {
+        fetchAnnouncements()
+      }, 500)
     } catch (error) {
       console.error('Failed to toggle announcement status:', error)
     }

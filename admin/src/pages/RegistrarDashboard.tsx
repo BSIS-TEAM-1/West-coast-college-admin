@@ -78,11 +78,14 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
         // Fallback handled in JSX
       })
 
-    // Fetch announcements for dashboard
-    fetchAnnouncements()
-
     return () => controller.abort()
   }, [])
+
+  useEffect(() => {
+    if (view === 'dashboard') {
+      fetchAnnouncements()
+    }
+  }, [view])
 
   const handleProfileUpdated = (profile: ProfileResponse) => {
     setProfile(profile)
