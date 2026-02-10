@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { 
   ArrowLeft, Pin, Clock, AlertTriangle, AlertCircle, Info, Wrench, 
   Share2, Download, Edit, Trash2, Eye, MessageSquare, Heart,
-  Users, Zap, MoreVertical,
+  Users, MoreVertical,
   Copy, ExternalLink, Bookmark, Play, Video
 } from 'lucide-react'
 import { getStoredToken, API_URL } from '../lib/authApi'
