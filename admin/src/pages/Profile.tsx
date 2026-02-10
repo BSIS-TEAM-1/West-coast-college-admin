@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { getProfile, updateProfile, uploadAvatar } from '../lib/authApi';
-import { Edit } from 'lucide-react';
+import { Edit, Info } from 'lucide-react';
 import type { ProfileResponse, UpdateProfileRequest } from '../lib/authApi';
 import './Profile.css';
 
 type ProfileProps = {
   onProfileUpdated?: (profile: ProfileResponse) => void;
+  onNavigate?: (view: string) => void;
 };
 
-export default function Profile({ onProfileUpdated }: ProfileProps) {
+export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) {
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -312,7 +313,38 @@ export default function Profile({ onProfileUpdated }: ProfileProps) {
               />
             </div>
 
-            <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button 
+                type="button"
+                className="profile-info-btn"
+                onClick={() => onNavigate?.('personal-details')}
+                style={{ 
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  padding: '0.75rem 1rem',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '0.375rem',
+                  backgroundColor: '#f9fafb',
+                  color: '#374151',
+                  cursor: 'pointer',
+                  fontSize: '0.875rem',
+                  fontWeight: '500',
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#f3f4f6';
+                  e.currentTarget.style.borderColor = '#9ca3af';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = '#f9fafb';
+                  e.currentTarget.style.borderColor = '#d1d5db';
+                }}
+              >
+                <Info size={16} />
+                View Personal Details
+              </button>
+              
               <button 
                 type="submit" 
                 className="profile-submit" 

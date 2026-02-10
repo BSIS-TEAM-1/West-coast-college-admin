@@ -1,19 +1,37 @@
 export const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 
-const TOKEN_KEY = 'wcc_admin_token'
+let currentToken: string | null = null
 
 export function getStoredToken(): string | null {
-  const token = localStorage.getItem(TOKEN_KEY)
-  console.log('Retrieved token:', token ? 'exists' : 'null')
-  return token
+  console.log('=== GET STORED TOKEN DEBUG ===');
+  console.log('Current token value:', currentToken);
+  console.log('Token type:', typeof currentToken);
+  return currentToken
 }
 
 export function setStoredToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token)
+  console.log('=== SET STORED TOKEN DEBUG ===');
+  console.log('Setting token to:', token);
+  console.log('Token type:', typeof token);
+  currentToken = token
+  console.log('Token after setting:', currentToken);
 }
 
 export function clearStoredToken(): void {
-  localStorage.removeItem(TOKEN_KEY)
+  currentToken = null
+}
+
+export async function logout(): Promise<{ message: string }> {
+  const res = await fetch(`${API_URL}/api/admin/logout`, { 
+    headers: authHeaders(),
+    method: 'POST'
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error((data?.error as string) || 'Logout failed.')
+  }
+  clearStoredToken()
+  return data as { message: string }
 }
 
 export type SignUpResponse = { message: string; username: string }

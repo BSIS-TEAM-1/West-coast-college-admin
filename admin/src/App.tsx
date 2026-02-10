@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import { login as apiLogin, getStoredToken, setStoredToken, clearStoredToken, getProfile } from './lib/authApi'
+import { login as apiLogin, getStoredToken, setStoredToken, clearStoredToken, getProfile, logout } from './lib/authApi'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import RegistrarDashboard from './pages/RegistrarDashboard'
@@ -31,28 +31,45 @@ function App() {
   }, [user, authChecked])
 
   const handleLogin = useCallback(async (username: string, password: string) => {
+    console.log('=== LOGIN HANDLER DEBUG ===');
+    console.log('Starting login process');
+    console.log('Username:', username);
+    
     setLoginError(undefined)
     setLoginLoading(true)
     try {
+      console.log('Calling apiLogin...');
       const data = await apiLogin(username, password)
+      console.log('Login successful, received data:', data);
+      console.log('Token from login:', data.token);
+      
       setStoredToken(data.token)
+      console.log('Token stored, calling getProfile...');
+      
       // Always fetch profile to get accurate account type
       const profile = await getProfile()
-      console.log('Login response:', data)
-      console.log('Profile data:', profile)
-      console.log('Account type being set:', profile.accountType)
+      console.log('Profile received:', profile);
+      
       setUser({ username: data.username, accountType: profile.accountType })
+      console.log('User state updated');
     } catch (err) {
+      console.error('Login error:', err);
       setLoginError(err instanceof Error ? err.message : 'Invalid username or password.')
     } finally {
       setLoginLoading(false)
+      console.log('Login process completed');
     }
   }, [])
 
-  const handleLogout = useCallback(() => {
-    clearStoredToken()
-    setUser(null)
-    setLoginError(undefined)
+  const handleLogout = useCallback(async () => {
+    try {
+      await logout()
+    } catch (error) {
+      console.error('Logout error:', error)
+    } finally {
+      setUser(null)
+      setLoginError(undefined)
+    }
   }, [])
 
   const handleProfileUpdated = useCallback((profile: ProfileResponse) => {
@@ -61,10 +78,7 @@ function App() {
 
   if (user) {
     // Show different dashboard based on account type
-    console.log('Current user state:', user)
-    console.log('Account type check:', user.accountType, '=== registrar?', user.accountType === 'registrar')
     if (user.accountType === 'registrar') {
-      console.log('Rendering RegistrarDashboard')
       return (
         <RegistrarDashboard
           username={user.username}
@@ -74,7 +88,6 @@ function App() {
       )
     }
     if (user.accountType === 'professor') {
-      console.log('Rendering ProfessorDashboard')
       return (
         <ProfessorDashboard
           username={user.username}
@@ -83,7 +96,6 @@ function App() {
         />
       )
     }
-    console.log('Rendering Admin Dashboard')
     return (
       <Dashboard
         username={user.username}

@@ -8,6 +8,7 @@ import type { ProfileResponse } from '../lib/authApi'
 import { API_URL } from '../lib/authApi'
 import Announcements from './Announcements'
 import AnnouncementDetail from './AnnouncementDetail'
+import PersonalDetails from './PersonalDetails'
 import './RegistrarDashboard.css'
 
 interface Announcement {
@@ -45,7 +46,7 @@ interface Announcement {
   scheduledFor?: string
 }
 
-type RegistrarView = 'dashboard' | 'students' | 'courses' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail'
+type RegistrarView = 'dashboard' | 'students' | 'courses' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details'
 
 type RegistrarDashboardProps = {
   username: string
@@ -136,16 +137,27 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
       case 'reports':
         return <ReportsDashboard />
       case 'profile':
-        return <Profile onProfileUpdated={handleProfileUpdated} />
+        return <Profile onProfileUpdated={handleProfileUpdated} onNavigate={(viewName) => {
+          if (viewName === 'personal-details') {
+            setView('personal-details')
+          }
+        }} />
       case 'settings':
         return <SettingsPage onProfileUpdated={handleProfileUpdated} onLogout={onLogout} />
       case 'announcements':
-        return <Announcements />
+        return <Announcements onNavigate={(viewName, announcementId) => {
+          if (viewName === 'announcement-detail' && announcementId) {
+            setSelectedAnnouncementId(announcementId)
+            setView('announcement-detail')
+          }
+        }} />
       case 'announcement-detail':
         return <AnnouncementDetail 
           announcementId={selectedAnnouncementId!} 
           onBack={handleBackFromDetail}
         />
+      case 'personal-details':
+        return <PersonalDetails onBack={() => setView('profile')} />
       default:
         return <RegistrarHome announcements={announcements} onAnnouncementClick={handleAnnouncementClick} setView={setView} />
     }

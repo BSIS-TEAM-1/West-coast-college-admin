@@ -1,0 +1,500 @@
+.statistics-card {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e2e8f0;
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.statistics-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+}
+
+.statistics-card.expanded {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.card-title-section {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.card-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+}
+
+.expand-toggle {
+  background: none;
+  border: none;
+  padding: 0.5rem;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #64748b;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.expand-toggle:hover {
+  background: #f1f5f9;
+  color: #3b82f6;
+}
+
+.time-range-selector {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.time-range-btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid #e2e8f0;
+  background: white;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+}
+
+.time-range-btn:hover {
+  background: #f8fafc;
+  border-color: #3b82f6;
+}
+
+.time-range-btn.active {
+  background: #3b82f6;
+  color: white;
+  border-color: #3b82f6;
+}
+
+.card-content {
+  padding: 1.5rem;
+}
+
+.statistics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.statistic-item {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.25rem;
+  transition: all 0.2s ease;
+}
+
+.statistic-item:hover {
+  background: #f1f5f9;
+  border-color: #3b82f6;
+  transform: translateY(-1px);
+}
+
+.statistic-item.disabled {
+  background: #f1f5f9;
+  border-color: #d1d5db;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.statistic-item.disabled:hover {
+  background: #f1f5f9;
+  border-color: #d1d5db;
+  transform: none;
+}
+
+.statistic-item.disabled .stat-icon {
+  background: #e5e7eb;
+  color: #9ca3af;
+}
+
+.statistic-item.disabled .stat-label {
+  color: #9ca3af;
+}
+
+.statistic-item.disabled .stat-value {
+  color: #6b7280;
+}
+
+.stat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+
+.stat-icon {
+  background: #dbeafe;
+  color: #1e40af;
+  padding: 0.75rem;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stat-info {
+  flex: 1;
+}
+
+.stat-label {
+  font-size: 0.875rem;
+  color: #64748b;
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+
+.stat-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #1e293b;
+  line-height: 1.2;
+}
+
+.stat-change {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.trend-up {
+  color: #10b981;
+}
+
+.trend-down {
+  color: #ef4444;
+}
+
+.change-value {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.change-value.increase {
+  color: #10b981;
+}
+
+.change-value.decrease {
+  color: #ef4444;
+}
+
+.change-value.neutral {
+  color: #64748b;
+}
+
+.graphs-section {
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.graph-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+}
+
+.graph-item {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.25rem;
+  transition: all 0.2s ease;
+}
+
+.graph-item:hover {
+  border-color: #3b82f6;
+  transform: translateY(-1px);
+}
+
+.graph-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.graph-icon {
+  background: #dbeafe;
+  color: #1e40af;
+  padding: 0.5rem;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.graph-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.graph-value {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.mini-chart {
+  width: 100%;
+  height: 60px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.mini-chart svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .statistics-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .graph-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .statistic-item {
+    padding: 1rem;
+  }
+  
+  .stat-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  
+  .card-header {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: stretch;
+  }
+  
+  .time-range-selector {
+    flex-wrap: wrap;
+  }
+}
+
+/* Dark Mode Support */
+@media (prefers-color-scheme: dark) {
+  .statistics-card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+
+  .statistics-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  }
+
+  .card-header {
+    background: #0f172a;
+    border-bottom-color: #334155;
+  }
+
+  .card-title {
+    color: #f1f5f9;
+  }
+
+  .expand-toggle {
+    color: #94a3b8;
+  }
+
+  .expand-toggle:hover {
+    background: #1e293b;
+    color: #3b82f6;
+  }
+
+  .time-range-btn {
+    background: #1e293b;
+    border-color: #334155;
+    color: #e2e8f0;
+  }
+
+  .time-range-btn:hover {
+    background: #334155;
+    border-color: #3b82f6;
+  }
+
+  .time-range-btn.active {
+    background: #3b82f6;
+    color: white;
+    border-color: #3b82f6;
+  }
+
+  .statistic-item {
+    background: #0f172a;
+    border-color: #334155;
+  }
+
+  .statistic-item:hover {
+    background: #1e293b;
+    border-color: #3b82f6;
+  }
+
+  .stat-icon {
+    background: #1e3a8a;
+    color: #60a5fa;
+  }
+
+  .stat-label {
+    color: #94a3b8;
+  }
+
+  .stat-value {
+    color: #f1f5f9;
+  }
+
+  .graphs-section {
+    background: #0f172a;
+  }
+
+  .graph-item {
+    background: #1e293b;
+    border-color: #334155;
+  }
+
+  .graph-item:hover {
+    border-color: #3b82f6;
+  }
+
+  .graph-icon {
+    background: #1e3a8a;
+    color: #60a5fa;
+  }
+
+  .graph-title {
+    color: #e2e8f0;
+  }
+
+  .graph-value {
+    color: #f1f5f9;
+  }
+
+  .mini-chart {
+    background: #0f172a;
+  }
+}
+
+/* Manual dark mode class support */
+.statistics-card.dark-mode {
+  background: #1e293b !important;
+  border: 1px solid #334155 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+}
+
+.statistics-card.dark-mode:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+}
+
+.statistics-card.dark-mode .card-header {
+  background: #0f172a !important;
+  border-bottom-color: #334155 !important;
+}
+
+.statistics-card.dark-mode .card-title {
+  color: #f1f5f9 !important;
+}
+
+.statistics-card.dark-mode .expand-toggle {
+  color: #94a3b8 !important;
+}
+
+.statistics-card.dark-mode .expand-toggle:hover {
+  background: #1e293b !important;
+  color: #3b82f6 !important;
+}
+
+.statistics-card.dark-mode .time-range-btn {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+
+.statistics-card.dark-mode .time-range-btn:hover {
+  background: #334155 !important;
+  border-color: #3b82f6 !important;
+}
+
+.statistics-card.dark-mode .time-range-btn.active {
+  background: #3b82f6 !important;
+  color: white !important;
+  border-color: #3b82f6 !important;
+}
+
+.statistics-card.dark-mode .statistic-item {
+  background: #0f172a !important;
+  border-color: #334155 !important;
+}
+
+.statistics-card.dark-mode .statistic-item:hover {
+  background: #1e293b !important;
+  border-color: #3b82f6 !important;
+}
+
+.statistics-card.dark-mode .stat-icon {
+  background: #1e3a8a !important;
+  color: #60a5fa !important;
+}
+
+.statistics-card.dark-mode .stat-label {
+  color: #94a3b8 !important;
+}
+
+.statistics-card.dark-mode .stat-value {
+  color: #f1f5f9 !important;
+}
+
+.statistics-card.dark-mode .graphs-section {
+  background: #0f172a !important;
+}
+
+.statistics-card.dark-mode .graph-item {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+.statistics-card.dark-mode .graph-item:hover {
+  border-color: #3b82f6 !important;
+}
+
+.statistics-card.dark-mode .graph-icon {
+  background: #1e3a8a !important;
+  color: #60a5fa !important;
+}
+
+.statistics-card.dark-mode .graph-title {
+  color: #e2e8f0 !important;
+}
+
+.statistics-card.dark-mode .graph-value {
+  color: #f1f5f9 !important;
+}
+
+.statistics-card.dark-mode .mini-chart {
+  background: #0f172a !important;
+}

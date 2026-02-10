@@ -1,10 +1,10 @@
-import { LayoutDashboard, User, Settings, Users, Bell, FileText, Shield } from 'lucide-react';
+import { LayoutDashboard, User, Settings, Users, Bell, FileText, Shield, Activity } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { getProfile } from '../lib/authApi';
 import type { ProfileResponse } from '../lib/authApi';
 import './Sidebar.css';
 
-type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'documents' | 'announcement-detail';
+type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'documents' | 'announcement-detail' | 'personal-details' | 'system-health';
 
 type SidebarProps = {
   activeLink?: View;
@@ -14,6 +14,7 @@ type SidebarProps = {
 
 const NAV_ITEMS: { id: View; label: string; icon: any }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'system-health', label: 'System Health', icon: Activity },
   { id: 'announcements', label: 'Manage Announcements', icon: Bell },
   { id: 'documents', label: 'Document Management', icon: FileText },
   { id: 'audit-logs', label: 'System Audit Logs', icon: Shield },

@@ -1,13 +1,15 @@
-import { useState, useEffect } from 'react'
-import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Plus, Video, Users, Calendar, Award } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Plus, Video, Users, Calendar, Award, Activity } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
+import SystemHealth from './SystemHealth'
 import { getProfile, getStoredToken } from '../lib/authApi'
 import type { ProfileResponse } from '../lib/authApi'
 import { API_URL } from '../lib/authApi'
 import Announcements from './Announcements'
 import AnnouncementDetail from './AnnouncementDetail'
+import PersonalDetails from './PersonalDetails'
 import './ProfessorDashboard.css'
 
 interface Announcement {
@@ -45,7 +47,7 @@ interface Announcement {
   scheduledFor?: string
 }
 
-type ProfessorView = 'dashboard' | 'courses' | 'students' | 'grades' | 'schedule' | 'profile' | 'settings' | 'announcements' | 'announcement-detail'
+type ProfessorView = 'dashboard' | 'courses' | 'students' | 'grades' | 'schedule' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'system-health'
 
 type ProfessorDashboardProps = {
   username: string
@@ -60,6 +62,7 @@ const PROFESSOR_NAV_ITEMS: { id: ProfessorView; label: string; icon: any }[] = [
   { id: 'grades', label: 'Grades', icon: Award },
   { id: 'schedule', label: 'Schedule', icon: Calendar },
   { id: 'announcements', label: 'Announcements', icon: Bell },
+  { id: 'system-health', label: 'System Health', icon: Activity },
   { id: 'profile', label: 'Profile', icon: User },
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
 ]
@@ -69,6 +72,11 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
   const [profile, setProfile] = useState<ProfileResponse | null>(null)
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string | null>(null)
+  
+  // Animation refs
+  const dashboardRef = useRef<HTMLDivElement>(null)
+  const quickActionsRef = useRef<HTMLDivElement>(null)
+  const newsSectionRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -80,6 +88,47 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
       })
 
     return () => controller.abort()
+  }, [])
+
+  // Animation effects
+  useEffect(() => {
+    // Animate dashboard content on mount
+    if (dashboardRef.current) {
+      dashboardRef.current.style.opacity = '0'
+      dashboardRef.current.style.transform = 'translateY(20px)'
+      setTimeout(() => {
+        if (dashboardRef.current) {
+          dashboardRef.current.style.opacity = '1'
+          dashboardRef.current.style.transform = 'translateY(0)'
+        }
+      }, 100)
+    }
+
+    // Animate quick action cards with stagger
+    if (quickActionsRef.current) {
+      const cards = quickActionsRef.current.querySelectorAll('.quick-action-card')
+      cards.forEach((card, index) => {
+        const htmlCard = card as HTMLElement
+        htmlCard.style.opacity = '0'
+        htmlCard.style.transform = 'translateY(30px)'
+        setTimeout(() => {
+          htmlCard.style.opacity = '1'
+          htmlCard.style.transform = 'translateY(0)'
+        }, 100 + index * 100)
+      })
+    }
+
+    // Animate news section
+    if (newsSectionRef.current) {
+      newsSectionRef.current.style.opacity = '0'
+      newsSectionRef.current.style.transform = 'translateX(-30px)'
+      setTimeout(() => {
+        if (newsSectionRef.current) {
+          newsSectionRef.current.style.opacity = '1'
+          newsSectionRef.current.style.transform = 'translateX(0)'
+        }
+      }, 300)
+    }
   }, [])
 
   useEffect(() => {
@@ -139,18 +188,31 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
       case 'schedule':
         return <ScheduleManagement />
       case 'profile':
-        return <Profile onProfileUpdated={handleProfileUpdated} />
+        return <Profile onProfileUpdated={handleProfileUpdated} onNavigate={(viewName) => {
+          if (viewName === 'personal-details') {
+            setView('personal-details')
+          }
+        }} />
       case 'settings':
         return <SettingsPage onProfileUpdated={handleProfileUpdated} onLogout={onLogout} />
       case 'announcements':
-        return <Announcements />
+        return <Announcements onNavigate={(viewName, announcementId) => {
+          if (viewName === 'announcement-detail' && announcementId) {
+            setSelectedAnnouncementId(announcementId)
+            setView('announcement-detail')
+          }
+        }} />
       case 'announcement-detail':
         return <AnnouncementDetail 
           announcementId={selectedAnnouncementId!} 
           onBack={handleBackFromDetail}
         />
+      case 'personal-details':
+        return <PersonalDetails onBack={() => setView('profile')} />
+      case 'system-health':
+        return <SystemHealth />
       default:
-        return <ProfessorHome announcements={announcements} onAnnouncementClick={handleAnnouncementClick} setView={setView} />
+        return <ProfessorHome announcements={announcements} onAnnouncementClick={handleAnnouncementClick} setView={setView} quickActionsRef={quickActionsRef} newsSectionRef={newsSectionRef} />
     }
   }
 
@@ -228,7 +290,7 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
         </div>
       </aside>
 
-      <div className="professor-dashboard-body">
+      <div className="professor-dashboard-body" ref={dashboardRef}>
         <Navbar username={username} onLogout={onLogout} />
         <main className="professor-dashboard-main">
           {renderContent()}
@@ -243,10 +305,11 @@ interface ProfessorHomeProps {
   announcements: Announcement[]
   onAnnouncementClick: (announcement: Announcement) => void
   setView: (view: ProfessorView) => void
+  quickActionsRef: React.RefObject<HTMLDivElement | null>
+  newsSectionRef: React.RefObject<HTMLDivElement | null>
 }
 
-function ProfessorHome({ announcements, onAnnouncementClick, setView }: ProfessorHomeProps) {
-
+function ProfessorHome({ announcements, onAnnouncementClick, setView, quickActionsRef, newsSectionRef }: ProfessorHomeProps) {
   const getTypeIcon = (type: string) => {
     switch (type) {
       case 'urgent': return <AlertTriangle size={12} />
@@ -270,7 +333,7 @@ function ProfessorHome({ announcements, onAnnouncementClick, setView }: Professo
       <h2 className="professor-welcome-title">Welcome to the Professor Portal</h2>
       <p className="professor-welcome-desc">Manage your courses, students, and academic activities from your dashboard.</p>
       
-      <div className="professor-dashboard-content">
+      <div className="professor-dashboard-content" ref={quickActionsRef}>
         <div className="professor-quick-actions">
           <div className="quick-action-card">
             <BookOpen size={32} className="quick-action-icon" />
@@ -294,7 +357,7 @@ function ProfessorHome({ announcements, onAnnouncementClick, setView }: Professo
           </div>
         </div>
 
-        <div className="professor-news-section">
+        <div className="professor-news-section" ref={newsSectionRef}>
           <div className="news-header">
             <Bell size={20} className="news-icon" />
             <h3>Latest Announcements</h3>

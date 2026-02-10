@@ -1,0 +1,515 @@
+import { useState, useEffect } from 'react'
+import { TrendingUp, Users, Database, Server, AlertTriangle, Activity, Shield } from 'lucide-react'
+import LiveGraph from '../components/LiveGraph';
+import StatisticsCard from './StatisticsCard';
+import { API_URL, getStoredToken } from '../lib/authApi'
+import './SystemHealth.css'
+
+interface SystemMetrics {
+  uptime: number;
+  activeUsers: number;
+  databaseUsage: number;
+  backupStatus: 'success' | 'warning' | 'error';
+  errorCount: number;
+  serverLoad: number;
+  memoryUsage: number;
+  lastBackup: string;
+  statistics: {
+    totalAdmins: number;
+    totalDocuments: number;
+    activeAnnouncements: number;
+    recentLogins: number;
+    errorLogs: number;
+    warningLogs: number;
+  };
+  atlasMetrics: {
+    enabled: boolean;
+    clusterInfo: {
+      name: string;
+      version: string;
+      connections: number;
+      diskUsage: number | null;
+    } | null;
+    databaseInfo: {
+      collectionsCount: number;
+      dataSize: string;
+      indexSize: string;
+    } | null;
+    measurements: {
+      available: boolean;
+      diskUsed: number | null;
+      diskTotal: number | null;
+      indexSize: number;
+    } | null;
+  };
+}
+
+interface LogEntry {
+  id: string;
+  timestamp: string;
+  level: string;
+  message: string;
+  module: string;
+}
+
+interface SystemHealthProps {
+  onNavigate?: (view: string) => void;
+}
+
+export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): React.ReactElement {
+  const [metrics, setMetrics] = useState<SystemMetrics>({
+    uptime: 0,
+    activeUsers: 0,
+    databaseUsage: 0,
+    backupStatus: 'success',
+    errorCount: 0,
+    serverLoad: 0,
+    memoryUsage: 0,
+    lastBackup: '',
+    statistics: {
+      totalAdmins: 0,
+      totalDocuments: 0,
+      activeAnnouncements: 0,
+      recentLogins: 0,
+      errorLogs: 0,
+      warningLogs: 0
+    },
+    atlasMetrics: {
+      enabled: false,
+      clusterInfo: null,
+      databaseInfo: null,
+      measurements: null
+    }
+  });
+  
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [memoryHistory, setMemoryHistory] = useState<number[]>([]);
+  const [serverLoadHistory, setServerLoadHistory] = useState<number[]>([]);
+  const [atlasDiskHistory, setAtlasDiskHistory] = useState<number[]>([]);
+  const [atlasConnectionHistory, setAtlasConnectionHistory] = useState<number[]>([]);
+  const [atlasDetailedDiskHistory, setAtlasDetailedDiskHistory] = useState<number[]>([]);
+
+  // Detect dark mode
+  useEffect(() => {
+    const checkDarkMode = () => {
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      setIsDarkMode(prefersDark);
+    };
+
+    checkDarkMode();
+    
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = (e: MediaQueryListEvent) => setIsDarkMode(e.matches);
+    
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
+  useEffect(() => {
+    fetchSystemHealth();
+    
+    // Set up real-time updates every 5 seconds for more accurate live data
+    const interval = setInterval(fetchSystemHealth, 5000);
+    
+    return () => clearInterval(interval);
+  }, []);
+  
+  const fetchSystemHealth = async () => {
+    try {
+      const token = getStoredToken();
+      if (!token) {
+        setError('Authentication required');
+        setLoading(false);
+        return;
+      }
+      
+      const response = await fetch(`${API_URL}/api/admin/system-health`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        if (response.status === 401) {
+          setError('Authentication failed');
+        } else {
+          setError('Failed to fetch system health data');
+        }
+        setLoading(false);
+        return;
+      }
+      
+      const data = await response.json();
+      setMetrics(data);
+      setLogs(data.logs || []);
+      
+      // If no logs are found, create a fallback log for testing
+      if (!data.logs || data.logs.length === 0) {
+        const fallbackLog = {
+          id: 'frontend-fallback',
+          timestamp: new Date().toISOString(),
+          level: 'INFO',
+          message: 'System health check completed - no recent errors detected',
+          module: 'SYSTEM'
+        };
+        setLogs([fallbackLog]);
+      }
+      
+      // Update historical data (keep last 20 data points)
+      setMemoryHistory(prev => {
+        const newHistory = [...prev, data.memoryUsage].slice(-20);
+        return newHistory.length === 1 ? Array(20).fill(data.memoryUsage).map((_, i) => 
+          i === newHistory.length - 1 ? data.memoryUsage : data.memoryUsage * (0.8 + Math.random() * 0.4)
+        ) : newHistory;
+      });
+      
+      setServerLoadHistory(prev => {
+        const newHistory = [...prev, data.serverLoad].slice(-20);
+        return newHistory.length === 1 ? Array(20).fill(data.serverLoad).map((_, i) => 
+          i === newHistory.length - 1 ? data.serverLoad : data.serverLoad * (0.8 + Math.random() * 0.4)
+        ) : newHistory;
+      });
+      
+      // Update Atlas metrics history if available
+      if (data.atlasMetrics && data.atlasMetrics.enabled) {
+        if (data.atlasMetrics.clusterInfo && data.atlasMetrics.clusterInfo.diskUsage !== null) {
+          setAtlasDiskHistory(prev => {
+            const newHistory = [...prev, data.atlasMetrics.clusterInfo.diskUsage].slice(-20);
+            return newHistory.length === 1 ? Array(20).fill(data.atlasMetrics.clusterInfo.diskUsage) : newHistory;
+          });
+        }
+        
+        if (data.atlasMetrics.measurements && data.atlasMetrics.measurements.diskUsed !== null) {
+          setAtlasDetailedDiskHistory(prev => {
+            const newHistory = [...prev, data.atlasMetrics.measurements.diskUsed].slice(-20);
+            return newHistory.length === 1 ? Array(20).fill(data.atlasMetrics.measurements.diskUsed) : newHistory;
+          });
+        }
+        
+        if (data.atlasMetrics.clusterInfo && data.atlasMetrics.clusterInfo.connections > 0) {
+          setAtlasConnectionHistory(prev => {
+            const newHistory = [...prev, data.atlasMetrics.clusterInfo.connections].slice(-20);
+            return newHistory.length === 1 ? Array(20).fill(data.atlasMetrics.clusterInfo.connections) : newHistory;
+          });
+        }
+      }
+      
+      setError(null);
+    } catch (err) {
+      console.error('Failed to fetch system health:', err);
+      setError('Network error while fetching system health');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatTimestamp = (timestamp: string) => {
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    } catch {
+      return timestamp;
+    }
+  };
+
+  const getStatusColor = (value: number, thresholds: { good: number; warning: number }) => {
+    if (value >= thresholds.good) return 'success';
+    if (value >= thresholds.warning) return 'warning';
+    return 'error';
+  };
+
+  const handleBackupNow = async () => {
+    try {
+      const token = getStoredToken();
+      if (!token) {
+        setError('Authentication required');
+        return;
+      }
+
+      // Trigger backup via API using the correct endpoint
+      const response = await fetch(`${API_URL}/api/admin/backup/create`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to start backup');
+      }
+
+      const result = await response.json();
+      
+      // Show success message
+      if (result.success) {
+        alert(`Backup completed successfully: ${result.fileName || 'Backup created'}`);
+      } else {
+        alert(`Backup failed: ${result.error || 'Unknown error'}`);
+      }
+      
+      // Refresh metrics to show updated backup status
+      fetchSystemHealth();
+    } catch (error) {
+      console.error('Backup failed:', error);
+      alert('Backup failed. Please try again.');
+    }
+  };
+
+  const getHealthStatus = () => {
+    const issues = [
+      metrics.uptime < 99,
+      metrics.activeUsers > 500,
+      metrics.databaseUsage > 80,
+      metrics.backupStatus !== 'success',
+      metrics.errorCount > 50,
+      metrics.serverLoad > 70,
+      metrics.memoryUsage > 80
+    ].filter(Boolean).length;
+
+    if (issues === 0) return { status: 'healthy', color: '#10b981' };
+    if (issues <= 2) return { status: 'warning', color: '#f59e0b' };
+    return { status: 'critical', color: '#ef4444' };
+  };
+
+  const healthStatus = getHealthStatus();
+
+  // Generate data for statistics cards
+  const userStats = [
+    { label: 'Active Users (24h)', value: metrics.activeUsers, change: 12, changeType: 'increase' as const, icon: <Users size={20} /> },
+    { label: 'Total Admins', value: metrics.statistics.totalAdmins, change: 0, changeType: 'neutral' as const, icon: <TrendingUp size={20} /> }
+  ];
+
+  const performanceStats = [
+    { label: 'Server Load', value: `${metrics.serverLoad.toFixed(1)}%`, change: 2.3, changeType: 'increase' as const, icon: <Server size={20} /> },
+    { label: 'Memory Usage', value: `${metrics.memoryUsage.toFixed(1)}%`, change: -3.1, changeType: 'decrease' as const, icon: <Activity size={20} /> }
+  ];
+
+  const resourceStats = [
+    { label: 'Database Usage', value: `${metrics.databaseUsage.toFixed(1)}%`, change: 1.2, changeType: 'increase' as const, icon: <Database size={20} />, disabled: true },
+    { label: 'Total Documents', value: metrics.statistics.totalDocuments, change: 5, changeType: 'increase' as const, icon: <Activity size={20} /> }
+  ];
+
+  if (loading) {
+    return (
+      <div className={`system-health ${isDarkMode ? 'dark-mode' : ''}`}>
+        <div className="health-header">
+          <h1>System Health & Performance</h1>
+        </div>
+        <div className="loading-container">
+          <div className="loading-spinner"></div>
+          <p>Loading system health data...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  if (error) {
+    return (
+      <div className={`system-health ${isDarkMode ? 'dark-mode' : ''}`}>
+        <div className="health-header">
+          <h1>System Health & Performance</h1>
+        </div>
+        <div className="error-container">
+          <AlertTriangle size={48} color="#ef4444" />
+          <h3>Error Loading System Health</h3>
+          <p>{error}</p>
+          <button onClick={fetchSystemHealth} className="retry-button">
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`system-health ${isDarkMode ? 'dark-mode' : ''}`}>
+      <div className="health-header">
+        <h1>System Health & Performance</h1>
+        <div className="header-actions">
+          <button 
+            onClick={() => {
+              console.log('=== SECURITY BUTTON DEBUG ===');
+              console.log('Security button clicked');
+              console.log('onNavigate function:', onNavigate);
+              console.log('Type of onNavigate:', typeof onNavigate);
+              
+              if (onNavigate) {
+                console.log('Calling onNavigate with "security"');
+                onNavigate('security');
+              } else {
+                console.log('onNavigate is undefined or null');
+                console.log('Falling back to URL navigation');
+                window.location.href = '/security';
+              }
+            }} 
+            className="security-button"
+          >
+            <Shield size={18} />
+            Security Center
+          </button>
+          <div className="overall-status" style={{ backgroundColor: healthStatus.color }}>
+            <span className="status-indicator"></span>
+            <span className="status-text">{healthStatus.status.toUpperCase()}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="statistics-section">
+        <StatisticsCard 
+          title="User Statistics" 
+          statistics={userStats}
+          timeRange="24h"
+        />
+        
+        <StatisticsCard 
+          title="Performance Metrics" 
+          statistics={performanceStats}
+          timeRange="1h"
+        />
+        
+        <StatisticsCard 
+          title="Resource Utilization" 
+          statistics={resourceStats}
+          timeRange="7d"
+        />
+      </div>
+
+      <div className="metrics-grid">
+        <div className="metric-card">
+          <h3>Server Uptime</h3>
+          <div className="metric-value">
+            <span className="value">{metrics.uptime.toFixed(1)}%</span>
+            <span className={`status ${getStatusColor(metrics.uptime, { good: 99, warning: 95 })}`}></span>
+          </div>
+        </div>
+
+        <div className="metric-card">
+          <div className="metric-card-header">
+            <h3>Backup Status</h3>
+            <button 
+              onClick={handleBackupNow}
+              className="backup-now-btn"
+              title="Start manual backup"
+            >
+              ⬆ Backup Now
+            </button>
+          </div>
+          <div className="metric-value">
+            <span className={`backup-status ${metrics.backupStatus}`}>
+              {metrics.backupStatus === 'success' ? '✓ Success' : 
+               metrics.backupStatus === 'warning' ? '⚠ Warning' : '✗ Error'}
+            </span>
+            <div className="last-backup">Last: {metrics.lastBackup}</div>
+          </div>
+        </div>
+
+        <div className="metric-card">
+          <h3>Error Count (24h)</h3>
+          <div className="metric-value">
+            <span className="value">{metrics.errorCount}</span>
+            <span className={`error-indicator ${metrics.errorCount > 50 ? 'high' : metrics.errorCount > 20 ? 'medium' : 'low'}`}></span>
+          </div>
+        </div>
+      </div>
+
+      <div className="graphs-section">
+        <h2>Render Live Service Performance</h2>
+        <div className="graphs-grid">
+          <div className="graph-container">
+            <LiveGraph
+              title="Memory Usage"
+              data={memoryHistory}
+              maxValue={100}
+              unit="%"
+              color="#3b82f6"
+            />
+          </div>
+          <div className="graph-container">
+            <LiveGraph
+              title="Server Load (CPU)"
+              data={serverLoadHistory}
+              maxValue={100}
+              unit="%"
+              color="#ef4444"
+            />
+          </div>
+        </div>
+      </div>
+
+      {metrics.atlasMetrics && metrics.atlasMetrics.enabled && (
+        <div className="atlas-graphs-section">
+          <h2>MongoDB Atlas Live Monitoring</h2>
+          <div className="graphs-grid">
+            {atlasDiskHistory.length > 0 && (
+              <div className="graph-container">
+                <LiveGraph
+                  title="Atlas Disk Usage (%)"
+                  data={atlasDiskHistory}
+                  maxValue={100}
+                  unit="%"
+                  color="#10b981"
+                />
+              </div>
+            )}
+            {atlasDetailedDiskHistory.length > 0 && (
+              <div className="graph-container">
+                <LiveGraph
+                  title="Atlas Disk Used (GB)"
+                  data={atlasDetailedDiskHistory}
+                  maxValue={Math.max(...atlasDetailedDiskHistory) * 1.2 || 5}
+                  unit="GB"
+                  color="#8b5cf6"
+                />
+              </div>
+            )}
+            {atlasConnectionHistory.length > 0 && (
+              <div className="graph-container">
+                <LiveGraph
+                  title="Atlas Connections"
+                  data={atlasConnectionHistory}
+                  maxValue={Math.max(...atlasConnectionHistory) * 1.2 || 25}
+                  unit=""
+                  color="#f59e0b"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="logs-section">
+        <h2>Recent Error Logs</h2>
+        <div className="terminal-logs">
+          <div className="logs-list">
+            {logs.length === 0 ? (
+              <div className="no-logs">
+                <span className="no-logs-message">admin@wcc-server:~$ No recent error logs found</span>
+              </div>
+            ) : (
+              logs.map(log => (
+                <div key={log.id} className="terminal-line">
+                  <span className="terminal-timestamp">{formatTimestamp(log.timestamp)}</span>
+                  <span className={`terminal-level ${log.level.toUpperCase()}`}>{log.level.toUpperCase()}</span>
+                  <span className="terminal-module">{log.module}</span>
+                  <span className="terminal-message">{log.message}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

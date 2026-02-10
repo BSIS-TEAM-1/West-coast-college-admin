@@ -4,7 +4,8 @@ import {
   Wrench, Users, Edit, Trash2, Eye, MoreVertical, ChevronDown,
   CheckCircle, XCircle, Archive, RefreshCw, Upload, X
 } from 'lucide-react'
-import { getStoredToken, clearStoredToken, API_URL } from '../lib/authApi'
+import { getStoredToken, clearStoredToken, API_URL, getProfile, type ProfileResponse } from '../lib/authApi'
+import type { AccountLog } from '../lib/authApi'
 import './Announcements.css'
 
 interface Announcement {
@@ -77,10 +78,14 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
     isPinned: false,
     media: []
   })
+  const [currentUser, setCurrentUser] = useState<ProfileResponse | null>(null)
 
   
   useEffect(() => {
     fetchAnnouncements()
+    getProfile()
+      .then(setCurrentUser)
+      .catch(() => setCurrentUser(null))
   }, [])
 
   const fetchAnnouncements = async () => {
@@ -381,6 +386,21 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
            date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   }
 
+  const getAccountTypeColor = (type: string) => {
+    switch (type) {
+      case 'info':
+        return '#3b82f6'
+      case 'warning':
+        return '#f59e0b'
+      case 'urgent':
+        return '#ef4444'
+      case 'maintenance':
+        return '#8b5cf6'
+      default:
+        return '#6b7280'
+    }
+  }
+
   const filteredAnnouncements = announcements.filter(announcement => {
     const matchesSearch = announcement.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          announcement.message.toLowerCase().includes(searchTerm.toLowerCase())
@@ -414,6 +434,32 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
   }
 
   const handleToggleStatus = async (id: string, currentStatus: boolean) => {
+    // Check if user has permission to edit this announcement
+    if (!currentUser) {
+      alert('You must be logged in to update announcements')
+      return
+    }
+
+    const announcement = announcements.find(a => a._id === id)
+    if (!announcement) {
+      console.error('Announcement not found:', id)
+      return
+    }
+
+    // Check if user can edit this announcement based on role
+    const canEdit = 
+      currentUser.accountType === 'admin' ||
+      announcement.createdBy.username === currentUser.username
+
+  const canDelete = 
+      currentUser.accountType === 'admin' ||
+      announcement.createdBy.username === currentUser.username
+
+    if (!canEdit) {
+      alert(`Only ${currentUser.accountType === 'admin' ? 'admins' : 'the announcement creator'} can update announcements`)
+      return
+    }
+
     try {
       const token = getStoredToken()
       const response = await fetch(`${API_URL}/api/admin/announcements/${id}`, {
@@ -439,7 +485,6 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
         )
         return updated
       })
-
             
       // Refresh data after a short delay to ensure server sync
       setTimeout(() => {
@@ -489,7 +534,6 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
           </button>
         </div>
       </div>
-
       {showFilters && (
         <div className="announcements-filters">
           <select 
@@ -963,7 +1007,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                   onChange={handleSelectAll}
                 />
               </div>
-              <div className="table-title">Title</div>
+              <div className="table-title">Announcement</div>
               <div className="table-type">Type</div>
               <div className="table-audience">Audience</div>
               <div className="table-status">Status</div>
@@ -971,82 +1015,77 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
               <div className="table-actions">Actions</div>
             </div>
 
-            {filteredAnnouncements.map((announcement) => (
-              <div className="announcements-table-row" key={announcement._id}>
-                <div className="table-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={selectedAnnouncements.includes(announcement._id)}
-                    onChange={() => handleSelectAnnouncement(announcement._id)}
-                  />
-                </div>
-                
-                <div className="table-title">
-                  <div className="announcement-title-content">
-                    {announcement.isPinned && (
-                      <Pin size={14} className="pinned-icon" />
-                    )}
-                    <span className="title-text">{announcement.title}</span>
-                    {announcement.media && announcement.media.length > 0 && (
-                      <span className="media-indicator">📎</span>
+            {filteredAnnouncements.map((announcement) => {
+              const canEdit = currentUser?.accountType === 'admin' || 
+                            currentUser?.username === announcement.createdBy.username
+
+              return (
+                <div className="announcements-table-row" key={announcement._id}>
+                  <div className="table-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={selectedAnnouncements.includes(announcement._id)}
+                      onChange={() => handleSelectAnnouncement(announcement._id)}
+                    />
+                  </div>
+                  <div className="table-title">
+                    <span className="announcement-title" style={{ fontWeight: 'bold' }}>{announcement.title}</span>
+                    <span className="announcement-description">
+                      {announcement.message.split(' ').length > 10 
+                        ? `${announcement.message.split(' ').slice(0, 10).join(' ')}...` 
+                        : announcement.message}
+                    </span>
+                  </div>
+                  <div className="table-type">
+                    <span className={`type-badge type-${announcement.type}`}>
+                      {getTypeIcon(announcement.type)}
+                      {announcement.type}
+                    </span>
+                  </div>
+                  <div className="table-audience">
+                    <Users size={14} />
+                    {announcement.targetAudience}
+                  </div>
+                  <div className="table-status">
+                    <button
+                      className={`status-toggle ${announcement.isActive ? 'active' : 'inactive'} ${!canEdit ? 'disabled' : ''}`}
+                      onClick={() => canEdit && handleToggleStatus(announcement._id, announcement.isActive)}
+                      disabled={!canEdit}
+                      title={canEdit ? "Toggle status" : "You cannot edit this announcement"}
+                    >
+                      {announcement.isActive ? <CheckCircle size={14} /> : <XCircle size={14} />}
+                      {announcement.isActive ? 'Active' : 'Inactive'}
+                    </button>
+                  </div>
+                  <div className="table-date">
+                    <Clock size={14} />
+                    {formatDate(announcement.createdAt)}
+                  </div>
+                  <div className="table-actions">
+                    <button 
+                      className="action-btn"
+                      onClick={() => handleViewAnnouncement(announcement._id)}
+                      title="View details"
+                    >
+                      <Eye size={16} />
+                    </button>
+                    {canEdit && (
+                      <button 
+                        className="action-btn"
+                        onClick={() => handleEditAnnouncement(announcement)}
+                        title="Edit"
+                      >
+                        <Edit size={16} />
+                      </button>
                     )}
                   </div>
-                  <div className="announcement-message">{announcement.message}</div>
                 </div>
-
-                <div className="table-type">
-                  <span 
-                    className={`type-badge type-${announcement.type}`}
-                  >
-                    {getTypeIcon(announcement.type)}
-                    {announcement.type}
-                  </span>
-                </div>
-
-                <div className="table-audience">
-                  <Users size={14} />
-                  {announcement.targetAudience}
-                </div>
-
-                <div className="table-status">
-                  <button
-                    className={`status-toggle ${announcement.isActive ? 'active' : 'inactive'}`}
-                    onClick={() => handleToggleStatus(announcement._id, announcement.isActive)}
-                  >
-                    {announcement.isActive ? <CheckCircle size={14} /> : <XCircle size={14} />}
-                    {announcement.isActive ? 'Active' : 'Inactive'}
-                  </button>
-                </div>
-
-                <div className="table-date">
-                  <Clock size={14} />
-                  {formatDate(announcement.createdAt)}
-                </div>
-
-                <div className="table-actions">
-                  <button 
-                    className="action-btn"
-                    onClick={() => handleViewAnnouncement(announcement._id)}
-                    title="View announcement details"
-                  >
-                    <Eye size={16} />
-                  </button>
-                  <button 
-                    className="action-btn"
-                    onClick={() => handleEditAnnouncement(announcement)}
-                    title="Edit announcement"
-                  >
-                    <Edit size={16} />
-                  </button>
-                  <button className="action-btn">
-                    <MoreVertical size={16} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+              )
+            })}
+            </div>
         )}
       </div>
-    </div>
+    
+  </div>
   )
 }

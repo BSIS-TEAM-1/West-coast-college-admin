@@ -9,6 +9,9 @@ import Announcements from './Announcements'
 import AuditLogs from './AuditLogs'
 import DocumentManagement from './DocumentManagement'
 import AnnouncementDetail from './AnnouncementDetail'
+import PersonalDetails from './PersonalDetails'
+import SystemHealth from './SystemHealth'
+import Security from './Security'
 import { Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Users, Video } from 'lucide-react'
 import { getStoredToken, API_URL } from '../lib/authApi'
 import type { ProfileResponse } from '../lib/authApi'
@@ -44,12 +47,20 @@ interface Announcement {
   }
 }
 
-type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'documents' | 'announcement-detail'
+type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'documents' | 'announcement-detail' | 'personal-details' | 'system-health' | 'security'
 
 export default function Dashboard({ username, onLogout, onProfileUpdated }: DashboardProps) {
   const [view, setView] = useState<View>('dashboard')
+  const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string>('')
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [loading, setLoading] = useState(true)
+
+  // Debug view changes
+  useEffect(() => {
+    console.log('=== DASHBOARD VIEW DEBUG ===');
+    console.log('Current view:', view);
+    console.log('View type:', typeof view);
+  }, [view]);
 
   useEffect(() => {
     if (view === 'dashboard') {
@@ -57,19 +68,10 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
     }
   }, [view])
 
-  // Debug logging
-  useEffect(() => {
-    console.log('Dashboard: Current view:', view)
-    console.log('Dashboard: Loading state:', loading)
-    console.log('Dashboard: Announcements count:', announcements.length)
-  }, [view, loading, announcements])
-
   const fetchAnnouncements = async () => {
     try {
       setLoading(true)
-      console.log('Dashboard: Fetching announcements...')
       const token = getStoredToken()
-      console.log('Dashboard: Token exists:', !!token)
       
       const response = await fetch(`${API_URL}/api/admin/announcements`, {
         headers: {
@@ -78,11 +80,8 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
         }
       })
       
-      console.log('Dashboard: Response status:', response.status)
-      
       if (!response.ok) {
         if (response.status === 401) {
-          console.error('Authentication failed for dashboard announcements')
           setLoading(false)
           return
         }
@@ -90,11 +89,9 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
       }
       
       const data = await response.json()
-      console.log('Dashboard: Announcements data:', data)
       setAnnouncements(data.announcements || [])
       setLoading(false)
     } catch (error) {
-      console.error('Failed to fetch announcements:', error)
       setLoading(false)
     }
   }
@@ -136,6 +133,12 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
     setView('announcement-detail')
   }
 
+  const handleProfileUpdated = (profile: ProfileResponse) => {
+    if (onProfileUpdated) {
+      onProfileUpdated(profile)
+    }
+  }
+
   return (
     <div className="dashboard">
       <Sidebar activeLink={view} onNavigate={setView} />
@@ -143,7 +146,11 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
         <Navbar username={username} onLogout={onLogout} />
         <main className="dashboard-main">
           {view === 'profile' ? (
-            <Profile onProfileUpdated={onProfileUpdated} />
+            <Profile onProfileUpdated={handleProfileUpdated} onNavigate={(viewName) => {
+              if (viewName === 'personal-details') {
+                setView('personal-details')
+              }
+            }} />
           ) : view === 'settings' ? (
             <Settings onProfileUpdated={onProfileUpdated} onLogout={onLogout} />
           ) : view === 'add-account' ? (
@@ -151,16 +158,38 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
           ) : view === 'account-logs' ? (
             <AccountLogs />
           ) : view === 'announcements' ? (
-            <Announcements />
+            <Announcements onNavigate={(viewName, announcementId) => {
+              if (viewName === 'announcement-detail' && announcementId) {
+                setSelectedAnnouncementId(announcementId)
+                setView('announcement-detail')
+              }
+            }} />
           ) : view === 'audit-logs' ? (
             <AuditLogs />
           ) : view === 'documents' ? (
             <DocumentManagement />
           ) : view === 'announcement-detail' ? (
             <AnnouncementDetail 
-              announcementId={''} 
-              onBack={() => setView('dashboard')}
+              announcementId={selectedAnnouncementId} 
+              onBack={() => setView('announcements')}
             />
+          ) : view === 'personal-details' ? (
+            <PersonalDetails onBack={() => setView('profile')} />
+          ) : view === 'system-health' ? (
+            <SystemHealth onNavigate={(viewName) => {
+              console.log('=== SYSTEMHEALTH ONNAVIGATE DEBUG ===');
+              console.log('viewName received:', viewName);
+              console.log('Type of viewName:', typeof viewName);
+              
+              if (viewName === 'security') {
+                console.log('Setting view to security');
+                setView('security');
+              } else {
+                console.log('Unknown viewName:', viewName);
+              }
+            }} />
+          ) : view === 'security' ? (
+            <Security onBack={() => setView('system-health')} />
           ) : (
             <div className="dashboard-content">
               <div className="dashboard-header-content">

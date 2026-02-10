@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { animate } from 'animejs'
 import './Login.css'
 
 type Theme = 'light' | 'dark' | 'auto'
@@ -53,6 +54,69 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
     setTheme(newTheme);
   }
 
+  const handleTileHover = (index: number) => {
+    const tiles = document.querySelectorAll('.tile');
+    animate(tiles, {
+      scale: [
+        {value: 1.5, duration: 300, easing: 'easeOutQuad'},
+        {value: 1, duration: 500, delay: 500, easing: 'easeOutElastic(1, .5)'}
+      ],
+      delay: (target: any, i: number) => {
+        const distance = Math.abs(i - index);
+        const rowDistance = Math.floor(distance / 6);
+        const colDistance = distance % 6;
+        return (rowDistance + colDistance) * 50;
+      }
+    });
+  }
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    const tiles = document.querySelectorAll('.tile');
+    const cols = 6;
+    const rows = 6;
+    
+    tiles.forEach((tile, index) => {
+      const tileElement = tile as HTMLElement;
+      const col = index % cols;
+      const row = Math.floor(index / cols);
+      
+      const tileX = (col + 0.5) * (rect.width / cols);
+      const tileY = (row + 0.5) * (rect.height / rows);
+      
+      const distance = Math.sqrt(Math.pow(x - tileX, 2) + Math.pow(y - tileY, 2));
+      const maxDistance = Math.sqrt(Math.pow(rect.width, 2) + Math.pow(rect.height, 2));
+      const intensity = Math.max(0, 1 - distance / maxDistance);
+      
+      const targetOpacity = 0.2 + (intensity * 0.4);
+      const targetScale = 1 + (intensity * 0.3);
+      
+      animate(tileElement, {
+        opacity: targetOpacity,
+        scale: targetScale,
+        duration: 100,
+        easing: 'easeOutQuad'
+      });
+    });
+  }
+
+  const handleMouseLeave = () => {
+    const tiles = document.querySelectorAll('.tile');
+    
+    tiles.forEach((tile) => {
+      const tileElement = tile as HTMLElement;
+      animate(tileElement, {
+        opacity: 0.2,
+        scale: 1,
+        duration: 300,
+        easing: 'easeOutQuad'
+      });
+    });
+  }
+
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     onLogin(username, password)
@@ -63,10 +127,26 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
       <div className="login-container">
         {/* LEFT SIDE: Hero / Content Area */}
         <div className="login-hero">
-          <div className="hero-content">
-            <img src="/Logo.jpg" alt="West Coast College" className="hero-logo" />
-            <h2 className="hero-title">West Coast College</h2>
-            <p className="hero-text">
+          {/* Interactive Tile Grid Overlay */}
+          <div 
+            className="tile-grid-overlay"
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+          >
+            <div className="tile-grid">
+              {Array.from({ length: 36 }, (_, i) => (
+                <div 
+                  key={i} 
+                  className="tile"
+                  onMouseEnter={() => handleTileHover(i)}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="hero-content" style={{zIndex: 3}}>
+            <img src="/Logo.jpg" alt="West Coast College" className="hero-logo" style={{zIndex: 3}} />
+            <h2 className="hero-title" style={{zIndex: 3}}>West Coast College</h2>
+            <p className="hero-text" style={{zIndex: 3}}>
               Staff Portal - Secure access for authorized personnel only.
               Please ensure you have proper credentials before attempting to login.
             </p>
