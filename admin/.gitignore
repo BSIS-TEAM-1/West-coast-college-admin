@@ -28,3 +28,11 @@ render.yaml
 *.njsproj
 *.sln
 *.sw?
+
+# JSON backups
+*.json.backup
+*.backup.json
+*.bak.json
+
+# Gzipped JSON files
+*.json.gz
