@@ -5,6 +5,7 @@ import Profile from './Profile'
 import SettingsPage from './Settings'
 import { getProfile, getStoredToken } from '../lib/authApi'
 import type { ProfileResponse } from '../lib/authApi'
+import { API_URL } from '../lib/authApi'
 import Announcements from './Announcements'
 import AnnouncementDetail from './AnnouncementDetail'
 import './ProfessorDashboard.css'
@@ -92,7 +93,7 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
   const fetchAnnouncements = async () => {
     try {
       const token = getStoredToken()
-      const response = await fetch('http://localhost:3001/api/admin/announcements', {
+      const response = await fetch(`${API_URL}/api/admin/announcements`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'

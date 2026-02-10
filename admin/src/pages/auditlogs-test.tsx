@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Search, Filter, Download, AlertTriangle, CheckCircle, XCircle, Clock } from 'lucide-react'
 import { getStoredToken } from '../lib/authApi'
+import { API_URL } from '../lib/authApi'
 import './auditlogs-test.css'
 
 interface AuditLog {
@@ -64,7 +65,7 @@ const AuditLogs: React.FC = () => {
         )
       })
 
-      const response = await fetch(`http://localhost:3001/api/admin/audit-logs?${params}`, {
+      const response = await fetch(`${API_URL}/api/admin/audit-logs?${params}`, {
         headers: { Authorization: `Bearer ${token}` }
       })
       
@@ -89,7 +90,7 @@ const AuditLogs: React.FC = () => {
   const fetchStats = async () => {
     try {
       const token = getStoredToken()
-      const response = await fetch('http://localhost:3001/api/admin/audit-logs/stats', {
+      const response = await fetch(`${API_URL}/api/admin/audit-logs/stats`, {
         headers: { Authorization: `Bearer ${token}` }
       })
       
