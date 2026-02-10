@@ -52,8 +52,10 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetchAnnouncements()
-  }, [])
+    if (view === 'dashboard') {
+      fetchAnnouncements()
+    }
+  }, [view])
 
   // Debug logging
   useEffect(() => {
@@ -176,14 +178,14 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
                     <div className="dashboard-spinner"></div>
                     <p>Loading announcements...</p>
                   </div>
-                ) : announcements.length === 0 ? (
+                ) : announcements.filter(a => a.isActive).length === 0 ? (
                   <div className="dashboard-empty">
                     <Bell size={48} />
                     <h3>No announcements</h3>
                     <p>Check back later for updates.</p>
                   </div>
                 ) : (
-                  announcements.map((announcement) => (
+                  announcements.filter(a => a.isActive).map((announcement) => (
                     <div 
                       key={announcement._id} 
                       className="dashboard-announcement-card clickable"

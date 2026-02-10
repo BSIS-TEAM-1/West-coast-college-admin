@@ -1,8 +1,8 @@
 .add-account-page {
-  max-width: 1200px;
+  max-width: 1000px;
   margin: 0 auto;
   padding: 2rem;
-  background: var(--color-background);
+  background: #f8fafc;
   min-height: 100vh;
 }
 
@@ -24,7 +24,7 @@
 }
 
 .role-display-card {
-  background: var(--color-surface);
+  background: #ffffff;
   border: 1px solid var(--color-border);
   border-radius: 12px;
   padding: 1.5rem;
@@ -223,7 +223,7 @@
 .form-label {
   font-size: 0.875rem;
   font-weight: 500;
-  color: var(--color-text-bold);
+  color: #000000;
   margin-bottom: 0.5rem;
 }
 
@@ -233,7 +233,7 @@
   border-radius: 8px;
   font-size: 0.875rem;
   background: var(--color-background);
-  color: var(--color-text);
+  color: #000000;
   transition: all 0.2s ease;
 }
 
@@ -298,4 +298,62 @@
   .add-account-title {
     font-size: 1.5rem;
   }
+}
+
+/* Dark theme overrides for Add Account page */
+[data-theme="dark"] .add-account-page {
+  background: #334155;
+}
+
+[data-theme="dark"] .role-display-card {
+  background: #334155;
+  border-color: #1f2937;
+}
+
+[data-theme="dark"] .account-type-section {
+  background: #334155;
+  border-color: #1f2937;
+}
+
+[data-theme="dark"] .account-type-card {
+  background: #334155;
+  border-color: #1f2937;
+}
+
+[data-theme="dark"] .account-type-card:hover {
+  background: #475569;
+}
+
+[data-theme="dark"] .account-type-card.selected {
+  background: #475569;
+}
+
+[data-theme="dark"] .account-details-section {
+  background: #334155;
+  border-color: #1f2937;
+}
+
+[data-theme="dark"] .add-account-title,
+[data-theme="dark"] .add-account-desc,
+[data-theme="dark"] .role-title,
+[data-theme="dark"] .role-value,
+[data-theme="dark"] .account-type-label,
+[data-theme="dark"] .section-title {
+  color: #e5e7eb;
+}
+
+[data-theme="dark"] .role-label,
+[data-theme="dark"] .account-type-description,
+[data-theme="dark"] .account-type-permissions li {
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .form-label {
+  color: #ffffff;
+}
+
+[data-theme="dark"] .form-input {
+  color: #ffffff;
+  background-color: #1e293b;
+  border-color: #475569;
 }
