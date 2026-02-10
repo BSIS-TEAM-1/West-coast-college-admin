@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { TrendingUp, Users, Database, Server, AlertTriangle, Activity, Shield } from 'lucide-react'
+import { TrendingUp, Users, Database, Server, AlertTriangle, Activity } from 'lucide-react'
 import LiveGraph from '../components/LiveGraph';
 import StatisticsCard from './StatisticsCard';
 import { API_URL, getStoredToken } from '../lib/authApi'
@@ -340,24 +340,13 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
         <div className="header-actions">
           <button 
             onClick={() => {
-              console.log('=== SECURITY BUTTON DEBUG ===');
-              console.log('Security button clicked');
-              console.log('onNavigate function:', onNavigate);
-              console.log('Type of onNavigate:', typeof onNavigate);
-              
               if (onNavigate) {
-                console.log('Calling onNavigate with "security"');
                 onNavigate('security');
-              } else {
-                console.log('onNavigate is undefined or null');
-                console.log('Falling back to URL navigation');
-                window.location.href = '/security';
               }
-            }} 
-            className="security-button"
+            }}
+            className="security-btn primary"
           >
-            <Shield size={18} />
-            Security Center
+            Security
           </button>
           <div className="overall-status" style={{ backgroundColor: healthStatus.color }}>
             <span className="status-indicator"></span>
@@ -372,13 +361,13 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
           statistics={userStats}
           timeRange="24h"
         />
-        
+          
         <StatisticsCard 
           title="Performance Metrics" 
           statistics={performanceStats}
           timeRange="1h"
         />
-        
+          
         <StatisticsCard 
           title="Resource Utilization" 
           statistics={resourceStats}

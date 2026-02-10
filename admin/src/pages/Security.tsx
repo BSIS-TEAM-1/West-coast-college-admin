@@ -27,10 +27,6 @@ interface SecurityProps {
 }
 
 const Security: React.FC<SecurityProps> = ({ onBack }) => {
-  console.log('=== SECURITY COMPONENT DEBUG ===');
-  console.log('Security component mounted');
-  console.log('onBack prop:', onBack);
-  
   const [metrics, setMetrics] = useState<SecurityMetrics>({
     failedLogins: 0,
     suspiciousActivity: 0,
@@ -54,55 +50,38 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
   const [scanLoading, setScanLoading] = useState(false);
 
   useEffect(() => {
-    console.log('=== SECURITY USEEFFECT DEBUG ===');
-    console.log('useEffect triggered, calling fetchSecurityMetrics');
     fetchSecurityMetrics();
     const interval = setInterval(fetchSecurityMetrics, 10000); // Update every 10 seconds
     return () => clearInterval(interval);
   }, []);
 
   const fetchSecurityMetrics = async () => {
-    console.log('=== FETCH SECURITY METRICS DEBUG ===');
-    console.log('Starting fetchSecurityMetrics');
-    
     try {
       const token = getStoredToken();
-      console.log('Token from getStoredToken():', token ? 'exists' : 'missing');
       
       if (!token) {
-        console.log('No token found, setting error');
         setError('Authentication required');
         setLoading(false);
         return;
       }
 
-      console.log('Making API call to /api/admin/security-metrics');
       const response = await fetch(`${API_URL}/api/admin/security-metrics`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
 
-      console.log('API response status:', response.status);
-      console.log('API response ok:', response.ok);
-
       if (!response.ok) {
-        console.log('API call failed, throwing error');
         throw new Error('Failed to fetch security metrics');
       }
 
-      console.log('API call successful, parsing JSON');
       const data = await response.json();
-      console.log('Received data:', data);
-      
       setMetrics(data);
       setError(null);
-      console.log('Metrics updated successfully');
     } catch (err) {
       console.error('Failed to fetch security metrics:', err);
       setError('Network error while fetching security metrics');
     } finally {
-      console.log('Setting loading to false');
       setLoading(false);
     }
   };

@@ -31,33 +31,22 @@ function App() {
   }, [user, authChecked])
 
   const handleLogin = useCallback(async (username: string, password: string) => {
-    console.log('=== LOGIN HANDLER DEBUG ===');
-    console.log('Starting login process');
-    console.log('Username:', username);
-    
     setLoginError(undefined)
     setLoginLoading(true)
     try {
-      console.log('Calling apiLogin...');
       const data = await apiLogin(username, password)
-      console.log('Login successful, received data:', data);
-      console.log('Token from login:', data.token);
       
       setStoredToken(data.token)
-      console.log('Token stored, calling getProfile...');
       
       // Always fetch profile to get accurate account type
       const profile = await getProfile()
-      console.log('Profile received:', profile);
       
       setUser({ username: data.username, accountType: profile.accountType })
-      console.log('User state updated');
     } catch (err) {
       console.error('Login error:', err);
       setLoginError(err instanceof Error ? err.message : 'Invalid username or password.')
     } finally {
       setLoginLoading(false)
-      console.log('Login process completed');
     }
   }, [])
 

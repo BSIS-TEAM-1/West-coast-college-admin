@@ -3,18 +3,11 @@ export const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 let currentToken: string | null = null
 
 export function getStoredToken(): string | null {
-  console.log('=== GET STORED TOKEN DEBUG ===');
-  console.log('Current token value:', currentToken);
-  console.log('Token type:', typeof currentToken);
   return currentToken
 }
 
 export function setStoredToken(token: string): void {
-  console.log('=== SET STORED TOKEN DEBUG ===');
-  console.log('Setting token to:', token);
-  console.log('Token type:', typeof token);
   currentToken = token
-  console.log('Token after setting:', currentToken);
 }
 
 export function clearStoredToken(): void {

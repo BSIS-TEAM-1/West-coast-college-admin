@@ -57,9 +57,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
 
   // Debug view changes
   useEffect(() => {
-    console.log('=== DASHBOARD VIEW DEBUG ===');
-    console.log('Current view:', view);
-    console.log('View type:', typeof view);
+    // View change tracking can be added here if needed
   }, [view]);
 
   useEffect(() => {
@@ -177,15 +175,8 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
             <PersonalDetails onBack={() => setView('profile')} />
           ) : view === 'system-health' ? (
             <SystemHealth onNavigate={(viewName) => {
-              console.log('=== SYSTEMHEALTH ONNAVIGATE DEBUG ===');
-              console.log('viewName received:', viewName);
-              console.log('Type of viewName:', typeof viewName);
-              
               if (viewName === 'security') {
-                console.log('Setting view to security');
                 setView('security');
-              } else {
-                console.log('Unknown viewName:', viewName);
               }
             }} />
           ) : view === 'security' ? (

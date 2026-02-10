@@ -91,7 +91,6 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
     try {
       setLoading(true)
       const token = getStoredToken()
-      console.log('Fetching announcements with token:', token ? 'valid token' : 'no token')
       const response = await fetch(`${API_URL}/api/admin/announcements`, {
         headers: {
           'Authorization': `Bearer ${token}`,
