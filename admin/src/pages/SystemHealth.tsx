@@ -91,6 +91,8 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
   const [atlasDiskHistory, setAtlasDiskHistory] = useState<number[]>([]);
   const [atlasConnectionHistory, setAtlasConnectionHistory] = useState<number[]>([]);
   const [atlasDetailedDiskHistory, setAtlasDetailedDiskHistory] = useState<number[]>([]);
+  const [showWarningModal, setShowWarningModal] = useState(false);
+  const [warningType, setWarningType] = useState<string>('');
 
   // Detect dark mode
   useEffect(() => {
@@ -227,6 +229,67 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
     if (value >= thresholds.good) return 'success';
     if (value >= thresholds.warning) return 'warning';
     return 'error';
+  };
+
+  const handleWarningClick = (type: string) => {
+    setWarningType(type);
+    setShowWarningModal(true);
+  };
+
+  const getWarningDetails = (type: string) => {
+    const warnings = {
+      uptime: {
+        title: 'Low Server Uptime',
+        description: 'Server uptime is below optimal levels.',
+        recommendations: [
+          'Check server logs for crash patterns',
+          'Monitor system resources (CPU, memory)',
+          'Review recent deployments or changes',
+          'Consider implementing auto-restart mechanisms'
+        ],
+        severity: 'high'
+      },
+      backup: {
+        title: 'Backup Issues',
+        description: 'Backup system is experiencing problems.',
+        recommendations: [
+          'Check available disk space',
+          'Verify backup permissions',
+          'Review backup configuration',
+          'Test manual backup process'
+        ],
+        severity: 'medium'
+      },
+      errors: {
+        title: 'High Error Rate',
+        description: 'System is generating more errors than normal.',
+        recommendations: [
+          'Review application logs',
+          'Check database connectivity',
+          'Monitor API response times',
+          'Verify external service integrations'
+        ],
+        severity: 'high'
+      },
+      resources: {
+        title: 'Resource Usage Warning',
+        description: 'System resources are running high.',
+        recommendations: [
+          'Monitor CPU and memory usage',
+          'Check for memory leaks',
+          'Review database query performance',
+          'Consider scaling resources'
+        ],
+        severity: 'medium'
+      }
+    };
+    
+    return warnings[type as keyof typeof warnings] || {
+      title: 'System Warning',
+      description: 'System health warning detected.',
+      recommendations: ['Check system logs', 'Monitor performance metrics'],
+      severity: 'medium'
+    };
   };
 
   const handleBackupNow = async () => {
@@ -384,7 +447,11 @@ const getHealthStatus = () => {
           <h3>Server Uptime</h3>
           <div className="metric-value">
             <span className="value">{metrics.uptime.toFixed(1)}%</span>
-            <span className={`status ${getStatusColor(metrics.uptime, { good: 99, warning: 95 })}`}></span>
+            <span 
+              className={`status ${getStatusColor(metrics.uptime, { good: 99, warning: 95 })} ${getStatusColor(metrics.uptime, { good: 99, warning: 95 }) !== 'success' ? 'clickable-warning' : ''}`}
+              onClick={() => getStatusColor(metrics.uptime, { good: 99, warning: 95 }) !== 'success' && handleWarningClick('uptime')}
+              title={getStatusColor(metrics.uptime, { good: 99, warning: 95 }) !== 'success' ? 'Click to see details' : ''}
+            ></span>
           </div>
         </div>
 
@@ -400,7 +467,9 @@ const getHealthStatus = () => {
             </button>
           </div>
           <div className="metric-value">
-            <span className={`backup-status ${metrics.backupStatus}`}>
+            <span className={`backup-status ${metrics.backupStatus} ${metrics.backupStatus !== 'success' ? 'clickable-warning' : ''}`}
+                  onClick={() => metrics.backupStatus !== 'success' && handleWarningClick('backup')}
+                  title={metrics.backupStatus !== 'success' ? 'Click to see details' : ''}>
               {metrics.backupStatus === 'success' ? '✓ Success' : 
                metrics.backupStatus === 'warning' ? '⚠ Warning' : '✗ Error'}
             </span>
@@ -412,7 +481,11 @@ const getHealthStatus = () => {
           <h3>Error Count (24h)</h3>
           <div className="metric-value">
             <span className="value">{metrics.errorCount}</span>
-            <span className={`error-indicator ${metrics.errorCount > 50 ? 'high' : metrics.errorCount > 20 ? 'medium' : 'low'}`}></span>
+            <span 
+              className={`error-indicator ${metrics.errorCount > 50 ? 'high' : metrics.errorCount > 20 ? 'medium' : 'low'} ${metrics.errorCount > 20 ? 'clickable-warning' : ''}`}
+              onClick={() => metrics.errorCount > 20 && handleWarningClick('errors')}
+              title={metrics.errorCount > 20 ? 'Click to see details' : ''}
+            ></span>
           </div>
         </div>
       </div>
@@ -503,6 +576,46 @@ const getHealthStatus = () => {
           </div>
         </div>
       </div>
+
+      {/* Warning Modal */}
+      {showWarningModal && (
+        <div className="warning-modal-overlay" onClick={() => setShowWarningModal(false)}>
+          <div className="warning-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="warning-modal-header">
+              <h3>{getWarningDetails(warningType).title}</h3>
+              <button 
+                className="warning-modal-close" 
+                onClick={() => setShowWarningModal(false)}
+                aria-label="Close warning details"
+              >
+                ×
+              </button>
+            </div>
+            <div className="warning-modal-content">
+              <p className="warning-description">{getWarningDetails(warningType).description}</p>
+              <div className="warning-recommendations">
+                <h4>Recommended Actions:</h4>
+                <ul>
+                  {getWarningDetails(warningType).recommendations.map((rec, index) => (
+                    <li key={index}>{rec}</li>
+                  ))}
+                </ul>
+              </div>
+              <div className={`warning-severity ${getWarningDetails(warningType).severity}`}>
+                Severity: {getWarningDetails(warningType).severity.toUpperCase()}
+              </div>
+            </div>
+            <div className="warning-modal-footer">
+              <button 
+                className="warning-modal-btn primary" 
+                onClick={() => setShowWarningModal(false)}
+              >
+                Acknowledge
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
