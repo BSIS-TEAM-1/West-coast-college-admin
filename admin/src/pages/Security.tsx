@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { getStoredToken, API_URL } from '../lib/authApi';
 import { Shield, AlertTriangle, CheckCircle, XCircle, Lock, Activity, FileText, Settings, Ban, Globe, ShieldAlert } from 'lucide-react';
 import LiveChart from '../components/LiveChart';
+import BandwidthChart from '../components/BandwidthChart';
 import './Security.css';
 
 interface SecurityMetrics {
@@ -549,6 +550,9 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
 
       {/* Live Server Metrics Chart */}
       <LiveChart className="security-live-chart" />
+
+      {/* Bandwidth Monitor */}
+      <BandwidthChart className="security-bandwidth-chart" />
 
       <div className="security-sections">
         <div className="security-section">

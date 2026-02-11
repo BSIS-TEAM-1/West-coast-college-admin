@@ -2495,75 +2495,94 @@ app.get('*', (req, res) => {
   })
 })
 
-// GET /api/admin/server-stats - Get server performance metrics (public endpoint)
+// GET /api/admin/server-stats - Get server performance metrics from Render API
 app.get('/api/admin/server-stats', async (req, res) => {
   try {
-    const now = new Date();
-    const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    
-    // Get real server metrics from database
-    const [
-      totalRequests,
-      successfulLogins,
-      failedLogins,
-      activeConnections,
-      recentActivity
-    ] = await Promise.all([
-      // Count total requests (all audit logs in last 24h)
-      AuditLog.countDocuments({
-        createdAt: { $gte: last24h }
-      }),
-      // Count successful logins
-      AuditLog.countDocuments({
-        action: 'LOGIN',
-        status: 'SUCCESS',
-        createdAt: { $gte: last24h }
-      }),
-      // Count failed logins
-      AuditLog.countDocuments({
-        action: 'LOGIN',
-        status: 'FAILED',
-        createdAt: { $gte: last24h }
-      }),
-      // Estimate active connections (successful logins in last hour)
-      AuditLog.distinct('performedBy', {
-        action: 'LOGIN',
-        status: 'SUCCESS',
-        createdAt: { $gte: new Date(now.getTime() - 1 * 60 * 60 * 1000) }
-      }).then(userIds => userIds.length),
-      // Recent activity for response time estimation
-      AuditLog.find({
-        createdAt: { $gte: new Date(now.getTime() - 10 * 60 * 1000) } // Last 10 minutes
-      }).sort({ createdAt: -1 }).limit(50)
-    ]);
+    const response = await fetch(
+      `https://api.render.com/v1/services/${process.env.RENDER_SERVICE_ID}/metrics`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.RENDER_API_KEY}`,
+          Accept: "application/json"
+        }
+      }
+    );
 
-    // Calculate metrics
-    const cpu = Math.random() * 80 + 10; // Mock CPU (would need system monitoring)
-    const memory = Math.random() * 512 + 256; // Mock Memory (would need system monitoring)
-    const responseTime = recentActivity.length > 0 ? 
-      Math.random() * 200 + 50 : // Mock response time based on activity
-      Math.random() * 100 + 20;
+    if (!response.ok) {
+      return res.status(response.status).json({
+        error: "Render API error",
+        status: response.status
+      });
+    }
+
+    const data = await response.json();
     
-    const uptime = 99.9; // Mock uptime (would need actual monitoring)
-    const requests = totalRequests;
-    const errorRate = totalRequests > 0 ? (failedLogins / totalRequests * 100) : 0;
+    // Format Render metrics for frontend
+    const formattedMetrics = {
+      cpu: data.metrics?.cpu?.values?.[0]?.value || 0,
+      memory: data.metrics?.memory?.values?.[0]?.value || 0,
+      responseTime: data.metrics?.responseTime?.values?.[0]?.value || 0,
+      uptime: data.uptime || 99.9,
+      requests: data.requests || 0,
+      errorRate: data.errorRate || 0,
+      source: 'render-api'
+    };
+
+    res.json(formattedMetrics);
+
+  } catch (error) {
+    console.error('Render API error:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch Render metrics',
+      details: error.message
+    });
+  }
+})
+
+// GET /api/admin/bandwidth-stats - Get bandwidth usage statistics from Render API
+app.get('/api/admin/bandwidth-stats', async (req, res) => {
+  try {
+    const response = await fetch(
+      `https://api.render.com/v1/services/${process.env.RENDER_SERVICE_ID}/metrics`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.RENDER_API_KEY}`,
+          Accept: "application/json"
+        }
+      }
+    );
+
+    if (!response.ok) {
+      return res.status(response.status).json({
+        error: "Render API error",
+        status: response.status
+      });
+    }
+
+    const data = await response.json();
+    
+    // Extract bandwidth metrics from Render data
+    const outboundMB = data.metrics?.bandwidthOut?.values?.[0]?.value || 0;
+    const inboundMB = data.metrics?.bandwidthIn?.values?.[0]?.value || 0;
+    const totalMB = outboundMB + inboundMB;
+    const requestsPerMinute = data.metrics?.requestsPerMinute?.values?.[0]?.value || 0;
+    const avgResponseSize = data.metrics?.avgResponseSize?.values?.[0]?.value || 0;
+    const peakBandwidth = data.metrics?.peakBandwidth?.values?.[0]?.value || 0;
 
     res.json({
-      cpu: parseFloat(cpu.toFixed(1)),
-      memory: parseFloat(memory.toFixed(1)),
-      responseTime: parseFloat(responseTime.toFixed(0)),
-      uptime,
-      requests,
-      errorRate: parseFloat(errorRate.toFixed(2)),
-      successfulLogins,
-      failedLogins,
-      activeConnections,
-      source: 'mongodb-audit-logs'
+      outboundMB: parseFloat((outboundMB / 1024 / 1024).toFixed(2)), // Convert to MB
+      inboundMB: parseFloat((inboundMB / 1024 / 1024).toFixed(2)), // Convert to MB
+      totalMB: parseFloat((totalMB / 1024 / 1024).toFixed(2)), // Convert to MB
+      requestsPerMinute: Math.round(requestsPerMinute),
+      avgResponseSize: parseFloat((avgResponseSize / 1024).toFixed(2)), // Convert to KB
+      peakBandwidth: parseFloat((peakBandwidth / 1024 / 1024).toFixed(2)), // Convert to MB/s
+      source: 'render-api'
     });
+
   } catch (error) {
-    console.error('Server stats error:', error);
+    console.error('Bandwidth stats error:', error);
     res.status(500).json({ 
-      error: 'Failed to fetch server stats',
+      error: 'Failed to fetch bandwidth stats',
       details: error.message
     });
   }
@@ -2582,6 +2601,7 @@ app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`)
   console.log('Available routes:')
   console.log('  GET /api/admin/server-stats')
+  console.log('  GET /api/admin/bandwidth-stats')
   console.log('  GET /api/admin/security-metrics')
   console.log('  POST /api/admin/security-scan')
 })
