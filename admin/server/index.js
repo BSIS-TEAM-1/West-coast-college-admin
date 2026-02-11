@@ -1589,12 +1589,14 @@ app.get('/api/admin/security-metrics', authMiddleware, async (req, res) => {
     const now = new Date()
     const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000)
     
-    // Get security metrics from audit logs
+    // Get all security metrics from database
     const [
       failedLogins,
       suspiciousActivity,
       totalSessions,
-      recentThreats
+      recentThreats,
+      blockedIPs,
+      recentLogins
     ] = await Promise.all([
       // Count failed login attempts
       AuditLog.countDocuments({ 
@@ -1613,7 +1615,7 @@ app.get('/api/admin/security-metrics', authMiddleware, async (req, res) => {
         status: 'SUCCESS',
         createdAt: { $gte: new Date(now.getTime() - 1 * 60 * 60 * 1000) }
       }).then(userIds => userIds.length),
-      // Get recent security threats
+      // Get real security threats from audit logs
       AuditLog.find({
         action: { $in: ['LOGIN', 'SECURITY_BREACH', 'UNAUTHORIZED_ACCESS'] },
         severity: { $in: ['HIGH', 'CRITICAL', 'MEDIUM'] },
@@ -1621,63 +1623,47 @@ app.get('/api/admin/security-metrics', authMiddleware, async (req, res) => {
       })
       .sort({ createdAt: -1 })
       .limit(10)
-      .lean()
+      .lean(),
+      // Count real blocked IPs
+      BlockedIP.countDocuments({ isActive: true }),
+      // Count successful logins for session calculation
+      AuditLog.countDocuments({
+        action: 'LOGIN',
+        status: 'SUCCESS',
+        createdAt: { $gte: last24h }
+      })
     ])
     
-    // Process threats into the expected format
+    // Process real threats into the expected format
     const processedThreats = recentThreats.map(log => ({
       id: log._id.toString(),
       timestamp: log.createdAt,
-      type: log.action === 'LOGIN' ? 'Failed Login Attempt' : 
-            log.action === 'SECURITY_BREACH' ? 'Security Breach' : 
-            'Unauthorized Access',
+      type: log.action,
       severity: log.severity.toLowerCase(),
-      description: log.description || `${log.action} - ${log.resourceType || 'Unknown'}`,
+      description: log.description,
       source: log.ipAddress || 'Unknown',
-      status: log.status === 'SUCCESS' ? 'resolved' : 'active'
+      status: log.status === 'SUCCESS' ? 'resolved' : log.status === 'FAILED' ? 'active' : 'investigating'
     }))
     
-    // Add some sample threats if none exist (for demonstration)
-    if (processedThreats.length === 0) {
-      const sampleThreats = [
-        {
-          id: 'sample-1',
-          timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
-          type: 'Failed Login Attempt',
-          severity: 'medium',
-          description: 'Multiple failed login attempts from unknown IP',
-          source: '192.168.1.100',
-          status: 'active'
-        },
-        {
-          id: 'sample-2',
-          timestamp: new Date(Date.now() - 6 * 60 * 60 * 1000), // 6 hours ago
-          type: 'Unauthorized Access',
-          severity: 'low',
-          description: 'Attempted access to restricted admin area',
-          source: '10.0.0.15',
-          status: 'resolved'
-        }
-      ]
-      processedThreats.push(...sampleThreats)
-    }
+    // Calculate real active sessions (users who logged in successfully in last hour)
+    const activeSessions = totalSessions
     
-    // Calculate security score (0-100)
+    // Calculate security score (0-100) based on real data
     const securityScore = Math.max(0, Math.min(100, 
-      100 - (failedLogins * 2) - (suspiciousActivity * 5) + (totalSessions * 1)
+      100 - (failedLogins * 2) - (suspiciousActivity * 5) + (recentLogins * 1)
     ))
     
-    const securityMetrics = {
+    // Return real security metrics
+    res.json({
       failedLogins,
       suspiciousActivity,
-      blockedIPs: 0, // Would need IP blocking implementation
-      activeSessions: totalSessions,
+      blockedIPs,
+      activeSessions,
       lastSecurityScan: new Date().toISOString(),
       securityScore: Math.round(securityScore),
       recentThreats: processedThreats
-    }
+    })
     
-    res.json(securityMetrics)
   } catch (error) {
     console.error('Security metrics error:', error)
     res.status(500).json({ error: 'Failed to fetch security metrics.' })
@@ -1970,97 +1956,6 @@ app.get('/api/admin/backup/stats', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Backup stats error:', error);
     res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// GET /api/admin/security-metrics - get security metrics
-app.get('/api/admin/security-metrics', authMiddleware, async (req, res) => {
-  console.log('=== SECURITY METRICS ENDPOINT CALLED ===');
-  console.log('Request received at:', new Date().toISOString());
-  console.log('Request headers:', req.headers);
-  
-  if (!dbReady) {
-    console.log('Database not ready, returning 503');
-    return res.status(503).json({ error: 'Database unavailable.' })
-  }
-
-  try {
-    const now = new Date()
-    const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000)
-
-    // Get security metrics from database
-    const [
-      failedLogins,
-      recentLogins,
-      auditLogs,
-      totalAdmins
-    ] = await Promise.all([
-      // Count failed logins in last 24h
-      AuditLog.countDocuments({ 
-        action: 'LOGIN', 
-        status: 'FAILED', 
-        createdAt: { $gte: last24h } 
-      }),
-      // Count successful logins in last 24h
-      AuditLog.countDocuments({ 
-        action: 'LOGIN', 
-        status: 'SUCCESS', 
-        createdAt: { $gte: last24h } 
-      }),
-      // Get recent security-related audit logs
-      AuditLog.find({
-        action: { $in: ['LOGIN', 'LOGOUT', 'ACCESS_DENIED'] },
-        createdAt: { $gte: last24h }
-      })
-      .sort({ createdAt: -1 })
-      .limit(10)
-      .lean(),
-      // Count total admins
-      Admin.countDocuments()
-    ])
-
-    // Calculate security metrics
-    const suspiciousActivity = auditLogs.filter(log => log.status === 'FAILED').length
-    const blockedIPs = 0 // This would require implementing IP blocking functionality
-    const activeSessions = Math.floor(recentLogins * 0.7) // Estimate active sessions
-    const securityScore = Math.max(0, Math.min(100, 100 - (failedLogins * 2) - (suspiciousActivity * 5)))
-
-    // Generate mock threats for demonstration
-    const recentThreats = [
-      {
-        id: '1',
-        timestamp: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString(),
-        type: 'Failed Login Attempt',
-        severity: 'medium',
-        description: 'Multiple failed login attempts from unknown IP',
-        source: '192.168.1.100',
-        status: 'active'
-      },
-      ...(failedLogins > 5 ? [{
-        id: '2',
-        timestamp: new Date(now.getTime() - 1 * 60 * 60 * 1000).toISOString(),
-        type: 'Brute Force Attack',
-        severity: 'high',
-        description: `Detected ${failedLogins} failed login attempts`,
-        source: 'Unknown',
-        status: 'investigating'
-      }] : [])
-    ]
-
-    const securityData = {
-      failedLogins,
-      suspiciousActivity,
-      blockedIPs,
-      activeSessions,
-      lastSecurityScan: new Date(now.getTime() - 30 * 60 * 1000).toISOString(), // 30 minutes ago
-      securityScore: Math.round(securityScore),
-      recentThreats
-    }
-
-    res.json(securityData)
-  } catch (error) {
-    console.error('Security metrics error:', error)
-    res.status(500).json({ error: 'Failed to fetch security metrics' })
   }
 });
 
