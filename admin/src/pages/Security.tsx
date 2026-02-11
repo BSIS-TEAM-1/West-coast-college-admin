@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getStoredToken, API_URL } from '../lib/authApi';
-import { Shield, AlertTriangle, CheckCircle, XCircle, Lock, Activity, FileText, Settings, Ban, Eye, Globe, Server, ShieldAlert, RefreshCw, ChevronRight } from 'lucide-react';
+import { Shield, AlertTriangle, CheckCircle, XCircle, Lock, Activity, FileText, Settings, Ban, Globe, ShieldAlert } from 'lucide-react';
 import './Security.css';
 
 interface SecurityMetrics {
