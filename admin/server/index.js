@@ -7,6 +7,7 @@ const mongoose = require('mongoose')
 const jwt = require('jsonwebtoken')
 const si = require('systeminformation')
 const axios = require('axios')
+const { applySecurityHeaders } = require('./security-config')
 const Admin = require('./models/Admin')
 const Announcement = require('./models/Announcement')
 const AuditLog = require('./models/AuditLog')
@@ -56,9 +57,49 @@ const app = express()
 const PORT = process.env.PORT || 3001
 const JWT_SECRET = process.env.JWT_SECRET || 'wcc-admin-dev-secret-change-in-production'
 
+// Hide Express server information
+app.disable('x-powered-by')
+
+// Admin IP whitelist (for production)
+const ADMIN_IP_WHITELIST = process.env.ADMIN_IP_WHITELIST ? 
+  process.env.ADMIN_IP_WHITELIST.split(',').map(ip => ip.trim()) : 
+  [] // Empty whitelist allows all IPs in development
+
 // Increase payload limit for base64 images
 app.use(express.json({ limit: '10mb' }))
 app.use(cors({ origin: true, credentials: true }))
+
+// Apply security headers middleware
+app.use(applySecurityHeaders)
+
+// Security middleware to block sensitive paths
+app.use((req, res, next) => {
+  const blockedPaths = [
+    '/.git',
+    '/.git/',
+    '/backup.zip',
+    '/backup.sql',
+    '/database.sql',
+    '/db.sql',
+    '/backup.tar.gz',
+    '/site-backup.zip',
+    '/backup.bak',
+    '/wp-admin',
+    '/phpmyadmin',
+    '/administrator'
+  ]
+  
+  // Check if request path contains any blocked path
+  const isBlocked = blockedPaths.some(blockedPath => 
+    req.path.toLowerCase().includes(blockedPath.toLowerCase())
+  )
+  
+  if (isBlocked) {
+    return res.status(404).json({ error: 'Resource not found.' })
+  }
+  
+  next()
+})
 
 // Serve uploaded files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')))
@@ -86,14 +127,19 @@ async function authMiddleware(req, res, next) {
       return res.status(401).json({ error: 'Invalid or expired token.' })
     }
     
+    // Check if adminId exists and is valid
+    if (!authToken.adminId) {
+      return res.status(401).json({ error: 'Invalid token - no admin associated.' })
+    }
+    
     // Update last used timestamp
     authToken.lastUsed = new Date()
     await authToken.save()
     
     // Set request data
     req.adminId = authToken.adminId._id
-    req.username = authToken.username
-    req.accountType = authToken.accountType
+    req.username = authToken.username || authToken.adminId.username
+    req.accountType = authToken.accountType || authToken.adminId.accountType
     req.tokenId = authToken._id
     
     next()
@@ -202,6 +248,23 @@ mongoose.connect(uri)
     console.error('MongoDB connection error:', err.message)
     console.error('Add your IP to Atlas Network Access: https://www.mongodb.com/docs/atlas/security-whitelist/')
   })
+
+// Token cleanup function - removes expired tokens
+async function cleanupExpiredTokens() {
+  try {
+    const result = await AuthToken.deleteMany({
+      expiresAt: { $lt: new Date() }
+    })
+    if (result.deletedCount > 0) {
+      console.log(`Cleaned up ${result.deletedCount} expired tokens`)
+    }
+  } catch (error) {
+    console.error('Token cleanup error:', error)
+  }
+}
+
+// Schedule token cleanup every hour
+setInterval(cleanupExpiredTokens, 60 * 60 * 1000)
 
 // Migration function for existing accounts
 async function migrateExistingAccounts() {
@@ -376,8 +439,10 @@ app.post('/api/admin/login', async (req, res) => {
 // POST /api/admin/logout - Invalidate token
 app.post('/api/admin/logout', authMiddleware, async (req, res) => {
   try {
-    // Deactivate the token
-    await AuthToken.findByIdAndUpdate(req.tokenId, { isActive: false })
+    // Deactivate the token if it exists
+    if (req.tokenId) {
+      await AuthToken.findByIdAndUpdate(req.tokenId, { isActive: false })
+    }
     
     // Log the logout action
     await logAudit(
@@ -2158,6 +2223,225 @@ app.get('/api/admin/blocked-ips', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Get blocked IPs error:', error)
     res.status(500).json({ error: 'Failed to fetch blocked IPs.' })
+  }
+})
+
+// POST /api/admin/security-headers-scan - Scan security headers
+app.post('/api/admin/security-headers-scan', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  
+  try {
+    const findings = []
+    const recommendations = []
+    const score = { passed: 0, total: 0 }
+    
+    // Get the server URL from request
+    const protocol = req.protocol
+    const host = req.get('host')
+    const serverUrl = `${protocol}://${host}`
+    
+    // Check actual headers being sent by this server
+    const actualHeaders = {
+      'Strict-Transport-Security': {
+        present: !!res.getHeader('Strict-Transport-Security'),
+        value: res.getHeader('Strict-Transport-Security'),
+        status: 'pass',
+        description: 'HSTS enforces HTTPS-only connections'
+      },
+      'X-Content-Type-Options': {
+        present: !!res.getHeader('X-Content-Type-Options'),
+        value: res.getHeader('X-Content-Type-Options'),
+        status: 'pass',
+        description: 'Prevents MIME type sniffing attacks'
+      },
+      'X-Frame-Options': {
+        present: !!res.getHeader('X-Frame-Options'),
+        value: res.getHeader('X-Frame-Options'),
+        status: 'pass',
+        description: 'Prevents clickjacking attacks'
+      },
+      'X-XSS-Protection': {
+        present: !!res.getHeader('X-XSS-Protection'),
+        value: res.getHeader('X-XSS-Protection'),
+        status: 'pass',
+        description: 'Enables browser XSS filtering'
+      },
+      'Referrer-Policy': {
+        present: !!res.getHeader('Referrer-Policy'),
+        value: res.getHeader('Referrer-Policy'),
+        status: 'pass',
+        description: 'Controls referrer information sharing'
+      },
+      'Content-Security-Policy': {
+        present: !!res.getHeader('Content-Security-Policy'),
+        value: res.getHeader('Content-Security-Policy'),
+        status: 'pass',
+        description: 'Defines approved content sources'
+      },
+      'Permissions-Policy': {
+        present: !!res.getHeader('Permissions-Policy'),
+        value: res.getHeader('Permissions-Policy'),
+        status: 'pass',
+        description: 'Controls browser feature access'
+      }
+    }
+    
+    // Check each security header
+    Object.entries(actualHeaders).forEach(([header, config]) => {
+      score.total++
+      
+      if (config.present && config.status === 'pass') {
+        score.passed++
+        findings.push({
+          severity: 'low',
+          title: `${header} - Implemented`,
+          description: `${header} header is properly configured: ${config.value}`,
+          category: 'Security Headers',
+          status: 'pass',
+          recommendation: config.description
+        })
+      } else {
+        findings.push({
+          severity: 'high',
+          title: `${header} - Missing`,
+          description: `${header} header is not implemented or misconfigured`,
+          category: 'Security Headers',
+          status: 'fail',
+          recommendation: `Implement ${header} header: ${config.value || 'See security best practices'}`
+        })
+        
+        recommendations.push({
+          priority: 'high',
+          action: `Add ${header} header`,
+          details: config.description || 'This header helps protect against common web vulnerabilities'
+        })
+      }
+    })
+    
+    // Additional security checks
+    const additionalChecks = [
+      {
+        name: 'HTTPS Enforcement',
+        check: protocol === 'https',
+        severity: 'high',
+        description: 'Server should use HTTPS exclusively',
+        recommendation: 'Configure SSL/TLS certificate and redirect HTTP to HTTPS'
+      },
+      {
+        name: 'Server Information Disclosure',
+        check: !req.get('server') || req.get('server') === 'WCC-Admin',
+        severity: 'medium',
+        description: 'Server should not disclose technology information',
+        recommendation: 'Remove or obscure Server header'
+      },
+      {
+        name: 'X-Powered-By Header',
+        check: !req.get('x-powered-by'),
+        severity: 'low',
+        description: 'Remove technology stack information',
+        recommendation: 'Disable X-Powered-By header'
+      },
+      {
+        name: 'Admin Interface Protection',
+        check: true, // We're blocking admin paths in middleware
+        severity: 'medium',
+        description: 'Admin interfaces should be protected',
+        recommendation: 'Use IP whitelisting, strong authentication, or VPN access for admin areas'
+      },
+      {
+        name: 'Backup File Protection',
+        check: true, // We're blocking backup file paths in middleware
+        severity: 'high',
+        description: 'Backup files should not be publicly accessible',
+        recommendation: 'Store backups in secure, non-public locations with proper access controls'
+      },
+      {
+        name: 'Git Repository Protection',
+        check: true, // We're blocking .git paths in middleware
+        severity: 'high',
+        description: 'Git repository should not be accessible',
+        recommendation: 'Block access to .git directories in web server configuration'
+      }
+    ]
+    
+    additionalChecks.forEach(check => {
+      score.total++
+      
+      if (check.check) {
+        score.passed++
+        findings.push({
+          severity: 'low',
+          title: `${check.name} - Secure`,
+          description: check.description,
+          category: 'Server Security',
+          status: 'pass',
+          recommendation: 'Configuration is secure'
+        })
+      } else {
+        findings.push({
+          severity: check.severity,
+          title: `${check.name} - Issue Detected`,
+          description: check.description,
+          category: 'Server Security',
+          status: 'fail',
+          recommendation: check.recommendation
+        })
+        
+        if (check.severity === 'high') {
+          recommendations.push({
+            priority: 'high',
+            action: `Fix ${check.name}`,
+            details: check.recommendation
+          })
+        }
+      }
+    })
+    
+    // Calculate overall security score
+    const securityScore = Math.round((score.passed / score.total) * 100)
+    
+    // Generate summary
+    const summary = {
+      score: securityScore,
+      grade: securityScore >= 90 ? 'A' : securityScore >= 80 ? 'B' : securityScore >= 70 ? 'C' : securityScore >= 60 ? 'D' : 'F',
+      headersChecked: score.total,
+      headersPassed: score.passed,
+      criticalIssues: findings.filter(f => f.severity === 'high').length,
+      warnings: findings.filter(f => f.severity === 'medium').length,
+      info: findings.filter(f => f.severity === 'low').length
+    }
+    
+    // Log the security scan
+    await logAudit(
+      'SECURITY_HEADERS_SCAN',
+      'SECURITY',
+      'system',
+      'Security Headers Scan',
+      `Security headers scan completed with score: ${securityScore}%`,
+      req.adminId,
+      req.accountType,
+      null,
+      { score: securityScore, findings: findings.length },
+      'SUCCESS',
+      'LOW'
+    )
+    
+    res.json({
+      success: true,
+      scanType: 'Security Headers',
+      timestamp: new Date().toISOString(),
+      summary,
+      findings,
+      recommendations,
+      securityHeaders: actualHeaders,
+      serverUrl
+    })
+    
+  } catch (error) {
+    console.error('Security headers scan error:', error)
+    res.status(500).json({ error: 'Failed to perform security headers scan.' })
   }
 })
 

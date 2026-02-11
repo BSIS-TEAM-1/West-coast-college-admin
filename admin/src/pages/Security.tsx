@@ -26,6 +26,47 @@ interface SecurityProps {
   onBack?: () => void;
 }
 
+interface SecurityHeaderConfig {
+  present: boolean;
+  value: string;
+  status: 'pass' | 'fail';
+  description: string;
+}
+
+interface SecurityFinding {
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  title: string;
+  description: string;
+  category: string;
+  status: 'pass' | 'fail';
+  recommendation?: string;
+}
+
+interface SecurityRecommendation {
+  priority: 'low' | 'medium' | 'high';
+  action: string;
+  details: string;
+}
+
+interface SecurityScanResults {
+  success: boolean;
+  scanType: string;
+  timestamp: string;
+  summary: {
+    score: number;
+    grade: string;
+    headersChecked?: number;
+    headersPassed?: number;
+    criticalIssues: number;
+    warnings: number;
+    info?: number;
+  };
+  findings: SecurityFinding[];
+  recommendations: SecurityRecommendation[];
+  securityHeaders?: Record<string, SecurityHeaderConfig>;
+  serverUrl?: string;
+}
+
 const Security: React.FC<SecurityProps> = ({ onBack }) => {
   const [metrics, setMetrics] = useState<SecurityMetrics>({
     failedLogins: 0,
@@ -46,7 +87,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
   const [blockedIPsLoading, setBlockedIPsLoading] = useState(false);
   const [newBlockIP, setNewBlockIP] = useState({ ipAddress: '', reason: '', severity: 'medium' });
   const [showScanResults, setShowScanResults] = useState(false);
-  const [scanResults, setScanResults] = useState<any>(null);
+  const [scanResults, setScanResults] = useState<SecurityScanResults | null>(null);
   const [scanLoading, setScanLoading] = useState(false);
 
   useEffect(() => {
@@ -87,10 +128,14 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
   };
 
   const getSecurityScoreColor = (score: number) => {
-    if (score >= 80) return '#10b981'; // Green
-    if (score >= 60) return '#f59e0b'; // Yellow
-    return '#ef4444'; // Red
+    if (score >= 90) return '#10b981'; // Green - A
+    if (score >= 80) return '#22c55e'; // Green - B
+    if (score >= 70) return '#f59e0b'; // Yellow - C
+    if (score >= 60) return '#f97316'; // Orange - D
+    return '#ef4444'; // Red - F
   };
+
+  const getScoreColor = getSecurityScoreColor;
 
   const handleSecurityScan = async () => {
     try {
@@ -119,6 +164,37 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
     } catch (error) {
       console.error('System scan failed:', error);
       alert('System scan failed. Please try again.');
+    } finally {
+      setScanLoading(false);
+    }
+  };
+
+  const handleSecurityHeadersScan = async () => {
+    try {
+      const token = getStoredToken();
+      if (!token) return;
+
+      setScanLoading(true);
+
+      // Call security headers scan endpoint
+      const response = await fetch(`${API_URL}/api/admin/security-headers-scan`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const results = await response.json();
+        setScanResults(results);
+        setShowScanResults(true);
+      } else {
+        alert('Security headers scan failed. Please try again.');
+      }
+    } catch (error) {
+      console.error('Security headers scan failed:', error);
+      alert('Security headers scan failed. Please try again.');
     } finally {
       setScanLoading(false);
     }
@@ -382,6 +458,13 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
             >
               {scanLoading ? 'Scanning...' : 'Run System Scan'}
             </button>
+            <button 
+              className="security-btn primary" 
+              onClick={handleSecurityHeadersScan}
+              disabled={scanLoading}
+            >
+              {scanLoading ? 'Scanning...' : 'Security Headers Scan'}
+            </button>
             <button className="security-btn secondary" onClick={handleViewAuditLogs}>
               View Audit Logs
             </button>
@@ -586,7 +669,9 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
             pointerEvents: 'auto'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold' }}>Security Scan Results</h3>
+              <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold' }}>
+                {scanResults.scanType || 'Security'} Scan Results
+              </h3>
               <button
                 onClick={() => setShowScanResults(false)}
                 style={{
@@ -602,138 +687,182 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
             </div>
 
             {/* Scan Summary */}
-            <div style={{
-              backgroundColor: 'var(--bg-tertiary, #f5f5f5)',
-              padding: '16px',
-              borderRadius: '6px',
-              marginBottom: '20px',
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, 1fr)',
-              gap: '12px'
-            }}>
-              <div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)' }}>Scan Time</div>
-                <div style={{ fontSize: '14px', fontWeight: 'bold' }}>{new Date(scanResults.timestamp).toLocaleTimeString()}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)' }}>Duration</div>
-                <div style={{ fontSize: '14px', fontWeight: 'bold' }}>{scanResults.duration}ms</div>
-              </div>
-              <div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)' }}>Total Findings</div>
-                <div style={{ fontSize: '14px', fontWeight: 'bold' }}>{scanResults.summary.total}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)' }}>Status</div>
-                <div style={{
-                  fontSize: '14px',
-                  fontWeight: 'bold',
-                  color: scanResults.status === 'secure' ? '#10b981' : scanResults.status === 'warning' ? '#ef4444' : '#6b7280'
-                }}>
-                  {scanResults.status.toUpperCase()}
+            {scanResults.summary && (
+              <div style={{
+                backgroundColor: 'var(--bg-tertiary, #f5f5f5)',
+                padding: '16px',
+                borderRadius: '6px',
+                marginBottom: '20px',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                gap: '12px'
+              }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '24px', fontWeight: 'bold', color: getScoreColor(scanResults.summary.score) }}>
+                    {scanResults.summary.score}%
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)' }}>Score</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: getScoreColor(scanResults.summary.score) }}>
+                    {scanResults.summary.grade}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)' }}>Grade</div>
+                </div>
+                {scanResults.summary.headersChecked && (
+                  <>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#10b981' }}>
+                        {scanResults.summary.headersPassed}/{scanResults.summary.headersChecked}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)' }}>Headers Passed</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#ef4444' }}>
+                        {scanResults.summary.criticalIssues}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)' }}>Critical Issues</div>
+                    </div>
+                  </>
+                )}
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#f59e0b' }}>
+                    {scanResults.summary.warnings || 0}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)' }}>Warnings</div>
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* Severity Breakdown */}
-            <div style={{
-              backgroundColor: 'var(--bg-tertiary, #f5f5f5)',
-              padding: '16px',
-              borderRadius: '6px',
-              marginBottom: '20px',
-              display: 'grid',
-              gridTemplateColumns: 'repeat(5, 1fr)',
-              gap: '8px'
-            }}>
-              <div>
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary, #666)' }}>CRITICAL</div>
-                <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#8b5cf6' }}>{scanResults.summary.critical}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary, #666)' }}>HIGH</div>
-                <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#ef4444' }}>{scanResults.summary.high}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary, #666)' }}>MEDIUM</div>
-                <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#f59e0b' }}>{scanResults.summary.medium}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary, #666)' }}>LOW</div>
-                <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#10b981' }}>{scanResults.summary.low}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary, #666)' }}>INFO</div>
-                <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#3b82f6' }}>{scanResults.summary.info}</div>
-              </div>
-            </div>
-
-            {/* Findings */}
-            {scanResults.findings.length > 0 ? (
-              <>
-                <h4 style={{ margin: '16px 0 12px 0', fontSize: '14px', fontWeight: 'bold' }}>Findings</h4>
-                <div style={{ marginBottom: '16px' }}>
-                  {scanResults.findings.map((finding: any, index: number) => (
-                    <div key={index} style={{
-                      marginBottom: '12px',
-                      padding: '12px',
-                      backgroundColor: 'var(--bg-tertiary, #f5f5f5)',
+            {/* Security Headers Details */}
+            {scanResults.securityHeaders && (
+              <div style={{ marginBottom: '20px' }}>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 'bold', color: 'var(--text-primary, #333)' }}>
+                  Security Headers Status
+                </h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {Object.entries(scanResults.securityHeaders).map(([header, config]) => (
+                    <div key={header} style={{
+                      backgroundColor: config.status === 'pass' ? '#f0fdf4' : '#fef2f2',
+                      border: `1px solid ${config.status === 'pass' ? '#bbf7d0' : '#fecaca'}`,
                       borderRadius: '4px',
-                      borderLeft: `4px solid ${
-                        finding.severity === 'critical' ? '#8b5cf6' :
-                        finding.severity === 'high' ? '#ef4444' :
-                        finding.severity === 'medium' ? '#f59e0b' :
-                        finding.severity === 'low' ? '#10b981' : '#3b82f6'
-                      }`
+                      padding: '12px'
                     }}>
-                      <div style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '4px' }}>
-                        [{finding.severity.toUpperCase()}] {finding.title}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <span style={{ fontWeight: '600', fontSize: '14px' }}>{header}</span>
+                        <span style={{
+                          fontSize: '12px',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          backgroundColor: config.status === 'pass' ? '#22c55e' : '#ef4444',
+                          color: 'white'
+                        }}>
+                          {config.status === 'pass' ? 'PASS' : 'FAIL'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)', marginBottom: '4px' }}>
+                        {config.description}
+                      </div>
+                      {config.value && (
+                        <div style={{ 
+                          fontSize: '11px', 
+                          fontFamily: 'monospace', 
+                          backgroundColor: 'var(--bg-tertiary, #f5f5f5)', 
+                          padding: '4px 8px', 
+                          borderRadius: '3px',
+                          wordBreak: 'break-all'
+                        }}>
+                          {config.value}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Scan Details */}
+            {scanResults.findings && scanResults.findings.length > 0 && (
+              <div style={{ marginBottom: '20px' }}>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 'bold', color: 'var(--text-primary, #333)' }}>
+                  Detailed Findings
+                </h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
+                  {scanResults.findings.map((finding, index) => (
+                    <div key={index} style={{
+                      backgroundColor: finding.severity === 'high' ? '#fef2f2' : 
+                                     finding.severity === 'medium' ? '#fef3c7' : '#f0fdf4',
+                      border: `1px solid ${
+                        finding.severity === 'high' ? '#fecaca' : 
+                        finding.severity === 'medium' ? '#fde68a' : '#bbf7d0'
+                      }`,
+                      borderRadius: '4px',
+                      padding: '12px'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <span style={{ fontWeight: '600', fontSize: '14px' }}>{finding.title}</span>
+                        <span style={{
+                          fontSize: '11px',
+                          padding: '2px 6px',
+                          borderRadius: '12px',
+                          backgroundColor: finding.severity === 'high' ? '#ef4444' : 
+                                         finding.severity === 'medium' ? '#f59e0b' : '#10b981',
+                          color: 'white'
+                        }}>
+                          {finding.severity.toUpperCase()}
+                        </span>
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)', marginBottom: '4px' }}>
                         {finding.description}
                       </div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-secondary, #888)' }}>
-                        Category: {finding.category}
-                      </div>
+                      {finding.recommendation && (
+                        <div style={{ fontSize: '11px', fontStyle: 'italic', color: 'var(--text-primary, #333)' }}>
+                          💡 {finding.recommendation}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
-              </>
-            ) : (
-              <div style={{
-                padding: '20px',
-                textAlign: 'center',
-                color: 'var(--text-secondary, #666)',
-                fontSize: '14px'
-              }}>
-                No findings detected. System appears secure.
               </div>
             )}
 
             {/* Recommendations */}
-            {scanResults.recommendations.length > 0 && (
-              <>
-                <h4 style={{ margin: '16px 0 12px 0', fontSize: '14px', fontWeight: 'bold' }}>Recommendations</h4>
-                <div style={{ marginBottom: '16px' }}>
-                  {scanResults.recommendations.map((rec: any, index: number) => (
+            {scanResults.recommendations && scanResults.recommendations.length > 0 && (
+              <div style={{ marginBottom: '20px' }}>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 'bold', color: 'var(--text-primary, #333)' }}>
+                  Recommendations
+                </h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {scanResults.recommendations.map((rec, index) => (
                     <div key={index} style={{
-                      marginBottom: '12px',
-                      padding: '12px',
-                      backgroundColor: '#fef3c7',
-                      color: '#92400e',
+                      backgroundColor: 'var(--bg-tertiary, #f5f5f5)',
+                      border: '1px solid #e5e7eb',
                       borderRadius: '4px',
-                      borderLeft: '4px solid #f59e0b'
+                      padding: '12px'
                     }}>
-                      <div style={{ fontWeight: 'bold', fontSize: '13px', marginBottom: '4px' }}>
+                      <div style={{ fontWeight: '600', fontSize: '14px', marginBottom: '4px' }}>
                         {rec.action}
                       </div>
-                      <div style={{ fontSize: '12px' }}>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)' }}>
                         {rec.details}
                       </div>
                     </div>
                   ))}
                 </div>
-              </>
+              </div>
             )}
+
+            {/* Scan Metadata */}
+            <div style={{
+              fontSize: '12px',
+              color: 'var(--text-secondary, #666)',
+              textAlign: 'center',
+              paddingTop: '12px',
+              borderTop: '1px solid #e5e7eb'
+            }}>
+              Scan completed at {new Date(scanResults.timestamp).toLocaleString()}
+              {scanResults.serverUrl && ` • Server: ${scanResults.serverUrl}`}
+            </div>
 
             {/* Close Button */}
             <button
@@ -741,13 +870,13 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
               style={{
                 width: '100%',
                 padding: '10px',
-                backgroundColor: '#3b82f6',
+                backgroundColor: 'var(--accent-color, #3b82f6)',
                 color: 'white',
                 border: 'none',
                 borderRadius: '4px',
-                cursor: 'pointer',
                 fontSize: '14px',
-                fontWeight: '500'
+                fontWeight: 'bold',
+                cursor: 'pointer'
               }}
             >
               Close
