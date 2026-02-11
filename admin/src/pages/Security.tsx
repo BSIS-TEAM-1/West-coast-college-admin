@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getStoredToken, API_URL } from '../lib/authApi';
+import { Shield, AlertTriangle, CheckCircle, XCircle, Lock, Activity, FileText, Settings, Ban, Eye, Globe, Server, ShieldAlert, RefreshCw, ChevronRight } from 'lucide-react';
 import './Security.css';
 
 interface SecurityMetrics {
@@ -98,7 +99,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
 
   const fetchSecurityMetrics = async () => {
     try {
-      const token = getStoredToken();
+      const token = await getStoredToken();
       
       if (!token) {
         console.log('Security metrics: No token found');
@@ -159,9 +160,17 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
 
   const getScoreColor = getSecurityScoreColor;
 
+  const getSecurityGrade = (score: number) => {
+    if (score >= 90) return 'A';
+    if (score >= 80) return 'B';
+    if (score >= 70) return 'C';
+    if (score >= 60) return 'D';
+    return 'F';
+  };
+
   const handleSecurityScan = async () => {
     try {
-      const token = getStoredToken();
+      const token = await getStoredToken();
       if (!token) return;
 
       setScanLoading(true);
@@ -177,8 +186,20 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
 
       if (response.ok) {
         const results = await response.json();
+        console.log('Security scan results received:', results);
+        console.log('Score:', results.summary?.score);
+        console.log('Grade:', results.summary?.grade);
         setScanResults(results);
         setShowScanResults(true);
+        
+        // Update main security score with scan results
+        if (results.summary && results.summary.score !== undefined) {
+          setMetrics(prev => ({
+            ...prev,
+            securityScore: results.summary.score
+          }));
+        }
+        
         fetchSecurityMetrics();
       } else {
         alert('System scan failed. Please try again.');
@@ -193,7 +214,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
 
   const handleSecurityHeadersScan = async () => {
     try {
-      const token = getStoredToken();
+      const token = await getStoredToken();
       if (!token) return;
 
       setScanLoading(true);
@@ -227,7 +248,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
     setAuditLogsLoading(true);
     
     try {
-      const token = getStoredToken();
+      const token = await getStoredToken();
       if (!token) {
         setError('Authentication required');
         return;
@@ -259,7 +280,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
     setBlockedIPsLoading(true);
     
     try {
-      const token = getStoredToken();
+      const token = await getStoredToken();
       if (!token) {
         setError('Authentication required');
         return;
@@ -295,7 +316,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
     }
 
     try {
-      const token = getStoredToken();
+      const token = await getStoredToken();
       if (!token) return;
 
       const response = await fetch(`${API_URL}/api/admin/blocked-ips`, {
@@ -326,7 +347,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
     if (!confirm('Are you sure you want to unblock this IP?')) return;
 
     try {
-      const token = getStoredToken();
+      const token = await getStoredToken();
       if (!token) return;
 
       const response = await fetch(`${API_URL}/api/admin/blocked-ips/${id}`, {
@@ -393,51 +414,119 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
         </div>
         <div className="security-score">
           <div 
-            className="score-circle"
-            style={{ borderColor: getSecurityScoreColor(metrics.securityScore || 0) }}
+            className="security-metric-card"
+            style={{ 
+              padding: '16px 24px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: '180px',
+              position: 'relative',
+              overflow: 'hidden',
+              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+            }}
           >
-            <span style={{ color: getSecurityScoreColor(metrics.securityScore || 0) }}>
-              {metrics.securityScore !== undefined && metrics.securityScore !== null ? metrics.securityScore : '---'}
-            </span>
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '4px',
+              backgroundColor: getSecurityScoreColor(metrics.securityScore || 0)
+            }} />
+            
+            <div style={{ 
+              fontSize: '0.75rem', 
+              textTransform: 'uppercase', 
+              letterSpacing: '0.05em', 
+              color: 'var(--text-secondary, #64748b)', 
+              fontWeight: '600',
+              marginBottom: '8px',
+              marginTop: '4px'
+            }}>
+              Security Score
+            </div>
+            
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', marginBottom: '4px' }}>
+              <span style={{ 
+                fontSize: '3rem', 
+                fontWeight: '800', 
+                color: getSecurityScoreColor(metrics.securityScore || 0),
+                lineHeight: 1,
+                letterSpacing: '-0.02em'
+              }}>
+                {metrics.securityScore !== undefined && metrics.securityScore !== null ? metrics.securityScore : '--'}
+              </span>
+              <span style={{ fontSize: '1rem', color: '#94a3b8', fontWeight: '500' }}>/100</span>
+            </div>
+
+            <div style={{ 
+              padding: '4px 12px',
+              borderRadius: '20px',
+              backgroundColor: `${getSecurityScoreColor(metrics.securityScore || 0)}15`,
+              color: getSecurityScoreColor(metrics.securityScore || 0),
+              fontSize: '0.875rem',
+              fontWeight: '700',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}>
+              <span>Grade</span>
+              <span style={{ fontSize: '1.1em' }}>{getSecurityGrade(metrics.securityScore || 0)}</span>
+            </div>
           </div>
-          <div className="score-label">Security Score</div>
-        </div>
-        {/* Debug info */}
-        <div style={{ fontSize: '10px', color: '#666', marginLeft: '10px' }}>
-          Debug: Score={metrics.securityScore}, Loading={loading}, Error={error}
         </div>
       </div>
 
       <div className="security-metrics-grid">
         <div className="security-metric-card">
-          <h3>Failed Logins (24h)</h3>
-          <div className="metric-value">
-            <span className="value">{metrics.failedLogins}</span>
-            <span className={`indicator ${metrics.failedLogins > 10 ? 'high' : metrics.failedLogins > 5 ? 'medium' : 'low'}`}></span>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '12px' }}>
+            <div style={{ padding: '10px', borderRadius: '10px', backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', marginRight: '12px' }}>
+              <Lock size={20} />
+            </div>
+            <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '600', color: 'var(--text-secondary, #64748b)' }}>Failed Logins (24h)</h3>
+          </div>
+          <div className="metric-value" style={{ display: 'flex', alignItems: 'baseline' }}>
+            <span className="value" style={{ fontSize: '2rem', fontWeight: '700', marginRight: '8px' }}>{metrics.failedLogins}</span>
+            <span className={`indicator ${metrics.failedLogins > 10 ? 'high' : metrics.failedLogins > 5 ? 'medium' : 'low'}`} style={{ width: '10px', height: '10px', borderRadius: '50%' }}></span>
           </div>
         </div>
 
         <div className="security-metric-card">
-          <h3>Suspicious Activity</h3>
-          <div className="metric-value">
-            <span className="value">{metrics.suspiciousActivity}</span>
-            <span className={`indicator ${metrics.suspiciousActivity > 5 ? 'high' : metrics.suspiciousActivity > 2 ? 'medium' : 'low'}`}></span>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '12px' }}>
+            <div style={{ padding: '10px', borderRadius: '10px', backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', marginRight: '12px' }}>
+              <ShieldAlert size={20} />
+            </div>
+            <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '600', color: 'var(--text-secondary, #64748b)' }}>Suspicious Activity</h3>
+          </div>
+          <div className="metric-value" style={{ display: 'flex', alignItems: 'baseline' }}>
+            <span className="value" style={{ fontSize: '2rem', fontWeight: '700', marginRight: '8px' }}>{metrics.suspiciousActivity}</span>
+            <span className={`indicator ${metrics.suspiciousActivity > 5 ? 'high' : metrics.suspiciousActivity > 2 ? 'medium' : 'low'}`} style={{ width: '10px', height: '10px', borderRadius: '50%' }}></span>
           </div>
         </div>
 
         <div className="security-metric-card">
-          <h3>Blocked IPs</h3>
-          <div className="metric-value">
-            <span className="value">{metrics.blockedIPs}</span>
-            <span className="indicator low"></span>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '12px' }}>
+            <div style={{ padding: '10px', borderRadius: '10px', backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', marginRight: '12px' }}>
+              <Ban size={20} />
+            </div>
+            <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '600', color: 'var(--text-secondary, #64748b)' }}>Blocked IPs</h3>
+          </div>
+          <div className="metric-value" style={{ display: 'flex', alignItems: 'baseline' }}>
+            <span className="value" style={{ fontSize: '2rem', fontWeight: '700', marginRight: '8px' }}>{metrics.blockedIPs}</span>
           </div>
         </div>
 
         <div className="security-metric-card">
-          <h3>Active Sessions</h3>
-          <div className="metric-value">
-            <span className="value">{metrics.activeSessions}</span>
-            <span className="indicator low"></span>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '12px' }}>
+            <div style={{ padding: '10px', borderRadius: '10px', backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981', marginRight: '12px' }}>
+              <Globe size={20} />
+            </div>
+            <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: '600', color: 'var(--text-secondary, #64748b)' }}>Active Sessions</h3>
+          </div>
+          <div className="metric-value" style={{ display: 'flex', alignItems: 'baseline' }}>
+            <span className="value" style={{ fontSize: '2rem', fontWeight: '700', marginRight: '8px' }}>{metrics.activeSessions}</span>
           </div>
         </div>
       </div>
@@ -481,23 +570,30 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
               className="security-btn primary" 
               onClick={handleSecurityScan}
               disabled={scanLoading}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
             >
+              <Activity size={18} />
               {scanLoading ? 'Scanning...' : 'Run System Scan'}
             </button>
             <button 
               className="security-btn primary" 
               onClick={handleSecurityHeadersScan}
               disabled={scanLoading}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
             >
+              <Shield size={18} />
               {scanLoading ? 'Scanning...' : 'Security Headers Scan'}
             </button>
-            <button className="security-btn secondary" onClick={handleViewAuditLogs}>
+            <button className="security-btn secondary" onClick={handleViewAuditLogs} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <FileText size={18} />
               View Audit Logs
             </button>
-            <button className="security-btn secondary" onClick={handleManageBlockedIPs}>
+            <button className="security-btn secondary" onClick={handleManageBlockedIPs} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <Ban size={18} />
               Manage Blocked IPs
             </button>
-            <button className="security-btn secondary" onClick={handleSecuritySettings}>
+            <button className="security-btn secondary" onClick={handleSecuritySettings} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <Settings size={18} />
               Security Settings
             </button>
           </div>
@@ -680,7 +776,8 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
           alignItems: 'center',
           justifyContent: 'center',
           zIndex: 999,
-          pointerEvents: 'auto'
+          pointerEvents: 'auto',
+          backdropFilter: 'blur(4px)'
         }}>
           <div style={{
             backgroundColor: 'var(--bg-secondary, white)',
@@ -690,7 +787,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
             maxWidth: '600px',
             maxHeight: '80vh',
             overflow: 'auto',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
             zIndex: 1001,
             pointerEvents: 'auto'
           }}>
@@ -724,7 +821,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
                 gap: '12px'
               }}>
                 <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '24px', fontWeight: 'bold', color: getScoreColor(scanResults.summary.score) }}>
+                  <div style={{ fontSize: '28px', fontWeight: '800', color: getScoreColor(scanResults.summary.score) }}>
                     {scanResults.summary.score}%
                   </div>
                   <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)' }}>Score</div>
@@ -769,13 +866,16 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {Object.entries(scanResults.securityHeaders).map(([header, config]) => (
                     <div key={header} style={{
-                      backgroundColor: config.status === 'pass' ? '#f0fdf4' : '#fef2f2',
-                      border: `1px solid ${config.status === 'pass' ? '#bbf7d0' : '#fecaca'}`,
-                      borderRadius: '4px',
+                      backgroundColor: config.status === 'pass' ? 'rgba(16, 185, 129, 0.05)' : 'rgba(239, 68, 68, 0.05)',
+                      border: `1px solid ${config.status === 'pass' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
+                      borderRadius: '8px',
                       padding: '12px'
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                        <span style={{ fontWeight: '600', fontSize: '14px' }}>{header}</span>
+                        <span style={{ fontWeight: '600', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          {config.status === 'pass' ? <CheckCircle size={14} color="#10b981" /> : <XCircle size={14} color="#ef4444" />}
+                          {header}
+                        </span>
                         <span style={{
                           fontSize: '12px',
                           padding: '2px 8px',
@@ -816,17 +916,20 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
                   {scanResults.findings.map((finding, index) => (
                     <div key={index} style={{
-                      backgroundColor: finding.severity === 'high' ? '#fef2f2' : 
-                                     finding.severity === 'medium' ? '#fef3c7' : '#f0fdf4',
+                      backgroundColor: finding.severity === 'high' ? 'rgba(239, 68, 68, 0.05)' : 
+                                     finding.severity === 'medium' ? 'rgba(245, 158, 11, 0.05)' : 'rgba(16, 185, 129, 0.05)',
                       border: `1px solid ${
-                        finding.severity === 'high' ? '#fecaca' : 
-                        finding.severity === 'medium' ? '#fde68a' : '#bbf7d0'
+                        finding.severity === 'high' ? 'rgba(239, 68, 68, 0.2)' : 
+                        finding.severity === 'medium' ? 'rgba(245, 158, 11, 0.2)' : 'rgba(16, 185, 129, 0.2)'
                       }`,
-                      borderRadius: '4px',
+                      borderRadius: '8px',
                       padding: '12px'
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                        <span style={{ fontWeight: '600', fontSize: '14px' }}>{finding.title}</span>
+                        <span style={{ fontWeight: '600', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          {finding.severity === 'high' ? <AlertTriangle size={14} color="#ef4444" /> : <Shield size={14} />}
+                          {finding.title}
+                        </span>
                         <span style={{
                           fontSize: '11px',
                           padding: '2px 6px',
@@ -899,7 +1002,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
                 backgroundColor: 'var(--accent-color, #3b82f6)',
                 color: 'white',
                 border: 'none',
-                borderRadius: '4px',
+                borderRadius: '6px',
                 fontSize: '14px',
                 fontWeight: 'bold',
                 cursor: 'pointer'

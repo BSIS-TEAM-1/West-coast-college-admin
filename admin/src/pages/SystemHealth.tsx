@@ -119,7 +119,7 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
   
   const fetchSystemHealth = async () => {
     try {
-      const token = getStoredToken();
+      const token = await getStoredToken();
       if (!token) {
         setError('Authentication required');
         setLoading(false);
@@ -231,7 +231,7 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
 
   const handleBackupNow = async () => {
     try {
-      const token = getStoredToken();
+      const token = await getStoredToken();
       if (!token) {
         setError('Authentication required');
         return;
@@ -267,7 +267,7 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
     }
   };
 
-  const getHealthStatus = () => {
+const getHealthStatus = () => {
     const issues = [
       metrics.uptime < 99,
       metrics.activeUsers > 500,
@@ -278,13 +278,17 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
       metrics.memoryUsage > 80
     ].filter(Boolean).length;
 
-    if (issues === 0) return { status: 'healthy', color: '#10b981' };
-    if (issues <= 2) return { status: 'warning', color: '#f59e0b' };
-    return { status: 'critical', color: '#ef4444' };
+    if (issues === 0) return { status: 'healthy', color: '#10b981', issues };
+    if (issues <= 2) return { status: 'warning', color: '#f59e0b', issues };
+    return { status: 'critical', color: '#ef4444', issues };
   };
 
   const healthStatus = getHealthStatus();
-
+  
+  // Debug: Log the metrics and health status
+  console.log('Metrics received:', metrics);
+  console.log('Health status:', healthStatus);
+  
   // Generate data for statistics cards
   const userStats = [
     { label: 'Active Users (24h)', value: metrics.activeUsers, change: 12, changeType: 'increase' as const, icon: <Users size={20} /> },

@@ -1667,6 +1667,69 @@ app.get('/api/admin/security-metrics', authMiddleware, async (req, res) => {
   }
 })
 
+// Store token in database (for persistence across page refreshes)
+app.post('/api/admin/store-token', async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({ error: 'Token is required.' });
+    }
+    
+    // Store token in a simple way - you might want to associate with a session or user
+    // For now, we'll store it as a "session" token
+    await AuthToken.findOneAndUpdate(
+      { token: token },
+      { 
+        token: token,
+        isActive: true,
+        lastUsed: new Date(),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
+      },
+      { upsert: true, new: true }
+    );
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Store token error:', error);
+    res.status(500).json({ error: 'Failed to store token.' });
+  }
+});
+
+// Get stored token from database
+app.get('/api/admin/get-stored-token', async (req, res) => {
+  try {
+    // Get the most recent active token
+    const authToken = await AuthToken.findOne({ 
+      isActive: true,
+      expiresAt: { $gt: new Date() }
+    }).sort({ lastUsed: -1 });
+    
+    if (authToken) {
+      res.json({ token: authToken.token });
+    } else {
+      res.json({ token: null });
+    }
+  } catch (error) {
+    console.error('Get stored token error:', error);
+    res.json({ token: null });
+  }
+});
+
+// Clear stored token from database
+app.post('/api/admin/clear-stored-token', async (req, res) => {
+  try {
+    await AuthToken.updateMany(
+      { isActive: true },
+      { isActive: false }
+    );
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Clear stored token error:', error);
+    res.status(500).json({ error: 'Failed to clear token.' });
+  }
+});
+
 // GET /api/admin/system-health - Get comprehensive system health metrics
 app.get('/api/admin/system-health', authMiddleware, async (req, res) => {
   if (!dbReady) {
@@ -1795,27 +1858,6 @@ app.get('/api/admin/system-health', authMiddleware, async (req, res) => {
         recentLogins, // Total logins in 24h (for stats)
         errorLogs,
         warningLogs
-      },
-      // Atlas-specific metrics (always included)
-      atlasMetrics: {
-        enabled: !!(atlasMetrics && atlasMetrics.length > 0) || !!(atlasMeasurements),
-        clusterInfo: atlasMetrics && atlasMetrics.length > 0 ? {
-          name: atlasMetrics[0].typeName || 'Unknown',
-          version: atlasMetrics[0].version || 'Unknown',
-          connections: atlasMetrics[0].connections || 0,
-          diskUsage: diskUsagePercentage || null
-        } : null,
-        databaseInfo: atlasDbMetrics && atlasDbMetrics.length > 0 ? {
-          collectionsCount: atlasDbMetrics[0].collectionsCount || 0,
-          dataSize: atlasDbMetrics[0].dataSize || 'Unknown',
-          indexSize: indexSizeMB > 0 ? `${indexSizeMB.toFixed(2)} MB` : (atlasDbMetrics[0].indexSize || 'Unknown')
-        } : null,
-        measurements: atlasMeasurements ? {
-          available: true,
-          diskUsed: atlasMeasurements.measurements?.DISK_USED?.[atlasMeasurements.measurements.DISK_USED.length - 1]?.value || null,
-          diskTotal: atlasMeasurements.measurements?.DISK_TOTAL?.[atlasMeasurements.measurements.DISK_TOTAL.length - 1]?.value || null,
-          indexSize: indexSizeMB
-        } : null
       },
       logs: recentErrorLogs.map(log => ({
         id: log._id,
@@ -2029,6 +2071,29 @@ app.post('/api/admin/security-scan', authMiddleware, async (req, res) => {
       'MEDIUM'
     )
     
+    // Calculate security score and grade
+    const criticalCount = findings.filter(f => f.severity === 'critical').length
+    const highCount = findings.filter(f => f.severity === 'high').length
+    const mediumCount = findings.filter(f => f.severity === 'medium').length
+    const lowCount = findings.filter(f => f.severity === 'low').length
+    
+    // Base score starts at 100 and deducts points based on severity
+    let score = 100
+    score -= (criticalCount * 25)  // -25 points per critical issue
+    score -= (highCount * 15)      // -15 points per high issue  
+    score -= (mediumCount * 10)    // -10 points per medium issue
+    score -= (lowCount * 5)        // -5 points per low issue
+    
+    // Ensure score doesn't go below 0
+    score = Math.max(0, score)
+    
+    // Calculate grade based on score
+    let grade = 'A'
+    if (score < 60) grade = 'F'
+    else if (score < 70) grade = 'D'
+    else if (score < 80) grade = 'C'
+    else if (score < 90) grade = 'B'
+    
     const scanResult = {
       scanId: `scan-${Date.now()}`,
       timestamp: now.toISOString(),
@@ -2040,14 +2105,22 @@ app.post('/api/admin/security-scan', authMiddleware, async (req, res) => {
       }),
       recommendations,
       summary: {
+        score: score,
+        grade: grade,
         total: findings.length,
-        critical: findings.filter(f => f.severity === 'critical').length,
-        high: findings.filter(f => f.severity === 'high').length,
-        medium: findings.filter(f => f.severity === 'medium').length,
-        low: findings.filter(f => f.severity === 'low').length,
-        info: findings.filter(f => f.severity === 'info').length
+        critical: criticalCount,
+        high: highCount,
+        medium: mediumCount,
+        low: lowCount,
+        info: findings.filter(f => f.severity === 'info').length,
+        criticalIssues: criticalCount,
+        warnings: mediumCount + lowCount
       }
     }
+    
+    console.log('Security scan result:', scanResult);
+    console.log('Score:', scanResult.summary.score);
+    console.log('Grade:', scanResult.summary.grade);
     
     res.json(scanResult)
   } catch (error) {

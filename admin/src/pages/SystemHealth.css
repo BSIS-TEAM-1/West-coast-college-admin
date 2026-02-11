@@ -3,67 +3,22 @@
   background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
   min-height: 100vh;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-}
-
-/* Atlas Metrics Section */
-.atlas-metrics-section {
-  margin: 2rem 0;
-  padding: 1.5rem;
-  background: #ffffff;
-  border-radius: 16px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  border: 1px solid #e2e8f0;
-}
-
-.atlas-metrics-section h2 {
-  font-size: 1.5rem;
-  font-weight: 600;
   color: #1e293b;
-  margin-bottom: 1rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
 }
 
-.atlas-metrics-section h2::before {
-  content: "🗄️";
-  font-size: 1.2rem;
+/* Light mode colors - white background, dark text */
+.system-health:not(.system-health.dark-mode) {
+  color: #1e293b;
 }
 
-.atlas-metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 1.5rem;
-}
-
-.atlas-metric-card {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
+/* Dark mode colors - dark background, light text */
+.system-health.dark-mode {
+  color: #e2e8f0;
+  border-radius: 16px;
   padding: 1.5rem;
-  transition: all 0.3s ease;
-}
-
-.atlas-metric-card:hover {
-  border-color: #3b82f6;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
-  transform: translateY(-2px);
-}
-
-.atlas-metric-card h3 {
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: #374151;
-  margin-bottom: 1rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.atlas-metric-details {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e2e8f0;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .metric-detail {
@@ -195,7 +150,8 @@
 
 .metric-card {
   background: white;
-  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
   padding: 1.5rem;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   border: 1px solid #e2e8f0;

@@ -95,7 +95,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
 
   const fetchAnnouncements = async () => {
     try {
-      const token = getStoredToken()
+      const token = await getStoredToken()
       const response = await fetch(`${API_URL}/api/admin/announcements`, {
         headers: {
           'Authorization': `Bearer ${token}`,

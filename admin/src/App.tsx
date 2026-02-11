@@ -15,19 +15,22 @@ function App() {
 
   useEffect(() => {
     if (user || authChecked) return
-    const token = getStoredToken()
-    if (!token) {
-      setAuthChecked(true)
-      return
-    }
-    getProfile()
-      .then((profile) => {
+    const checkAuth = async () => {
+      try {
+        const token = await getStoredToken()
+        if (!token) {
+          setAuthChecked(true)
+          return
+        }
+        const profile = await getProfile()
         setUser({ username: profile.username, accountType: profile.accountType })
-      })
-      .catch(() => {
-        clearStoredToken()
-      })
-      .finally(() => setAuthChecked(true))
+      } catch (error) {
+        await clearStoredToken()
+      } finally {
+        setAuthChecked(true)
+      }
+    }
+    checkAuth()
   }, [user, authChecked])
 
   const handleLogin = useCallback(async (username: string, password: string) => {

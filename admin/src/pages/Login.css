@@ -179,19 +179,13 @@
 /* RIGHT SIDE - The Login Form */
 
 .login-side {
-
   flex: 1;
-
   display: flex;
-
   align-items: center;
-
   justify-content: center;
-
   background: var(--color-surface);
-
   padding: 2rem;
-
+  position: relative; /* REQUIRED for badge */
 }
 
 
@@ -696,39 +690,24 @@
 
 }
 
-/* Security Badge */
 .security-badge {
-  position: fixed;
-  bottom: 20px;
-  left: 20px;
+  position: absolute; /* relative to login-side */
+  bottom: 1.5rem;
+  left: 2rem;
   display: flex;
   align-items: center;
-  gap: 6px;
-  z-index: 1000;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
-  transition: color 0.3s ease;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
 }
 
 .security-badge:hover {
-  color: rgba(255, 255, 255, 0.8);
-}
-
-.security-text {
-  color: inherit;
-  font-weight: 400;
+  opacity: 1;
 }
 
 .security-provider {
-  color: inherit;
+  color: #47eab4;
   font-weight: 600;
-}
-
-/* Light theme security badge */
-[data-theme="light"] .security-badge {
-  color: rgba(128, 128, 128, 0.6);
-}
-
-[data-theme="light"] .security-badge:hover {
-  color: rgba(128, 128, 128, 0.8);
 }

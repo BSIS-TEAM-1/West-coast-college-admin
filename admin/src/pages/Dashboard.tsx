@@ -69,7 +69,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
   const fetchAnnouncements = async () => {
     try {
       setLoading(true)
-      const token = getStoredToken()
+      const token = await getStoredToken()
       
       const response = await fetch(`${API_URL}/api/admin/announcements`, {
         headers: {

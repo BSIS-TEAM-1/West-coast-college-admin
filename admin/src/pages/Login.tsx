@@ -46,8 +46,6 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
 
   }, [])
 
-
-
   useEffect(() => {
 
     const applyTheme = (newTheme: Theme) => {
@@ -74,11 +72,9 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
 
     };
 
-
+    
 
     applyTheme(theme);
-
-
 
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
@@ -478,14 +474,13 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
 
           </div>
 
+          {/* Security Badge */}
+          <div className="security-badge">
+            <span className="security-text">Protected by:</span>
+            <span className="security-provider">WCC SecureShield</span>
+          </div>
         </div>
 
-      </div>
-
-      {/* Security Badge */}
-      <div className="security-badge">
-        <span className="security-text">Protected by:</span>
-        <span className="security-provider">WCC SecureShield</span>
       </div>
 
     </div>

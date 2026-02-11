@@ -2,35 +2,76 @@ export const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 
 let currentToken: string | null = null
 
-export function getStoredToken(): string | null {
-  return currentToken
+export async function getStoredToken(): Promise<string | null> {
+  try {
+    // Try to get token from database
+    const response = await fetch(`${API_URL}/api/admin/get-stored-token`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      if (data.token) {
+        currentToken = data.token;
+        return data.token;
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to get stored token from database:', error);
+  }
+  
+  return currentToken;
 }
 
 export function setStoredToken(token: string): void {
   currentToken = token
+  // Store token in database
+  fetch(`${API_URL}/api/admin/store-token`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ token })
+  }).catch(error => {
+    console.warn('Failed to store token in database:', error);
+  });
 }
 
-export function clearStoredToken(): void {
+export async function clearStoredToken(): Promise<void> {
   currentToken = null
+  // Clear token from database
+  try {
+    await fetch(`${API_URL}/api/admin/clear-stored-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+  } catch (error) {
+    console.warn('Failed to clear stored token from database:', error);
+  }
 }
 
 export async function logout(): Promise<{ message: string }> {
-  const token = getStoredToken()
+  const token = await getStoredToken()
   if (!token) {
     // If no token, just clear state and return success
-    clearStoredToken()
+    await clearStoredToken()
     return { message: 'No active session found.' }
   }
 
   try {
     const res = await fetch(`${API_URL}/api/admin/logout`, { 
-      headers: authHeaders(),
+      headers: await authHeaders(),
       method: 'POST'
     })
     const data = await res.json().catch(() => ({}))
     
     // Always clear local token regardless of server response
-    clearStoredToken()
+    await clearStoredToken()
     
     if (!res.ok) {
       // If server fails, still clear token but don't throw error
@@ -41,7 +82,7 @@ export async function logout(): Promise<{ message: string }> {
     return data as { message: string }
   } catch (error) {
     // If network fails, still clear local token
-    clearStoredToken()
+    await clearStoredToken()
     console.warn('Logout network error:', error)
     return { message: 'Logged out locally.' }
   }
@@ -105,8 +146,8 @@ export async function login(username: string, password: string): Promise<LoginRe
   return data as LoginResponse
 }
 
-function authHeaders(): Record<string, string> {
-  const token = getStoredToken()
+async function authHeaders(): Promise<Record<string, string>> {
+  const token = await getStoredToken()
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -114,7 +155,7 @@ function authHeaders(): Record<string, string> {
 }
 
 export async function getProfile(): Promise<ProfileResponse> {
-  const res = await fetch(`${API_URL}/api/admin/profile`, { headers: authHeaders() })
+  const res = await fetch(`${API_URL}/api/admin/profile`, { headers: await authHeaders() })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
     throw new Error((data?.error as string) || 'Failed to load profile.')
@@ -131,7 +172,7 @@ export async function updateProfile(updates: {
 }): Promise<ProfileResponse> {
   const res = await fetch(`${API_URL}/api/admin/profile`, {
     method: 'PATCH',
-    headers: authHeaders(),
+    headers: await authHeaders(),
     body: JSON.stringify(updates),
   })
   const data = await res.json().catch(() => ({}))
@@ -142,7 +183,7 @@ export async function updateProfile(updates: {
 }
 
 export async function uploadAvatar(file: File): Promise<{ message: string; avatar: string; avatarUrl: string }> {
-  const token = getStoredToken()
+  const token = await getStoredToken()
   if (!token) {
     throw new Error('Authentication required.')
   }
@@ -181,7 +222,7 @@ export async function uploadAvatar(file: File): Promise<{ message: string; avata
 export async function deleteAvatar(): Promise<{ message: string }> {
   const res = await fetch(`${API_URL}/api/admin/avatar`, {
     method: 'DELETE',
-    headers: authHeaders(),
+    headers: await authHeaders(),
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
@@ -191,7 +232,7 @@ export async function deleteAvatar(): Promise<{ message: string }> {
 }
 
 export async function getAccountLogs(): Promise<AccountLog[]> {
-  const res = await fetch(`${API_URL}/api/admin/accounts`, { headers: authHeaders() })
+  const res = await fetch(`${API_URL}/api/admin/accounts`, { headers: await authHeaders() })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
     throw new Error((data?.error as string) || 'Failed to load account logs.')
@@ -202,7 +243,7 @@ export async function getAccountLogs(): Promise<AccountLog[]> {
 export async function createAccount(accountData: CreateAccountRequest): Promise<{ message: string; account: AccountLog }> {
   const res = await fetch(`${API_URL}/api/admin/accounts`, {
     method: 'POST',
-    headers: authHeaders(),
+    headers: await authHeaders(),
     body: JSON.stringify(accountData),
   })
   const data = await res.json().catch(() => ({}))
@@ -213,7 +254,7 @@ export async function createAccount(accountData: CreateAccountRequest): Promise<
 }
 
 export async function getAccountCount(accountType: 'admin' | 'registrar' | 'professor'): Promise<number> {
-  const res = await fetch(`${API_URL}/api/admin/accounts/count?type=${accountType}`, { headers: authHeaders() })
+  const res = await fetch(`${API_URL}/api/admin/accounts/count?type=${accountType}`, { headers: await authHeaders() })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
     throw new Error((data?.error as string) || 'Failed to get account count.')
@@ -224,7 +265,7 @@ export async function getAccountCount(accountType: 'admin' | 'registrar' | 'prof
 export async function deleteAccount(accountId: string): Promise<{ message: string }> {
   const res = await fetch(`${API_URL}/api/admin/accounts/${accountId}`, {
     method: 'DELETE',
-    headers: authHeaders(),
+    headers: await authHeaders(),
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {

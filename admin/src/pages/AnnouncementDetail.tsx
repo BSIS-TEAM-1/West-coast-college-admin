@@ -71,7 +71,7 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
   const fetchAnnouncement = async (announcementId: string) => {
     try {
       setLoading(true)
-      const token = getStoredToken()
+      const token = await getStoredToken()
       const response = await fetch(`${API_URL}/api/announcements/${announcementId}`, {
         headers: {
           Authorization: `Bearer ${token}`
@@ -128,7 +128,7 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
     if (!announcement) return
     
     try {
-      const token = getStoredToken()
+      const token = await getStoredToken()
       const response = await fetch(`${API_URL}/api/announcements/${announcement._id}/like`, {
         method: 'POST',
         headers: {
@@ -166,7 +166,7 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
     if (!announcement) return
     
     try {
-      const token = getStoredToken()
+      const token = await getStoredToken()
       const response = await fetch(`${API_URL}/api/announcements/${announcement._id}/bookmark`, {
         method: 'POST',
         headers: {
@@ -231,7 +231,7 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
   const handleDelete = async () => {
     if (announcement && window.confirm('Are you sure you want to delete this announcement?')) {
       try {
-        const token = getStoredToken()
+        const token = await getStoredToken()
         const response = await fetch(`${API_URL}/api/admin/announcements/${announcement._id}`, {
           method: 'DELETE',
           headers: {

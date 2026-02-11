@@ -90,7 +90,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
   const fetchAnnouncements = async () => {
     try {
       setLoading(true)
-      const token = getStoredToken()
+      const token = await getStoredToken()
       const response = await fetch(`${API_URL}/api/admin/announcements`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -160,7 +160,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
         fileSize: (m as any).fileSize ?? 0,
       })) as NonNullable<Announcement['media']>
       
-      const token = getStoredToken()
+      const token = await getStoredToken()
       const response = await fetch(`${API_URL}/api/admin/announcements/${editingAnnouncement._id}`, {
         method: 'PUT',
         headers: {
@@ -216,16 +216,16 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       const allMediaRaw = [...(newAnnouncement.media || []), ...newMedia]
       const allMedia = allMediaRaw.map((m) => ({
         ...m,
-        // Ensure fileSize is present for backend schema
         fileSize: (m as any).fileSize ?? 0,
       })) as NonNullable<Announcement['media']>
       
-      const token = getStoredToken()
+      const token = await getStoredToken()
       const response = await fetch(`${API_URL}/api/admin/announcements`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
         },
         body: JSON.stringify({
           ...newAnnouncement,
@@ -440,7 +440,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
     }
 
     try {
-      const token = getStoredToken()
+      const token = await getStoredToken()
       const response = await fetch(`${API_URL}/api/admin/announcements/${id}`, {
         method: 'PUT',
         headers: {

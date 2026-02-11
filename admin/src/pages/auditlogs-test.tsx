@@ -89,7 +89,7 @@ const AuditLogs: React.FC = () => {
 
   const fetchStats = async () => {
     try {
-      const token = getStoredToken()
+      const token = await getStoredToken()
       const response = await fetch(`${API_URL}/api/admin/audit-logs/stats`, {
         headers: { Authorization: `Bearer ${token}` }
       })
