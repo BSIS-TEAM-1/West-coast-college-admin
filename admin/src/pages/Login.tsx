@@ -482,6 +482,12 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
 
       </div>
 
+      {/* Security Badge */}
+      <div className="security-badge">
+        <span className="security-text">Protected by:</span>
+        <span className="security-provider">WCC SecureShield</span>
+      </div>
+
     </div>
 
   )
