@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getStoredToken, API_URL } from '../lib/authApi';
 import { Shield, AlertTriangle, CheckCircle, XCircle, Lock, Activity, FileText, Settings, Ban, Globe, ShieldAlert } from 'lucide-react';
-import LiveChart from '../components/LiveChart';
-import BandwidthChart from '../components/BandwidthChart';
 import './Security.css';
 
 interface SecurityMetrics {
@@ -91,7 +89,9 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
   const [newBlockIP, setNewBlockIP] = useState({ ipAddress: '', reason: '', severity: 'medium' });
   const [showScanResults, setShowScanResults] = useState(false);
   const [scanResults, setScanResults] = useState<SecurityScanResults | null>(null);
-  const [scanLoading, setScanLoading] = useState(false);
+  const [systemScanLoading, setSystemScanLoading] = useState(false);
+  const [headersScanLoading, setHeadersScanLoading] = useState(false);
+  const [activeScanTab, setActiveScanTab] = useState<'findings' | 'recommendations' | 'headers'>('findings');
 
   useEffect(() => {
     fetchSecurityMetrics();
@@ -175,7 +175,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
       const token = await getStoredToken();
       if (!token) return;
 
-      setScanLoading(true);
+      setSystemScanLoading(true);
 
       // Call the new security scan endpoint
       const response = await fetch(`${API_URL}/api/admin/security-scan`, {
@@ -198,7 +198,8 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
         if (results.summary && results.summary.score !== undefined) {
           setMetrics(prev => ({
             ...prev,
-            securityScore: results.summary.score
+            securityScore: results.summary.score,
+            lastSecurityScan: new Date().toISOString()
           }));
         }
         
@@ -210,7 +211,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
       console.error('System scan failed:', error);
       alert('System scan failed. Please try again.');
     } finally {
-      setScanLoading(false);
+      setSystemScanLoading(false);
     }
   };
 
@@ -219,7 +220,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
       const token = await getStoredToken();
       if (!token) return;
 
-      setScanLoading(true);
+      setHeadersScanLoading(true);
 
       // Call security headers scan endpoint
       const response = await fetch(`${API_URL}/api/admin/security-headers-scan`, {
@@ -241,7 +242,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
       console.error('Security headers scan failed:', error);
       alert('Security headers scan failed. Please try again.');
     } finally {
-      setScanLoading(false);
+      setHeadersScanLoading(false);
     }
   };
 
@@ -533,18 +534,18 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
         </div>
       </div>
 
-      {/* Live Server Metrics Chart */}
-      <LiveChart className="security-live-chart" />
-
-      {/* Bandwidth Monitor */}
-      <BandwidthChart className="security-bandwidth-chart" />
-
+      
+      
       <div className="security-sections">
         <div className="security-section">
           <h2>Recent Security Threats</h2>
           <div className="threats-container">
             {metrics.recentThreats.length === 0 ? (
-              <div className="no-threats">No recent security threats detected</div>
+              <div className="no-threats" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3rem', color: '#94a3b8', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1' }}>
+                <Shield size={48} style={{ marginBottom: '1rem', opacity: 0.5 }} />
+                <p style={{ margin: 0, fontWeight: 500 }}>No recent security threats detected</p>
+                <span style={{ fontSize: '0.875rem', opacity: 0.8, marginTop: '0.5rem' }}>Your system is currently secure</span>
+              </div>
             ) : (
               <div className="threats-list">
                 {metrics.recentThreats.map(threat => (
@@ -573,37 +574,151 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
 
         <div className="security-section">
           <h2>Security Actions</h2>
-          <div className="security-actions">
-            <button 
-              className="security-btn primary" 
-              onClick={handleSecurityScan}
-              disabled={scanLoading}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+          <div className="security-actions-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
+            <div 
+              className="action-card" 
+              onClick={!systemScanLoading ? handleSecurityScan : undefined}
+              style={{ 
+                backgroundColor: 'var(--bg-secondary, #fff)', 
+                padding: '24px', 
+                borderRadius: '12px', 
+                border: '1px solid var(--border-color, #e2e8f0)',
+                cursor: systemScanLoading ? 'wait' : 'pointer',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                textAlign: 'center',
+                transition: 'transform 0.2s, box-shadow 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)'; }}
             >
-              <Activity size={18} />
-              {scanLoading ? 'Scanning...' : 'Run System Scan'}
-            </button>
-            <button 
-              className="security-btn primary" 
-              onClick={handleSecurityHeadersScan}
-              disabled={scanLoading}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+              <div style={{ 
+                padding: '12px', 
+                borderRadius: '50%', 
+                backgroundColor: 'rgba(59, 130, 246, 0.1)', 
+                color: '#3b82f6', 
+                marginBottom: '16px' 
+              }}>
+                <Activity size={24} className={systemScanLoading ? "spin" : ""} />
+              </div>
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', fontWeight: 600 }}>System Scan</h3>
+              <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b', lineHeight: 1.4 }}>
+                {systemScanLoading ? 'Scanning system...' : 'Run full system diagnostic'}
+              </p>
+            </div>
+
+            <div 
+              className="action-card" 
+              onClick={!headersScanLoading ? handleSecurityHeadersScan : undefined}
+              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)'; }}
             >
-              <Shield size={18} />
-              {scanLoading ? 'Scanning...' : 'Security Headers Scan'}
-            </button>
-            <button className="security-btn secondary" onClick={handleViewAuditLogs} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              <FileText size={18} />
-              View Audit Logs
-            </button>
-            <button className="security-btn secondary" onClick={handleManageBlockedIPs} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              <Ban size={18} />
-              Manage Blocked IPs
-            </button>
-            <button className="security-btn secondary" onClick={handleSecuritySettings} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              <Settings size={18} />
-              Security Settings
-            </button>
+              <div>
+                <Shield size={24} className={headersScanLoading ? "spin" : ""} />
+              </div>
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', fontWeight: 600 }}>Headers Scan</h3>
+              <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b', lineHeight: 1.4 }}>
+                {headersScanLoading ? 'Checking headers...' : 'Verify security headers'}
+              </p>
+            </div>
+
+            <div 
+              className="action-card" 
+              onClick={handleViewAuditLogs}
+              style={{ 
+                backgroundColor: 'var(--bg-secondary, #fff)', 
+                padding: '24px', 
+                borderRadius: '12px', 
+                border: '1px solid var(--border-color, #e2e8f0)',
+                cursor: 'pointer',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                textAlign: 'center',
+                transition: 'transform 0.2s, box-shadow 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)'; }}
+            >
+              <div style={{ 
+                padding: '12px', 
+                borderRadius: '50%', 
+                backgroundColor: 'rgba(245, 158, 11, 0.1)', 
+                color: '#f59e0b', 
+                marginBottom: '16px' 
+              }}>
+                <FileText size={24} />
+              </div>
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', fontWeight: 600 }}>Audit Logs</h3>
+              <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b', lineHeight: 1.4 }}>Review system activity logs</p>
+            </div>
+
+            <div 
+              className="action-card" 
+              onClick={handleManageBlockedIPs}
+              style={{ 
+                backgroundColor: 'var(--bg-secondary, #fff)', 
+                padding: '24px', 
+                borderRadius: '12px', 
+                border: '1px solid var(--border-color, #e2e8f0)',
+                cursor: 'pointer',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                textAlign: 'center',
+                transition: 'transform 0.2s, box-shadow 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)'; }}
+            >
+              <div style={{ 
+                padding: '12px', 
+                borderRadius: '50%', 
+                backgroundColor: 'rgba(239, 68, 68, 0.1)', 
+                color: '#ef4444', 
+                marginBottom: '16px' 
+              }}>
+                <Ban size={24} />
+              </div>
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', fontWeight: 600 }}>Blocked IPs</h3>
+              <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b', lineHeight: 1.4 }}>Manage blocked addresses</p>
+            </div>
+
+            <div 
+              className="action-card" 
+              onClick={handleSecuritySettings}
+              style={{ 
+                backgroundColor: 'var(--bg-secondary, #fff)', 
+                padding: '24px', 
+                borderRadius: '12px', 
+                border: '1px solid var(--border-color, #e2e8f0)',
+                cursor: 'pointer',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                textAlign: 'center',
+                transition: 'transform 0.2s, box-shadow 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)'; }}
+            >
+              <div style={{ 
+                padding: '12px', 
+                borderRadius: '50%', 
+                backgroundColor: 'rgba(107, 114, 128, 0.1)', 
+                color: '#6b7280', 
+                marginBottom: '16px' 
+              }}>
+                <Settings size={24} />
+              </div>
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', fontWeight: 600 }}>Settings</h3>
+              <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b', lineHeight: 1.4 }}>Configure security preferences</p>
+            </div>
           </div>
         </div>
       </div>
@@ -773,251 +888,92 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
 
       {/* Security Scan Results Modal */}
       {showScanResults && scanResults && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 999,
-          pointerEvents: 'auto',
-          backdropFilter: 'blur(4px)'
-        }}>
-          <div style={{
-            backgroundColor: 'var(--bg-secondary, white)',
-            color: 'var(--text-primary, #333)',
-            borderRadius: '8px',
-            padding: '24px',
-            maxWidth: '600px',
-            maxHeight: '80vh',
-            overflow: 'auto',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-            zIndex: 1001,
-            pointerEvents: 'auto'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold' }}>
-                {scanResults.scanType || 'Security'} Scan Results
-              </h3>
-              <button
-                onClick={() => setShowScanResults(false)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  fontSize: '24px',
-                  cursor: 'pointer',
-                  color: 'var(--text-primary, #333)'
-                }}
-              >
-                ✕
-              </button>
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(8px)', fontFamily: "'Inter', sans-serif" }}>
+          <div style={{ backgroundColor: '#0f172a', color: '#e2e8f0', borderRadius: '16px', width: '90%', maxWidth: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)', border: '1px solid #334155', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem', borderBottom: '1px solid #334155', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <Shield size={24} style={{ color: '#3b82f6' }} />
+                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600 }}>{scanResults.scanType || 'Security'} Scan Report</h3>
+              </div>
+              <button onClick={() => setShowScanResults(false)} style={{ background: '#1e293b', border: '1px solid #334155', color: '#94a3b8', width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#334155'; e.currentTarget.style.color = '#e2e8f0'; }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#1e293b'; e.currentTarget.style.color = '#94a3b8'; }}>✕</button>
             </div>
 
-            {/* Scan Summary */}
-            {scanResults.summary && (
-              <div style={{
-                backgroundColor: 'var(--bg-tertiary, #f5f5f5)',
-                padding: '16px',
-                borderRadius: '6px',
-                marginBottom: '20px',
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-                gap: '12px'
-              }}>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '28px', fontWeight: '800', color: getScoreColor(scanResults.summary.score) }}>
-                    {scanResults.summary.score}%
+            <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }}>
+              {scanResults.summary && (
+                <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: '2rem', padding: '1.5rem', backgroundColor: '#1e293b', borderRadius: '12px', border: '1px solid #334155', marginBottom: '1.5rem' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                    <svg width="120" height="120" viewBox="0 0 120 120">
+                      <circle cx="60" cy="60" r="54" fill="none" stroke="#334155" strokeWidth="12" />
+                      <circle cx="60" cy="60" r="54" fill="none" stroke={getScoreColor(scanResults.summary.score)} strokeWidth="12" strokeLinecap="round" strokeDasharray={2 * Math.PI * 54} strokeDashoffset={(2 * Math.PI * 54) - (scanResults.summary.score / 100) * (2 * Math.PI * 54)} transform="rotate(-90 60 60)" style={{ transition: 'stroke-dashoffset 0.5s ease-out' }} />
+                      <text x="50%" y="50%" textAnchor="middle" dy=".3em" style={{ fontSize: '2rem', fontWeight: 'bold', fill: getScoreColor(scanResults.summary.score) }}>{scanResults.summary.grade}</text>
+                    </svg>
+                    <div style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: '#94a3b8' }}>Score: {scanResults.summary.score}/100</div>
                   </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)' }}>Score</div>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: getScoreColor(scanResults.summary.score) }}>
-                    {scanResults.summary.grade}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', alignItems: 'center' }}>
+                    <div style={{ textAlign: 'center' }}><div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#ef4444' }}>{scanResults.summary.criticalIssues}</div><div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Critical Issues</div></div>
+                    <div style={{ textAlign: 'center' }}><div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#f59e0b' }}>{scanResults.summary.warnings || 0}</div><div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Warnings</div></div>
+                    {scanResults.summary.headersChecked != null && <div style={{ textAlign: 'center' }}><div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#10b981' }}>{scanResults.summary.headersPassed}/{scanResults.summary.headersChecked}</div><div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Headers Passed</div></div>}
                   </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)' }}>Grade</div>
                 </div>
-                {scanResults.summary.headersChecked && (
-                  <>
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#10b981' }}>
-                        {scanResults.summary.headersPassed}/{scanResults.summary.headersChecked}
+              )}
+
+              <div style={{ display: 'flex', borderBottom: '1px solid #334155', marginBottom: '1.5rem' }}>
+                {scanResults.findings && <button onClick={() => setActiveScanTab('findings')} style={{ padding: '0.75rem 1rem', border: 'none', background: 'none', color: activeScanTab === 'findings' ? '#3b82f6' : '#94a3b8', fontWeight: 600, cursor: 'pointer', borderBottom: activeScanTab === 'findings' ? '2px solid #3b82f6' : '2px solid transparent', marginBottom: '-1px', transition: 'all 0.2s' }}>Findings ({scanResults.findings.length})</button>}
+                {scanResults.recommendations && <button onClick={() => setActiveScanTab('recommendations')} style={{ padding: '0.75rem 1rem', border: 'none', background: 'none', color: activeScanTab === 'recommendations' ? '#3b82f6' : '#94a3b8', fontWeight: 600, cursor: 'pointer', borderBottom: activeScanTab === 'recommendations' ? '2px solid #3b82f6' : '2px solid transparent', marginBottom: '-1px', transition: 'all 0.2s' }}>Recommendations ({scanResults.recommendations.length})</button>}
+                {scanResults.securityHeaders && <button onClick={() => setActiveScanTab('headers')} style={{ padding: '0.75rem 1rem', border: 'none', background: 'none', color: activeScanTab === 'headers' ? '#3b82f6' : '#94a3b8', fontWeight: 600, cursor: 'pointer', borderBottom: activeScanTab === 'headers' ? '2px solid #3b82f6' : '2px solid transparent', marginBottom: '-1px', transition: 'all 0.2s' }}>Headers ({Object.keys(scanResults.securityHeaders).length})</button>}
+              </div>
+
+              <div>
+                {activeScanTab === 'findings' && scanResults.findings && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    {scanResults.findings.length > 0 ? scanResults.findings.map((finding, index) => (
+                      <div key={index} style={{ background: '#1e293b', borderLeft: `4px solid ${getSeverityColor(finding.severity)}`, borderRadius: '4px', padding: '1rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                          <span style={{ fontWeight: '600', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            {finding.severity === 'critical' || finding.severity === 'high' ? <AlertTriangle size={16} color={getSeverityColor(finding.severity)} /> : <ShieldAlert size={16} color={getSeverityColor(finding.severity)} />}
+                            {finding.title}
+                          </span>
+                          <span style={{ fontSize: '0.75rem', padding: '0.25rem 0.75rem', borderRadius: '12px', backgroundColor: getSeverityColor(finding.severity), color: 'white', fontWeight: 'bold' }}>{finding.severity.toUpperCase()}</span>
+                        </div>
+                        <p style={{ fontSize: '0.875rem', color: '#94a3b8', margin: '0 0 0.5rem 0' }}>{finding.description}</p>
+                        {finding.recommendation && <div style={{ fontSize: '0.875rem', color: '#cbd5e1', background: '#334155', padding: '0.5rem', borderRadius: '4px', fontStyle: 'italic' }}>💡 Recommendation: {finding.recommendation}</div>}
                       </div>
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)' }}>Headers Passed</div>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#ef4444' }}>
-                        {scanResults.summary.criticalIssues}
-                      </div>
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)' }}>Critical Issues</div>
-                    </div>
-                  </>
+                    )) : <div style={{ textAlign: 'center', color: '#64748b', padding: '2rem' }}>No findings detected.</div>}
+                  </div>
                 )}
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#f59e0b' }}>
-                    {scanResults.summary.warnings || 0}
+                {activeScanTab === 'recommendations' && scanResults.recommendations && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    {scanResults.recommendations.length > 0 ? scanResults.recommendations.map((rec, index) => (
+                      <div key={index} style={{ background: '#1e293b', borderLeft: `4px solid ${rec.priority === 'high' ? '#ef4444' : rec.priority === 'medium' ? '#f59e0b' : '#3b82f6'}`, borderRadius: '4px', padding: '1rem' }}>
+                        <div style={{ fontWeight: '600', fontSize: '1rem', marginBottom: '0.25rem' }}>{rec.action}</div>
+                        <div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>{rec.details}</div>
+                      </div>
+                    )) : <div style={{ textAlign: 'center', color: '#64748b', padding: '2rem' }}>No recommendations.</div>}
                   </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)' }}>Warnings</div>
-                </div>
-              </div>
-            )}
-
-            {/* Security Headers Details */}
-            {scanResults.securityHeaders && (
-              <div style={{ marginBottom: '20px' }}>
-                <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 'bold', color: 'var(--text-primary, #333)' }}>
-                  Security Headers Status
-                </h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {Object.entries(scanResults.securityHeaders).map(([header, config]) => (
-                    <div key={header} style={{
-                      backgroundColor: config.status === 'pass' ? 'rgba(16, 185, 129, 0.05)' : 'rgba(239, 68, 68, 0.05)',
-                      border: `1px solid ${config.status === 'pass' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
-                      borderRadius: '8px',
-                      padding: '12px'
-                    }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                        <span style={{ fontWeight: '600', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          {config.status === 'pass' ? <CheckCircle size={14} color="#10b981" /> : <XCircle size={14} color="#ef4444" />}
-                          {header}
-                        </span>
-                        <span style={{
-                          fontSize: '12px',
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                          backgroundColor: config.status === 'pass' ? '#22c55e' : '#ef4444',
-                          color: 'white'
-                        }}>
-                          {config.status === 'pass' ? 'PASS' : 'FAIL'}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)', marginBottom: '4px' }}>
-                        {config.description}
-                      </div>
-                      {config.value && (
-                        <div style={{ 
-                          fontSize: '11px', 
-                          fontFamily: 'monospace', 
-                          backgroundColor: 'var(--bg-tertiary, #f5f5f5)', 
-                          padding: '4px 8px', 
-                          borderRadius: '3px',
-                          wordBreak: 'break-all'
-                        }}>
-                          {config.value}
+                )}
+                {activeScanTab === 'headers' && scanResults.securityHeaders && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {Object.entries(scanResults.securityHeaders).map(([header, config]) => (
+                      <div key={header} style={{ background: '#1e293b', borderLeft: `4px solid ${config.status === 'pass' ? '#10b981' : '#ef4444'}`, borderRadius: '4px', padding: '0.75rem 1rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                          <span style={{ fontWeight: '600', fontFamily: 'monospace', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            {config.status === 'pass' ? <CheckCircle size={16} color="#10b981" /> : <XCircle size={16} color="#ef4444" />}
+                            {header}
+                          </span>
+                          <span style={{ fontSize: '0.75rem', padding: '2px 8px', borderRadius: '12px', backgroundColor: config.status === 'pass' ? '#10b981' : '#ef4444', color: 'white' }}>{config.status.toUpperCase()}</span>
                         </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                        {config.value && <div style={{ fontSize: '0.75rem', fontFamily: 'monospace', color: '#94a3b8', background: '#0f172a', padding: '0.25rem 0.5rem', borderRadius: '4px', wordBreak: 'break-all', marginTop: '0.5rem' }}>{config.value}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-
-            {/* Scan Details */}
-            {scanResults.findings && scanResults.findings.length > 0 && (
-              <div style={{ marginBottom: '20px' }}>
-                <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 'bold', color: 'var(--text-primary, #333)' }}>
-                  Detailed Findings
-                </h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
-                  {scanResults.findings.map((finding, index) => (
-                    <div key={index} style={{
-                      backgroundColor: finding.severity === 'high' ? 'rgba(239, 68, 68, 0.05)' : 
-                                     finding.severity === 'medium' ? 'rgba(245, 158, 11, 0.05)' : 'rgba(16, 185, 129, 0.05)',
-                      border: `1px solid ${
-                        finding.severity === 'high' ? 'rgba(239, 68, 68, 0.2)' : 
-                        finding.severity === 'medium' ? 'rgba(245, 158, 11, 0.2)' : 'rgba(16, 185, 129, 0.2)'
-                      }`,
-                      borderRadius: '8px',
-                      padding: '12px'
-                    }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                        <span style={{ fontWeight: '600', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          {finding.severity === 'high' ? <AlertTriangle size={14} color="#ef4444" /> : <Shield size={14} />}
-                          {finding.title}
-                        </span>
-                        <span style={{
-                          fontSize: '11px',
-                          padding: '2px 6px',
-                          borderRadius: '12px',
-                          backgroundColor: finding.severity === 'high' ? '#ef4444' : 
-                                         finding.severity === 'medium' ? '#f59e0b' : '#10b981',
-                          color: 'white'
-                        }}>
-                          {finding.severity.toUpperCase()}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)', marginBottom: '4px' }}>
-                        {finding.description}
-                      </div>
-                      {finding.recommendation && (
-                        <div style={{ fontSize: '11px', fontStyle: 'italic', color: 'var(--text-primary, #333)' }}>
-                          💡 {finding.recommendation}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Recommendations */}
-            {scanResults.recommendations && scanResults.recommendations.length > 0 && (
-              <div style={{ marginBottom: '20px' }}>
-                <h4 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 'bold', color: 'var(--text-primary, #333)' }}>
-                  Recommendations
-                </h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {scanResults.recommendations.map((rec, index) => (
-                    <div key={index} style={{
-                      backgroundColor: 'var(--bg-tertiary, #f5f5f5)',
-                      border: '1px solid #e5e7eb',
-                      borderRadius: '4px',
-                      padding: '12px'
-                    }}>
-                      <div style={{ fontWeight: '600', fontSize: '14px', marginBottom: '4px' }}>
-                        {rec.action}
-                      </div>
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary, #666)' }}>
-                        {rec.details}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Scan Metadata */}
-            <div style={{
-              fontSize: '12px',
-              color: 'var(--text-secondary, #666)',
-              textAlign: 'center',
-              paddingTop: '12px',
-              borderTop: '1px solid #e5e7eb'
-            }}>
-              Scan completed at {new Date(scanResults.timestamp).toLocaleString()}
-              {scanResults.serverUrl && ` • Server: ${scanResults.serverUrl}`}
             </div>
 
-            {/* Close Button */}
-            <button
-              onClick={() => setShowScanResults(false)}
-              style={{
-                width: '100%',
-                padding: '10px',
-                backgroundColor: 'var(--accent-color, #3b82f6)',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                fontSize: '14px',
-                fontWeight: 'bold',
-                cursor: 'pointer'
-              }}
-            >
-              Close
-            </button>
+            <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+              <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Scan completed at {new Date(scanResults.timestamp).toLocaleString()}</div>
+              <button onClick={() => setShowScanResults(false)} style={{ padding: '0.5rem 1.5rem', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '6px', fontSize: '0.875rem', fontWeight: '600', cursor: 'pointer', transition: 'background-color 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2563eb'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#3b82f6'}>Close Report</button>
+            </div>
           </div>
         </div>
       )}
