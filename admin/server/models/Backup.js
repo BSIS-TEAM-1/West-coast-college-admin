@@ -20,15 +20,15 @@ const backupSchema = new mongoose.Schema({
   },
   size: {
     type: Number,
-    required: true
+    required: false
   },
   compressedSize: {
     type: Number,
-    required: true
+    required: false
   },
   documentCount: {
     type: Number,
-    required: true
+    required: false
   },
   collections: [{
     name: String,
@@ -62,6 +62,16 @@ const backupSchema = new mongoose.Schema({
   }
 }, {
   timestamps: true
+});
+
+// Custom validation to ensure required fields are present when status is 'completed'
+backupSchema.pre('save', function(next) {
+  if (this.status === 'completed') {
+    if (!this.size || !this.compressedSize || !this.documentCount) {
+      return next(new Error('Completed backup must have size, compressedSize, and documentCount'));
+    }
+  }
+  next();
 });
 
 // Index for efficient queries

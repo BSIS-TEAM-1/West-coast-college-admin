@@ -221,6 +221,11 @@ class BackupSystem {
       const compressedFileSize = fs.statSync(compressedPath).size;
       
       // Update backup record with completion details
+      console.log('Updating backup record with completion details...');
+      console.log('File size:', fileSize);
+      console.log('Compressed file size:', compressedFileSize);
+      console.log('Document count:', this.getTotalDocumentCount(backupData));
+      
       backupRecord.status = 'completed';
       backupRecord.completedAt = new Date();
       backupRecord.size = fileSize;
@@ -228,8 +233,13 @@ class BackupSystem {
       backupRecord.documentCount = this.getTotalDocumentCount(backupData);
       backupRecord.collections = collectionStats;
       
-      await backupRecord.save();
-      console.log('Backup record updated with completion details');
+      try {
+        await backupRecord.save();
+        console.log('Backup record updated with completion details');
+      } catch (saveError) {
+        console.error('Failed to save completed backup record:', saveError);
+        throw saveError;
+      }
       
       // Clean up old backups (keep last 10)
       await this.cleanupOldBackups();
