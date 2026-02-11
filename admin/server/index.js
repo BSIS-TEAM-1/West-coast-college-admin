@@ -17,9 +17,6 @@ const Backup = require('./models/Backup')
 const BlockedIP = require('./models/BlockedIP')
 const BackupSystem = require('./backup')
 
-// Atlas metrics integration removed — metrics calls disabled.
-// Database functionality (MongoDB via mongoose) remains unchanged.
-
 // Initialize backup system
 const backupSystem = new BackupSystem()
 
@@ -1751,51 +1748,9 @@ app.get('/api/admin/system-health', authMiddleware, async (req, res) => {
       }]
     }
     
-    // Calculate database stats with Atlas API enhancement
+    // Calculate database stats
     const dbStats = await mongoose.connection.db.stats()
-    let databaseUsage = ((dbStats.dataSize + dbStats.indexSize) / (1024 * 1024 * 1024 * 10)) * 100 // Fallback: Assume 10GB limit
-    
-    // Atlas metrics calls removed — use local DB stats fallback only.
-    console.log('Atlas metrics disabled; using local DB stats only')
-    let atlasMetrics = null
-    let atlasDbMetrics = null
-    let atlasMeasurements = null
-    
-    // Use Atlas data if available
-    if (atlasMetrics && atlasMetrics.length > 0) {
-      const process = atlasMetrics[0]
-      // Atlas provides actual disk usage and other metrics
-      databaseUsage = process.diskUsage ? parseFloat(process.diskUsage.toFixed(1)) : databaseUsage
-    }
-    
-    // Use detailed measurements if available
-    let diskUsagePercentage = databaseUsage
-    let indexSizeMB = 0
-    
-    if (atlasMeasurements && atlasMeasurements.measurements) {
-      const diskUsed = atlasMeasurements.measurements.DISK_USED
-      const diskTotal = atlasMeasurements.measurements.DISK_TOTAL
-      const indexSize = atlasMeasurements.measurements.INDEX_SIZE
-      
-      if (diskUsed && diskTotal && diskUsed.length > 0 && diskTotal.length > 0) {
-        const latestDiskUsed = diskUsed[diskUsed.length - 1].value
-        const latestDiskTotal = diskTotal[diskTotal.length - 1].value
-        diskUsagePercentage = (latestDiskUsed / latestDiskTotal) * 100
-      }
-      
-      if (indexSize && indexSize.length > 0) {
-        indexSizeMB = indexSize[indexSize.length - 1].value / (1024 * 1024) // Convert to MB
-      }
-    }
-    
-    if (atlasDbMetrics && atlasDbMetrics.length > 0) {
-      const db = atlasDbMetrics.find(d => d.name === 'wcc-admin')
-      if (db && db.dataSizeBytes) {
-        // Use actual database size from Atlas
-        const atlasDbSize = (db.dataSizeBytes / (1024 * 1024 * 1024 * 10)) * 100 // Convert to percentage of 10GB
-        databaseUsage = parseFloat(atlasDbSize.toFixed(1))
-      }
-    }
+    const databaseUsage = ((dbStats.dataSize + dbStats.indexSize) / (1024 * 1024 * 1024 * 10)) * 100 // Assume 10GB limit
     
     // Get real server metrics
     const memoryUsage = process.memoryUsage()
