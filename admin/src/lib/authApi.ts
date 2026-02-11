@@ -15,16 +15,36 @@ export function clearStoredToken(): void {
 }
 
 export async function logout(): Promise<{ message: string }> {
-  const res = await fetch(`${API_URL}/api/admin/logout`, { 
-    headers: authHeaders(),
-    method: 'POST'
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    throw new Error((data?.error as string) || 'Logout failed.')
+  const token = getStoredToken()
+  if (!token) {
+    // If no token, just clear state and return success
+    clearStoredToken()
+    return { message: 'No active session found.' }
   }
-  clearStoredToken()
-  return data as { message: string }
+
+  try {
+    const res = await fetch(`${API_URL}/api/admin/logout`, { 
+      headers: authHeaders(),
+      method: 'POST'
+    })
+    const data = await res.json().catch(() => ({}))
+    
+    // Always clear local token regardless of server response
+    clearStoredToken()
+    
+    if (!res.ok) {
+      // If server fails, still clear token but don't throw error
+      console.warn('Logout server error:', data?.error || 'Unknown error')
+      return { message: 'Logged out locally.' }
+    }
+    
+    return data as { message: string }
+  } catch (error) {
+    // If network fails, still clear local token
+    clearStoredToken()
+    console.warn('Logout network error:', error)
+    return { message: 'Logged out locally.' }
+  }
 }
 
 export type SignUpResponse = { message: string; username: string }

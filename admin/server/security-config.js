@@ -108,9 +108,6 @@ function applySecurityHeaders(req, res, next) {
   // Apply Permissions Policy
   res.setHeader(securityConfig.permissionsPolicy.header, securityConfig.permissionsPolicy.value)
   
-  // Apply Server Header (hide technology stack)
-  res.setHeader(securityConfig.serverHeader.header, securityConfig.serverHeader.value)
-  
   next()
 }
 
