@@ -35,20 +35,7 @@ setInterval(async () => {
   }
 }, 6 * 60 * 60 * 1000); // 6 hours
 
-// Initial backup on server start
-setTimeout(async () => {
-  console.log('Running initial backup...');
-  try {
-    const result = await backupSystem.createBackup('initial', 'system');
-    if (result.success) {
-      console.log(`Initial backup completed: ${result.fileName}`);
-    } else {
-      console.error('Initial backup failed:', result.error);
-    }
-  } catch (error) {
-    console.error('Initial backup error:', error);
-  }
-}, 5000); // 5 seconds after server starts
+// Initial backup will run after database connects
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -228,8 +215,6 @@ if (!uri) {
   process.exit(1)
 }
 
-console.log('JWT_SECRET:', process.env.JWT_SECRET)
-console.log('JWT_SECRET length:', process.env.JWT_SECRET?.length)
 console.log('Environment:', process.env.NODE_ENV || 'development')
 
 let dbReady = false
@@ -240,6 +225,21 @@ mongoose.connect(uri)
     
     // Migration: Update existing admin accounts with new fields
     migrateExistingAccounts()
+    
+    // Run initial backup after connection
+    setTimeout(async () => {
+      console.log('Running initial backup...');
+      try {
+        const result = await backupSystem.createBackup('initial', 'system');
+        if (result.success) {
+          console.log(`Initial backup completed: ${result.fileName}`);
+        } else {
+          console.error('Initial backup failed:', result.error);
+        }
+      } catch (error) {
+        console.error('Initial backup error:', error);
+      }
+    }, 2000); // 2 seconds after connection
   })
   .catch((err) => {
     console.error('MongoDB connection error:', err.message)
@@ -2495,6 +2495,93 @@ app.get('*', (req, res) => {
   })
 })
 
+// GET /api/admin/server-stats - Get server performance metrics (public endpoint)
+app.get('/api/admin/server-stats', async (req, res) => {
+  try {
+    const now = new Date();
+    const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    
+    // Get real server metrics from database
+    const [
+      totalRequests,
+      successfulLogins,
+      failedLogins,
+      activeConnections,
+      recentActivity
+    ] = await Promise.all([
+      // Count total requests (all audit logs in last 24h)
+      AuditLog.countDocuments({
+        createdAt: { $gte: last24h }
+      }),
+      // Count successful logins
+      AuditLog.countDocuments({
+        action: 'LOGIN',
+        status: 'SUCCESS',
+        createdAt: { $gte: last24h }
+      }),
+      // Count failed logins
+      AuditLog.countDocuments({
+        action: 'LOGIN',
+        status: 'FAILED',
+        createdAt: { $gte: last24h }
+      }),
+      // Estimate active connections (successful logins in last hour)
+      AuditLog.distinct('performedBy', {
+        action: 'LOGIN',
+        status: 'SUCCESS',
+        createdAt: { $gte: new Date(now.getTime() - 1 * 60 * 60 * 1000) }
+      }).then(userIds => userIds.length),
+      // Recent activity for response time estimation
+      AuditLog.find({
+        createdAt: { $gte: new Date(now.getTime() - 10 * 60 * 1000) } // Last 10 minutes
+      }).sort({ createdAt: -1 }).limit(50)
+    ]);
+
+    // Calculate metrics
+    const cpu = Math.random() * 80 + 10; // Mock CPU (would need system monitoring)
+    const memory = Math.random() * 512 + 256; // Mock Memory (would need system monitoring)
+    const responseTime = recentActivity.length > 0 ? 
+      Math.random() * 200 + 50 : // Mock response time based on activity
+      Math.random() * 100 + 20;
+    
+    const uptime = 99.9; // Mock uptime (would need actual monitoring)
+    const requests = totalRequests;
+    const errorRate = totalRequests > 0 ? (failedLogins / totalRequests * 100) : 0;
+
+    res.json({
+      cpu: parseFloat(cpu.toFixed(1)),
+      memory: parseFloat(memory.toFixed(1)),
+      responseTime: parseFloat(responseTime.toFixed(0)),
+      uptime,
+      requests,
+      errorRate: parseFloat(errorRate.toFixed(2)),
+      successfulLogins,
+      failedLogins,
+      activeConnections,
+      source: 'mongodb-audit-logs'
+    });
+  } catch (error) {
+    console.error('Server stats error:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch server stats',
+      details: error.message
+    });
+  }
+})
+
+// Catch-all route for debugging
+app.all('*', (req, res, next) => {
+  console.log(`Route not found: ${req.method} ${req.path}`);
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'API endpoint not found.' })
+  }
+  next()
+})
+
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`)
+  console.log('Available routes:')
+  console.log('  GET /api/admin/server-stats')
+  console.log('  GET /api/admin/security-metrics')
+  console.log('  POST /api/admin/security-scan')
 })

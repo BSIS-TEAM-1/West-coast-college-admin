@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getStoredToken, API_URL } from '../lib/authApi';
 import { Shield, AlertTriangle, CheckCircle, XCircle, Lock, Activity, FileText, Settings, Ban, Globe, ShieldAlert } from 'lucide-react';
+import LiveChart from '../components/LiveChart';
 import './Security.css';
 
 interface SecurityMetrics {
@@ -545,6 +546,9 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
           </div>
         </div>
       </div>
+
+      {/* Live Server Metrics Chart */}
+      <LiveChart className="security-live-chart" />
 
       <div className="security-sections">
         <div className="security-section">

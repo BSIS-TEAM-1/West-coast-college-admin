@@ -290,7 +290,10 @@ class BackupSystem {
       await this.deleteAllBackups();
       console.log('All existing backups deleted');
       
-      // Get all collections
+      // Get all collections - check if connection exists
+      if (!mongoose.connection.db) {
+        throw new Error('Database not connected');
+      }
       const collections = await mongoose.connection.db.listCollections().toArray();
       const backupData = {
         timestamp: new Date().toISOString(),
