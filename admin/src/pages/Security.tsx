@@ -66,6 +66,9 @@ interface SecurityScanResults {
   recommendations: SecurityRecommendation[];
   securityHeaders?: Record<string, SecurityHeaderConfig>;
   serverUrl?: string;
+  systemScan?: SecurityScanResults;
+  headersScan?: SecurityScanResults;
+  combined?: boolean;
 }
 
 const Security: React.FC<SecurityProps> = ({ onBack }) => {
@@ -175,69 +178,81 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
 
       setScanLoading(true);
 
-      // Call the new security scan endpoint
-      const response = await fetch(`${API_URL}/api/admin/security-scan`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      // Run both scans in parallel
+      const [systemResponse, headersResponse] = await Promise.all([
+        fetch(`${API_URL}/api/admin/security-scan`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }),
+        fetch(`${API_URL}/api/admin/security-headers-scan`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        })
+      ]);
 
-      if (response.ok) {
-        const results = await response.json();
-        console.log('Security scan results received:', results);
-        console.log('Score:', results.summary?.score);
-        console.log('Grade:', results.summary?.grade);
-        setScanResults(results);
-        setShowScanResults(true);
+      let systemResults: SecurityScanResults | null = null;
+      let headersResults: SecurityScanResults | null = null;
+      let hasErrors = false;
+
+      // Process system scan results
+      if (systemResponse.ok) {
+        systemResults = await systemResponse.json() as SecurityScanResults;
+        console.log('Security scan results received:', systemResults);
+        console.log('Score:', systemResults.summary?.score);
+        console.log('Grade:', systemResults.summary?.grade);
         
         // Update main security score with scan results
-        if (results.summary && results.summary.score !== undefined) {
+        if (systemResults && systemResults.summary && systemResults.summary.score !== undefined) {
+          const score = systemResults.summary.score;
           setMetrics(prev => ({
             ...prev,
-            securityScore: results.summary.score
+            securityScore: score
           }));
         }
-        
-        fetchSecurityMetrics();
       } else {
-        alert('System scan failed. Please try again.');
+        console.error('System scan failed');
+        hasErrors = true;
+      }
+
+      // Process headers scan results
+      if (headersResponse.ok) {
+        headersResults = await headersResponse.json() as SecurityScanResults;
+      } else {
+        console.error('Security headers scan failed');
+        hasErrors = true;
+      }
+
+      // Combine results for display
+      const combinedResults: SecurityScanResults = {
+        success: !hasErrors,
+        scanType: 'combined',
+        timestamp: new Date().toISOString(),
+        summary: systemResults?.summary || { score: 0, grade: 'F', criticalIssues: 0, warnings: 0 },
+        findings: [...(systemResults?.findings || []), ...(headersResults?.findings || [])],
+        recommendations: [...(systemResults?.recommendations || []), ...(headersResults?.recommendations || [])],
+        securityHeaders: headersResults?.securityHeaders,
+        serverUrl: systemResults?.serverUrl,
+        systemScan: systemResults || undefined,
+        headersScan: headersResults || undefined,
+        combined: true
+      };
+
+      setScanResults(combinedResults);
+      setShowScanResults(true);
+      fetchSecurityMetrics();
+
+      if (hasErrors) {
+        alert('One or more scans failed. Please check the results for details.');
       }
     } catch (error) {
-      console.error('System scan failed:', error);
-      alert('System scan failed. Please try again.');
-    } finally {
-      setScanLoading(false);
-    }
-  };
-
-  const handleSecurityHeadersScan = async () => {
-    try {
-      const token = await getStoredToken();
-      if (!token) return;
-
-      setScanLoading(true);
-
-      // Call security headers scan endpoint
-      const response = await fetch(`${API_URL}/api/admin/security-headers-scan`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        const results = await response.json();
-        setScanResults(results);
-        setShowScanResults(true);
-      } else {
-        alert('Security headers scan failed. Please try again.');
-      }
-    } catch (error) {
-      console.error('Security headers scan failed:', error);
-      alert('Security headers scan failed. Please try again.');
+      console.error('Security scan failed:', error);
+      alert('Security scan failed. Please try again.');
     } finally {
       setScanLoading(false);
     }
@@ -573,16 +588,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
             >
               <Activity size={18} />
-              {scanLoading ? 'Scanning...' : 'Run System Scan'}
-            </button>
-            <button 
-              className="security-btn primary" 
-              onClick={handleSecurityHeadersScan}
-              disabled={scanLoading}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-            >
-              <Shield size={18} />
-              {scanLoading ? 'Scanning...' : 'Security Headers Scan'}
+              {scanLoading ? 'Scanning...' : 'Run Security Scan'}
             </button>
             <button className="security-btn secondary" onClick={handleViewAuditLogs} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
               <FileText size={18} />
