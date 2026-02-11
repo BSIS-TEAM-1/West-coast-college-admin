@@ -101,22 +101,44 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
       const token = getStoredToken();
       
       if (!token) {
+        console.log('Security metrics: No token found');
         setError('Authentication required');
         setLoading(false);
         return;
       }
 
+      console.log('Security metrics: Fetching with token:', token ? 'token exists' : 'no token');
       const response = await fetch(`${API_URL}/api/admin/security-metrics`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
 
+      console.log('Security metrics: Response status:', response.status);
+      console.log('Security metrics: Response ok:', response.ok);
+
       if (!response.ok) {
+        console.log('Security metrics: Response not ok:', response.status);
         throw new Error('Failed to fetch security metrics');
       }
 
       const data = await response.json();
+      console.log('Security metrics: Data received:', data);
+      console.log('Security metrics: Security score:', data.securityScore);
+      
+      // Ensure securityScore is a number
+      if (data.securityScore === undefined || data.securityScore === null) {
+        console.log('Security metrics: No security score in response, setting to 0');
+        data.securityScore = 0;
+      }
+      
+      // Convert to number if it's a string
+      if (typeof data.securityScore === 'string') {
+        data.securityScore = parseInt(data.securityScore, 10);
+      }
+      
+      console.log('Security metrics: Final security score:', data.securityScore);
+      
       setMetrics(data);
       setError(null);
     } catch (err) {
@@ -372,13 +394,17 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
         <div className="security-score">
           <div 
             className="score-circle"
-            style={{ borderColor: getSecurityScoreColor(metrics.securityScore) }}
+            style={{ borderColor: getSecurityScoreColor(metrics.securityScore || 0) }}
           >
-            <span style={{ color: getSecurityScoreColor(metrics.securityScore) }}>
-              {metrics.securityScore}
+            <span style={{ color: getSecurityScoreColor(metrics.securityScore || 0) }}>
+              {metrics.securityScore !== undefined && metrics.securityScore !== null ? metrics.securityScore : '---'}
             </span>
           </div>
           <div className="score-label">Security Score</div>
+        </div>
+        {/* Debug info */}
+        <div style={{ fontSize: '10px', color: '#666', marginLeft: '10px' }}>
+          Debug: Score={metrics.securityScore}, Loading={loading}, Error={error}
         </div>
       </div>
 
