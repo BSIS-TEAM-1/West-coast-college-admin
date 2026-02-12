@@ -182,8 +182,8 @@ const EventCalendar = () => {
 
       <div className="calendar-grid">
         <div className="weekdays">
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-            <div key={day} className="weekday">{day}</div>
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
+            <div key={`${day}-${index}`} className="weekday">{day}</div>
           ))}
         </div>
         <div className="days-grid">

@@ -380,9 +380,6 @@ const getHealthStatus = () => {
 
   const healthStatus = getHealthStatus();
   
-  // Debug: Log the metrics and health status
-  console.log('Metrics received:', metrics);
-  console.log('Health status:', healthStatus);
   
   // Calculate document change percentage
   const getDocumentChange = () => {

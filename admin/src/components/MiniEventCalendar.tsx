@@ -140,8 +140,8 @@ const MiniEventCalendar = () => {
 
       <div className="mini-calendar-grid">
         <div className="mini-weekdays">
-          {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(day => (
-            <div key={day} className="mini-weekday">{day}</div>
+          {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, index) => (
+            <div key={`${day}-${index}`} className="mini-weekday">{day}</div>
           ))}
         </div>
         <div className="mini-days-grid">

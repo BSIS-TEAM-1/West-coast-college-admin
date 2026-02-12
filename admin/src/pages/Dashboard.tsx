@@ -14,7 +14,7 @@ import SystemHealth from './SystemHealth'
 import Security from './Security'
 import StatisticsCard from '../components/StatisticsCard'
 import MiniEventCalendar from '../components/MiniEventCalendar'
-import { Shield, User, Users } from 'lucide-react'
+import { User, Users, FileText, Wrench } from 'lucide-react'
 import { getStoredToken, API_URL } from '../lib/authApi'
 import type { ProfileResponse } from '../lib/authApi'
 import './Dashboard.css'
@@ -59,8 +59,6 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
       if (response.ok) {
         const data = await response.json()
         setMetrics(data)
-        
-        console.log('System health data updated:', data)
       }
     } catch (error) {
       console.error('Failed to fetch metrics:', error)
@@ -95,11 +93,11 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
   const getAccountTypeIcon = (accountType: string) => {
     switch (accountType) {
       case 'admin':
-        return <User size={16} style={{ color: 'var(--text-primary)' }} />
+        return <Wrench size={16} style={{ color: 'var(--text-primary)' }} />
       case 'registrar':
-        return <Users size={16} style={{ color: 'var(--text-primary)' }} />
+        return <FileText size={16} style={{ color: 'var(--text-primary)' }} />
       case 'professor':
-        return <Shield size={16} style={{ color: 'var(--text-primary)' }} />
+        return <User size={16} style={{ color: 'var(--text-primary)' }} />
       default:
         return <User size={16} style={{ color: 'var(--text-primary)' }} />
     }
@@ -159,7 +157,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
           ) : view === 'account-logs' ? (
             <AccountLogs />
           ) : view === 'announcements' ? (
-            <Announcements onNavigate={(viewName, announcementId) => {
+            <Announcements onNavigate={(viewName: string, announcementId?: string) => {
               if (viewName === 'announcement-detail' && announcementId) {
                 setSelectedAnnouncementId(announcementId)
                 setView('announcement-detail')
@@ -250,17 +248,17 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
                     { 
                       label: 'Administrators', 
                       value: metrics?.statistics?.accountTypes?.admins || 0, 
-                      icon: <Shield size={20} />
+                      icon: <Wrench size={20} />
                     },
                     { 
                       label: 'Registrars', 
                       value: metrics?.statistics?.accountTypes?.registrars || 0, 
-                      icon: <User size={20} />
+                      icon: <FileText size={20} />
                     },
                     { 
                       label: 'Professors', 
                       value: metrics?.statistics?.accountTypes?.professors || 0, 
-                      icon: <Users size={20} />
+                      icon: <User size={20} />
                     },
                     { 
                       label: 'Students', 
