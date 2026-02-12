@@ -253,7 +253,6 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       
       // Backend workaround: If we saved as draft but backend returned isActive: true, fix it
       if (saveAsDraft && responseData.announcement?.isActive) {
-        console.log('Backend bug detected: Draft saved but returned isActive: true. Fixing...')
         try {
           const fixResponse = await fetch(`${API_URL}/api/admin/announcements/${responseData.announcement._id}`, {
             method: 'PUT',
@@ -265,8 +264,6 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
           })
           
           if (fixResponse.ok) {
-            console.log('Draft status fixed successfully')
-            // Clear any selected announcements to prevent bulk action conflicts
             setSelectedAnnouncements([])
           } else {
             console.error('Failed to fix draft status:', fixResponse.status)
@@ -274,8 +271,6 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
         } catch (fixError) {
           console.error('Error fixing draft status:', fixError)
         }
-      } else if (saveAsDraft) {
-        console.log('Draft saved correctly, backend returned isActive: false')
       }
       
       // Refresh announcements list
