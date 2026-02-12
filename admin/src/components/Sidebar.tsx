@@ -26,6 +26,7 @@ const NAV_ITEMS: { id: View; label: string; icon: any }[] = [
 
 export default function Sidebar({ activeLink = 'dashboard', onNavigate, profileUpdateTrigger }: SidebarProps) {
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
+  const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
     const controller = new AbortController();
@@ -38,6 +39,15 @@ export default function Sidebar({ activeLink = 'dashboard', onNavigate, profileU
 
     return () => controller.abort();
   }, [profileUpdateTrigger]); // Re-fetch when trigger changes
+
+  // Update time every second
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
 
   return (
     <aside className="sidebar">
@@ -88,6 +98,39 @@ export default function Sidebar({ activeLink = 'dashboard', onNavigate, profileU
           </button>
         ))}
       </nav>
+
+      {/* Time Display */}
+      <div className="sidebar-time" style={{
+        padding: '1rem',
+        margin: '0 1rem',
+        background: 'rgba(59, 130, 246, 0.1)',
+        borderRadius: '8px',
+        textAlign: 'center',
+        border: '1px solid rgba(59, 130, 246, 0.2)'
+      }}>
+        <div style={{
+          fontSize: '0.75rem',
+          color: 'var(--text-secondary)',
+          fontWeight: '500',
+          marginBottom: '0.25rem'
+        }}>
+          Current Time
+        </div>
+        <div style={{
+          fontSize: '1rem',
+          fontWeight: '600',
+          color: 'var(--text-primary)'
+        }}>
+          {currentTime.toLocaleTimeString()}
+        </div>
+        <div style={{
+          fontSize: '0.75rem',
+          color: 'var(--text-secondary)',
+          marginTop: '0.25rem'
+        }}>
+          {currentTime.toLocaleDateString()}
+        </div>
+      </div>
 
       <div className="sidebar-footer">
         <div className="profile-section">

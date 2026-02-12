@@ -1535,28 +1535,35 @@ const getAtlasMeasurements = async () => {
 // Create test error logs function for production debugging
 async function createTestErrorLogs() {
   try {
+    // Find a valid admin ID to use for system logs
+    const adminUser = await Admin.findOne();
+    if (!adminUser) {
+      console.log('No admin users found, skipping test log creation');
+      return;
+    }
+
     const testLogs = [
       {
-        action: 'SYSTEM_CHECK',
+        action: 'VIEW',
         resourceType: 'SYSTEM',
         resourceId: 'system-health',
         resourceName: 'System Health Monitor',
         description: 'System health check completed successfully',
-        performedBy: 'system',
-        performedByRole: 'system',
+        performedBy: adminUser._id,
+        performedByRole: adminUser.accountType || 'admin',
         status: 'SUCCESS',
         severity: 'LOW'
       },
       {
-        action: 'API_REQUEST',
-        resourceType: 'API',
+        action: 'VIEW',
+        resourceType: 'SYSTEM',
         resourceId: 'health-endpoint',
         resourceName: 'Health API Endpoint',
         description: 'Health endpoint accessed - monitoring system status',
-        performedBy: 'system',
-        performedByRole: 'system',
+        performedBy: adminUser._id,
+        performedByRole: adminUser.accountType || 'admin',
         status: 'SUCCESS',
-        severity: 'INFO'
+        severity: 'LOW'
       }
     ]
 
@@ -1667,81 +1674,33 @@ app.get('/api/admin/security-metrics', authMiddleware, async (req, res) => {
   }
 })
 
-// Store token in database (for persistence across page refreshes)
-app.post('/api/admin/store-token', async (req, res) => {
-  try {
-    const { token } = req.body;
-    if (!token) {
-      return res.status(400).json({ error: 'Token is required.' });
-    }
-    
-    // Store token in a simple way - you might want to associate with a session or user
-    // For now, we'll store it as a "session" token
-    await AuthToken.findOneAndUpdate(
-      { token: token },
-      { 
-        token: token,
-        isActive: true,
-        lastUsed: new Date(),
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
-      },
-      { upsert: true, new: true }
-    );
-    
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Store token error:', error);
-    res.status(500).json({ error: 'Failed to store token.' });
-  }
-});
-
-// Get stored token from database
-app.get('/api/admin/get-stored-token', async (req, res) => {
-  try {
-    // Get the most recent active token
-    const authToken = await AuthToken.findOne({ 
-      isActive: true,
-      expiresAt: { $gt: new Date() }
-    }).sort({ lastUsed: -1 });
-    
-    if (authToken) {
-      res.json({ token: authToken.token });
-    } else {
-      res.json({ token: null });
-    }
-  } catch (error) {
-    console.error('Get stored token error:', error);
-    res.json({ token: null });
-  }
-});
-
-// Clear stored token from database
-app.post('/api/admin/clear-stored-token', async (req, res) => {
-  try {
-    await AuthToken.updateMany(
-      { isActive: true },
-      { isActive: false }
-    );
-    
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Clear stored token error:', error);
-    res.status(500).json({ error: 'Failed to clear token.' });
-  }
-});
-
 // GET /api/admin/system-health - Get comprehensive system health metrics
 app.get('/api/admin/system-health', authMiddleware, async (req, res) => {
-  if (!dbReady) {
-    console.log('Database not ready')
-    return res.status(503).json({ error: 'Database unavailable.' })
-  }
-  
   try {
+    const forceScan = req.query.forceScan === 'true'
+    
+    // Check if we should use cached data or force a new scan
+    const now = new Date()
+    const lastScanTime = global.lastSystemHealthScan || new Date(0)
+    const scanAgeMinutes = (now - lastScanTime) / (1000 * 60)
+    
+    // Use cached data if less than 5 minutes old and not forcing a scan
+    if (!forceScan && scanAgeMinutes < 5 && global.cachedSystemHealth) {
+      console.log('Using cached system health data')
+      return res.json(global.cachedSystemHealth)
+    }
+    
+    console.log('Performing system health scan...')
+    global.lastSystemHealthScan = now
+    
+    // Clear cache when forcing a scan
+    if (forceScan) {
+      global.cachedSystemHealth = null
+    }
+    
     // Create test logs if needed (for production debugging)
     await createTestErrorLogs()
     
-    const now = new Date()
     const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000)
     
     // Get system metrics from database
@@ -1756,7 +1715,14 @@ app.get('/api/admin/system-health', authMiddleware, async (req, res) => {
       totalDocuments,
       recentDocuments,
       totalAnnouncements,
-      activeAnnouncements
+      activeAnnouncements,
+      // Count by account types
+      adminCount,
+      registrarCount,
+      professorCount,
+      // Security metrics
+      blockedIPs,
+      failedLogins
     ] = await Promise.all([
       Admin.countDocuments(),
       // Count unique users who logged in in the last hour (truly active)
@@ -1782,7 +1748,18 @@ app.get('/api/admin/system-health', authMiddleware, async (req, res) => {
       Document.countDocuments(),
       Document.countDocuments({ createdAt: { $gte: last24h } }),
       Announcement.countDocuments(),
-      Announcement.countDocuments({ isActive: true })
+      Announcement.countDocuments({ isActive: true }),
+      // Count by account types
+      Admin.countDocuments({ accountType: 'admin' }),
+      Admin.countDocuments({ accountType: 'registrar' }),
+      Admin.countDocuments({ accountType: 'professor' }),
+      // Security metrics
+      BlockedIP.countDocuments(),
+      AuditLog.countDocuments({ 
+        action: 'LOGIN', 
+        status: 'FAILED', 
+        createdAt: { $gte: last24h } 
+      })
     ])
     
     // Get recent error logs with better error handling
@@ -1852,12 +1829,20 @@ app.get('/api/admin/system-health', authMiddleware, async (req, res) => {
       memoryUsage: parseFloat(systemMemoryUsagePercent.toFixed(1)),
       lastBackup: lastBackup,
       statistics: {
-        totalAdmins,
+        totalAdmins, // This should be real data from Admin.countDocuments()
         totalDocuments,
         activeAnnouncements,
         recentLogins, // Total logins in 24h (for stats)
         errorLogs,
-        warningLogs
+        warningLogs,
+        blockedIPs, // Real count of blocked IPs
+        failedLogins, // Real count of failed logins in 24h
+        accountTypes: {
+          admins: adminCount,
+          registrars: registrarCount,
+          professors: professorCount,
+          students: 0 // Placeholder - no student model yet
+        }
       },
       logs: recentErrorLogs.map(log => ({
         id: log._id,
@@ -1868,11 +1853,107 @@ app.get('/api/admin/system-health', authMiddleware, async (req, res) => {
       }))
     }
     
+    // Debug logging to verify real data
+    console.log('System Health Data:', {
+      totalAdmins: healthData.statistics.totalAdmins,
+      activeUsers: healthData.activeUsers,
+      adminCount,
+      registrarCount,
+      professorCount,
+      blockedIPs,
+      failedLogins
+    })
+    
+    // Additional debug for Admin collection
+    console.log('Admin collection debug:', {
+      totalAdminsQuery: totalAdmins,
+      adminCountQuery: adminCount,
+      registrarCountQuery: registrarCount,
+      professorCountQuery: professorCount
+    })
+    
+    // Cache the response data
+    global.cachedSystemHealth = healthData
+    
     // Respond without noisy debug output
     res.json(healthData)
   } catch (error) {
     console.error('System health error:', error)
     res.status(500).json({ error: 'Failed to fetch system health data.' })
+  }
+})
+
+// Test endpoint to check account types
+app.get('/api/admin/test-account-types', authMiddleware, async (req, res) => {
+  try {
+    const allAdmins = await Admin.find({}, 'username accountType displayName').lean()
+    console.log('All Admins:', allAdmins)
+    
+    const accountTypeCounts = await Admin.aggregate([
+      { $group: { _id: '$accountType', count: { $sum: 1 } } }
+    ])
+    console.log('Account Type Aggregation:', accountTypeCounts)
+    
+    res.json({
+      allAdmins,
+      accountTypeCounts
+    })
+  } catch (error) {
+    console.error('Test account types error:', error)
+    res.status(500).json({ error: 'Failed to test account types' })
+  }
+})
+
+// Get registration logs
+app.get('/api/admin/registration-logs', authMiddleware, async (req, res) => {
+  try {
+    const logs = await Admin.find({}, 'username accountType displayName createdAt')
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean()
+    
+    res.json({
+      logs: logs.map(log => ({
+        _id: log._id,
+        username: log.username,
+        accountType: log.accountType,
+        displayName: log.displayName,
+        createdAt: log.createdAt
+      }))
+    })
+  } catch (error) {
+    console.error('Failed to fetch registration logs:', error)
+    res.status(500).json({ error: 'Failed to fetch registration logs' })
+  }
+})
+
+// Debug endpoint to check Admin collection directly
+app.get('/api/admin/debug-admins', authMiddleware, async (req, res) => {
+  try {
+    const allAdmins = await Admin.find({}, 'username accountType displayName')
+    const totalCount = await Admin.countDocuments()
+    const adminCount = await Admin.countDocuments({ accountType: 'admin' })
+    const registrarCount = await Admin.countDocuments({ accountType: 'registrar' })
+    const professorCount = await Admin.countDocuments({ accountType: 'professor' })
+    
+    console.log('Direct Admin collection check:', {
+      totalCount,
+      adminCount,
+      registrarCount,
+      professorCount,
+      allAdmins: allAdmins.map(a => ({ username: a.username, accountType: a.accountType }))
+    })
+    
+    res.json({
+      totalCount,
+      adminCount,
+      registrarCount,
+      professorCount,
+      admins: allAdmins.map(a => ({ username: a.username, accountType: a.accountType, displayName: a.displayName }))
+    })
+  } catch (error) {
+    console.error('Debug admin check error:', error)
+    res.status(500).json({ error: 'Failed to debug admin collection' })
   }
 })
 
@@ -1909,6 +1990,12 @@ app.get('/api/admin/test-atlas', authMiddleware, async (req, res) => {
 app.post('/api/admin/backup/create', authMiddleware, async (req, res) => {
   try {
     const result = await backupSystem.createBackup('manual', req.adminId || 'admin');
+    
+    // Clear system health cache so next request gets fresh backup data
+    global.cachedSystemHealth = null;
+    global.lastSystemHealthScan = new Date(0); // Force fresh scan on next request
+    
+    console.log('Backup created and system health cache cleared');
     res.json(result);
   } catch (error) {
     console.error('Backup creation error:', error);

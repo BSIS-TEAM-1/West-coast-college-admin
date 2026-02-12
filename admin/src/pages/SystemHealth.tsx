@@ -21,6 +21,12 @@ interface SystemMetrics {
     recentLogins: number;
     errorLogs: number;
     warningLogs: number;
+    accountTypes: {
+      admins: number;
+      registrars: number;
+      professors: number;
+      students: number;
+    };
   };
   atlasMetrics: {
     enabled: boolean;
@@ -72,7 +78,13 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
       activeAnnouncements: 0,
       recentLogins: 0,
       errorLogs: 0,
-      warningLogs: 0
+      warningLogs: 0,
+      accountTypes: {
+        admins: 0,
+        registrars: 0,
+        professors: 0,
+        students: 0
+      }
     },
     atlasMetrics: {
       enabled: false,
@@ -91,6 +103,8 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
   const [atlasDiskHistory, setAtlasDiskHistory] = useState<number[]>([]);
   const [atlasConnectionHistory, setAtlasConnectionHistory] = useState<number[]>([]);
   const [atlasDetailedDiskHistory, setAtlasDetailedDiskHistory] = useState<number[]>([]);
+  const [documentsHistory, setDocumentsHistory] = useState<number[]>([]);
+  const [activeUsersHistory, setActiveUsersHistory] = useState<number[]>([]);
   const [showWarningModal, setShowWarningModal] = useState(false);
   const [warningType, setWarningType] = useState<string>('');
 
@@ -111,15 +125,21 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
   }, []);
 
   useEffect(() => {
-    fetchSystemHealth();
+    fetchSystemHealth(true); // Force initial scan to get fresh data
     
     // Set up real-time updates every 5 seconds for more accurate live data
-    const interval = setInterval(fetchSystemHealth, 5000);
+    const interval = setInterval(() => fetchSystemHealth(), 5000);
     
-    return () => clearInterval(interval);
+    // Force refresh every 2 minutes to clear cache
+    const forceRefreshInterval = setInterval(() => fetchSystemHealth(true), 120000);
+    
+    return () => {
+      clearInterval(interval);
+      clearInterval(forceRefreshInterval);
+    };
   }, []);
   
-  const fetchSystemHealth = async () => {
+  const fetchSystemHealth = async (forceScan = false) => {
     try {
       const token = await getStoredToken();
       if (!token) {
@@ -128,7 +148,7 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
         return;
       }
       
-      const response = await fetch(`${API_URL}/api/admin/system-health`, {
+      const response = await fetch(`${API_URL}/api/admin/system-health${forceScan ? '?forceScan=true' : ''}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -199,6 +219,18 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
           });
         }
       }
+      
+      // Update documents history
+      setDocumentsHistory(prev => {
+        const newHistory = [...prev, data.statistics.totalDocuments].slice(-20);
+        return newHistory.length === 1 ? Array(20).fill(data.statistics.totalDocuments) : newHistory;
+      });
+      
+      // Update active users history
+      setActiveUsersHistory(prev => {
+        const newHistory = [...prev, data.activeUsers].slice(-20);
+        return newHistory.length === 1 ? Array(20).fill(data.activeUsers) : newHistory;
+      });
       
       setError(null);
     } catch (err) {
@@ -322,8 +354,8 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
         alert(`Backup failed: ${result.error || 'Unknown error'}`);
       }
       
-      // Refresh metrics to show updated backup status
-      fetchSystemHealth();
+      // Refresh metrics to show updated backup status - force fresh scan
+      fetchSystemHealth(true);
     } catch (error) {
       console.error('Backup failed:', error);
       alert('Backup failed. Please try again.');
@@ -352,10 +384,30 @@ const getHealthStatus = () => {
   console.log('Metrics received:', metrics);
   console.log('Health status:', healthStatus);
   
+  // Calculate document change percentage
+  const getDocumentChange = () => {
+    if (documentsHistory.length < 2) return 0;
+    const current = documentsHistory[documentsHistory.length - 1];
+    const previous = documentsHistory[documentsHistory.length - 2];
+    if (previous === 0) return 0;
+    const change = ((current - previous) / previous) * 100;
+    return Math.round(change * 10) / 10; // Round to 1 decimal place
+  };
+  
+  // Calculate active users change percentage
+  const getActiveUsersChange = () => {
+    if (activeUsersHistory.length < 2) return 0;
+    const current = activeUsersHistory[activeUsersHistory.length - 1];
+    const previous = activeUsersHistory[activeUsersHistory.length - 2];
+    if (previous === 0) return 0;
+    const change = ((current - previous) / previous) * 100;
+    return Math.round(change * 10) / 10; // Round to 1 decimal place
+  };
+  
   // Generate data for statistics cards
   const userStats = [
-    { label: 'Active Users (24h)', value: metrics.activeUsers, change: 12, changeType: 'increase' as const, icon: <Users size={20} /> },
-    { label: 'Total Admins', value: metrics.statistics.totalAdmins, change: 0, changeType: 'neutral' as const, icon: <TrendingUp size={20} /> }
+    { label: 'Active Users (1h)', value: metrics.activeUsers, change: getActiveUsersChange(), changeType: getActiveUsersChange() >= 0 ? 'increase' as const : 'decrease' as const, icon: <Users size={20} /> },
+    { label: 'Total Admins', value: metrics.statistics.accountTypes?.admins || 0, change: 0, changeType: 'neutral' as const, icon: <TrendingUp size={20} /> }
   ];
 
   const performanceStats = [
@@ -365,7 +417,7 @@ const getHealthStatus = () => {
 
   const resourceStats = [
     { label: 'Database Usage', value: `${metrics.databaseUsage.toFixed(1)}%`, change: 1.2, changeType: 'increase' as const, icon: <Database size={20} />, disabled: true },
-    { label: 'Total Documents', value: metrics.statistics.totalDocuments, change: 5, changeType: 'increase' as const, icon: <Activity size={20} /> }
+    { label: 'Total Documents', value: metrics.statistics.totalDocuments, change: getDocumentChange(), changeType: getDocumentChange() >= 0 ? 'increase' as const : 'decrease' as const, icon: <Activity size={20} /> }
   ];
 
   if (loading) {
@@ -392,7 +444,7 @@ const getHealthStatus = () => {
           <AlertTriangle size={48} color="#ef4444" />
           <h3>Error Loading System Health</h3>
           <p>{error}</p>
-          <button onClick={fetchSystemHealth} className="retry-button">
+          <button onClick={() => fetchSystemHealth()} className="retry-button">
             Retry
           </button>
         </div>
