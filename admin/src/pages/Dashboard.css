@@ -5,6 +5,26 @@
   background: var(--color-bg);
 }
 
+/* CSS Variables for Theming */
+:root {
+  --color-bg: #f8fafc;
+  --bg-secondary: #ffffff;
+  --border-color: #e2e8f0;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+}
+
+/* Dark mode variables - only apply when root has data-theme="dark" */
+[data-theme="dark"] {
+  --color-bg: #0f172a;
+  --bg-secondary: #1e293b;
+  --border-color: #334155;
+  --text-primary: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+}
+
 .dashboard-body {
   flex: 1;
   display: flex;

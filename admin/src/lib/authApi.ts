@@ -1,57 +1,34 @@
 export const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 
-let currentToken: string | null = null
+// Use browser localStorage for secure, user-specific token storage
+const TOKEN_KEY = 'auth_token'
 
 export async function getStoredToken(): Promise<string | null> {
   try {
-    // Try to get token from database
-    const response = await fetch(`${API_URL}/api/admin/get-stored-token`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      if (data.token) {
-        currentToken = data.token;
-        return data.token;
-      }
-    }
+    // Get token from browser localStorage (user-specific)
+    const token = localStorage.getItem(TOKEN_KEY)
+    return token
   } catch (error) {
-    console.warn('Failed to get stored token from database:', error);
+    console.warn('Failed to get token from localStorage:', error);
+    return null
   }
-  
-  return currentToken;
 }
 
 export function setStoredToken(token: string): void {
-  currentToken = token
-  // Store token in database
-  fetch(`${API_URL}/api/admin/store-token`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ token })
-  }).catch(error => {
-    console.warn('Failed to store token in database:', error);
-  });
+  try {
+    // Store token in browser localStorage (user-specific)
+    localStorage.setItem(TOKEN_KEY, token)
+  } catch (error) {
+    console.warn('Failed to store token in localStorage:', error);
+  }
 }
 
 export async function clearStoredToken(): Promise<void> {
-  currentToken = null
-  // Clear token from database
   try {
-    await fetch(`${API_URL}/api/admin/clear-stored-token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
+    // Clear token from browser localStorage (user-specific)
+    localStorage.removeItem(TOKEN_KEY)
   } catch (error) {
-    console.warn('Failed to clear stored token from database:', error);
+    console.warn('Failed to clear token from localStorage:', error);
   }
 }
 
