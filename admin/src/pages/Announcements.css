@@ -35,11 +35,14 @@
   border-radius: 8px;
   font-weight: 600;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 .announcements-create-btn:hover {
   background: var(--color-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
 .announcements-controls {
@@ -59,6 +62,12 @@
   padding: 12px 16px;
   flex: 1;
   max-width: 400px;
+  transition: all 0.2s ease;
+}
+
+.announcements-search:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-subtle, rgba(59, 130, 246, 0.1));
 }
 
 .announcements-search input {
@@ -119,6 +128,13 @@
   background: var(--color-surface);
   cursor: pointer;
   color: var(--color-text);
+  transition: border-color 0.2s;
+}
+
+.announcements-filters select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-subtle, rgba(59, 130, 246, 0.1));
 }
 
 .announcements-bulk-actions {
@@ -214,7 +230,7 @@
 
 .announcements-table-header {
   display: grid;
-  grid-template-columns: 40px 1fr 120px 150px 100px 140px 100px;
+  grid-template-columns: 40px 1fr 120px 140px 120px 140px 180px;
   gap: 16px;
   padding: 16px 20px;
   background: var(--color-bg-soft);
@@ -228,16 +244,27 @@
 
 .announcements-table-row {
   display: grid;
-  grid-template-columns: 40px 1fr 120px 150px 100px 140px 100px;
+  grid-template-columns: 40px 1fr 120px 140px 120px 140px 180px;
   gap: 16px;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--color-border);
+  padding: 18px;
+  margin: 12px 16px;
+  background: var(--color-surface);
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  box-shadow: 0 8px 20px rgba(12, 20, 30, 0.06);
   align-items: center;
-  transition: background-color 0.2s;
+  transition: all 0.2s ease;
 }
 
 .announcements-table-row:hover {
-  background: var(--color-bg-soft);
+  transform: translateY(-3px);
+  box-shadow: 0 12px 24px rgba(12, 20, 30, 0.08);
+  border-color: var(--color-primary-subtle, rgba(59, 130, 246, 0.3));
+}
+
+/* Remove hard separators between rows (cards handle separation) */
+.announcements-table-row + .announcements-table-row {
+  margin-top: 8px;
 }
 
 .table-checkbox input[type="checkbox"] {
@@ -258,11 +285,19 @@
   gap: 8px;
   font-weight: 600;
   color: var(--color-text);
+  flex-wrap: nowrap;
 }
 
 .pinned-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(245, 158, 11, 0.08);
   color: var(--color-warning);
-  flex-shrink: 0;
+  padding: 6px 10px;
+  border-radius: 9999px;
+  font-weight: 700;
+  font-size: 12px;
 }
 
 .title-text {
@@ -289,11 +324,22 @@
 .table-type .type-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  font-size: 13px;
   font-weight: 600;
   color: white;
+}
+
+.table-type .type-badge svg {
+  width: 18px;
+  height: 18px;
+}
+
+.table-type .type-badge {
   background: var(--color-primary);
+  border-radius: 9999px;
 }
 
 /* Type-specific background colors for better contrast */
@@ -321,13 +367,20 @@
   color: var(--color-text-secondary);
 }
 
+.table-audience svg {
+  width: 16px;
+  height: 16px;
+}
+
 .table-status {
   display: flex;
   align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
 .status-toggle {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 4px;
   padding: 4px 8px;
@@ -337,6 +390,7 @@
   border: 1px solid;
   cursor: pointer;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 
 .status-toggle.active {
@@ -355,32 +409,152 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--color-text-muted);
+}
+
+.table-date svg {
+  width: 20px;
+  height: 20px;
 }
 
 .table-actions {
   display: flex;
-  justify-content: center;
-  gap: 4px;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .action-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
+  gap: 4px;
+  min-width: 28px;
+  height: 28px;
+  padding: 4px;
+  border: 1px solid transparent;
+  background: transparent;
   border-radius: 6px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
+  color: var(--color-text-muted);
 }
 
 .action-btn:hover {
   background: var(--color-surface-hover);
-  border-color: var(--color-border);
+  color: var(--color-primary);
+  transform: translateY(-2px);
+}
+
+/* Make icons smaller to match button size */
+.action-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Only the publish-action shows a visible label to preserve layout */
+.action-btn.publish-action {
+  position: relative;
+  padding: 6px;
+}
+
+/* Smaller publish button inside table-status */
+.table-status .action-btn.publish-action {
+  min-width: 24px;
+  height: 24px;
+  padding: 3px;
+  position: relative;
+  overflow: visible;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.table-status .action-btn.publish-action .publish-icon-default {
+  display: block;
+  transition: opacity 0.2s ease;
+}
+
+.table-status .action-btn.publish-action .publish-icon-hover {
+  display: none;
+  position: absolute;
+  opacity: 0;
+}
+
+.table-status .action-btn.publish-action:hover .publish-icon-default {
+  opacity: 0;
+}
+
+.table-status .action-btn.publish-action:hover .publish-icon-hover {
+  display: block;
+  animation: paperPlaneAnimation 0.6s ease-in-out;
+}
+
+.table-status .action-btn.publish-action svg {
+  width: 12px;
+  height: 12px;
+}
+
+@keyframes paperPlaneAnimation {
+  0% {
+    transform: translateX(0) translateY(0) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  50% {
+    transform: translateX(8px) translateY(-8px) rotate(-15deg);
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(16px) translateY(-16px) rotate(-25deg);
+    opacity: 0;
+  }
+}
+
+/* Polish the small metadata column */
+.table-date {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-muted);
+}
+
+/* Publish / Draft badges */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.status-badge svg {
+  width: 20px;
+  height: 20px;
+}
+
+.status-badge.published {
+  background: rgba(34,197,94,0.12); /* green subtle */
+  color: var(--color-success, #16a34a);
+  border: 1px solid rgba(34,197,94,0.16);
+}
+
+.status-badge.draft {
+  background: rgba(107,114,128,0.08); /* gray subtle */
+  color: var(--color-text-muted);
+  border: 1px solid rgba(107,114,128,0.12);
+}
+
+.status-badge.archived {
+  background: rgba(249,115,22,0.08); /* orange subtle */
+  color: var(--color-warning, #f97316);
+  border: 1px solid rgba(249,115,22,0.12);
 }
 
 /* Edit Form Modal */
@@ -445,6 +619,8 @@
 .announcements-edit-body {
   padding: 24px;
   background: var(--color-surface);
+  overflow-y: auto;
+  max-height: calc(90vh - 180px);
 }
 
 .form-group {
@@ -490,6 +666,64 @@
   margin-right: 8px;
 }
 
+.form-group.horizontal-checkboxes {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.form-group.horizontal-checkboxes > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Ensure checkbox labels inside horizontal-checkboxes stay inline and side-by-side */
+.form-group.horizontal-checkboxes label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+/* Prevent checkbox and label from wrapping or conflicting with horizontal layout */
+.form-group.horizontal-checkboxes {
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+.form-group.horizontal-checkboxes label {
+  white-space: nowrap;
+}
+
+.form-group.horizontal-checkboxes input[type="checkbox"] {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 6px 0 0;
+  width: auto;
+  height: auto;
+}
+
+/* Style the checkbox list so items are horizontal and accessible */
+.form-group.horizontal-checkboxes .checkbox-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.form-group.horizontal-checkboxes .checkbox-list li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.form-group.horizontal-checkboxes .checkbox-list label {
+  cursor: pointer;
+}
+
 .announcements-edit-footer {
   display: flex;
   justify-content: flex-end;
@@ -514,19 +748,42 @@
 }
 
 .announcements-edit-cancel:hover {
-  background: var(--color-bg-soft);
+  background: transparent;
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.02);
   border-color: var(--color-text-muted);
 }
 
 .announcements-edit-save {
-  background: var(--color-primary);
-  color: white;
-  border-color: var(--color-primary);
+  background: var(--color-bg-soft);
+  color: var(--color-text);
 }
 
 .announcements-edit-save:hover {
   background: var(--color-primary-hover);
   border-color: var(--color-primary-hover);
+  color: white;
+}
+
+.announcements-edit-save.draft {
+  background: #6c757d;
+  border-color: #6c757d;
+}
+
+.announcements-edit-save.draft:hover {
+  background: #5a6268;
+  border-color: #5a6268;
+}
+
+.announcements-edit-save.publish {
+  background: #28a745;
+  border-color: #28a745;
+}
+
+.announcements-edit-save.publish:hover {
+  background: #218838;
+  border-color: #218838;
 }
 
 /* Media Upload Styles */
@@ -743,7 +1000,7 @@ body[data-theme="dark"] .filter-section {
 @media (max-width: 1200px) {
   .announcements-table-header,
   .announcements-table-row {
-    grid-template-columns: 40px 1fr 100px 120px 90px 120px 80px;
+    grid-template-columns: 40px 1fr 100px 120px 90px 120px 140px;
     gap: 12px;
   }
 }
