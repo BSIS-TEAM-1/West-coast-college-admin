@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { 
   Bell, Plus, Search, Filter, Clock, AlertTriangle, Info, AlertCircle, 
   Wrench, Users, Edit, Trash2, Eye, ChevronDown,
-  CheckCircle, XCircle, Archive, RefreshCw, Upload, X
+  CheckCircle, XCircle, Archive, RefreshCw, Upload, X, Send
 } from 'lucide-react'
 import { getStoredToken, clearStoredToken, API_URL, getProfile, type ProfileResponse } from '../lib/authApi'
 import './Announcements.css'
@@ -15,6 +15,7 @@ interface Announcement {
   targetAudience: string
   isActive: boolean
   isPinned: boolean
+  isArchived?: boolean
   expiresAt: string
   createdAt: string
   updatedAt?: string
@@ -141,7 +142,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
     setMediaFiles([]) // Reset media files for new edit session
   }
 
-  const handleSaveEdit = async (updatedAnnouncement: Partial<Announcement>) => {
+  const handleSaveEdit = async (updatedAnnouncement: Partial<Announcement>, saveAsDraft = false) => {
     if (!editingAnnouncement) return
     
     try {
@@ -169,6 +170,8 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
         },
         body: JSON.stringify({
           ...updatedAnnouncement,
+          // If saving as draft, force isActive to false
+          isActive: saveAsDraft ? false : (updatedAnnouncement.isActive ?? editingAnnouncement.isActive),
           media: allMedia
         })
       })
@@ -207,7 +210,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
     })
   }
 
-  const handleSaveNewAnnouncement = async () => {
+  const handleSaveNewAnnouncement = async (saveAsDraft = false) => {
     try {
       // Upload media files first
       const newMedia = await uploadMediaFiles(mediaFiles)
@@ -219,6 +222,8 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
         fileSize: (m as any).fileSize ?? 0,
       })) as NonNullable<Announcement['media']>
       
+      const finalIsActive = saveAsDraft ? false : (newAnnouncement.isActive ?? true)
+      
       const token = await getStoredToken()
       const response = await fetch(`${API_URL}/api/admin/announcements`, {
         method: 'POST',
@@ -229,6 +234,8 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
         },
         body: JSON.stringify({
           ...newAnnouncement,
+          // If saving as draft, force isActive to false
+          isActive: finalIsActive,
           // Normalize targetAudience to allowed enum values
           targetAudience:
             newAnnouncement.targetAudience && audienceOptions.some(a => a.value === newAnnouncement.targetAudience)
@@ -240,6 +247,35 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       
       if (!response.ok) {
         throw new Error('Failed to create announcement')
+      }
+      
+      const responseData = await response.json()
+      
+      // Backend workaround: If we saved as draft but backend returned isActive: true, fix it
+      if (saveAsDraft && responseData.announcement?.isActive) {
+        console.log('Backend bug detected: Draft saved but returned isActive: true. Fixing...')
+        try {
+          const fixResponse = await fetch(`${API_URL}/api/admin/announcements/${responseData.announcement._id}`, {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ isActive: false })
+          })
+          
+          if (fixResponse.ok) {
+            console.log('Draft status fixed successfully')
+            // Clear any selected announcements to prevent bulk action conflicts
+            setSelectedAnnouncements([])
+          } else {
+            console.error('Failed to fix draft status:', fixResponse.status)
+          }
+        } catch (fixError) {
+          console.error('Error fixing draft status:', fixError)
+        }
+      } else if (saveAsDraft) {
+        console.log('Draft saved correctly, backend returned isActive: false')
       }
       
       // Refresh announcements list
@@ -390,7 +426,8 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
     const matchesType = filterType === 'all' || announcement.type === filterType
     const matchesStatus = filterStatus === 'all' || 
                          (filterStatus === 'active' && announcement.isActive) ||
-                         (filterStatus === 'inactive' && !announcement.isActive)
+                         (filterStatus === 'inactive' && !announcement.isActive && !announcement.isArchived) ||
+                         (filterStatus === 'archived' && announcement.isArchived)
     
     return matchesSearch && matchesType && matchesStatus
   })
@@ -412,8 +449,51 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
   }
 
   const handleBulkAction = async (action: string) => {
-    // Implementation for bulk actions (delete, archive, etc.)
-    console.log(`Bulk action: ${action}`, selectedAnnouncements)
+    if (selectedAnnouncements.length === 0) return
+
+    const confirmMsg = action === 'delete'
+      ? `Are you sure you want to permanently delete ${selectedAnnouncements.length} announcement(s)? This cannot be undone.`
+      : `Archive ${selectedAnnouncements.length} announcement(s)? Archived items will be marked inactive.`
+
+    if (!window.confirm(confirmMsg)) return
+
+    try {
+      const token = await getStoredToken()
+
+      for (const id of selectedAnnouncements) {
+        if (action === 'delete') {
+          const res = await fetch(`${API_URL}/api/admin/announcements/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+
+          if (!res.ok) {
+            console.error('Failed to delete announcement', id, res.status)
+          }
+        } else if (action === 'archive') {
+          // Archive by marking inactive and setting isArchived flag
+          const res = await fetch(`${API_URL}/api/admin/announcements/${id}`, {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ isActive: false, isArchived: true })
+          })
+
+          if (!res.ok) {
+            console.error('Failed to archive announcement', id, res.status)
+          }
+        }
+      }
+
+      // Clear selection and refresh list
+      setSelectedAnnouncements([])
+      await fetchAnnouncements()
+    } catch (err) {
+      console.error('Bulk action failed:', err)
+      alert('Bulk action failed. Check console for details.')
+    }
   }
 
   const handleToggleStatus = async (id: string, currentStatus: boolean) => {
@@ -471,6 +551,32 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       }, 500)
     } catch (error) {
       console.error('Failed to toggle announcement status:', error)
+    }
+  }
+
+  const handleDeleteAnnouncement = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this announcement?')) return
+
+    try {
+      const token = await getStoredToken()
+      const res = await fetch(`${API_URL}/api/admin/announcements/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+
+      if (!res.ok) {
+        console.error('Failed to delete announcement', id, res.status)
+        alert('Failed to delete announcement')
+        return
+      }
+
+      // Remove from local state for immediate feedback
+      setAnnouncements(prev => prev.filter(a => a._id !== id))
+      // Also ensure it's not selected
+      setSelectedAnnouncements(prev => prev.filter(sid => sid !== id))
+    } catch (err) {
+      console.error('Failed to delete announcement:', err)
+      alert('Failed to delete announcement')
     }
   }
 
@@ -533,6 +639,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
             <option value="all">All Status</option>
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
+            <option value="archived">Archived</option>
           </select>
         </div>
       )}
@@ -720,32 +827,36 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                 )}
               </div>
               
-              <div className="form-group">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={editingAnnouncement.isActive}
-                    onChange={(e) => setEditingAnnouncement({
-                      ...editingAnnouncement,
-                      isActive: e.target.checked
-                    })}
-                  />
-                  Active
-                </label>
-              </div>
-              
-              <div className="form-group">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={editingAnnouncement.isPinned}
-                    onChange={(e) => setEditingAnnouncement({
-                      ...editingAnnouncement,
-                      isPinned: e.target.checked
-                    })}
-                  />
-                  Pinned
-                </label>
+              <div className="form-group horizontal-checkboxes">
+                <ul className="checkbox-list">
+                  <li>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={editingAnnouncement.isActive}
+                        onChange={(e) => setEditingAnnouncement({
+                          ...editingAnnouncement,
+                          isActive: e.target.checked
+                        })}
+                      />
+                      Active
+                    </label>
+                  </li>
+
+                  <li>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={editingAnnouncement.isPinned}
+                        onChange={(e) => setEditingAnnouncement({
+                          ...editingAnnouncement,
+                          isPinned: e.target.checked
+                        })}
+                      />
+                      Pinned
+                    </label>
+                  </li>
+                </ul>
               </div>
             </div>
             
@@ -757,8 +868,15 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                 Cancel
               </button>
               <button 
+                className="announcements-edit-save draft"
+                onClick={() => handleSaveEdit(editingAnnouncement, true)}
+              >
+                Save Draft
+              </button>
+
+              <button 
                 className="announcements-edit-save"
-                onClick={() => handleSaveEdit(editingAnnouncement)}
+                onClick={() => handleSaveEdit(editingAnnouncement, false)}
                 disabled={false}
               >
                 Save Changes
@@ -845,32 +963,36 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                 </select>
               </div>
               
-              <div className="form-group">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={newAnnouncement.isActive}
-                    onChange={(e) => setNewAnnouncement({
-                      ...newAnnouncement,
-                      isActive: e.target.checked
-                    })}
-                  />
-                  Active
-                </label>
-              </div>
-              
-              <div className="form-group">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={newAnnouncement.isPinned}
-                    onChange={(e) => setNewAnnouncement({
-                      ...newAnnouncement,
-                      isPinned: e.target.checked
-                    })}
-                  />
-                  Pinned
-                </label>
+              <div className="form-group horizontal-checkboxes">
+                <ul className="checkbox-list">
+                  <li>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={newAnnouncement.isActive}
+                        onChange={(e) => setNewAnnouncement({
+                          ...newAnnouncement,
+                          isActive: e.target.checked
+                        })}
+                      />
+                      Active
+                    </label>
+                  </li>
+
+                  <li>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={newAnnouncement.isPinned}
+                        onChange={(e) => setNewAnnouncement({
+                          ...newAnnouncement,
+                          isPinned: e.target.checked
+                        })}
+                      />
+                      Pinned
+                    </label>
+                  </li>
+                </ul>
               </div>
               
               <div className="form-group">
@@ -948,8 +1070,15 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                 Cancel
               </button>
               <button 
+                className="announcements-edit-save draft"
+                onClick={() => handleSaveNewAnnouncement(true)}
+              >
+                Save Draft
+              </button>
+
+              <button 
                 className="announcements-edit-save"
-                onClick={handleSaveNewAnnouncement}
+                onClick={() => handleSaveNewAnnouncement(false)}
                 disabled={false}
               >
                 Create Announcement
@@ -1026,20 +1155,27 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                     {announcement.targetAudience}
                   </div>
                   <div className="table-status">
-                    <button
-                      className={`status-toggle ${announcement.isActive ? 'active' : 'inactive'} ${!canEdit ? 'disabled' : ''}`}
-                      onClick={() => canEdit && handleToggleStatus(announcement._id, announcement.isActive)}
-                      disabled={!canEdit}
-                      title={canEdit ? "Toggle status" : "You cannot edit this announcement"}
-                    >
-                      {announcement.isActive ? <CheckCircle size={14} /> : <XCircle size={14} />}
-                      {announcement.isActive ? 'Active' : 'Inactive'}
-                    </button>
+                    <span className={`status-badge ${announcement.isActive ? 'published' : announcement.isArchived ? 'archived' : 'draft'}`}>
+                      {announcement.isActive ? <CheckCircle size={14} /> : announcement.isArchived ? <Archive size={14} /> : <XCircle size={14} />}
+                      {announcement.isActive ? 'Published' : announcement.isArchived ? 'Archived' : 'Draft'}
+                    </span>
+                    {!announcement.isActive && canEdit && (
+                      <button
+                        className="action-btn publish-action"
+                        onClick={() => handleToggleStatus(announcement._id, announcement.isActive)}
+                        title="Publish"
+                        aria-label="Publish announcement"
+                      >
+                        <Upload size={14} className="publish-icon-default" />
+                        <Send size={14} className="publish-icon-hover" />
+                      </button>
+                    )}
                   </div>
                   <div className="table-date">
                     <Clock size={14} />
                     {formatDate(announcement.createdAt)}
                   </div>
+
                   <div className="table-actions">
                     <button 
                       className="action-btn"
@@ -1057,14 +1193,22 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                         <Edit size={16} />
                       </button>
                     )}
+                    {canEdit && (
+                      <button
+                        className="action-btn"
+                        onClick={() => handleDeleteAnnouncement(announcement._id)}
+                        title="Delete"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                   </div>
                 </div>
               )
             })}
-            </div>
+          </div>
         )}
       </div>
-    
-  </div>
+    </div>
   )
 }
