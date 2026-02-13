@@ -156,12 +156,12 @@ export default function StatisticsCard({ title, statistics, graphData = [], time
           {statistics.map((stat, index) => (
             <div key={index} className={`statistic-item ${stat.disabled ? 'disabled' : ''}`}>
               <div className="stat-header">
-                <div className="stat-icon">
-                  {stat.icon || <Users size={20} />}
-                </div>
                 <div className="stat-info">
                   <div className="stat-label">{stat.label}</div>
                   <div className="stat-value">{stat.value}</div>
+                </div>
+                <div className="stat-icon">
+                  {stat.icon || <Users size={20} />}
                 </div>
               </div>
               {stat.change !== undefined && !stat.disabled && (

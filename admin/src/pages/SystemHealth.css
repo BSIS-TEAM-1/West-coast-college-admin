@@ -172,15 +172,16 @@
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
+  background: transparent;
 }
 
 .warning-modal-btn.primary {
-  background: #3b82f6;
   color: white;
+  background: transparent;
 }
 
 .warning-modal-btn.primary:hover {
-  background: #2563eb;
+  background: transparent;
 }
 
 /* Dark mode styles for modal */
@@ -344,6 +345,7 @@
   font-weight: 600;
   font-size: 1.1rem;
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  background: transparent;
 }
 
 .status-indicator {

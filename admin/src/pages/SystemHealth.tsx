@@ -133,11 +133,85 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
     // Force refresh every 2 minutes to clear cache
     const forceRefreshInterval = setInterval(() => fetchSystemHealth(true), 120000);
     
+    // Fetch error logs separately from database
+    fetchErrorLogs();
+    const errorLogsInterval = setInterval(fetchErrorLogs, 30000); // Refresh error logs every 30 seconds
+    
     return () => {
       clearInterval(interval);
       clearInterval(forceRefreshInterval);
+      clearInterval(errorLogsInterval);
     };
   }, []);
+
+  const fetchErrorLogs = async () => {
+    try {
+      const token = await getStoredToken();
+      if (!token) return;
+
+      const response = await fetch(`${API_URL}/api/admin/error-logs?limit=100`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      // Handle 404 gracefully - the endpoint might not exist yet
+      if (response.status === 404) {
+        console.log('Error logs endpoint not available, using fallback data');
+        setLogs([]);
+        setError(null);
+        return;
+      }
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          setError('Authentication failed');
+        } else {
+          setError('Failed to fetch error logs');
+        }
+        return;
+      }
+
+      const data = await response.json();
+      // Convert database error logs to LogEntry format
+      const dbLogs: LogEntry[] = (data.logs || []).map((log: any) => ({
+        id: log.id,
+        timestamp: log.timestamp,
+        level: log.level.toUpperCase(),
+        message: log.message,
+        module: log.source || 'SYSTEM'
+      }));
+      
+      // Combine with existing logs or replace if database logs are available
+      if (dbLogs.length > 0) {
+        setLogs(prev => {
+          // Combine unique logs, prioritizing database logs
+          const combinedLogs = [...dbLogs];
+          const existingIds = new Set(dbLogs.map(l => l.id));
+          
+          // Add any existing logs that aren't in database logs
+          prev.forEach(log => {
+            if (!existingIds.has(log.id)) {
+              combinedLogs.push(log);
+            }
+          });
+          
+          // Sort by timestamp (newest first) and limit to 50
+          return combinedLogs
+            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+            .slice(0, 50);
+        });
+      } else {
+        setLogs(data.logs || []);
+      }
+      
+      setError(null);
+    } catch (err) {
+      console.error('Failed to fetch error logs:', err);
+      setError('Network error while fetching error logs');
+    }
+  };
   
   const fetchSystemHealth = async (forceScan = false) => {
     try {
@@ -166,7 +240,15 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
       }
       
       const data = await response.json();
-      setMetrics(data);
+      
+      // Update error count based on current logs
+      const currentErrorCount = logs.filter(log => log.level === 'ERROR').length;
+      
+      setMetrics({
+        ...data,
+        errorCount: currentErrorCount > 0 ? currentErrorCount : data.errorCount
+      });
+      
       setLogs(data.logs || []);
       
       // If no logs are found, create a fallback log for testing
@@ -464,9 +546,9 @@ const getHealthStatus = () => {
           >
             Security
           </button>
-          <div className="overall-status" style={{ backgroundColor: healthStatus.color }}>
-            <span className="status-indicator"></span>
-            <span className="status-text">{healthStatus.status.toUpperCase()}</span>
+          <div className="overall-status">
+            <span className="status-indicator" style={{ backgroundColor: healthStatus.color }}></span>
+            <span className="status-text" style={{ color: healthStatus.color }}>{healthStatus.status.toUpperCase()}</span>
           </div>
         </div>
       </div>
@@ -548,7 +630,7 @@ const getHealthStatus = () => {
               data={memoryHistory}
               maxValue={100}
               unit="%"
-              color="#3b82f6"
+              color="#a855f7"
             />
           </div>
           <div className="graph-container">

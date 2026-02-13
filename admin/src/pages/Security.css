@@ -578,6 +578,7 @@ div.security-actions-grid > div.action-card:nth-child(5) p {
 .action-card {
   /* Base styles are handled by inline styles in TSX */
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
 }
 
 /* Hover effects for circular scanning cards - green */
@@ -1335,4 +1336,24 @@ div.security-actions-grid > div.action-card:hover h3 {
   .modal-body table button:hover {
     background-color: #b91c1c;
   }
+}
+
+/* Security Scan Results - Add cursor pointer for interactive elements */
+.security-scan-results button {
+  cursor: pointer !important;
+}
+
+.security-scan-results button:hover {
+  transform: translateY(-1px);
+  transition: all 0.2s ease;
+}
+
+/* Headers scan results - make header items interactive */
+.security-scan-results div[style*="border-left"] {
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.security-scan-results div[style*="border-left"]:hover {
+  background-color: #334155 !important;
 }

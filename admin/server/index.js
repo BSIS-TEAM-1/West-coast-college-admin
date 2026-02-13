@@ -15,6 +15,7 @@ const AuthToken = require('./models/AuthToken')
 const Document = require('./models/Document')
 const Backup = require('./models/Backup')
 const BlockedIP = require('./models/BlockedIP')
+const SecurityScan = require('./models/SecurityScan')
 const BackupSystem = require('./backup')
 
 // Initialize backup system
@@ -1652,10 +1653,59 @@ app.get('/api/admin/security-metrics', authMiddleware, async (req, res) => {
     // Calculate real active sessions (users who logged in successfully in last hour)
     const activeSessions = totalSessions
     
-    // Calculate security score (0-100) based on real data
-    const securityScore = Math.max(0, Math.min(100, 
-      100 - (failedLogins * 2) - (suspiciousActivity * 5) + (recentLogins * 1)
-    ))
+    // Get the most recent security scan from SecurityScan collection
+    const SecurityScan = require('./models/SecurityScan');
+    const lastSecurityScan = await SecurityScan.findOne({})
+      .sort({ timestamp: -1 })
+      .lean();
+    
+    // Get the most recent full security scan for security score
+    const lastFullScan = await SecurityScan.findOne({
+      scanType: 'full'
+    })
+      .sort({ timestamp: -1 })
+      .lean();
+    
+    // Get the score from the most recent full security scan if available
+    let securityScore = 0; // Default to 0 if no scan found
+    let lastScanTime = null;
+    
+    if (lastFullScan?.summary?.score !== undefined) {
+      securityScore = lastFullScan.summary.score;
+      lastScanTime = lastFullScan.timestamp || lastFullScan.createdAt;
+      console.log('Using security score from full scan:', securityScore);
+    } else if (lastSecurityScan?.summary?.score !== undefined) {
+      // Fallback to any scan if no full scan
+      securityScore = lastSecurityScan.summary.score;
+      lastScanTime = lastSecurityScan.timestamp || lastSecurityScan.createdAt;
+      console.log('Using security score from latest scan:', securityScore);
+    }
+    
+    // Get header-specific data from the latest header scan
+    let headersPassed = 0;
+    let headersChecked = 0;
+    let headerScore = null;
+    let headerGrade = null;
+    
+    const latestHeaderScan = await SecurityScan.findOne({
+      scanType: 'headers'
+    })
+      .sort({ timestamp: -1 })
+      .lean();
+    
+    if (latestHeaderScan?.summary) {
+      headersPassed = latestHeaderScan.summary.headersPassed || 0;
+      headersChecked = latestHeaderScan.summary.headersChecked || 0;
+      headerScore = latestHeaderScan.summary.score;
+      headerGrade = latestHeaderScan.summary.grade;
+      console.log('Using header score from header scan:', headerScore);
+    }
+    
+    // Get header scan timestamp
+    let lastHeaderScanTime = null;
+    if (latestHeaderScan?.timestamp) {
+      lastHeaderScanTime = latestHeaderScan.timestamp.toISOString();
+    }
     
     // Return real security metrics
     res.json({
@@ -1663,14 +1713,57 @@ app.get('/api/admin/security-metrics', authMiddleware, async (req, res) => {
       suspiciousActivity,
       blockedIPs,
       activeSessions,
-      lastSecurityScan: new Date().toISOString(),
+      lastSecurityScan: lastScanTime ? lastScanTime.toISOString() : new Date().toISOString(),
+      lastHeaderScan: lastHeaderScanTime,
       securityScore: Math.round(securityScore),
+      headersPassed,
+      headersChecked,
+      headerScore,
+      headerGrade,
       recentThreats: processedThreats
     })
     
   } catch (error) {
     console.error('Security metrics error:', error)
     res.status(500).json({ error: 'Failed to fetch security metrics.' })
+  }
+})
+
+// GET /api/admin/error-logs - Get error logs
+app.get('/api/admin/error-logs', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  
+  try {
+    const limit = parseInt(req.query.limit) || 100;
+    const now = new Date();
+    const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    
+    // Get error logs from audit logs
+    const errorLogs = await AuditLog.find({
+      status: { $in: ['FAILED', 'ERROR'] },
+      createdAt: { $gte: last24h }
+    })
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .lean();
+    
+    res.json({
+      logs: errorLogs.map(log => ({
+        id: log._id.toString(),
+        timestamp: log.createdAt,
+        level: log.severity === 'CRITICAL' ? 'error' : log.severity === 'HIGH' ? 'warning' : 'info',
+        message: log.description,
+        source: log.action,
+        details: log.metadata || {}
+      })),
+      total: errorLogs.length
+    });
+    
+  } catch (error) {
+    console.error('Error logs endpoint error:', error);
+    res.status(500).json({ error: 'Failed to fetch error logs.' });
   }
 })
 
@@ -2038,13 +2131,18 @@ app.get('/api/admin/backup/stats', authMiddleware, async (req, res) => {
     const stats = await backupSystem.getBackupStats();
     res.json({ success: true, ...stats });
   } catch (error) {
-    console.error('Backup stats error:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Error fetching latest security scan:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch latest security scan results',
+      details: error.message 
+    });
   }
 });
 
-// POST /api/admin/security-scan - Run comprehensive security scan
+// POST /api/admin/security-scan - Run a security scan
 app.post('/api/admin/security-scan', authMiddleware, async (req, res) => {
+  console.log('Security scan initiated by admin:', req.adminId);
+  
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -2143,22 +2241,7 @@ app.post('/api/admin/security-scan', authMiddleware, async (req, res) => {
       })
     }
     
-    // Log the security scan
-    await logAudit(
-      'SECURITY_SCAN',
-      'SYSTEM',
-      'system-scan',
-      'System Security Scan',
-      `Completed security scan. Found ${findings.length} items.`,
-      req.adminId,
-      req.accountType,
-      null,
-      { findingsCount: findings.length, recommendationsCount: recommendations.length },
-      'SUCCESS',
-      'MEDIUM'
-    )
-    
-    // Calculate security score and grade
+    // Calculate security score and grade BEFORE using them
     const criticalCount = findings.filter(f => f.severity === 'critical').length
     const highCount = findings.filter(f => f.severity === 'high').length
     const mediumCount = findings.filter(f => f.severity === 'medium').length
@@ -2181,16 +2264,12 @@ app.post('/api/admin/security-scan', authMiddleware, async (req, res) => {
     else if (score < 80) grade = 'C'
     else if (score < 90) grade = 'B'
     
-    const scanResult = {
-      scanId: `scan-${Date.now()}`,
-      timestamp: now.toISOString(),
-      duration: Math.floor(Math.random() * 3000) + 1000, // Simulated duration in ms
-      status: findings.length === 0 ? 'secure' : findings.some(f => f.severity === 'high') ? 'warning' : 'info',
-      findings: findings.sort((a, b) => {
-        const severityOrder = { critical: 0, high: 1, medium: 2, low: 3, info: 4 }
-        return (severityOrder[a.severity] || 5) - (severityOrder[b.severity] || 5)
-      }),
-      recommendations,
+    // Create a new security scan record
+    const securityScan = new SecurityScan({
+      scanType: 'full',
+      duration: Date.now() - now.getTime(),
+      status: 'completed',
+      success: true,
       summary: {
         score: score,
         grade: grade,
@@ -2202,17 +2281,31 @@ app.post('/api/admin/security-scan', authMiddleware, async (req, res) => {
         info: findings.filter(f => f.severity === 'info').length,
         criticalIssues: criticalCount,
         warnings: mediumCount + lowCount
-      }
-    }
+      },
+      findings: findings,
+      recommendations: recommendations,
+      serverUrl: req.headers.host
+    });
+
+    // Save the scan results to the database
+    await securityScan.save();
+
+    // Create the response object
+    const response = securityScan.toObject();
     
-    console.log('Security scan result:', scanResult);
-    console.log('Score:', scanResult.summary.score);
-    console.log('Grade:', scanResult.summary.grade);
+    console.log('Security scan result:', JSON.stringify(securityScan, null, 2));
+    console.log('Score:', securityScan.summary.score);
+    console.log('Grade:', securityScan.summary.grade);
     
-    res.json(scanResult)
+    res.json(securityScan)
   } catch (error) {
-    console.error('Security scan error:', error)
-    res.status(500).json({ error: 'Failed to run security scan.' })
+    console.error('Security scan error:', error);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Failed to run security scan.',
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
@@ -2239,7 +2332,7 @@ app.get('/api/admin/blocked-ips', authMiddleware, async (req, res) => {
 // POST /api/admin/security-headers-scan - Scan security headers
 app.post('/api/admin/security-headers-scan', authMiddleware, async (req, res) => {
   if (!dbReady) {
-    return res.status(503).json({ error: 'Database unavailable.' })
+    return res.status(503).json({ error: 'Database unavailable.' });
   }
   
   try {
@@ -2437,6 +2530,29 @@ app.post('/api/admin/security-headers-scan', authMiddleware, async (req, res) =>
       'SUCCESS',
       'LOW'
     )
+    
+    // Save the scan results to the database
+    const securityScan = new SecurityScan({
+      scanType: 'headers',
+      duration: Date.now() - new Date().getTime(),
+      status: 'completed',
+      success: true,
+      summary: {
+        score: securityScore,
+        grade: summary.grade,
+        headersChecked: summary.headersChecked,
+        headersPassed: summary.headersPassed,
+        criticalIssues: summary.criticalIssues,
+        warnings: summary.warnings,
+        info: summary.info
+      },
+      findings: findings,
+      recommendations: recommendations,
+      securityHeaders: actualHeaders,
+      serverUrl
+    });
+
+    await securityScan.save();
     
     res.json({
       success: true,
@@ -2690,5 +2806,6 @@ app.listen(PORT, () => {
   console.log('  GET /api/admin/server-stats')
   console.log('  GET /api/admin/bandwidth-stats')
   console.log('  GET /api/admin/security-metrics')
+  console.log('  GET /api/admin/error-logs')
   console.log('  POST /api/admin/security-scan')
 })

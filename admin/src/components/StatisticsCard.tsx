@@ -31,20 +31,23 @@ const StatisticsCard: React.FC<StatisticsCardProps> = ({ statistics }) => {
             boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
             transition: 'all 0.2s',
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'flex-start',
             gap: '1rem'
           }}
         >
           {stat.icon && (
             <div style={{
-              padding: '12px',
+              width: '48px',
+              height: '48px',
               borderRadius: '12px',
               background: 'rgba(59, 130, 246, 0.1)',
               color: '#3b82f6',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              flexShrink: 0
+              flexShrink: 0,
+              lineHeight: 1,
+              marginTop: '6px'
             }}>
               {stat.icon}
             </div>

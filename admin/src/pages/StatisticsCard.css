@@ -138,7 +138,7 @@
 .stat-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   margin-bottom: 0.75rem;
 }
 

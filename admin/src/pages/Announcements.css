@@ -242,6 +242,15 @@
   letter-spacing: 0.5px;
 }
 
+.announcements-table-header > div {
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.announcements-table-header > div:hover {
+  color: var(--color-primary);
+}
+
 .announcements-table-row {
   display: grid;
   grid-template-columns: 40px 1fr 120px 140px 120px 140px 180px;

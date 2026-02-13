@@ -7,7 +7,8 @@ const auditLogSchema = new mongoose.Schema({
     enum: [
       'CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'LOGOUT', 
       'VIEW', 'EXPORT', 'UPLOAD', 'DOWNLOAD', 'APPROVE', 
-      'REJECT', 'ARCHIVE', 'RESTORE', 'BAN', 'UNBAN'
+      'REJECT', 'ARCHIVE', 'RESTORE', 'BAN', 'UNBAN',
+      'SECURITY_SCAN', 'SECURITY_HEADERS_SCAN'
     ]
   },
   resourceType: {
@@ -15,7 +16,8 @@ const auditLogSchema = new mongoose.Schema({
     required: true,
     enum: [
       'ADMIN', 'STUDENT', 'FACULTY', 'COURSE', 'REGISTRATION', 
-      'ANNOUNCEMENT', 'DOCUMENT', 'SYSTEM', 'PROFILE', 'ACCOUNT'
+      'ANNOUNCEMENT', 'DOCUMENT', 'SYSTEM', 'PROFILE', 'ACCOUNT',
+      'SECURITY'
     ]
   },
   resourceId: {
