@@ -9,7 +9,12 @@ interface SecurityMetrics {
   blockedIPs: number;
   activeSessions: number;
   lastSecurityScan: string;
+  lastHeaderScan: string | null;
   securityScore: number;
+  headerScore: number | null;
+  headersPassed: number;
+  headersChecked: number;
+  headerGrade: string | null;
   recentThreats: SecurityThreat[];
 }
 
@@ -50,22 +55,43 @@ interface SecurityRecommendation {
 }
 
 interface SecurityScanResults {
-  success: boolean;
-  scanType: string;
+  scanId: string;
   timestamp: string;
+  duration: number;
+  status: string;
+  findings: SecurityFinding[];
+  recommendations: SecurityRecommendation[];
   summary: {
     score: number;
     grade: string;
-    headersChecked?: number;
-    headersPassed?: number;
+    total: number;
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+    info: number;
     criticalIssues: number;
     warnings: number;
-    info?: number;
+    headersChecked?: number;
+    headersPassed?: number;
   };
-  findings: SecurityFinding[];
-  recommendations: SecurityRecommendation[];
+  score: number;
+  grade: string;
+  total: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  info: number;
+  criticalIssues: number;
+  warnings: number;
+  headersChecked?: number;
+  headersPassed?: number;
+  scanType?: string;
+  success?: boolean;
   securityHeaders?: Record<string, SecurityHeaderConfig>;
   serverUrl?: string;
+  error?: string;
 }
 
 const Security: React.FC<SecurityProps> = ({ onBack }) => {
@@ -75,7 +101,12 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
     blockedIPs: 0,
     activeSessions: 0,
     lastSecurityScan: 'N/A',
+    lastHeaderScan: null,
     securityScore: 0,
+    headerScore: null,
+    headersPassed: 0,
+    headersChecked: 0,
+    headerGrade: null,
     recentThreats: []
   });
   const [loading, setLoading] = useState(true);
@@ -109,31 +140,35 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
         return;
       }
 
-      const response = await fetch(`${API_URL}/api/admin/security-metrics`, {
+      // First fetch the security metrics
+      const metricsResponse = await fetch(`${API_URL}/api/admin/security-metrics`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
 
-
-      if (!response.ok) {
+      if (!metricsResponse.ok) {
         throw new Error('Failed to fetch security metrics');
       }
 
-      const data = await response.json();
+      const data = await metricsResponse.json();
       
-      // Ensure securityScore is a number
-      if (data.securityScore === undefined || data.securityScore === null) {
+      // Ensure securityScore is a valid number
+      if (data.securityScore === undefined || data.securityScore === null || isNaN(data.securityScore)) {
         data.securityScore = 0;
+      } else {
+        // Convert to number and round to nearest integer
+        data.securityScore = Math.round(Number(data.securityScore));
       }
       
-      // Convert to number if it's a string
-      if (typeof data.securityScore === 'string') {
-        data.securityScore = parseInt(data.securityScore, 10);
-      }
+      setMetrics(prev => ({
+        ...prev,
+        ...data,
+        // Only update the score if we got a valid one
+        securityScore: data.securityScore !== undefined ? data.securityScore : prev.securityScore,
+        lastSecurityScan: data.lastSecurityScan || prev.lastSecurityScan
+      }));
       
-      
-      setMetrics(data);
       setError(null);
     } catch (err) {
       console.error('Failed to fetch security metrics:', err);
@@ -164,11 +199,14 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
   const handleSecurityScan = async () => {
     try {
       const token = await getStoredToken();
-      if (!token) return;
+      if (!token) {
+        console.error('No authentication token found');
+        return;
+      }
 
       setSystemScanLoading(true);
+      console.log('Starting security scan...');
 
-      // Call the new security scan endpoint
       const response = await fetch(`${API_URL}/api/admin/security-scan`, {
         method: 'POST',
         headers: {
@@ -177,27 +215,83 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
         }
       });
 
-      if (response.ok) {
-        const results = await response.json();
-        setScanResults(results);
-        setShowScanResults(true);
-        
-        // Update main security score with scan results
-        if (results.summary && results.summary.score !== undefined) {
-          setMetrics(prev => ({
-            ...prev,
-            securityScore: results.summary.score,
-            lastSecurityScan: new Date().toISOString()
-          }));
-        }
-        
-        fetchSecurityMetrics();
-      } else {
-        alert('System scan failed. Please try again.');
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Scan failed with status:', response.status, 'Response:', errorText);
+        throw new Error(`Scan failed with status ${response.status}`);
       }
+
+      const responseData = await response.json();
+      console.log('Raw scan response:', JSON.stringify(responseData, null, 2));
+
+      if (!responseData) {
+        throw new Error('Empty response from server');
+      }
+
+      // Ensure we have a valid summary object
+      const summary = responseData.summary || {};
+      const score = typeof summary.score === 'number' ? summary.score : 0;
+      const timestamp = responseData.timestamp || new Date().toISOString();
+
+      // Transform the results to match our interface
+      const formattedResults: SecurityScanResults = {
+        scanId: responseData.scanId || `scan-${Date.now()}`,
+        timestamp: timestamp,
+        duration: responseData.duration || 0,
+        status: responseData.status || 'completed',
+        findings: responseData.findings || [],
+        recommendations: responseData.recommendations || [],
+        summary: {
+          score: score,
+          grade: summary.grade || getSecurityGrade(score),
+          total: summary.total || 0,
+          critical: summary.critical || 0,
+          high: summary.high || 0,
+          medium: summary.medium || 0,
+          low: summary.low || 0,
+          info: summary.info || 0,
+          criticalIssues: summary.criticalIssues || 0,
+          warnings: summary.warnings || 0,
+          headersChecked: summary.headersChecked || 0,
+          headersPassed: summary.headersPassed || 0
+        },
+        scanType: responseData.scanType || 'System',
+        success: responseData.success !== false, // default to true if not specified
+        securityHeaders: responseData.securityHeaders,
+        serverUrl: responseData.serverUrl,
+        // Add direct properties for backward compatibility
+        score: score,
+        grade: summary.grade || getSecurityGrade(score),
+        total: summary.total || 0,
+        critical: summary.critical || 0,
+        high: summary.high || 0,
+        medium: summary.medium || 0,
+        low: summary.low || 0,
+        info: summary.info || 0,
+        criticalIssues: summary.criticalIssues || 0,
+        warnings: summary.warnings || 0
+      };
+
+      console.log('Formatted scan results:', JSON.stringify(formattedResults, null, 2));
+
+      // Update the scan results state
+      setScanResults(formattedResults);
+      setShowScanResults(true);
+      
+      // Also update the metrics with the scan results
+      console.log('Updating security score:', score);
+      setMetrics(prev => ({
+        ...prev,
+        securityScore: score,
+        lastSecurityScan: timestamp
+      }));
+
+      // Force a refresh of the metrics to ensure consistency
+      await fetchSecurityMetrics();
+      
     } catch (error) {
       console.error('System scan failed:', error);
-      alert('System scan failed. Please try again.');
+      alert(`Scan failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setSystemScanLoading(false);
     }
@@ -401,21 +495,202 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
               ← Back
             </button>
           )}
-          <h1>Security Center</h1>
         </div>
-        <div className="security-score">
+                  <h1 className="security-title" style={{
+            backgroundImage: 'linear-gradient(to right, #34C759, #2ECC71)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            fontSize: '2rem',
+            fontFamily: '"Roboto", sans-serif',
+            fontWeight: '700',
+            letterSpacing: '-0.02em',
+            textTransform: 'uppercase',
+            margin: '0',
+            padding: '0'
+          }}>WCC SecureShield</h1>
+
+        <div className="security-score" style={{ display: 'flex', gap: '16px' }}>
+          <div style={{ display: 'flex', gap: '16px' }}>
+            {/* Security Score Card */}
+            <div 
+              className="security-metric-card"
+              style={{ 
+                padding: '12px 20px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minWidth: '140px',
+                position: 'relative',
+                overflow: 'hidden',
+                boxShadow: '0 2px 4px -1px rgba(0, 0, 0, 0.1)',
+                borderRadius: '8px',
+                backgroundColor: 'rgba(255, 255, 255, 0.1)'
+              }}
+            >
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                height: '4px',
+                backgroundColor: getSecurityScoreColor(metrics.securityScore || 0)
+              }} />
+              
+              <div style={{ 
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                marginBottom: '4px'
+              }}>
+                <Shield size={14} style={{ 
+                  color: getSecurityScoreColor(metrics.securityScore || 0),
+                  flexShrink: 0
+                }} />
+                <span style={{
+                  fontSize: '0.7rem', 
+                  textTransform: 'uppercase', 
+                  letterSpacing: '0.05em', 
+                  color: '#94a3b8', 
+                  fontWeight: '600',
+                }}>
+                  Security Score
+                </span>
+              </div>
+              
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', marginBottom: '2px' }}>
+                <span style={{ 
+                  fontSize: '2rem', 
+                  fontWeight: '700', 
+                  color: getSecurityScoreColor(metrics.securityScore || 0),
+                  lineHeight: 1,
+                  letterSpacing: '-0.02em'
+                }}>
+                  {metrics.securityScore !== undefined && metrics.securityScore !== null ? metrics.securityScore : '--'}
+                </span>
+                <span style={{ fontSize: '0.9rem', color: '#94a3b8', fontWeight: '500' }}>/100</span>
+              </div>
+
+              <div style={{ 
+                padding: '2px 10px',
+                borderRadius: '12px',
+                backgroundColor: `${getSecurityScoreColor(metrics.securityScore || 0)}15`,
+                color: getSecurityScoreColor(metrics.securityScore || 0),
+                fontSize: '0.75rem',
+                fontWeight: '600',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginTop: '2px'
+              }}>
+                <span>Grade</span>
+                <span style={{ fontSize: '1em' }}>{getSecurityGrade(metrics.securityScore || 0)}</span>
+              </div>
+            </div>
+            
+            {/* Header Score Card */}
+            <div 
+              className="security-metric-card"
+              style={{ 
+                padding: '12px 20px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minWidth: '140px',
+                position: 'relative',
+                overflow: 'hidden',
+                boxShadow: '0 2px 4px -1px rgba(0, 0, 0, 0.1)',
+                borderRadius: '8px',
+                backgroundColor: 'rgba(255, 255, 255, 0.1)'
+              }}
+            >
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                height: '4px',
+                backgroundColor: '#60a5fa'
+              }} />
+              
+              <div style={{ 
+                fontSize: '0.7rem', 
+                textTransform: 'uppercase', 
+                letterSpacing: '0.05em', 
+                color: '#94a3b8', 
+                fontWeight: '600',
+                marginBottom: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}>
+                <Shield size={14} style={{ color: '#60a5fa' }} />
+                <span>Header Score</span>
+              </div>
+              
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', marginBottom: '2px' }}>
+                <span style={{ 
+                  fontSize: '2rem', 
+                  fontWeight: '700', 
+                  color: '#60a5fa',
+                  lineHeight: 1,
+                  letterSpacing: '-0.02em'
+                }}>
+                  {metrics.headersChecked && metrics.headersChecked > 0 
+                    ? Math.round((metrics.headersPassed || 0) / metrics.headersChecked * 100)
+                    : 0}
+                </span>
+                <span style={{ fontSize: '0.9rem', color: '#94a3b8', fontWeight: '500' }}>/100</span>
+              </div>
+
+              <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#94a3b8', textAlign: 'center' }}>
+                {metrics.headersChecked !== undefined && metrics.headersChecked !== null
+                  ? `${metrics.headersPassed || 0}/${metrics.headersChecked} Headers`
+                  : 'No data'}
+              </div>
+
+              <div style={{ 
+                padding: '2px 10px',
+                borderRadius: '12px',
+                backgroundColor: '#60a5fa15',
+                color: '#60a5fa',
+                fontSize: '0.75rem',
+                fontWeight: '600',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginTop: '2px'
+              }}>
+                <span>Grade</span>
+                <span style={{ fontSize: '1em' }}>
+                  {metrics.headersChecked && metrics.headersChecked > 0
+                    ? (() => {
+                        const percentage = Math.round((metrics.headersPassed || 0) / metrics.headersChecked * 100);
+                        return percentage >= 90 ? 'A' : percentage >= 80 ? 'B' : percentage >= 70 ? 'C' : percentage >= 60 ? 'D' : 'F';
+                      })()
+                    : 'F'}
+                </span>
+              </div>
+            </div>
+          </div>
+          
+          <div style={{ display: 'flex', gap: '16px' }}>
+          {/* Last Scan Card */}
           <div 
             className="security-metric-card"
             style={{ 
-              padding: '16px 24px',
+              padding: '12px 20px',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              minWidth: '180px',
+              minWidth: '140px',
               position: 'relative',
               overflow: 'hidden',
-              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+              boxShadow: '0 2px 4px -1px rgba(0, 0, 0, 0.1)',
+              borderRadius: '8px',
+              backgroundColor: 'rgba(255, 255, 255, 0.1)'
             }}
           >
             <div style={{
@@ -426,46 +701,112 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
               height: '4px',
               backgroundColor: getSecurityScoreColor(metrics.securityScore || 0)
             }} />
-            
+            <div>
             <div style={{ 
-              fontSize: '0.75rem', 
+              fontSize: '0.7rem', 
               textTransform: 'uppercase', 
               letterSpacing: '0.05em', 
-              color: 'var(--text-secondary, #64748b)', 
+              color: '#94a3b8', 
               fontWeight: '600',
-              marginBottom: '8px',
-              marginTop: '4px'
+              marginBottom: '4px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
             }}>
-              Security Score
+              <Shield size={14} />
+              <span>Last Scan</span>
             </div>
             
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', marginBottom: '4px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', marginBottom: '2px' }}>
               <span style={{ 
-                fontSize: '3rem', 
-                fontWeight: '800', 
-                color: getSecurityScoreColor(metrics.securityScore || 0),
-                lineHeight: 1,
-                letterSpacing: '-0.02em'
+                fontSize: '1.1rem', 
+                fontWeight: '600', 
+                color: '#e2e8f0',
+                lineHeight: 1.2
               }}>
-                {metrics.securityScore !== undefined && metrics.securityScore !== null ? metrics.securityScore : '--'}
+                {metrics.lastSecurityScan && metrics.lastSecurityScan !== 'N/A' 
+                  ? new Date(metrics.lastSecurityScan).toLocaleDateString()
+                  : 'Never'}
               </span>
-              <span style={{ fontSize: '1rem', color: '#94a3b8', fontWeight: '500' }}>/100</span>
+              
+              <span style={{ 
+                fontSize: '0.8rem',
+                color: '#94a3b8',
+                lineHeight: 1.2
+              }}>
+                {metrics.lastSecurityScan && metrics.lastSecurityScan !== 'N/A'
+                  ? new Date(metrics.lastSecurityScan).toLocaleTimeString()
+                  : 'Run a scan to begin'}
+              </span>
+            </div>
+          </div>
+          </div>
+          {/* Last Header Scan Card */}
+          <div 
+            className="security-metric-card"
+            style={{ 
+              padding: '12px 20px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: '140px',
+              position: 'relative',
+              overflow: 'hidden',
+              boxShadow: '0 2px 4px -1px rgba(0, 0, 0, 0.1)',
+              borderRadius: '8px',
+              backgroundColor: 'rgba(255, 255, 255, 0.1)'
+            }}
+          >
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '4px',
+              backgroundColor: '#60a5fa'
+            }} />
+            
+            <div style={{ 
+              fontSize: '0.7rem', 
+              textTransform: 'uppercase', 
+              letterSpacing: '0.05em', 
+              color: '#94a3b8', 
+              fontWeight: '600',
+              marginBottom: '4px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}>
+              <Shield size={14} style={{ color: '#e2e8f0' }} />
+              <span>Last Header Scan</span>
+            </div>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px' }}>
+              <span style={{ 
+                fontSize: '1.1rem', 
+                fontWeight: '600', 
+                color: '#e2e8f0',
+                lineHeight: 1.2
+              }}>
+                {metrics.lastHeaderScan 
+                  ? new Date(metrics.lastHeaderScan).toLocaleDateString()
+                  : 'Never'}
+              </span>
             </div>
 
             <div style={{ 
-              padding: '4px 12px',
-              borderRadius: '20px',
-              backgroundColor: `${getSecurityScoreColor(metrics.securityScore || 0)}15`,
-              color: getSecurityScoreColor(metrics.securityScore || 0),
-              fontSize: '0.875rem',
-              fontWeight: '700',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
+              fontSize: '0.7rem',
+              color: '#94a3b8',
+              marginTop: '2px',
+              textAlign: 'center',
+              lineHeight: 1.2
             }}>
-              <span>Grade</span>
-              <span style={{ fontSize: '1.1em' }}>{getSecurityGrade(metrics.securityScore || 0)}</span>
+              {metrics.lastHeaderScan
+                ? new Date(metrics.lastHeaderScan).toLocaleTimeString()
+                : 'Run header scan'}
             </div>
+          </div>
           </div>
         </div>
       </div>
@@ -496,6 +837,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
             <span className={`indicator ${metrics.suspiciousActivity > 5 ? 'high' : metrics.suspiciousActivity > 2 ? 'medium' : 'low'}`} style={{ width: '10px', height: '10px', borderRadius: '50%' }}></span>
           </div>
         </div>
+
 
         <div className="security-metric-card">
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: '12px' }}>
@@ -888,23 +1230,46 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
 
             <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }}>
               {scanResults.summary && (
-                <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: '2rem', padding: '1.5rem', backgroundColor: '#1e293b', borderRadius: '12px', border: '1px solid #334155', marginBottom: '1.5rem' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                    <svg width="120" height="120" viewBox="0 0 120 120">
-                      <circle cx="60" cy="60" r="54" fill="none" stroke="#334155" strokeWidth="12" />
-                      <circle cx="60" cy="60" r="54" fill="none" stroke={getScoreColor(scanResults.summary.score)} strokeWidth="12" strokeLinecap="round" strokeDasharray={2 * Math.PI * 54} strokeDashoffset={(2 * Math.PI * 54) - (scanResults.summary.score / 100) * (2 * Math.PI * 54)} transform="rotate(-90 60 60)" style={{ transition: 'stroke-dashoffset 0.5s ease-out' }} />
-                      <text x="50%" y="50%" textAnchor="middle" dy=".3em" style={{ fontSize: '2rem', fontWeight: 'bold', fill: getScoreColor(scanResults.summary.score) }}>{scanResults.summary.grade}</text>
-                    </svg>
-                    <div style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: '#94a3b8' }}>Score: {scanResults.summary.score}/100</div>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', alignItems: 'center' }}>
-                    <div style={{ textAlign: 'center' }}><div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#ef4444' }}>{scanResults.summary.criticalIssues}</div><div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Critical Issues</div></div>
-                    <div style={{ textAlign: 'center' }}><div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#f59e0b' }}>{scanResults.summary.warnings || 0}</div><div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Warnings</div></div>
-                    {scanResults.summary.headersChecked != null && <div style={{ textAlign: 'center' }}><div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#10b981' }}>{scanResults.summary.headersPassed}/{scanResults.summary.headersChecked}</div><div style={{ fontSize: '0.875rem', color: '#94a3b8' }}>Headers Passed</div></div>}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem', backgroundColor: '#1e293b', borderRadius: '12px', border: '1px solid #334155', marginBottom: '1.5rem' }}>
+                  <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem' }}>Security Score</div>
+                      <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: getScoreColor(scanResults.summary.score) }}>
+                        {scanResults.summary.score}
+                        <span style={{ fontSize: '1.25rem', color: '#94a3b8', marginLeft: '0.25rem' }}>/100</span>
+                      </div>
+                      <div style={{
+                        marginTop: '0.5rem',
+                        padding: '0.25rem 0.75rem',
+                        borderRadius: '12px',
+                        backgroundColor: `${getScoreColor(scanResults.summary.score)}20`,
+                        color: getScoreColor(scanResults.summary.score),
+                        fontSize: '0.75rem',
+                        fontWeight: '600',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}>
+                        Grade {scanResults.summary.grade}
+                      </div>
+                    </div>
+                    
+                    <div style={{ height: '40px', width: '1px', backgroundColor: '#334155' }}></div>
+                    
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem' }}>Critical Issues</div>
+                      <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#ef4444' }}>{scanResults.summary.criticalIssues}</div>
+                    </div>
+                    
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem' }}>Warnings</div>
+                      <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#f59e0b' }}>{scanResults.summary.warnings || 0}</div>
+                    </div>
                   </div>
                 </div>
               )}
 
+              {/* Scan Findings Section */}
               <div style={{ display: 'flex', borderBottom: '1px solid #334155', marginBottom: '1.5rem' }}>
                 {scanResults.findings && <button onClick={() => setActiveScanTab('findings')} style={{ padding: '0.75rem 1rem', border: 'none', background: 'none', color: activeScanTab === 'findings' ? '#3b82f6' : '#94a3b8', fontWeight: 600, cursor: 'pointer', borderBottom: activeScanTab === 'findings' ? '2px solid #3b82f6' : '2px solid transparent', marginBottom: '-1px', transition: 'all 0.2s' }}>Findings ({scanResults.findings.length})</button>}
                 {scanResults.recommendations && <button onClick={() => setActiveScanTab('recommendations')} style={{ padding: '0.75rem 1rem', border: 'none', background: 'none', color: activeScanTab === 'recommendations' ? '#3b82f6' : '#94a3b8', fontWeight: 600, cursor: 'pointer', borderBottom: activeScanTab === 'recommendations' ? '2px solid #3b82f6' : '2px solid transparent', marginBottom: '-1px', transition: 'all 0.2s' }}>Recommendations ({scanResults.recommendations.length})</button>}
