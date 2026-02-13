@@ -46,7 +46,6 @@ function App() {
       
       setUser({ username: data.username, accountType: profile.accountType })
     } catch (err) {
-      console.error('Login error:', err);
       setLoginError(err instanceof Error ? err.message : 'Invalid username or password.')
     } finally {
       setLoginLoading(false)
