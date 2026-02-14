@@ -9,6 +9,7 @@ import { API_URL } from '../lib/authApi'
 import Announcements from './Announcements'
 import AnnouncementDetail from './AnnouncementDetail'
 import PersonalDetails from './PersonalDetails'
+import StudentManagement from '../components/StudentManagement'
 import './RegistrarDashboard.css'
 
 interface Announcement {
@@ -133,7 +134,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
       case 'students':
         return <StudentManagement />
       case 'courses':
-        return <CourseManagement />
+        return <CourseManagement setView={setView} />
       case 'reports':
         return <ReportsDashboard />
       case 'profile':
@@ -281,17 +282,17 @@ function RegistrarHome({ announcements, onAnnouncementClick, setView }: Registra
       
       <div className="registrar-dashboard-content">
         <div className="registrar-quick-actions">
-          <div className="quick-action-card">
+          <div className="quick-action-card" onClick={() => setView('students')} style={{ cursor: 'pointer' }}>
             <GraduationCap size={32} className="quick-action-icon" />
             <h3>Student Management</h3>
             <p>Enroll new students and manage existing records</p>
           </div>
-          <div className="quick-action-card">
+          <div className="quick-action-card" onClick={() => setView('courses')} style={{ cursor: 'pointer' }}>
             <BookOpen size={32} className="quick-action-icon" />
             <h3>Course Management</h3>
             <p>Create courses and manage class schedules</p>
           </div>
-          <div className="quick-action-card">
+          <div className="quick-action-card" onClick={() => setView('reports')} style={{ cursor: 'pointer' }}>
             <FileText size={32} className="quick-action-icon" />
             <h3>Reports</h3>
             <p>Generate enrollment and academic reports</p>
@@ -388,54 +389,28 @@ function RegistrarHome({ announcements, onAnnouncementClick, setView }: Registra
   )
 }
 
-function StudentManagement() {
+
+function CourseManagement({ setView }: { setView: (view: RegistrarView) => void }) {
   return (
     <div className="registrar-section">
       <h2 className="registrar-section-title">Student Management</h2>
-      <p className="registrar-section-desc">Manage student admissions, enrollment, and academic records.</p>
-      
+      <p className="registrar-section-desc">Manage student admissions, enrollment, and academic records</p>
+
       <div className="placeholder-content">
-        <div className="placeholder-card">
+        <div className="placeholder-card" style={{ cursor: 'pointer' }} onClick={() => setView('students')}>
           <h3>Student Admissions</h3>
           <p>Process new student applications and enrollments</p>
-          <button className="registrar-btn" disabled>Coming Soon</button>
+          <button className="registrar-btn" onClick={(e) => { e.stopPropagation(); setView('students'); }}>Go to Admissions</button>
         </div>
-        <div className="placeholder-card">
+        <div className="placeholder-card" style={{ cursor: 'pointer' }} onClick={() => setView('students')}>
           <h3>Student Records</h3>
           <p>View and update existing student information</p>
-          <button className="registrar-btn" disabled>Coming Soon</button>
+          <button className="registrar-btn" onClick={(e) => { e.stopPropagation(); setView('students'); }}>Manage Records</button>
         </div>
-        <div className="placeholder-card">
+        <div className="placeholder-card" style={{ cursor: 'pointer' }} onClick={() => setView('reports')}>
           <h3>Enrollment Status</h3>
           <p>Check enrollment status and academic standing</p>
-          <button className="registrar-btn" disabled>Coming Soon</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function CourseManagement() {
-  return (
-    <div className="registrar-section">
-      <h2 className="registrar-section-title">Course Management</h2>
-      <p className="registrar-section-desc">Create and manage courses, schedules, and class sections.</p>
-      
-      <div className="placeholder-content">
-        <div className="placeholder-card">
-          <h3>Course Catalog</h3>
-          <p>Manage course offerings and descriptions</p>
-          <button className="registrar-btn" disabled>Coming Soon</button>
-        </div>
-        <div className="placeholder-card">
-          <h3>Class Scheduling</h3>
-          <p>Create and modify class schedules</p>
-          <button className="registrar-btn" disabled>Coming Soon</button>
-        </div>
-        <div className="placeholder-card">
-          <h3>Section Assignment</h3>
-          <p>Assign instructors and manage class capacity</p>
-          <button className="registrar-btn" disabled>Coming Soon</button>
+          <button className="registrar-btn" onClick={(e) => { e.stopPropagation(); setView('reports'); }}>View Status</button>
         </div>
       </div>
     </div>

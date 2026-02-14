@@ -17,6 +17,7 @@ const Backup = require('./models/Backup')
 const BlockedIP = require('./models/BlockedIP')
 const SecurityScan = require('./models/SecurityScan')
 const BackupSystem = require('./backup')
+const registrarRoutes = require('./routes/registrarRoutes')
 
 // Initialize backup system
 const backupSystem = new BackupSystem()
@@ -92,6 +93,10 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')))
 // Serve frontend static files
 const distPath = path.join(__dirname, '..', 'dist')
 app.use(express.static(distPath))
+
+// Registrar module API routes (supports both legacy and /api-prefixed paths)
+app.use('/registrar', authMiddleware, registrarRoutes)
+app.use('/api/registrar', authMiddleware, registrarRoutes)
 
 async function authMiddleware(req, res, next) {
   const auth = req.headers.authorization

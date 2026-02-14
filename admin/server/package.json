@@ -17,6 +17,7 @@
     "mongoose": "^8.8.0",
     "multer": "^2.0.2",
     "node-fetch": "^3.3.2",
+    "pdfkit": "^0.15.0",
     "systeminformation": "^5.30.7"
   },
   "devDependencies": {

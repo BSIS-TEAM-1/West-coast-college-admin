@@ -1,10 +1,10 @@
-import { LayoutDashboard, User, Settings, Users, Bell, FileText, Shield, Activity } from 'lucide-react';
+import { LayoutDashboard, User, Settings, Users, Bell, FileText, Shield, Activity, CheckCircle2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { getProfile } from '../lib/authApi';
 import type { ProfileResponse } from '../lib/authApi';
 import './Sidebar.css';
 
-type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'documents' | 'announcement-detail' | 'personal-details' | 'system-health' | 'security';
+type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'documents' | 'announcement-detail' | 'personal-details' | 'system-health' | 'security' | 'cor-docs';
 
 type SidebarProps = {
   activeLink?: View;
@@ -17,6 +17,7 @@ const NAV_ITEMS: { id: View; label: string; icon: any }[] = [
   { id: 'system-health', label: 'System Health', icon: Activity },
   { id: 'announcements', label: 'Manage Announcements', icon: Bell },
   { id: 'documents', label: 'Document Management', icon: FileText },
+  { id: 'cor-docs', label: 'COR Generation', icon: CheckCircle2 },
   { id: 'audit-logs', label: 'System Audit Logs', icon: Shield },
   { id: 'add-account', label: 'Add Account', icon: User },
   { id: 'account-logs', label: 'Staff Registration Logs', icon: Users },

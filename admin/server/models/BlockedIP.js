@@ -49,10 +49,6 @@ const blockedIPSchema = new mongoose.Schema({
   timestamps: true
 })
 
-// Index for active blocks that haven't expired
-blockedIPSchema.index({ isActive: 1, expiresAt: 1 })
-blockedIPSchema.index({ ipAddress: 1 })
-
 // Virtual to check if IP block is expired
 blockedIPSchema.virtual('isExpired').get(function() {
   return new Date() > this.expiresAt && this.isActive

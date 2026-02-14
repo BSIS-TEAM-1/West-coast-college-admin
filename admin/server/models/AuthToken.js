@@ -54,7 +54,5 @@ authTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 })
 // Index for admin lookup
 authTokenSchema.index({ adminId: 1 })
 
-// Index for token lookup
-authTokenSchema.index({ token: 1 })
 
 module.exports = mongoose.model('AuthToken', authTokenSchema)
