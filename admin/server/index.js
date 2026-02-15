@@ -18,6 +18,7 @@ const BlockedIP = require('./models/BlockedIP')
 const SecurityScan = require('./models/SecurityScan')
 const BackupSystem = require('./backup')
 const registrarRoutes = require('./routes/registrarRoutes')
+const blockController = require('./controllers/blockController')
 
 // Initialize backup system
 const backupSystem = new BackupSystem()
@@ -2689,6 +2690,139 @@ app.get('/api/admin/blocked-ips/:ipAddress', async (req, res) => {
     res.status(500).json({ error: 'Failed to check IP status.' })
   }
 })
+
+// ==================== BLOCK MANAGEMENT ====================
+
+// POST /api/blocks/assign-student
+app.post('/api/blocks/assign-student', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.assignStudent(req, res);
+  } catch (error) {
+    console.error('Assign student error:', error);
+    res.status(500).json({ error: 'Failed to assign student.' });
+  }
+});
+
+// POST /api/blocks/overcapacity/decision
+app.post('/api/blocks/overcapacity/decision', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.handleOvercapacityDecision(req, res);
+  } catch (error) {
+    console.error('Overcapacity decision error:', error);
+    res.status(500).json({ error: 'Failed to process decision.' });
+  }
+});
+
+// GET /api/blocks/suggested-sections
+app.get('/api/blocks/suggested-sections', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.getSuggestedSections(req, res);
+  } catch (error) {
+    console.error('Get suggested sections error:', error);
+    res.status(500).json({ error: 'Failed to get suggested sections.' });
+  }
+});
+
+// POST /api/blocks/rebalance
+app.post('/api/blocks/rebalance', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.rebalanceSections(req, res);
+  } catch (error) {
+    console.error('Rebalance error:', error);
+    res.status(500).json({ error: 'Failed to rebalance sections.' });
+  }
+});
+
+// GET /api/blocks/groups
+app.get('/api/blocks/groups', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.getBlockGroups(req, res);
+  } catch (error) {
+    console.error('Get block groups error:', error);
+    res.status(500).json({ error: 'Failed to get block groups.' });
+  }
+});
+
+// GET /api/blocks/assignable-students
+app.get('/api/blocks/assignable-students', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.getAssignableStudents(req, res);
+  } catch (error) {
+    console.error('Get assignable students error:', error);
+    res.status(500).json({ error: 'Failed to get assignable students.' });
+  }
+});
+
+// POST /api/blocks/groups
+app.post('/api/blocks/groups', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.createBlockGroup(req, res);
+  } catch (error) {
+    console.error('Create block group error:', error);
+    res.status(500).json({ error: 'Failed to create block group.' });
+  }
+});
+
+// DELETE /api/blocks/groups/:groupId
+app.delete('/api/blocks/groups/:groupId', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.deleteBlockGroup(req, res);
+  } catch (error) {
+    console.error('Delete block group error:', error);
+    res.status(500).json({ error: 'Failed to delete block group.' });
+  }
+});
+
+// GET /api/blocks/groups/:groupId/sections
+app.get('/api/blocks/groups/:groupId/sections', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.getSectionsInGroup(req, res);
+  } catch (error) {
+    console.error('Get sections error:', error);
+    res.status(500).json({ error: 'Failed to get sections.' });
+  }
+});
+
+// POST /api/blocks/groups/:groupId/sections
+app.post('/api/blocks/groups/:groupId/sections', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.createSectionInGroup(req, res);
+  } catch (error) {
+    console.error('Create section error:', error);
+    res.status(500).json({ error: 'Failed to create section.' });
+  }
+});
+
 
 // SPA fallback: serve index.html for non-API routes (must be last)
 app.get('*', (req, res) => {

@@ -2,6 +2,12 @@
   min-height: 100vh;
   background: var(--bg-primary, #f9fafb);
   padding: 2rem;
+  --bg-primary: var(--color-bg-soft);
+  --bg-secondary: var(--color-surface);
+  --border-color: var(--color-border);
+  --text-primary: var(--color-text-bold);
+  --text-secondary: var(--color-text-secondary);
+  --text-muted: var(--color-text-muted);
 }
 
 /* Header */

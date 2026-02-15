@@ -12,6 +12,7 @@ interface Student {
   lastName: string;
   suffix?: string;
   course: number;
+  major?: string;
   yearLevel: number;
   semester: string;
   schoolYear: string;
@@ -49,6 +50,7 @@ interface StudentFormData {
   lastName: string;
   suffix: string;
   course: number;
+  major: string;
   yearLevel: number;
   semester: string;
   schoolYear: string;
@@ -86,6 +88,18 @@ const scholarshipOptions = [
   'Foundation Scholarships'
 ];
 
+const formatYearLevel = (level: number | string): string => {
+  const n = Number(level);
+  if (!Number.isFinite(n)) return `${level} Year`;
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th Year`;
+  const mod10 = n % 10;
+  if (mod10 === 1) return `${n}st Year`;
+  if (mod10 === 2) return `${n}nd Year`;
+  if (mod10 === 3) return `${n}rd Year`;
+  return `${n}th Year`;
+};
+
 const StudentManagement: React.FC = () => {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,6 +116,7 @@ const StudentManagement: React.FC = () => {
     lastName: '',
     suffix: '',
     course: 101,
+    major: 'General Education',
     yearLevel: 1,
     semester: '1st',
     schoolYear: '2024-2025',
@@ -135,15 +150,76 @@ const StudentManagement: React.FC = () => {
     { value: 201, label: 'Bachelor of Science in Business Administration – Major in HRM' },
   ];
 
+  const majorOptionsByCourse: Record<number, string[]> = {
+    101: ['General Education'],
+    102: ['English'],
+    103: ['Mathematics'],
+    201: ['HRM'],
+  };
+
   const courseLabel = (value: number | string) =>
     courses.find(c => c.value === Number(value))?.label ?? String(value);
+
+  const courseAbbreviation = (value: number | string) => {
+    const codeMap: Record<number, string> = {
+      101: 'BEED',
+      102: 'BSEd-English',
+      103: 'BSEd-Math',
+      201: 'BSBA-HRM'
+    };
+    return codeMap[Number(value)] ?? String(value);
+  };
+
+  const formatStudentNumberForLogs = (student: Student) => {
+    const studentNo = String(student.studentNumber || '').trim();
+    if (!studentNo) return 'N/A';
+
+    const parts = studentNo.split('-');
+    const normalizedCourse = normalizeCourse(student.course);
+
+    // Handle legacy format like YYYY-103-MATH-XXXXX by removing the alpha course segment.
+    if (parts.length >= 4 && /^[A-Za-z]+$/.test(parts[2])) {
+      return `${parts[0]}-${normalizedCourse}-${parts.slice(3).join('-')}`;
+    }
+
+    if (parts.length >= 3) {
+      // Force numeric course code in the course section of the student number.
+      if (parts[1] && /^[A-Za-z]+(?:-[A-Za-z]+)*$/.test(parts[1])) {
+        return `${parts[0]}-${normalizedCourse}-${parts.slice(2).join('-')}`;
+      }
+      return `${parts[0]}-${normalizeCourse(student.course)}-${parts.slice(2).join('-')}`;
+    }
+
+    return studentNo;
+  };
 
   // Convert course number to number if it's a string
   const normalizeCourse = (course: number | string): number => {
     if (typeof course === 'string') {
+      const raw = course.trim();
+      const upper = raw.toUpperCase();
+
+      const aliasMap: Record<string, number> = {
+        BEED: 101,
+        'BSED-ENGLISH': 102,
+        ENGLISH: 102,
+        'BSED-MATH': 103,
+        MATH: 103,
+        MATHEMATICS: 103,
+        'BSBA-HRM': 201,
+        'BSBS-HRM': 201,
+        HRM: 201,
+      };
+      if (aliasMap[upper]) return aliasMap[upper];
+
+      if (/^\d+$/.test(raw)) return parseInt(raw, 10);
+
       // Try to match by course code or number
-      const found = courses.find(c => c.value.toString() === course || c.label.includes(course));
-      return found ? found.value : parseInt(course) || 101;
+      const found = courses.find(c => {
+        const labelUpper = c.label.toUpperCase();
+        return c.value.toString() === raw || labelUpper.includes(upper);
+      });
+      return found ? found.value : 101;
     }
     return course;
   };
@@ -181,6 +257,7 @@ const StudentManagement: React.FC = () => {
       lastName: '',
       suffix: '',
       course: 101,
+      major: 'General Education',
       yearLevel: 1,
       semester: '1st',
       schoolYear: '2024-2025',
@@ -216,6 +293,7 @@ const StudentManagement: React.FC = () => {
       lastName: student.lastName,
       suffix: student.suffix || '',
       course: normalizeCourse(student.course),
+      major: student.major || majorOptionsByCourse[normalizeCourse(student.course)]?.[0] || 'General Education',
       yearLevel: student.yearLevel,
       semester: student.semester,
       schoolYear: student.schoolYear,
@@ -349,8 +427,8 @@ const StudentManagement: React.FC = () => {
   if (loading) {
     return (
       <div className="student-management">
-        <div className="loading-spinner">
-          <div className="spinner"></div>
+        <div className="student-loading-state">
+          <div className="student-loading-spinner"></div>
           <p>Loading students...</p>
         </div>
       </div>
@@ -399,7 +477,7 @@ const StudentManagement: React.FC = () => {
           <select value={filterYearLevel} onChange={(e) => setFilterYearLevel(e.target.value)}>
             <option value="">All Year Levels</option>
             {[1, 2, 3, 4, 5].map(level => (
-              <option key={level} value={level.toString()}>{level}st Year</option>
+              <option key={level} value={level.toString()}>{formatYearLevel(level)}</option>
             ))}
           </select>
         </div>
@@ -422,12 +500,12 @@ const StudentManagement: React.FC = () => {
           <tbody>
             {filteredStudents.map(student => (
               <tr key={student._id}>
-                <td className="student-number">{student.studentNumber}</td>
+                <td className="student-number">{formatStudentNumberForLogs(student)}</td>
                 <td className="student-name">
                   {student.firstName} {student.middleName} {student.lastName} {student.suffix}
                 </td>
-                <td>{courseLabel(normalizeCourse(student.course))}</td>
-                <td>{student.yearLevel}st Year</td>
+                <td>{courseAbbreviation(normalizeCourse(student.course))}</td>
+                <td>{formatYearLevel(student.yearLevel)}</td>
                 <td>
                   <span className={`status-badge ${student.enrollmentStatus.toLowerCase().replace(' ', '-')}`}>
                     {student.enrollmentStatus}
@@ -503,6 +581,7 @@ const StudentManagement: React.FC = () => {
           onSubmit={handleSubmitStudent}
           onClose={() => setShowAddModal(false)}
           courses={courses}
+          majorOptionsByCourse={majorOptionsByCourse}
           semesters={semesters}
         />
       )}
@@ -516,6 +595,7 @@ const StudentManagement: React.FC = () => {
           onSubmit={handleSubmitStudent}
           onClose={() => setShowEditModal(false)}
           courses={courses}
+          majorOptionsByCourse={majorOptionsByCourse}
           semesters={semesters}
         />
       )}
@@ -542,6 +622,7 @@ interface StudentFormModalProps {
   onSubmit: (e: React.FormEvent) => void;
   onClose: () => void;
   courses: { value: number; label: string; }[];
+  majorOptionsByCourse: Record<number, string[]>;
   semesters: string[];
 }
 
@@ -552,10 +633,20 @@ const StudentFormModal: React.FC<StudentFormModalProps> = ({
   onSubmit,
   onClose,
   courses,
+  majorOptionsByCourse,
   semesters
 }) => {
+  const majorOptions = majorOptionsByCourse[Number(formData.course)] || ['General Education'];
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+    if (name === 'course') {
+      const courseNumber = Number(value);
+      const courseMajorOptions = majorOptionsByCourse[courseNumber] || ['General Education'];
+      const nextMajor = courseMajorOptions.includes(formData.major) ? formData.major : courseMajorOptions[0];
+      setFormData({ ...formData, course: courseNumber, major: nextMajor });
+      return;
+    }
     setFormData({ ...formData, [name]: value });
   };
 
@@ -584,7 +675,7 @@ const StudentFormModal: React.FC<StudentFormModalProps> = ({
               <h4>Personal Information</h4>
               <div className="form-row">
                 <div className="form-group">
-                  <label>First Name *</label>
+                  <label>First Name <span className="required-asterisk">*</span></label>
                   <input
                     type="text"
                     name="firstName"
@@ -603,7 +694,7 @@ const StudentFormModal: React.FC<StudentFormModalProps> = ({
                   />
                 </div>
                 <div className="form-group">
-                  <label>Last Name *</label>
+                  <label>Last Name <span className="required-asterisk">*</span></label>
                   <input
                     type="text"
                     name="lastName"
@@ -626,7 +717,7 @@ const StudentFormModal: React.FC<StudentFormModalProps> = ({
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Contact Number *</label>
+                  <label>Contact Number <span className="required-asterisk">*</span></label>
                   <input
                     type="tel"
                     name="contactNumber"
@@ -639,7 +730,7 @@ const StudentFormModal: React.FC<StudentFormModalProps> = ({
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Address *</label>
+                  <label>Address <span className="required-asterisk">*</span></label>
                   <input
                     type="text"
                     name="address"
@@ -656,7 +747,7 @@ const StudentFormModal: React.FC<StudentFormModalProps> = ({
               <h4>Academic Information</h4>
               <div className="form-row">
                 <div className="form-group">
-                  <label>Course *</label>
+                  <label>Course <span className="required-asterisk">*</span></label>
                   <select
                     name="course"
                     value={formData.course}
@@ -670,7 +761,7 @@ const StudentFormModal: React.FC<StudentFormModalProps> = ({
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Year Level *</label>
+                  <label>Year Level <span className="required-asterisk">*</span></label>
                   <select
                     name="yearLevel"
                     value={formData.yearLevel}
@@ -678,7 +769,20 @@ const StudentFormModal: React.FC<StudentFormModalProps> = ({
                     required
                   >
                     {[1, 2, 3, 4, 5].map(level => (
-                      <option key={level} value={level}>{level}st Year</option>
+                      <option key={level} value={level}>{formatYearLevel(level)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Major <span className="required-asterisk">*</span></label>
+                  <select
+                    name="major"
+                    value={formData.major}
+                    onChange={handleChange}
+                    required
+                  >
+                    {majorOptions.map((major) => (
+                      <option key={major} value={major}>{major}</option>
                     ))}
                   </select>
                 </div>
@@ -686,7 +790,7 @@ const StudentFormModal: React.FC<StudentFormModalProps> = ({
 
             <div className="form-row">
               <div className="form-group">
-                <label>Semester *</label>
+                <label>Semester <span className="required-asterisk">*</span></label>
                 <select
                   name="semester"
                     value={formData.semester}
@@ -699,7 +803,7 @@ const StudentFormModal: React.FC<StudentFormModalProps> = ({
                   </select>
                 </div>
               <div className="form-group">
-                <label>School Year *</label>
+                <label>School Year <span className="required-asterisk">*</span></label>
                 <input
                   type="text"
                   name="schoolYear"
@@ -710,7 +814,7 @@ const StudentFormModal: React.FC<StudentFormModalProps> = ({
                   />
                 </div>
               <div className="form-group">
-                <label>Student Status *</label>
+                <label>Student Status <span className="required-asterisk">*</span></label>
                 <select
                   name="studentStatus"
                   value={formData.studentStatus}
@@ -752,7 +856,7 @@ const StudentFormModal: React.FC<StudentFormModalProps> = ({
                   />
                 </div>
                 <div className="form-group">
-                  <label>Sex *</label>
+                  <label>Sex <span className="required-asterisk">*</span></label>
                   <select
                     name="gender"
                     value={formData.gender}
@@ -893,7 +997,7 @@ const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({ student, onCl
               <p className="student-number">{student.studentNumber}</p>
               <h4>{student.firstName} {student.middleName} {student.lastName} {student.suffix}</h4>
               <p className="student-program">
-                {courseLabel(normalizeCourse(student.course))} (Course No.: {normalizeCourse(student.course)}) - {student.yearLevel}st Year
+                {courseLabel(normalizeCourse(student.course))} (Course No.: {normalizeCourse(student.course)}) - {formatYearLevel(student.yearLevel)}
               </p>
               {student.assignedProfessor && (
                 <p className="student-program">Professor: {student.assignedProfessor}</p>
@@ -945,7 +1049,7 @@ const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({ student, onCl
               </div>
               <div className="detail-item">
                 <label>Year Level:</label>
-                <span>{student.yearLevel}st Year</span>
+                <span>{formatYearLevel(student.yearLevel)}</span>
               </div>
               <div className="detail-item">
                 <label>Semester:</label>

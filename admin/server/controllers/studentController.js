@@ -397,6 +397,21 @@ class StudentController {
 
       const courseCode = String(student.course || '').toUpperCase();
       const courseLabel = StudentController.courseLabelMap[student.course] || student.course || 'N/A';
+      const extractProgram = (value) => {
+        const text = String(value || '').trim();
+        if (!text) return 'N/A';
+        const normalized = text.replace(/\u2013/g, '-');
+        return normalized.replace(/\s*-\s*major in\s+.+$/i, '').trim() || text;
+      };
+      const extractMajor = (value) => {
+        const text = String(value || '').trim();
+        if (!text) return '';
+        const normalized = text.replace(/\u2013/g, '-');
+        const match = normalized.match(/major in\s+(.+)$/i);
+        return match ? match[1].trim() : '';
+      };
+      const programLabel = extractProgram(courseLabel);
+      const majorLabel = extractMajor(student.major) || extractMajor(courseLabel) || 'N/A';
       const corStatus = student.corStatus || 'Pending';
       const parts = (student.studentNumber || '').split('-');
       const yearPart = parts[0] || '0000';
@@ -482,9 +497,9 @@ class StudentController {
       currentY = infoY + infoPad;
       doc.text(`College: Polangui`, infoX + infoPad + colWidth + gap, currentY, { width: colWidth });
       currentY += rowHeight;
-      doc.text(`Program: ${courseLabel}`, infoX + infoPad + colWidth + gap, currentY, { width: colWidth });
+      doc.text(`Program: ${programLabel}`, infoX + infoPad + colWidth + gap, currentY, { width: colWidth });
       currentY += rowHeight;
-      doc.text(`Major: ${student.major || courseLabel || 'N/A'}`, infoX + infoPad + colWidth + gap, currentY, { width: colWidth });
+      doc.text(`Major: ${majorLabel}`, infoX + infoPad + colWidth + gap, currentY, { width: colWidth });
       currentY += rowHeight;
       doc.text(`Year Level: ${student.yearLevel || 'N/A'}`, infoX + infoPad + colWidth + gap, currentY, { width: colWidth });
       currentY += rowHeight;
