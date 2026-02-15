@@ -120,6 +120,35 @@
   border-top: 1px solid var(--color-border);
 }
 
+.registrar-sidebar-time {
+  margin: 0.5rem 1rem 0.75rem;
+  padding: 0.85rem;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-primary-subtle);
+  text-align: center;
+}
+
+.registrar-sidebar-time-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.2rem;
+}
+
+.registrar-sidebar-time-value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text-bold);
+  line-height: 1.2;
+}
+
+.registrar-sidebar-date-value {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-top: 0.25rem;
+}
+
 .profile-section {
   display: flex;
   align-items: center;
@@ -648,4 +677,285 @@
   gap: 0.75rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--color-border);
+}
+
+/* Block Management */
+.block-management-content {
+  display: grid;
+  gap: 1rem;
+}
+
+.block-selection {
+  display: flex;
+  align-items: end;
+  gap: 0.75rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.block-selection label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.block-selection select {
+  min-width: 280px;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.assignment-section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.assignment-section h3 {
+  margin: 0 0 0.8rem 0;
+  color: var(--color-text);
+  font-size: 1rem;
+}
+
+.assignment-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.assignment-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.assignment-form input,
+.assignment-form select,
+.reason-form textarea,
+.transfer-form select,
+.capacity-form input {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-sizing: border-box;
+}
+
+.sections-list {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.sections-list h3 {
+  margin: 0 0 0.8rem 0;
+  color: var(--color-text);
+}
+
+.student-list {
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.student-list-header,
+.student-list-row {
+  display: grid;
+  grid-template-columns: 2fr 1.2fr 1fr 1fr 70px;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.6rem 0.75rem;
+}
+
+.student-list-header {
+  background: var(--color-bg-soft);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.student-list-body {
+  display: grid;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.student-list-row {
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.student-list-row:last-child {
+  border-bottom: 0;
+}
+
+.student-list-row:hover {
+  background: var(--color-bg-soft);
+}
+
+.student-list-row.selected {
+  background: var(--color-primary-subtle);
+  box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
+.student-list-name {
+  font-weight: 600;
+}
+
+.student-list-meta {
+  color: var(--color-text-secondary);
+}
+
+.student-action-header,
+.student-action-cell {
+  justify-self: center;
+  text-align: center;
+}
+
+.student-action-cell {
+  display: flex;
+  justify-content: center;
+}
+
+.student-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  margin: 0;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.student-add-btn.selected {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.sections-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.section-card {
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  padding: 0.75rem;
+  background: var(--color-bg-soft);
+}
+
+.section-card h4 {
+  margin: 0 0 0.4rem 0;
+  color: var(--color-text);
+}
+
+.section-card p {
+  margin: 0.2rem 0;
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+}
+
+.section-delete-btn {
+  margin-top: 0.55rem;
+  border: 1px solid #dc2626;
+  background: transparent;
+  color: #dc2626;
+  padding: 0.35rem 0.55rem;
+  border-radius: 0.4rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.section-delete-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.status-bar {
+  width: 100%;
+  height: 10px;
+  background: var(--color-border);
+  border-radius: 999px;
+  overflow: hidden;
+  display: flex;
+  margin: 0.5rem 0;
+}
+
+.status-bar .filled {
+  height: 100%;
+  background: var(--color-success);
+}
+
+.status-bar .projected {
+  height: 100%;
+  background: var(--color-warning);
+}
+
+.action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.action-buttons button {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: 0.45rem 0.65rem;
+  border-radius: 0.45rem;
+  cursor: pointer;
+}
+
+.action-buttons button.selected {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+
+.reason-form,
+.transfer-form,
+.capacity-form {
+  margin: 0.65rem 0;
+}
+
+.suggested-sections ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1rem;
+}
+
+.suggested-sections li {
+  color: var(--color-text-secondary);
+  font-size: 0.88rem;
 }

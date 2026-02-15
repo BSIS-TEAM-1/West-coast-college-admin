@@ -279,7 +279,7 @@
 }
 
 /* Loading State */
-.loading-spinner {
+.student-loading-state {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -288,7 +288,7 @@
   color: #64748b;
 }
 
-.loading-spinner .spinner {
+.student-loading-spinner {
   width: 2rem;
   height: 2rem;
   border: 2px solid #e2e8f0;
@@ -298,11 +298,11 @@
   margin-bottom: 1rem;
 }
 
-[data-theme="dark"] .loading-spinner {
+[data-theme="dark"] .student-loading-state {
   color: var(--color-text-muted);
 }
 
-[data-theme="dark"] .loading-spinner .spinner {
+[data-theme="dark"] .student-loading-spinner {
   border-color: rgba(255, 255, 255, 0.12);
   border-top-color: var(--color-info);
 }
@@ -438,6 +438,11 @@
   margin-bottom: 0.5rem;
 }
 
+.required-asterisk {
+  color: #dc2626;
+  font-weight: 700;
+}
+
 .form-group input,
 .form-group select {
   padding: 0.75rem;
@@ -538,7 +543,7 @@
   color: #1e293b;
 }
 
-.student-number {
+.student-basic-info .student-number {
   color: #64748b;
   font-size: 0.875rem;
   font-family: 'Courier New', monospace;
@@ -664,6 +669,19 @@
 [data-theme="dark"] .student-table th {
   background: var(--color-bg-soft);
   color: var(--color-text);
+}
+
+[data-theme="dark"] .student-table td {
+  color: var(--color-text);
+  border-bottom-color: var(--color-border);
+}
+
+[data-theme="dark"] .student-table .student-name {
+  color: var(--color-text-bold);
+}
+
+[data-theme="dark"] .student-table .student-number {
+  color: var(--color-text-secondary);
 }
 
 [data-theme="dark"] .student-table tbody tr:hover {

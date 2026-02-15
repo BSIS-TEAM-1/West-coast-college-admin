@@ -100,7 +100,7 @@ function App() {
   if (!authChecked) {
     return (
       <div className="app-loading">
-        <div className="spinner"></div>
+        <div className="app-loading-spinner" aria-label="Loading"></div>
       </div>
     )
   }
