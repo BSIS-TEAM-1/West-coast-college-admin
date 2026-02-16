@@ -52,6 +52,7 @@ declare class StudentService {
   static getStudentByNumber(token: string, studentNumber: string): Promise<ApiResponse<StudentData>>;
   static createStudent(token: string, studentData: Partial<StudentData>): Promise<StudentData>;
   static updateStudent(token: string, id: string, studentData: Partial<StudentData>): Promise<StudentData>;
+  static deleteStudent(token: string, id: string): Promise<ApiResponse<StudentData>>;
   static enrollStudent(token: string, id: string, enrollmentData: EnrollmentData): Promise<any>;
   static getCurrentEnrollment(token: string, id: string, schoolYear: string, semester: string): Promise<ApiResponse<any>>;
   static getEnrollmentHistory(token: string, id: string): Promise<ApiResponse<any>>;

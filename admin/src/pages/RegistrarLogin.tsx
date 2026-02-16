@@ -1,8 +1,9 @@
 import React, { useState } from 'react'
+import ReCAPTCHA from 'react-google-recaptcha'
 import './Login.css'
 
 type LoginProps = {
-  onLogin: (username: string, password: string) => void
+  onLogin: (username: string, password: string, captchaToken: string) => void
   error?: string
   loading?: boolean
 }
@@ -10,10 +11,14 @@ type LoginProps = {
 export default function RegistrarLogin({ onLogin, error, loading }: LoginProps) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    onLogin(username, password)
+    if (!captchaToken) {
+      return; // CAPTCHA not completed
+    }
+    onLogin(username, password, captchaToken)
   }
 
   return (
@@ -49,7 +54,15 @@ export default function RegistrarLogin({ onLogin, error, loading }: LoginProps) 
               required
             />
           </label>
-          <button type="submit" className="login-submit" disabled={loading}>
+          <div className="recaptcha-container" style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
+            <ReCAPTCHA
+              sitekey={process.env.REACT_APP_RECAPTCHA_SITE_KEY || '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI'} // Test key for development
+              onChange={(token) => setCaptchaToken(token)}
+              onExpired={() => setCaptchaToken(null)}
+              theme="light"
+            />
+          </div>
+          <button type="submit" className="login-submit" disabled={loading || !captchaToken}>
             {loading ? 'Signing in…' : 'Access Registrar Portal'}
           </button>
         </form>

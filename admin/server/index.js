@@ -7,7 +7,10 @@ const mongoose = require('mongoose')
 const jwt = require('jsonwebtoken')
 const si = require('systeminformation')
 const axios = require('axios')
+const rateLimit = require('express-rate-limit')
 const { applySecurityHeaders } = require('./security-config')
+const securityMiddleware = require('./securityMiddleware')
+const Joi = require('joi')
 const Admin = require('./models/Admin')
 const Announcement = require('./models/Announcement')
 const AuditLog = require('./models/AuditLog')
@@ -58,6 +61,20 @@ app.use(cors({ origin: true, credentials: true }))
 
 // Apply security headers middleware
 app.use(applySecurityHeaders)
+
+// Rate limiting: 5 requests per minute for API routes
+const limiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 5, // Limit each IP to 5 requests per windowMs
+  message: {
+    error: 'Too many requests from this IP, please try again later.'
+  },
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+})
+
+// Apply rate limiting to all API routes
+app.use('/api/', limiter)
 
 // Security middleware to block sensitive paths
 app.use((req, res, next) => {
@@ -339,14 +356,29 @@ app.post('/api/admin/signup', async (req, res) => {
 })
 
 // POST /api/admin/login
-app.post('/api/admin/login', async (req, res) => {
+app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.login), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable. Check server logs and Atlas IP whitelist.' })
   }
   try {
-    const { username, password } = req.body
-    if (!username || !password || typeof username !== 'string' || typeof password !== 'string') {
-      return res.status(400).json({ error: 'Username and password are required.' })
+    const { username, password, captchaToken } = req.body
+
+    // Validate reCAPTCHA token
+    if (!captchaToken) {
+      return res.status(400).json({ error: 'reCAPTCHA verification required.' })
+    }
+
+    const recaptchaSecret = process.env.RECAPTCHA_SECRET_KEY || '6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe'; // Test secret for development
+    const recaptchaVerifyUrl = `https://www.google.com/recaptcha/api/siteverify?secret=${recaptchaSecret}&response=${captchaToken}`;
+
+    try {
+      const recaptchaResponse = await axios.post(recaptchaVerifyUrl);
+      if (!recaptchaResponse.data.success) {
+        return res.status(400).json({ error: 'reCAPTCHA verification failed. Please try again.' });
+      }
+    } catch (recaptchaError) {
+      console.error('reCAPTCHA verification error:', recaptchaError.message);
+      return res.status(500).json({ error: 'CAPTCHA verification service unavailable.' });
     }
 
     const admin = await Admin.findOne({ username: username.trim().toLowerCase() })
@@ -435,7 +467,7 @@ app.post('/api/admin/login', async (req, res) => {
 
     res.json(loginResponse)
   } catch (err) {
-    console.error('Login error:', err)
+    console.error('Login error:', err.message)
     res.status(500).json({ error: 'Login failed.' })
   }
 })
@@ -471,7 +503,8 @@ app.post('/api/admin/logout', authMiddleware, async (req, res) => {
 })
 
 // GET /api/admin/profile – requires Bearer token
-app.get('/api/admin/profile', authMiddleware, async (req, res) => {
+app.get('/api/admin/profile', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.getProfile), async (req, res) => {
+  // No body/query validation needed for GET
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -494,13 +527,13 @@ app.get('/api/admin/profile', authMiddleware, async (req, res) => {
     console.log('Profile data being returned:', profileData)
     res.json(profileData)
   } catch (err) {
-    console.error('Profile get error:', err)
+    console.error('Profile get error:', err.message)
     res.status(500).json({ error: 'Failed to load profile.' })
   }
 })
 
 // PATCH /api/admin/profile – update profile (username, displayName, email, password)
-app.patch('/api/admin/profile', authMiddleware, async (req, res) => {
+app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.updateProfile), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -545,33 +578,23 @@ app.patch('/api/admin/profile', authMiddleware, async (req, res) => {
       accountType: updated.accountType,
     })
   } catch (err) {
-    console.error('Profile update error:', err)
+    console.error('Profile update error:', err.message)
     res.status(500).json({ error: 'Failed to update profile.' })
   }
 })
 
 // POST /api/admin/avatar - upload avatar (base64)
-app.post('/api/admin/avatar', authMiddleware, async (req, res) => {
+app.post('/api/admin/avatar', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.updateAvatar), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
     const { avatarData, mimeType } = req.body
     
-    if (!avatarData || !mimeType) {
-      return res.status(400).json({ error: 'Avatar data and mime type are required.' })
-    }
-
     // Validate image size (base64 string size)
     const imageSizeInBytes = Buffer.byteLength(avatarData, 'base64')
     if (imageSizeInBytes > 5 * 1024 * 1024) { // 5MB limit
       return res.status(400).json({ error: 'Image size too large. Maximum 5MB allowed.' })
-    }
-
-    // Validate mime type
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
-    if (!allowedTypes.includes(mimeType)) {
-      return res.status(400).json({ error: 'Only image files (JPEG, JPG, PNG, GIF, WebP) are allowed.' })
     }
 
     const admin = await Admin.findById(req.adminId)
@@ -589,7 +612,7 @@ app.post('/api/admin/avatar', authMiddleware, async (req, res) => {
       avatarUrl: `data:${mimeType};base64,${avatarData}`
     })
   } catch (err) {
-    console.error('Avatar upload error:', err)
+    console.error('Avatar upload error:', err.message)
     res.status(500).json({ error: 'Failed to upload avatar.' })
   }
 })
@@ -616,7 +639,7 @@ app.delete('/api/admin/avatar', authMiddleware, async (req, res) => {
 })
 
 // GET /api/admin/accounts - get all account logs
-app.get('/api/admin/accounts', authMiddleware, async (req, res) => {
+app.get('/api/admin/accounts', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.accountsQuery), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -627,13 +650,13 @@ app.get('/api/admin/accounts', authMiddleware, async (req, res) => {
     
     res.json(accounts)
   } catch (err) {
-    console.error('Get accounts error:', err)
+    console.error('Get accounts error:', err.message)
     res.status(500).json({ error: 'Failed to load accounts.' })
   }
 })
 
 // GET /api/admin/accounts/count - get account count by type
-app.get('/api/admin/accounts/count', authMiddleware, async (req, res) => {
+app.get('/api/admin/accounts/count', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.accountsQuery), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -643,13 +666,13 @@ app.get('/api/admin/accounts/count', authMiddleware, async (req, res) => {
     const count = await Admin.countDocuments(filter)
     res.json({ count })
   } catch (err) {
-    console.error('Get account count error:', err)
+    console.error('Get account count error:', err.message)
     res.status(500).json({ error: 'Failed to get account count.' })
   }
 })
 
 // POST /api/admin/accounts - create new account
-app.post('/api/admin/accounts', authMiddleware, async (req, res) => {
+app.post('/api/admin/accounts', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.createAccount), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -663,22 +686,6 @@ app.post('/api/admin/accounts', authMiddleware, async (req, res) => {
     console.log('password length:', password ? password.length : 'undefined')
     console.log('uid:', uid, 'typeof:', typeof uid)
     
-    // Validation
-    if (!username || !password || !uid) {
-      console.log('Validation failed: missing required fields')
-      return res.status(400).json({ error: 'Username, password, and UID are required.' })
-    }
-    
-    if (!['admin', 'registrar', 'professor'].includes(accountType)) {
-      console.log('Validation failed: invalid account type:', accountType)
-      return res.status(400).json({ error: 'Invalid account type.' })
-    }
-    
-    if (password.length < 8) {
-      console.log('Validation failed: password too short:', password.length)
-      return res.status(400).json({ error: 'Password must be at least 8 characters long.' })
-    }
-
     // Check if username already exists
     const existingUsername = await Admin.findOne({ username: username.trim().toLowerCase() })
     if (existingUsername) {
@@ -731,8 +738,7 @@ app.post('/api/admin/accounts', authMiddleware, async (req, res) => {
       account: accountResponse
     })
   } catch (err) {
-    console.error('Create account error:', err)
-    console.error('Error stack:', err.stack)
+    console.error('Create account error:', err.message)
     res.status(500).json({ error: 'Failed to create account.' })
   }
 })
@@ -814,7 +820,7 @@ app.get('/api/announcements', async (req, res) => {
     
     res.json(announcements)
   } catch (err) {
-    console.error('Get announcements error:', err)
+    console.error('Get announcements error:', err.message)
     res.status(500).json({ error: 'Failed to load announcements.' })
   }
 })
@@ -832,21 +838,16 @@ app.get('/api/announcements/:id', async (req, res) => {
       return res.status(404).json({ error: 'Announcement not found.' })
     }
     
-    // Temporarily remove isActive filter for debugging
-    // if (!announcement.isActive) {
-    //   return res.status(404).json({ error: 'Announcement not found.' })
-    // }
-    
     console.log('Found announcement:', announcement._id, 'Active:', announcement.isActive)
     res.json(announcement)
   } catch (err) {
-    console.error('Get announcement error:', err)
+    console.error('Get announcement error:', err.message)
     res.status(500).json({ error: 'Failed to load announcement.' })
   }
 })
 
 // GET /api/admin/announcements - get all announcements (admin)
-app.get('/api/admin/announcements', authMiddleware, async (req, res) => {
+app.get('/api/admin/announcements', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.announcements.query), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -873,13 +874,13 @@ app.get('/api/admin/announcements', authMiddleware, async (req, res) => {
       total
     })
   } catch (err) {
-    console.error('Get admin announcements error:', err)
+    console.error('Get admin announcements error:', err.message)
     res.status(500).json({ error: 'Failed to load announcements.' })
   }
 })
 
 // POST /api/admin/announcements - create new announcement
-app.post('/api/admin/announcements', authMiddleware, async (req, res) => {
+app.post('/api/admin/announcements', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.announcements.create), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -924,33 +925,13 @@ app.post('/api/admin/announcements', authMiddleware, async (req, res) => {
       announcement
     })
   } catch (err) {
-    console.error('Create announcement error:', err)
+    console.error('Create announcement error:', err.message)
     res.status(500).json({ error: 'Failed to create announcement.' })
   }
 })
 
-// GET /api/admin/announcements/:id - get individual announcement
-app.get('/api/admin/announcements/:id', authMiddleware, async (req, res) => {
-  if (!dbReady) {
-    return res.status(503).json({ error: 'Database unavailable.' })
-  }
-  try {
-    const announcement = await Announcement.findById(req.params.id)
-      .populate('createdBy', 'username displayName')
-    
-    if (!announcement) {
-      return res.status(404).json({ error: 'Announcement not found.' })
-    }
-    
-    res.json(announcement)
-  } catch (err) {
-    console.error('Get announcement error:', err)
-    res.status(500).json({ error: 'Failed to load announcement.' })
-  }
-})
-
 // PUT /api/admin/announcements/:id - update announcement
-app.put('/api/admin/announcements/:id', authMiddleware, async (req, res) => {
+app.put('/api/admin/announcements/:id', authMiddleware, securityMiddleware.inputValidationMiddleware({ body: securityMiddleware.schemas.announcements.update, params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -972,11 +953,9 @@ app.put('/api/admin/announcements/:id', authMiddleware, async (req, res) => {
     if (isPinned !== undefined) announcement.isPinned = isPinned
     if (isActive !== undefined) announcement.isActive = isActive
 
-    // Allow media to be fully replaced when provided
     if (Array.isArray(media)) {
       announcement.media = media.map((m) => ({
         ...m,
-        // Ensure fileSize is present to satisfy schema
         fileSize: m.fileSize ?? 0,
       }))
     }
@@ -1004,13 +983,13 @@ app.put('/api/admin/announcements/:id', authMiddleware, async (req, res) => {
       announcement
     })
   } catch (err) {
-    console.error('Update announcement error:', err)
+    console.error('Update announcement error:', err.message)
     res.status(500).json({ error: 'Failed to update announcement.' })
   }
 })
 
 // DELETE /api/admin/announcements/:id - delete announcement
-app.delete('/api/admin/announcements/:id', authMiddleware, async (req, res) => {
+app.delete('/api/admin/announcements/:id', authMiddleware, securityMiddleware.inputValidationMiddleware({ params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -1039,7 +1018,7 @@ app.delete('/api/admin/announcements/:id', authMiddleware, async (req, res) => {
 
     res.json({ message: 'Announcement deleted successfully.' })
   } catch (err) {
-    console.error('Delete announcement error:', err)
+    console.error('Delete announcement error:', err.message)
     res.status(500).json({ error: 'Failed to delete announcement.' })
   }
 })
@@ -1143,7 +1122,7 @@ app.get('/api/admin/audit-logs/stats', authMiddleware, async (req, res) => {
 // ==================== DOCUMENTS ====================
 
 // GET /api/documents - get public documents
-app.get('/api/documents', async (req, res) => {
+app.get('/api/documents', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.documents.query), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -1171,13 +1150,13 @@ app.get('/api/documents', async (req, res) => {
       total
     })
   } catch (err) {
-    console.error('Get documents error:', err)
+    console.error('Get documents error:', err.message)
     res.status(500).json({ error: 'Failed to load documents.' })
   }
 })
 
 // GET /api/admin/documents - get all documents (admin)
-app.get('/api/admin/documents', authMiddleware, async (req, res) => {
+app.get('/api/admin/documents', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.documents.query), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -1207,13 +1186,13 @@ app.get('/api/admin/documents', authMiddleware, async (req, res) => {
       total
     })
   } catch (err) {
-    console.error('Get admin documents error:', err)
+    console.error('Get admin documents error:', err.message)
     res.status(500).json({ error: 'Failed to load documents.' })
   }
 })
 
 // POST /api/admin/documents - upload new document
-app.post('/api/admin/documents', authMiddleware, async (req, res) => {
+app.post('/api/admin/documents', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.documents.create), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -1224,10 +1203,6 @@ app.post('/api/admin/documents', authMiddleware, async (req, res) => {
       effectiveDate, expiryDate 
     } = req.body
     
-    if (!title || !category || !fileName || !originalFileName || !mimeType || !fileData) {
-      return res.status(400).json({ error: 'Missing required fields.' })
-    }
-
     // Create file path (you might want to store files in a dedicated uploads folder)
     const filePath = `documents/${Date.now()}-${originalFileName}`
 
@@ -1274,13 +1249,13 @@ app.post('/api/admin/documents', authMiddleware, async (req, res) => {
       document
     })
   } catch (err) {
-    console.error('Upload document error:', err)
+    console.error('Upload document error:', err.message)
     res.status(500).json({ error: 'Failed to upload document.' })
   }
 })
 
 // PUT /api/admin/documents/:id - update document
-app.put('/api/admin/documents/:id', authMiddleware, async (req, res) => {
+app.put('/api/admin/documents/:id', authMiddleware, securityMiddleware.inputValidationMiddleware({ body: securityMiddleware.schemas.documents.update, params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -1330,13 +1305,13 @@ app.put('/api/admin/documents/:id', authMiddleware, async (req, res) => {
       document
     })
   } catch (err) {
-    console.error('Update document error:', err)
+    console.error('Update document error:', err.message)
     res.status(500).json({ error: 'Failed to update document.' })
   }
 })
 
 // POST /api/admin/documents/:id/download - track document download
-app.post('/api/admin/documents/:id/download', authMiddleware, async (req, res) => {
+app.post('/api/admin/documents/:id/download', authMiddleware, securityMiddleware.inputValidationMiddleware({ params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -1372,13 +1347,13 @@ app.post('/api/admin/documents/:id/download', authMiddleware, async (req, res) =
       downloadUrl: `/uploads/${document.filePath}`
     })
   } catch (err) {
-    console.error('Track download error:', err)
+    console.error('Track download error:', err.message)
     res.status(500).json({ error: 'Failed to track download.' })
   }
 })
 
 // DELETE /api/admin/documents/:id - delete document
-app.delete('/api/admin/documents/:id', authMiddleware, async (req, res) => {
+app.delete('/api/admin/documents/:id', authMiddleware, securityMiddleware.inputValidationMiddleware({ params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -1407,7 +1382,7 @@ app.delete('/api/admin/documents/:id', authMiddleware, async (req, res) => {
 
     res.json({ message: 'Document deleted successfully.' })
   } catch (err) {
-    console.error('Delete document error:', err)
+    console.error('Delete document error:', err.message)
     res.status(500).json({ error: 'Failed to delete document.' })
   }
 })
@@ -2759,54 +2734,93 @@ app.get('/api/blocks/groups', authMiddleware, async (req, res) => {
 });
 
 // GET /api/blocks/assignable-students
-app.get('/api/blocks/assignable-students', authMiddleware, async (req, res) => {
+app.get('/api/blocks/assignable-students', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.assignableStudents), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
     await blockController.getAssignableStudents(req, res);
   } catch (error) {
-    console.error('Get assignable students error:', error);
+    console.error('Get assignable students error:', error.message);
     res.status(500).json({ error: 'Failed to get assignable students.' });
   }
 });
 
 // POST /api/blocks/groups
-app.post('/api/blocks/groups', authMiddleware, async (req, res) => {
+app.post('/api/blocks/groups', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.createBlockGroup), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
     await blockController.createBlockGroup(req, res);
   } catch (error) {
-    console.error('Create block group error:', error);
+    console.error('Create block group error:', error.message);
     res.status(500).json({ error: 'Failed to create block group.' });
   }
 });
 
 // DELETE /api/blocks/groups/:groupId
-app.delete('/api/blocks/groups/:groupId', authMiddleware, async (req, res) => {
+app.delete('/api/blocks/groups/:groupId', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.objectIdParam), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
     await blockController.deleteBlockGroup(req, res);
   } catch (error) {
-    console.error('Delete block group error:', error);
+    console.error('Delete block group error:', error.message);
     res.status(500).json({ error: 'Failed to delete block group.' });
   }
 });
 
 // GET /api/blocks/groups/:groupId/sections
-app.get('/api/blocks/groups/:groupId/sections', authMiddleware, async (req, res) => {
+app.get('/api/blocks/groups/:groupId/sections', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.objectIdParam), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
     await blockController.getSectionsInGroup(req, res);
   } catch (error) {
-    console.error('Get sections error:', error);
+    console.error('Get sections error:', error.message);
     res.status(500).json({ error: 'Failed to get sections.' });
+  }
+});
+
+// POST /api/blocks/groups/:groupId/sections
+app.post('/api/blocks/groups/:groupId/sections', authMiddleware, securityMiddleware.inputValidationMiddleware({ ...securityMiddleware.schemas.block.objectIdParam, ...securityMiddleware.schemas.block.createSection }), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.createSectionInGroup(req, res);
+  } catch (error) {
+    console.error('Create section error:', error);
+    res.status(500).json({ error: 'Failed to create section.' });
+  }
+});
+
+// GET /api/blocks/sections/:sectionId/students
+app.get('/api/blocks/sections/:sectionId/students', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.objectIdParam), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.getSectionStudents(req, res);
+  } catch (error) {
+    console.error('Get section students error:', error);
+    res.status(500).json({ error: 'Failed to get section students.' });
+  }
+});
+
+// PATCH /api/blocks/sections/:sectionId/adviser
+app.patch('/api/blocks/sections/:sectionId/adviser', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.updateSectionAdviser(req, res);
+  } catch (error) {
+    console.error('Update section adviser error:', error);
+    res.status(500).json({ error: 'Failed to update section adviser.' });
   }
 });
 

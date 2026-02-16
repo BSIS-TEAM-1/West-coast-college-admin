@@ -249,6 +249,16 @@
   background: #dcfce7;
 }
 
+.action-btn.delete {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.action-btn.delete:hover {
+  background: #fecaca;
+  color: #991b1b;
+}
+
 /* No Students State */
 .no-students {
   display: flex;

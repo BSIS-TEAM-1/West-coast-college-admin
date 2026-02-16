@@ -5,6 +5,7 @@ const StudentBlockAssignment = require('../models/StudentBlockAssignment');
 const SectionWaitlist = require('../models/SectionWaitlist');
 const BlockActionLog = require('../models/BlockActionLog');
 const Student = require('../models/Student');
+const { buildSafeQuery, safeObjectId } = require('../securityMiddleware');
 
 class BlockController {
   normalizeCourseCode(rawCourse) {
@@ -32,33 +33,25 @@ class BlockController {
   }
 
   getCourseFilterConditions(groupCourse) {
-    const conditions = [{ course: groupCourse }, { course: String(groupCourse) }];
+    // Keep filters cast-safe for Number schema fields.
+    const numericCourse = Number(groupCourse);
+    const conditions = [{ course: numericCourse }, { course: String(numericCourse) }];
 
-    if (groupCourse === 101) {
-      conditions.push({ course: 'BEED' });
-      conditions.push({ course: 'Bachelor of Elementary Education (BEED)' });
-    } else if (groupCourse === 102) {
-      conditions.push({ course: 'BSEd-English' });
-      conditions.push({ course: 'ENGLISH' });
-      conditions.push({ course: 'Bachelor of Secondary Education - Major in English' });
-      conditions.push({ course: 'Bachelor of Secondary Education – Major in English' });
-    } else if (groupCourse === 103) {
-      conditions.push({ course: 'BSEd-Math' });
-      conditions.push({ course: 'MATH' });
-      conditions.push({ course: 'MATHEMATICS' });
-      conditions.push({ course: 'Bachelor of Secondary Education - Major in Mathematics' });
-      conditions.push({ course: 'Bachelor of Secondary Education – Major in Mathematics' });
-    } else if (groupCourse === 201) {
-      conditions.push({ course: 'BSBA-HRM' });
-      conditions.push({ course: 'BSBS-HRM' });
-      conditions.push({ course: 'HRM' });
-      conditions.push({ course: 'Bachelor of Science in Business Administration - Major in HRM' });
-      conditions.push({ course: 'Bachelor of Science in Business Administration – Major in HRM' });
-    }
+    // Fallback for legacy records where course appears in studentNumber.
+    const studentNumberAliasMap = {
+      101: ['BEED'],
+      102: ['BSED-ENGLISH', 'ENGLISH'],
+      103: ['BSED-MATH', 'MATH', 'MATHEMATICS'],
+      201: ['BSBA-HRM', 'BSBS-HRM', 'HRM']
+    };
+
+    const aliases = studentNumberAliasMap[numericCourse] || [];
+    aliases.forEach((alias) => {
+      conditions.push({ studentNumber: { $regex: `-${alias}`, $options: 'i' } });
+    });
 
     return conditions;
   }
-
   extractYearLevelFromGroupName(groupName) {
     const match = String(groupName || '').match(/(\d+)(?!.*\d)/);
     if (!match) return null;
@@ -116,13 +109,13 @@ class BlockController {
       }
 
       if (groupId && mongoose.Types.ObjectId.isValid(groupId)) {
-        // Temporarily disabled group filters to debug 500 error
-        /*
         const group = await BlockGroup.findById(groupId).select('name');
         const groupYearLevel = this.extractYearLevelFromGroupName(group?.name);
         const groupCourse = this.extractCourseFromGroupName(group?.name);
 
-        if (groupCourse) andConditions.push({ course: groupCourse });
+        if (groupCourse) {
+          andConditions.push({ $or: this.getCourseFilterConditions(groupCourse) });
+        }
 
         if (groupYearLevel) {
           // Regular students must match year level.
@@ -134,7 +127,6 @@ class BlockController {
             ]
           });
         }
-        */
       }
 
       const query = andConditions.length > 0 ? { $and: andConditions } : {};
@@ -217,11 +209,16 @@ class BlockController {
   async deleteBlockGroup(req, res) {
     try {
       const { groupId } = req.params;
-      if (!mongoose.Types.ObjectId.isValid(groupId)) {
+      
+      // Validate ObjectId safely
+      let validatedGroupId;
+      try {
+        validatedGroupId = safeObjectId(groupId);
+      } catch (error) {
         return res.status(400).json({ error: 'Invalid block group id' });
       }
 
-      const group = await BlockGroup.findById(groupId);
+      const group = await BlockGroup.findById(validatedGroupId);
       if (!group) {
         return res.status(404).json({ error: 'Block group not found' });
       }
@@ -230,6 +227,40 @@ class BlockController {
       const sectionIds = sections.map((s) => s._id);
 
       if (sectionIds.length > 0) {
+        const assignments = await StudentBlockAssignment.find({
+          sectionId: { $in: sectionIds },
+          status: { $in: ['ASSIGNED', 'WAITLISTED'] }
+        }).select('_id studentId sectionId status');
+        const waitlistEntries = await SectionWaitlist.find({
+          sectionId: { $in: sectionIds }
+        }).select('_id studentId sectionId');
+
+        const studentIdSet = new Set(
+          [...assignments, ...waitlistEntries]
+            .map((entry) => String(entry.studentId || '').trim())
+            .filter(Boolean)
+        );
+
+        const validStudentIds = Array.from(studentIdSet).filter((studentId) =>
+          mongoose.Types.ObjectId.isValid(studentId)
+        );
+        const existingStudents = await Student.find({ _id: { $in: validStudentIds } }).select('_id').lean();
+        const existingStudentIdSet = new Set(existingStudents.map((student) => String(student._id)));
+
+        const orphanAssignmentIds = assignments
+          .filter((entry) => !existingStudentIdSet.has(String(entry.studentId || '').trim()))
+          .map((entry) => entry._id);
+        const orphanWaitlistIds = waitlistEntries
+          .filter((entry) => !existingStudentIdSet.has(String(entry.studentId || '').trim()))
+          .map((entry) => entry._id);
+
+        if (orphanAssignmentIds.length > 0) {
+          await StudentBlockAssignment.deleteMany({ _id: { $in: orphanAssignmentIds } });
+        }
+        if (orphanWaitlistIds.length > 0) {
+          await SectionWaitlist.deleteMany({ _id: { $in: orphanWaitlistIds } });
+        }
+
         const assignedCount = await StudentBlockAssignment.countDocuments({
           sectionId: { $in: sectionIds },
           status: { $in: ['ASSIGNED', 'WAITLISTED'] }
@@ -592,6 +623,128 @@ class BlockController {
     }
   }
 
+  // PATCH /api/blocks/sections/:sectionId/adviser - set section class adviser
+  async updateSectionAdviser(req, res) {
+    try {
+      const { sectionId } = req.params;
+      if (!mongoose.Types.ObjectId.isValid(sectionId)) {
+        return res.status(400).json({ error: 'Invalid section id' });
+      }
+
+      const normalizedAdviser = String(req.body?.classAdviser || '').trim();
+      if (!normalizedAdviser) {
+        return res.status(400).json({ error: 'classAdviser is required' });
+      }
+
+      const updatedSection = await BlockSection.findByIdAndUpdate(
+        sectionId,
+        { $set: { classAdviser: normalizedAdviser } },
+        { new: true }
+      ).select('_id sectionCode capacity currentPopulation status blockGroupId classAdviser');
+
+      if (!updatedSection) {
+        return res.status(404).json({ error: 'Section not found' });
+      }
+
+      res.json({
+        success: true,
+        message: 'Section class adviser updated successfully',
+        section: updatedSection
+      });
+    } catch (error) {
+      console.error('Update section adviser error:', error);
+      res.status(500).json({ error: 'Failed to update section adviser' });
+    }
+  }
+
+  // GET /api/blocks/sections/:sectionId/students - list students assigned to a section
+  async getSectionStudents(req, res) {
+    try {
+      const { sectionId } = req.params;
+      if (!mongoose.Types.ObjectId.isValid(sectionId)) {
+        return res.status(400).json({ error: 'Invalid section id' });
+      }
+
+      const section = await BlockSection.findById(sectionId).select('_id sectionCode capacity currentPopulation status blockGroupId classAdviser');
+      if (!section) {
+        return res.status(404).json({ error: 'Section not found' });
+      }
+
+      const assignments = await StudentBlockAssignment.find({
+        sectionId: section._id,
+        status: 'ASSIGNED'
+      })
+        .select('_id studentId assignedAt')
+        .sort({ assignedAt: 1 });
+
+      const studentIds = assignments
+        .map((assignment) => String(assignment.studentId || '').trim())
+        .filter(Boolean);
+
+      const validStudentIds = studentIds.filter((studentId) =>
+        mongoose.Types.ObjectId.isValid(studentId)
+      );
+      const students = validStudentIds.length > 0
+        ? await Student.find({ _id: { $in: validStudentIds } })
+        .select('_id studentNumber firstName middleName lastName suffix yearLevel studentStatus course assignedProfessor')
+        .sort({ lastName: 1, firstName: 1 })
+        : [];
+
+      const existingStudentIdSet = new Set(students.map((student) => String(student._id)));
+      const orphanAssignmentIds = assignments
+        .filter((assignment) => !existingStudentIdSet.has(String(assignment.studentId || '').trim()))
+        .map((assignment) => assignment._id);
+
+      if (orphanAssignmentIds.length > 0) {
+        await StudentBlockAssignment.deleteMany({ _id: { $in: orphanAssignmentIds } });
+      }
+
+      const assignmentByStudentId = new Map(
+        assignments.map((assignment) => [String(assignment.studentId), assignment])
+      );
+
+      const payload = students.map((student) => {
+        const assignment = assignmentByStudentId.get(String(student._id));
+        return {
+          _id: student._id,
+          studentNumber: student.studentNumber,
+          firstName: student.firstName,
+          middleName: student.middleName,
+          lastName: student.lastName,
+          suffix: student.suffix,
+          yearLevel: student.yearLevel,
+          studentStatus: student.studentStatus,
+          course: student.course,
+          assignedProfessor: student.assignedProfessor || '',
+          assignedAt: assignment?.assignedAt || null
+        };
+      });
+
+      const normalizedPopulation = payload.length;
+      let sectionPayload = section.toObject();
+
+      if (Number(section.currentPopulation) !== normalizedPopulation) {
+        sectionPayload = (
+          await BlockSection.findByIdAndUpdate(
+            section._id,
+            { $set: { currentPopulation: normalizedPopulation } },
+            { new: true }
+          ).select('_id sectionCode capacity currentPopulation status blockGroupId classAdviser')
+        )?.toObject() || { ...sectionPayload, currentPopulation: normalizedPopulation };
+      }
+
+      res.json({
+        section: sectionPayload,
+        totalStudents: normalizedPopulation,
+        students: payload
+      });
+    } catch (error) {
+      console.error('Get section students error:', error);
+      res.status(500).json({ error: 'Failed to get section students' });
+    }
+  }
+
 }
 
 module.exports = new BlockController();
+

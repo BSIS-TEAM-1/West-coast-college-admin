@@ -89,6 +89,23 @@ class StudentService {
     return response.json();
   }
 
+  static async deleteStudent(token, id) {
+    const response = await fetch(`${API_URL}/registrar/students/${id}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || 'Failed to delete student');
+    }
+
+    return response.json();
+  }
+
   static async enrollStudent(token, id, enrollmentData) {
     const response = await fetch(`${API_URL}/registrar/students/${id}/enroll`, {
       method: 'POST',
