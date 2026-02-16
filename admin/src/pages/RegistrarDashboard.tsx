@@ -58,9 +58,9 @@ type RegistrarDashboardProps = {
 const REGISTRAR_NAV_ITEMS: { id: RegistrarView; label: string; icon: any }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'students', label: 'Student Management', icon: GraduationCap },
-  { id: 'courses', label: 'Assign Instructor', icon: BookOpen },
   { id: 'block-management', label: 'Block Management', icon: Blocks },
   { id: 'assign-subject', label: 'Assign Subject', icon: Users },
+  { id: 'courses', label: 'Assign Instructor', icon: BookOpen },
   { id: 'announcements', label: 'Announcements', icon: Bell },
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'profile', label: 'Profile', icon: User },
@@ -421,6 +421,7 @@ function CourseManagement({ setView }: { setView: (view: RegistrarView) => void 
   const [subjects, setSubjects] = useState<SubjectItem[]>([])
   const [selectedSubjectId, setSelectedSubjectId] = useState('')
   const [subjectInstructorName, setSubjectInstructorName] = useState('')
+  const [subjectDaySelections, setSubjectDaySelections] = useState<string[]>([])
   const [subjectTimeStart, setSubjectTimeStart] = useState('')
   const [subjectTimeEnd, setSubjectTimeEnd] = useState('')
   const [subjectRoom, setSubjectRoom] = useState('')
@@ -434,6 +435,7 @@ function CourseManagement({ setView }: { setView: (view: RegistrarView) => void 
     '103': 'BSEd-Math',
     '201': 'BSBA-HRM'
   }
+  const dayOptions = ['M', 'T', 'W', 'TH', 'F', 'S', 'SU']
 
   const formatBlockGroupLabel = (value: string) => {
     const text = String(value || '').trim()
@@ -592,10 +594,15 @@ function CourseManagement({ setView }: { setView: (view: RegistrarView) => void 
       return
     }
     const normalizedInstructor = subjectInstructorName.trim()
-    const normalizedSchedule = `${subjectTimeStart}-${subjectTimeEnd}`.trim()
+    const normalizedDays = dayOptions.filter((day) => subjectDaySelections.includes(day)).join('')
+    const normalizedSchedule = `${normalizedDays} ${subjectTimeStart}-${subjectTimeEnd}`.trim()
     const normalizedRoom = subjectRoom.trim()
     if (!normalizedInstructor) {
       setError('Please enter professor name for the subject')
+      return
+    }
+    if (!normalizedDays) {
+      setError('Please enter schedule days (e.g., WTHF)')
       return
     }
     if (!subjectTimeStart || !subjectTimeEnd) {
@@ -630,6 +637,14 @@ function CourseManagement({ setView }: { setView: (view: RegistrarView) => void 
     } finally {
       setLoading(false)
     }
+  }
+
+  const toggleSubjectDaySelection = (dayCode: string) => {
+    setSubjectDaySelections((prev) =>
+      prev.includes(dayCode)
+        ? prev.filter((day) => day !== dayCode)
+        : [...prev, dayCode]
+    )
   }
 
   useEffect(() => {
@@ -719,6 +734,22 @@ function CourseManagement({ setView }: { setView: (view: RegistrarView) => void 
             </select>
           </label>
           <label>
+            Days:
+            <div className="day-checkbox-group">
+              {dayOptions.map((dayCode) => (
+                <label key={dayCode} className="day-checkbox-item">
+                  <input
+                    type="checkbox"
+                    checked={subjectDaySelections.includes(dayCode)}
+                    onChange={() => toggleSubjectDaySelection(dayCode)}
+                    disabled={!selectedSectionId || !selectedSubjectId}
+                  />
+                  <span>{dayCode}</span>
+                </label>
+              ))}
+            </div>
+          </label>
+          <label>
             Time:
             <div className="time-box-group">
               <input
@@ -751,7 +782,7 @@ function CourseManagement({ setView }: { setView: (view: RegistrarView) => void 
           <button
             className="registrar-btn"
             onClick={handleAssignSubjectInstructor}
-            disabled={loading || !selectedSectionId || !selectedSubjectId || !subjectInstructorName.trim() || !subjectTimeStart || !subjectTimeEnd || !subjectRoom.trim()}
+            disabled={loading || !selectedSectionId || !selectedSubjectId || !subjectInstructorName.trim() || subjectDaySelections.length === 0 || !subjectTimeStart || !subjectTimeEnd || !subjectRoom.trim()}
           >
             {loading ? 'Saving...' : 'Assign Subject Instructor'}
           </button>
@@ -1431,6 +1462,23 @@ function BlockManagement() {
       return
     }
     const generatedGroupName = `${selectedCourse.value}-${normalizedBlockNumber}`
+    const [blockYearLevel, blockLetter] = [Number(blockMatch[1]), blockMatch[2]]
+    const hasExistingInTerm = blockGroups.some((group) => {
+      if (group.semester !== newGroupSemester || Number(group.year) !== Number(newGroupYear)) return false
+      const normalizedExisting = String(group.name || '').trim().toUpperCase()
+      const existingCourse = Number(normalizedExisting.split('-')[0]) || null
+      const existingMatch = normalizedExisting.match(/(?:^|-)(\d+)-?([A-D])$/)
+      if (!existingMatch) return false
+      return (
+        existingCourse === Number(selectedCourse.value) &&
+        Number(existingMatch[1]) === blockYearLevel &&
+        existingMatch[2] === blockLetter
+      )
+    })
+    if (hasExistingInTerm) {
+      setError('Block group already exists for this semester/year')
+      return
+    }
 
     setLoading(true)
     setError('')

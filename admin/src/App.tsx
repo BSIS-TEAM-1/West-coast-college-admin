@@ -33,7 +33,7 @@ function App() {
     checkAuth()
   }, [user, authChecked])
 
-  const handleLogin = useCallback(async (username: string, password: string, captchaToken: string) => {
+  const handleLogin = useCallback(async (username: string, password: string, captchaToken?: string) => {
     setLoginError(undefined)
     setLoginLoading(true)
     try {

@@ -142,7 +142,7 @@ const schemas = {
     body: Joi.object({
       username: Joi.string().trim().min(1).max(254).required(),
       password: Joi.string().min(1).max(128).required(),
-      captchaToken: Joi.string().min(1).required()
+      captchaToken: Joi.string().min(1).optional()
     })
   },
 

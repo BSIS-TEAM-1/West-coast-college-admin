@@ -135,6 +135,10 @@ class BackupSystem {
 
   async createBackup(backupType = 'manual', triggeredBy = 'system') {
     let backupRecord = null;
+    const normalizedBackupType = String(backupType || 'manual').trim().toLowerCase();
+    const normalizedTriggeredBy = normalizedBackupType === 'manual'
+      ? String(triggeredBy || '').trim() || 'system'
+      : 'system';
     
     try {
       console.log('=== CREATE BACKUP START ===');
@@ -144,7 +148,7 @@ class BackupSystem {
       // Check if database is connected
       if (mongoose.connection.readyState !== 1) {
         console.log('Database not connected, skipping database storage');
-        return await this.createBackupFileOnly(backupType, triggeredBy);
+        return await this.createBackupFileOnly(normalizedBackupType, normalizedTriggeredBy);
       }
       
       // Delete the most recent backup before creating a new one
@@ -166,8 +170,8 @@ class BackupSystem {
           originalFileName: backupFileName,
           filePath: backupPath,
           compressedPath: path.join(this.backupDir, `backup-${timestamp}.json.gz`),
-          backupType: backupType,
-          triggeredBy: triggeredBy,
+          backupType: normalizedBackupType,
+          triggeredBy: normalizedTriggeredBy,
           status: 'in_progress'
         });
         
@@ -176,7 +180,7 @@ class BackupSystem {
       } catch (dbError) {
         console.error('Failed to create backup record in database:', dbError);
         console.log('Continuing with file-only backup...');
-        return await this.createBackupFileOnly(backupType, triggeredBy);
+        return await this.createBackupFileOnly(normalizedBackupType, normalizedTriggeredBy);
       }
       
       // Get all collections
@@ -276,6 +280,10 @@ class BackupSystem {
 
   async createBackupFileOnly(backupType = 'manual', triggeredBy = 'system') {
     try {
+      const normalizedBackupType = String(backupType || 'manual').trim().toLowerCase();
+      const normalizedTriggeredBy = normalizedBackupType === 'manual'
+        ? String(triggeredBy || '').trim() || 'system'
+        : 'system';
       console.log('=== CREATE BACKUP FILE-ONLY START ===');
       
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -335,7 +343,9 @@ class BackupSystem {
         size: fileSize,
         compressedSize: compressedFileSize,
         documentCount: this.getTotalDocumentCount(backupData),
-        backupId: null // No database record
+        backupId: null, // No database record
+        backupType: normalizedBackupType,
+        triggeredBy: normalizedTriggeredBy
       };
       
     } catch (error) {

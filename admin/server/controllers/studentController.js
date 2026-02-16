@@ -718,7 +718,6 @@ class StudentController {
       };
       const programLabel = extractProgram(courseLabel);
       const majorLabel = extractMajor(student.major) || extractMajor(courseLabel) || 'N/A';
-      const corStatus = student.corStatus || 'Pending';
       const parts = (student.studentNumber || '').split('-');
       const yearPart = parts[0] || '0000';
       const seqPart = parts[2] || parts[1] || '00000';
@@ -763,6 +762,22 @@ class StudentController {
       const corSemester = enrollment?.semester || student.semester || 'N/A';
       const corSchoolYear = enrollment?.schoolYear || student.schoolYear || 'N/A';
       const corYearLevel = enrollment?.yearLevel || student.yearLevel || 'N/A';
+      const formatClassBlockLabel = (rawSectionCode, courseAbbreviation) => {
+        const sectionCode = String(rawSectionCode || '').trim();
+        const course = String(courseAbbreviation || '').trim().toUpperCase();
+        if (!sectionCode) return '';
+        if (!course) return sectionCode;
+
+        const parts = sectionCode.split('-').filter(Boolean);
+        const firstPart = parts[0] || '';
+
+        if (/^\d/.test(firstPart) || parts.length <= 1) {
+          const suffix = parts.length > 1 ? parts.slice(1).join('-') : sectionCode;
+          return suffix ? `${course}-${suffix}` : sectionCode;
+        }
+
+        return sectionCode;
+      };
       let classBlockLabel = 'N/A';
       const latestBlockAssignment = await StudentBlockAssignment.findOne({
         studentId: String(student._id),
@@ -775,16 +790,44 @@ class StudentController {
         const assignedSection = await BlockSection.findById(latestBlockAssignment.sectionId)
           .select('sectionCode blockCode name')
           .lean();
-        classBlockLabel = assignedSection?.sectionCode || assignedSection?.blockCode || assignedSection?.name || 'N/A';
+        classBlockLabel =
+          formatClassBlockLabel(assignedSection?.sectionCode, courseCode) ||
+          assignedSection?.blockCode ||
+          assignedSection?.name ||
+          'N/A';
       }
       const totalSubjects = enrolledSubjects.length;
       const totalUnits = enrolledSubjects.reduce((sum, subject) => sum + (Number(subject?.units) || 0), 0);
+      const unitBreakdown = enrolledSubjects.reduce((acc, subject) => {
+        const units = Number(subject?.units) || 0;
+        const explicitLecture = Number(subject?.lectureUnits);
+        const explicitLab = Number(subject?.labUnits);
+        const hasExplicitLecture = Number.isFinite(explicitLecture) && explicitLecture >= 0;
+        const hasExplicitLab = Number.isFinite(explicitLab) && explicitLab >= 0;
+
+        if (hasExplicitLecture || hasExplicitLab) {
+          const lectureUnits = hasExplicitLecture ? explicitLecture : Math.max(units - (hasExplicitLab ? explicitLab : 0), 0);
+          const labUnits = hasExplicitLab ? explicitLab : Math.max(units - lectureUnits, 0);
+          acc.lectureUnits += lectureUnits;
+          acc.labUnits += labUnits;
+          return acc;
+        }
+
+        const subjectText = `${String(subject?.code || '')} ${String(subject?.title || '')}`;
+        const isLabSubject = /(LAB|LABORATORY|PRACTICUM)/i.test(subjectText);
+        if (isLabSubject) {
+          acc.labUnits += units;
+        } else {
+          acc.lectureUnits += units;
+        }
+        return acc;
+      }, { lectureUnits: 0, labUnits: 0 });
 
       // Fetch current registrar's display name
       const currentRegistrar = await Admin.findById(req.adminId).select('displayName');
       const registrarDisplayName = currentRegistrar?.displayName || req.username || 'REGISTRAR';
 
-      doc = new PDFDocument({ size: 'A4', margin: 50 });
+      doc = new PDFDocument({ size: 'LETTER', margin: 50 });
       // EDIT COR PDF LAYOUT HERE: adjust fonts, add logos/images, and change positioning as needed.
 
       res.setHeader('Content-Type', 'application/pdf');
@@ -825,65 +868,63 @@ class StudentController {
       doc.y = titleY + 26;
 
 
-      // Student info boxed section with padding
+      // Student info boxed section in 4x3 grid format
       const infoX = 40;
       const infoW = doc.page.width - 80;
-      const infoPad = 8;
-      const rowHeight = 15;
       const infoY = doc.y + 6;
-      const gap = 10; // Gap between columns
-      const colWidth = (infoW - 2 * gap) / 3;
-      const boxRows = 5; // rows we render below
-      doc.rect(infoX, infoY, infoW, rowHeight * boxRows + infoPad * 2).stroke();
-      let currentY = infoY + infoPad;
-      doc.fontSize(7);
-      // Column 1: Student No, Name, Sex, Age, Semester
-      doc.text(`Student No: ${studentNumber}`, infoX + infoPad, currentY, { width: colWidth });
-      currentY += rowHeight;
-      doc.text(`Name: ${studentName}`, infoX + infoPad, currentY, { width: colWidth });
-      currentY += rowHeight;
-      doc.text(`Sex: ${student.gender || 'N/A'}`, infoX + infoPad, currentY, { width: colWidth });
-      currentY += rowHeight;
-      doc.text(`Age: ${age}`, infoX + infoPad, currentY, { width: colWidth });
-      currentY += rowHeight;
-      doc.text(`Semester: ${corSemester}`, infoX + infoPad, currentY, { width: colWidth });
-      // Column 2: College, Program, Major, Year Level, School Year
-      currentY = infoY + infoPad;
-      doc.text(`College: Polangui`, infoX + infoPad + colWidth + gap, currentY, { width: colWidth });
-      currentY += rowHeight;
-      doc.text(`Program: ${programLabel}`, infoX + infoPad + colWidth + gap, currentY, { width: colWidth });
-      currentY += rowHeight;
-      doc.text(`Major: ${majorLabel}`, infoX + infoPad + colWidth + gap, currentY, { width: colWidth });
-      currentY += rowHeight;
-      doc.text(`Year Level: ${corYearLevel}`, infoX + infoPad + colWidth + gap, currentY, { width: colWidth });
-      currentY += rowHeight;
-      doc.text(`School Year: ${corSchoolYear}`, infoX + infoPad + colWidth + gap, currentY, { width: colWidth });
-      // Column 3: Curriculum, Scholarship, COR Status, Enrollment Status, Issued Date
-      currentY = infoY + infoPad;
-      doc.text(`Curriculum: ${student.curriculum || 'N/A'}`, infoX + infoPad + 2 * colWidth + 2 * gap, currentY, { width: colWidth });
-      currentY += rowHeight;
-      doc.text(`Scholarship: ${student.scholarship || 'N/A'}`, infoX + infoPad + 2 * colWidth + 2 * gap, currentY, { width: colWidth });
-      currentY += rowHeight;
-      doc.text(`COR Status: ${corStatus}`, infoX + infoPad + 2 * colWidth + 2 * gap, currentY, { width: colWidth });
-      currentY += rowHeight;
-      doc.text(`Enrollment Status: ${student.enrollmentStatus || 'N/A'}`, infoX + infoPad + 2 * colWidth + 2 * gap, currentY, { width: colWidth });
+      const infoCols = 4;
+      const infoRows = 3;
+      const infoRowH = 17;
+      const infoBoxH = infoRows * infoRowH;
+      const infoColW = infoW / infoCols;
+      const issuedDateValue = new Date().toLocaleDateString();
+      const infoCells = [
+        `Student No: ${studentNumber}`,
+        `Age: ${age}`,
+        `Program: ${programLabel}`,
+        `School Year: ${corSchoolYear}`,
+        `Name: ${studentName}`,
+        `Semester: ${corSemester}`,
+        `Major: ${majorLabel}`,
+        `Curriculum: ${student.curriculum || 'N/A'}`,
+        `Sex: ${student.gender || 'N/A'}`,
+        'College: Pio Duran',
+        `Year Level: ${corYearLevel}`,
+        `Issued Date: ${issuedDateValue}`
+      ];
 
-      // Place Issued Date at bottom right of student info section
-      const issuedDateY = infoY + rowHeight * boxRows + infoPad * 2 - rowHeight + 2;
-      const issuedDateX = infoX + infoW - infoPad - colWidth;
-      doc.text(`Issued Date: ${new Date().toLocaleDateString()}`, issuedDateX, issuedDateY, { width: colWidth, align: 'right' });
+      doc.fontSize(7).font('Helvetica');
+      infoCells.forEach((cellText, index) => {
+        const row = Math.floor(index / infoCols);
+        const col = index % infoCols;
+        const cellX = infoX + (col * infoColW);
+        const cellY = infoY + (row * infoRowH) + 2;
+        doc.text(cellText, cellX, cellY, {
+          width: infoColW - 10,
+          height: infoRowH,
+          ellipsis: true
+        });
+      });
 
-      doc.y = infoY + rowHeight * boxRows + infoPad * 2 + 12;
+      // Add border around the student info section
+      doc.lineWidth(1);
+      doc.rect(infoX, infoY - 2, infoW, infoBoxH + 4).stroke();
+
+      doc.y = infoY + infoBoxH + 12;
       doc.moveDown(1);
       // Registrar signature moved to bottom
 
-      // Schedule table column definitions
-      const colWidths = [49, 138, 32, 40, 40, 89, 49, 73];
-      
+      // Schedule table column definitions aligned to info section width
+      const tableX = infoX;
+      const tableWidth = infoW;
+      const baseColWidths = [49, 138, 32, 40, 40, 89, 49, 73];
+      const baseTableWidth = baseColWidths.reduce((a, b) => a + b, 0);
+      const widthScale = tableWidth / baseTableWidth;
+      const colWidths = baseColWidths.map((value) => value * widthScale);
+
       // Add SCHEDULES title - centered
-      const scheduleTableWidth = colWidths.reduce((a, b) => a + b, 0);
-      doc.font('Helvetica-Bold').fontSize(8).text('SCHEDULES', 40, doc.y + 5, { 
-        width: scheduleTableWidth,
+      doc.font('Helvetica-Bold').fontSize(8).text('SCHEDULES', tableX, doc.y + 5, {
+        width: tableWidth,
         align: 'center'
       });
       doc.moveDown(1);
@@ -892,25 +933,46 @@ class StudentController {
       doc.moveDown(1);
       const tableStartY = doc.y;
       const headers = ['Code', 'Subject', 'Units', 'Class', 'Days', 'Time', 'Room', 'Faculty'];
-      const tableX = 40;
-      const tableWidth = colWidths.reduce((a, b) => a + b, 0);
       const headerHeight = 16;
       const cellPadX = 2;
       const cellPadY = 2;
       const baseRowHeight = 14;
       const minimumRows = 6;
 
+      const parseScheduleForCor = (rawSchedule) => {
+        const scheduleText = String(rawSchedule || '').trim();
+        if (!scheduleText) return { days: 'TBA', time: 'TBA' };
+
+        const compactMatch = scheduleText.match(/^([A-Za-z]{1,7})(\d{1,2}:\d{2}.*)$/);
+        if (compactMatch) {
+          return {
+            days: compactMatch[1].toUpperCase(),
+            time: compactMatch[2].trim() || 'TBA'
+          };
+        }
+
+        const spacedMatch = scheduleText.match(/^([A-Za-z]{1,7})\s+(.+)$/);
+        if (spacedMatch) {
+          return {
+            days: spacedMatch[1].toUpperCase(),
+            time: spacedMatch[2].trim() || 'TBA'
+          };
+        }
+
+        return { days: 'TBA', time: scheduleText };
+      };
+
       const rows = totalSubjects === 0
         ? [['-', 'No enrolled subjects found', '-', '-', '-', '-', '-', '-']]
         : enrolledSubjects.map((subject) => {
-            const scheduleText = String(subject?.schedule || '').trim();
+            const parsedSchedule = parseScheduleForCor(subject?.schedule);
             return [
               subject?.code || '-',
               subject?.title || '-',
               Number(subject?.units) ? Number(subject.units).toFixed(1) : '-',
               classBlockLabel,
-              scheduleText || 'TBA',
-              scheduleText || 'TBA',
+              parsedSchedule.days,
+              parsedSchedule.time,
               subject?.room || 'TBA',
               subject?.instructor || 'TBA'
             ];
@@ -959,64 +1021,43 @@ class StudentController {
       });
 
       rowY += blankRows * baseRowHeight;
+      doc.lineWidth(1);
       doc.rect(tableX, tableStartY - 2, tableWidth, tableHeight + 2).stroke();
 
       // Totals line on far left
       const totalsY = tableStartY + tableHeight + 6;
       doc.fontSize(6).text(
-        `Totals: Subjects: ${totalSubjects}  Credit Units=${totalUnits.toFixed(1)}  Lecture Units=${totalUnits.toFixed(1)}  Lab Units=0`,
-        40,
+        `Totals: Subjects: ${totalSubjects}  Credit Units=${totalUnits.toFixed(1)}  Lecture Units=${unitBreakdown.lectureUnits.toFixed(1)}  Lab Units=${unitBreakdown.labUnits.toFixed(1)}`,
+        tableX,
         totalsY
       );
 
-      // Assessed Fees section
-      doc.y = totalsY + 18;
-      doc.fontSize(9).font('Helvetica-Bold').text('ASSESSED FEES', 40);
-      doc.moveDown(0.5);
-      doc.fontSize(7).font('Helvetica');
-      const feeStartY = doc.y;
-      const labelX = 50;
-      const amtX = 280;
-      const feeRowH = 10;
-      const feeItems = [
-        ['Tuition Fee - UG/CP/ETEEAP', '3,850.00'],
-        ['Res./Feas./Thesis - UG/CP/ETEEAP', '2,200.00'],
-        ['Internet Fee - UG/CP/ETEEAP', '175.00'],
-        ['Library Fee - UG/CP/ETEEAP', '50.00'],
-        ['Guidance Fee - UG/CP/ETEEAP', '50.00'],
-        ['SCUAA Fee - UG/CP/ETEEAP', '50.00'],
-        ['Athletic Fee - UG/CP/ETEEAP', '40.00'],
-        ['Med. & Den. Fee - UG/CP/ETEEAP', '20.00'],
-        ['Cultural Fee - UG/CP/ETEEAP', '20.00'],
-        ['Universitarian Fee', '12.00'],
-        ['Matriculation Fee - UG/CP/ETEEAP', '10.00'],
+      // Enrollment summary (replaces assessed fees section)
+      doc.y = totalsY + 14;
+      const summaryX = tableX;
+      const summaryW = tableWidth;
+      const summaryY = doc.y;
+      const summaryRowH = 12;
+      const summaryRows = [
+        ['ENROLLMENT SUMMARY', ''],
+        ['Total Subjects', String(totalSubjects)],
+        ['Total Units', totalUnits.toFixed(1)],
+        ['Semester', String(corSemester || 'N/A')],
+        ['School Year', String(corSchoolYear || 'N/A')]
       ];
-      let feeY = feeStartY;
-      feeItems.forEach(([label, amt]) => {
-        doc.text(label, labelX, feeY, { width: 200 });
-        doc.text(amt, amtX, feeY, { width: 80, align: 'right' });
-        feeY += feeRowH;
+
+      doc.lineWidth(1);
+      doc.rect(summaryX, summaryY, summaryW, summaryRows.length * summaryRowH + 8).stroke();
+      let summaryRowY = summaryY + 6;
+      summaryRows.forEach(([label, value], idx) => {
+        if (idx === 0) {
+          doc.font('Helvetica-Bold').fontSize(8).text(label, summaryX + 8, summaryRowY, { width: summaryW - 16 });
+        } else {
+          doc.font('Helvetica').fontSize(7).text(`${label}:`, summaryX + 8, summaryRowY, { width: 140 });
+          doc.font('Helvetica-Bold').fontSize(7).text(value, summaryX + 148, summaryRowY, { width: summaryW - 156 });
+        }
+        summaryRowY += summaryRowH;
       });
-      feeY += 4;
-      doc.font('Helvetica-Bold');
-      doc.text('Total Assessment:', labelX, feeY, { width: 200 });
-      doc.text('6,477.00', amtX, feeY, { width: 80, align: 'right' });
-      feeY += feeRowH;
-      doc.font('Helvetica');
-      doc.text('Less: Financial Aid:', labelX, feeY, { width: 200 });
-      doc.text('', amtX, feeY, { width: 80, align: 'right' });
-      feeY += feeRowH;
-      doc.text('Net Assessed:', labelX, feeY, { width: 200 });
-      doc.text('6,477.00', amtX, feeY, { width: 80, align: 'right' });
-      feeY += feeRowH;
-      doc.text('Total Payment:', labelX, feeY, { width: 200 });
-      doc.text('0.00', amtX, feeY, { width: 80, align: 'right' });
-      feeY += feeRowH;
-      doc.text('Outstanding Balance:', labelX, feeY, { width: 200 });
-      doc.text('6,477.00', amtX, feeY, { width: 80, align: 'right' });
-      feeY += feeRowH;
-      doc.text("Addt'l Previous Balance:", labelX, feeY, { width: 200 });
-      doc.text('0.00', amtX, feeY, { width: 80, align: 'right' });
 
       // Signature block
       const signatureY = doc.page.height - doc.page.margins.bottom - 26;

@@ -3,7 +3,7 @@
   max-width: 1400px;
   margin: 0 auto;
   background: #f8fafc;
-  min-height: 100vh;
+  min-height: 130vh;
 }
 
 .header {
@@ -155,11 +155,22 @@
   border: 1px solid #e2e8f0;
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  min-height: 980px;
+  max-height: 90vh;
+  overflow-y: auto;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.logs-table::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .table-header {
   display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr 2fr 1.5fr 1fr 1fr;
+  grid-template-columns: minmax(120px, 1.2fr) minmax(110px, 0.9fr) minmax(140px, 1fr) minmax(180px, 1.6fr) minmax(140px, 1.1fr) minmax(110px, 0.8fr) minmax(90px, 0.7fr);
   background: #f8fafc;
   padding: 1rem;
   border-bottom: 1px solid #e2e8f0;
@@ -168,14 +179,24 @@
   font-size: 0.875rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .table-row {
   display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr 2fr 1.5fr 1fr 1fr;
+  grid-template-columns: minmax(120px, 1.2fr) minmax(110px, 0.9fr) minmax(140px, 1fr) minmax(180px, 1.6fr) minmax(140px, 1.1fr) minmax(110px, 0.8fr) minmax(90px, 0.7fr);
   padding: 1rem;
   border-bottom: 1px solid #f1f5f9;
   transition: background-color 0.2s;
+  align-items: start;
+  gap: 0.75rem;
+}
+
+.table-header > div,
+.table-row > div {
+  min-width: 0;
 }
 
 .table-row:hover {
@@ -195,6 +216,7 @@
 .action-cell {
   font-weight: 600;
   color: #1e293b;
+  overflow-wrap: anywhere;
 }
 
 .resource-cell {
@@ -213,21 +235,23 @@
 .resource-name {
   font-weight: 500;
   color: #1e293b;
+  overflow-wrap: anywhere;
 }
 
 .description-cell {
   color: #475569;
   font-size: 0.875rem;
   line-height: 1.4;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .user-cell {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .user-role {
@@ -467,7 +491,7 @@
 @media (max-width: 1200px) {
   .table-header,
   .table-row {
-    grid-template-columns: 1.2fr 0.8fr 1fr 1.5fr 1.2fr 0.8fr 0.8fr;
+    grid-template-columns: minmax(110px, 1.1fr) minmax(100px, 0.8fr) minmax(120px, 1fr) minmax(150px, 1.4fr) minmax(120px, 1fr) minmax(100px, 0.8fr) minmax(90px, 0.7fr);
   }
 }
 

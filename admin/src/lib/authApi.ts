@@ -2,6 +2,21 @@ export const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 
 // Use browser localStorage for secure, user-specific token storage
 const TOKEN_KEY = 'auth_token'
+const DEVICE_ID_KEY = 'client_device_id'
+
+function getOrCreateDeviceId(): string {
+  try {
+    const existing = localStorage.getItem(DEVICE_ID_KEY)
+    if (existing) return existing
+    const generated = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
+    localStorage.setItem(DEVICE_ID_KEY, generated)
+    return generated
+  } catch {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
+  }
+}
 
 export async function getStoredToken(): Promise<string | null> {
   try {
@@ -110,11 +125,18 @@ export async function signUp(username: string, password: string): Promise<SignUp
   return data as SignUpResponse
 }
 
-export async function login(username: string, password: string, captchaToken: string): Promise<LoginResponse> {
+export async function login(username: string, password: string, captchaToken?: string): Promise<LoginResponse> {
+  const payload: Record<string, string> = { username: username.trim(), password }
+  if (captchaToken) payload.captchaToken = captchaToken
+  const deviceId = getOrCreateDeviceId()
+
   const res = await fetch(`${API_URL}/api/admin/login`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: username.trim(), password, captchaToken }),
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Device-Id': deviceId
+    },
+    body: JSON.stringify(payload),
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
