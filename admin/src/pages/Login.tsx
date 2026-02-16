@@ -13,7 +13,7 @@ type Theme = 'light' | 'dark' | 'auto'
 
 type LoginProps = {
 
-  onLogin: (username: string, password: string, captchaToken: string) => void
+  onLogin: (username: string, password: string, captchaToken?: string) => void
 
   error?: string
 
@@ -34,6 +34,7 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
   const [theme, setTheme] = useState<Theme>('auto')
 
   const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  const captchaEnabled = String(import.meta.env.VITE_CAPTCHA_ENABLED || '').toLowerCase() === 'true'
 
 
 
@@ -239,11 +240,11 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
 
     e.preventDefault()
 
-    if (!captchaToken) {
+    if (captchaEnabled && !captchaToken) {
       return; // CAPTCHA not completed
     }
 
-    onLogin(username, password, captchaToken)
+    onLogin(username, password, captchaToken || undefined)
 
   }
 
@@ -471,20 +472,22 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
 
 
 
-              <button type="submit" className="login-submit" disabled={loading || !captchaToken}>
+              <button type="submit" className="login-submit" disabled={loading || (captchaEnabled && !captchaToken)}>
 
                 {loading ? 'Authenticating…' : 'Sign In'}
 
               </button>
 
-              <div className="recaptcha-container" style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
-                <ReCAPTCHA
-                  sitekey={import.meta.env.VITE_REACT_APP_RECAPTCHA_SITE_KEY || '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI'} // Test key for development
-                  onChange={(token: string | null) => setCaptchaToken(token)}
-                  onExpired={() => setCaptchaToken(null)}
-                  theme={theme === 'dark' ? 'dark' : 'light'}
-                />
-              </div>
+              {captchaEnabled && (
+                <div className="recaptcha-container" style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
+                  <ReCAPTCHA
+                    sitekey={import.meta.env.VITE_REACT_APP_RECAPTCHA_SITE_KEY || '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI'}
+                    onChange={(token: string | null) => setCaptchaToken(token)}
+                    onExpired={() => setCaptchaToken(null)}
+                    theme={theme === 'dark' ? 'dark' : 'light'}
+                  />
+                </div>
+              )}
 
             </form>
 

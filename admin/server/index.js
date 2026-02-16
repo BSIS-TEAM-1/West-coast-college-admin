@@ -50,6 +50,11 @@ const JWT_SECRET = process.env.JWT_SECRET || 'wcc-admin-dev-secret-change-in-pro
 // Hide Express server information
 app.disable('x-powered-by')
 
+// Trust reverse proxy so req.ip/x-forwarded-for can reflect real client IP in production.
+if (String(process.env.TRUST_PROXY || '').trim() === 'true') {
+  app.set('trust proxy', 1)
+}
+
 // Admin IP whitelist (for production)
 const ADMIN_IP_WHITELIST = process.env.ADMIN_IP_WHITELIST ? 
   process.env.ADMIN_IP_WHITELIST.split(',').map(ip => ip.trim()) : 
@@ -62,19 +67,26 @@ app.use(cors({ origin: true, credentials: true }))
 // Apply security headers middleware
 app.use(applySecurityHeaders)
 
-// Rate limiting: 5 requests per minute for API routes
-const limiter = rateLimit({
+// General API rate limiting (relaxed, configurable)
+const apiRateLimitMax = Number(process.env.API_RATE_LIMIT_MAX || 240)
+const apiLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 5, // Limit each IP to 5 requests per windowMs
+  max: Number.isFinite(apiRateLimitMax) && apiRateLimitMax > 0 ? apiRateLimitMax : 240,
   message: {
     error: 'Too many requests from this IP, please try again later.'
   },
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  standardHeaders: true,
+  legacyHeaders: false
 })
 
-// Apply rate limiting to all API routes
-app.use('/api/', limiter)
+// Apply relaxed limiter to all API routes
+app.use('/api/', apiLimiter)
+
+// Failed password attempt tracking (IP-based escalating lockout)
+const MAX_FAILED_LOGIN_ATTEMPTS = Number(process.env.MAX_FAILED_LOGIN_ATTEMPTS || 5)
+const LOGIN_LOCKOUT_STEPS_MS = [1 * 60 * 1000, 5 * 60 * 1000, 10 * 60 * 1000]
+const loginAttemptStateByIp = new Map()
+let systemAuditActorIdCache = null
 
 // Security middleware to block sensitive paths
 app.use((req, res, next) => {
@@ -160,14 +172,35 @@ async function authMiddleware(req, res, next) {
 // Audit logging helper function
 async function logAudit(action, resourceType, resourceId, resourceName, description, performedBy, performedByRole, oldValue = null, newValue = null, status = 'SUCCESS', severity = 'LOW', ipAddress = null, userAgent = null) {
   try {
+    let normalizedPerformedBy = performedBy
+    const isObjectIdLike = normalizedPerformedBy && mongoose.Types.ObjectId.isValid(String(normalizedPerformedBy))
+
+    if (!isObjectIdLike) {
+      if (!systemAuditActorIdCache) {
+        const fallbackAdmin = await Admin.findOne().select('_id').lean()
+        if (fallbackAdmin?._id) {
+          systemAuditActorIdCache = String(fallbackAdmin._id)
+        }
+      }
+      normalizedPerformedBy = systemAuditActorIdCache
+    }
+
+    if (!normalizedPerformedBy || !mongoose.Types.ObjectId.isValid(String(normalizedPerformedBy))) {
+      throw new Error('No valid performedBy available for audit log')
+    }
+
+    const normalizedRole = ['admin', 'registrar'].includes(String(performedByRole || '').toLowerCase())
+      ? String(performedByRole).toLowerCase()
+      : 'admin'
+
     await AuditLog.create({
       action,
       resourceType,
       resourceId,
       resourceName,
       description,
-      performedBy,
-      performedByRole,
+      performedBy: normalizedPerformedBy,
+      performedByRole: normalizedRole,
       ipAddress,
       userAgent,
       oldValue,
@@ -325,6 +358,25 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, db: dbReady })
 })
 
+function getClientIpAddress(req) {
+  const forwardedFor = String(req.headers['x-forwarded-for'] || '').trim()
+  const cfConnectingIp = String(req.headers['cf-connecting-ip'] || '').trim()
+  const trueClientIp = String(req.headers['true-client-ip'] || '').trim()
+  const realIp = String(req.headers['x-real-ip'] || '').trim()
+  const socketIp = String(req.socket?.remoteAddress || req.connection?.remoteAddress || '').trim()
+  const requestIp = String(req.ip || '').trim()
+
+  const candidate = cfConnectingIp || trueClientIp || (forwardedFor
+    ? forwardedFor.split(',')[0].trim()
+    : (realIp || requestIp || socketIp || ''))
+
+  if (!candidate) return 'unknown'
+
+  if (candidate === '::1') return '127.0.0.1'
+  if (candidate.startsWith('::ffff:')) return candidate.replace('::ffff:', '')
+  return candidate
+}
+
 // POST /api/admin/signup
 app.post('/api/admin/signup', async (req, res) => {
   if (!dbReady) {
@@ -362,48 +414,168 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
   }
   try {
     const { username, password, captchaToken } = req.body
-
-    // Validate reCAPTCHA token
-    if (!captchaToken) {
-      return res.status(400).json({ error: 'reCAPTCHA verification required.' })
+    const normalizedUsername = String(username || '').trim().toLowerCase()
+    const clientIp = getClientIpAddress(req)
+    const userAgent = req.get('User-Agent')
+    const deviceId = String(req.get('x-device-id') || '').trim()
+    const loginMeta = {
+      ipAddress: clientIp,
+      deviceId: deviceId || null
+    }
+    const now = Date.now()
+    const currentState = loginAttemptStateByIp.get(clientIp) || {
+      failedAttempts: 0,
+      lockoutStep: 0,
+      lockoutUntil: 0
     }
 
-    const recaptchaSecret = process.env.RECAPTCHA_SECRET_KEY || '6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe'; // Test secret for development
-    const recaptchaVerifyUrl = `https://www.google.com/recaptcha/api/siteverify?secret=${recaptchaSecret}&response=${captchaToken}`;
+    if (Number(currentState.lockoutUntil) > now) {
+      const remainingMs = Number(currentState.lockoutUntil) - now
+      const remainingSeconds = Math.max(1, Math.ceil(remainingMs / 1000))
+      await logAudit(
+        'LOGIN',
+        'SECURITY',
+        clientIp,
+        normalizedUsername || 'unknown',
+        `Blocked login attempt from locked IP ${clientIp}. Remaining lockout: ${remainingSeconds} second(s).`,
+        null,
+        'admin',
+        null,
+        {
+          ...loginMeta,
+          remainingSeconds,
+          lockoutUntil: new Date(Number(currentState.lockoutUntil)).toISOString()
+        },
+        'FAILED',
+        'HIGH',
+        clientIp,
+        userAgent
+      )
+      return res.status(429).json({
+        error: `Too many failed login attempts. Please try again in ${remainingSeconds} second(s).`
+      })
+    }
 
-    try {
-      const recaptchaResponse = await axios.post(recaptchaVerifyUrl);
-      if (!recaptchaResponse.data.success) {
-        return res.status(400).json({ error: 'reCAPTCHA verification failed. Please try again.' });
+    const recaptchaEnabled = String(process.env.RECAPTCHA_ENABLED || '').toLowerCase() === 'true'
+
+    if (recaptchaEnabled) {
+      if (!captchaToken) {
+        return res.status(400).json({ error: 'reCAPTCHA verification required.' })
       }
-    } catch (recaptchaError) {
-      console.error('reCAPTCHA verification error:', recaptchaError.message);
-      return res.status(500).json({ error: 'CAPTCHA verification service unavailable.' });
+
+      const recaptchaSecret = process.env.RECAPTCHA_SECRET_KEY || '6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe'
+      const recaptchaVerifyUrl = `https://www.google.com/recaptcha/api/siteverify?secret=${recaptchaSecret}&response=${captchaToken}`
+
+      try {
+        const recaptchaResponse = await axios.post(recaptchaVerifyUrl)
+        if (!recaptchaResponse.data.success) {
+          return res.status(400).json({ error: 'reCAPTCHA verification failed. Please try again.' })
+        }
+      } catch (recaptchaError) {
+        console.error('reCAPTCHA verification error:', recaptchaError.message)
+        return res.status(500).json({ error: 'CAPTCHA verification service unavailable.' })
+      }
     }
 
-    const admin = await Admin.findOne({ username: username.trim().toLowerCase() })
+    const registerFailedAttempt = () => {
+      const nextFailedAttempts = Number(currentState.failedAttempts || 0) + 1
+      if (nextFailedAttempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
+        const lockoutStep = Math.min(Number(currentState.lockoutStep || 0), LOGIN_LOCKOUT_STEPS_MS.length - 1)
+        const lockoutDurationMs = LOGIN_LOCKOUT_STEPS_MS[lockoutStep]
+        const lockoutUntil = now + lockoutDurationMs
+        loginAttemptStateByIp.set(clientIp, {
+          failedAttempts: 0,
+          lockoutStep: Math.min(lockoutStep + 1, LOGIN_LOCKOUT_STEPS_MS.length - 1),
+          lockoutUntil
+        })
+        return {
+          lockoutTriggered: true,
+          nextFailedAttempts,
+          lockoutDurationMs,
+          lockoutUntil
+        }
+      } else {
+        loginAttemptStateByIp.set(clientIp, {
+          failedAttempts: nextFailedAttempts,
+          lockoutStep: Number(currentState.lockoutStep || 0),
+          lockoutUntil: 0
+        })
+        return {
+          lockoutTriggered: false,
+          nextFailedAttempts,
+          lockoutDurationMs: 0,
+          lockoutUntil: 0
+        }
+      }
+    }
+
+    const admin = await Admin.findOne({ username: normalizedUsername })
     if (!admin) {
+      const attemptResult = registerFailedAttempt()
+      if (attemptResult.lockoutTriggered) {
+        await logAudit(
+          'LOGIN',
+          'SECURITY',
+          clientIp,
+          normalizedUsername || 'unknown',
+          `IP ${clientIp} locked after ${MAX_FAILED_LOGIN_ATTEMPTS} failed login attempts. Lockout ${Math.ceil(attemptResult.lockoutDurationMs / 60000)} minute(s).`,
+          null,
+          'admin',
+          null,
+          {
+            ...loginMeta,
+            lockoutUntil: new Date(attemptResult.lockoutUntil).toISOString(),
+            lockoutMinutes: Math.ceil(attemptResult.lockoutDurationMs / 60000)
+          },
+          'FAILED',
+          'CRITICAL',
+          clientIp,
+          userAgent
+        )
+      }
       // Log failed login attempt for non-existent user
       await logAudit(
         'LOGIN',
         'ADMIN',
         'unknown',
-        username.trim().toLowerCase(),
+        normalizedUsername,
         `Failed login attempt: user does not exist`,
         'unknown',
         'unknown',
         null,
-        null,
+        loginMeta,
         'FAILED',
         'MEDIUM',
-        req.ip,
-        req.get('User-Agent')
+        clientIp,
+        userAgent
       )
       return res.status(401).json({ error: 'Invalid username or password.' })
     }
 
     const match = await admin.comparePassword(password)
     if (!match) {
+      const attemptResult = registerFailedAttempt()
+      if (attemptResult.lockoutTriggered) {
+        await logAudit(
+          'LOGIN',
+          'SECURITY',
+          clientIp,
+          admin.username,
+          `IP ${clientIp} locked after ${MAX_FAILED_LOGIN_ATTEMPTS} failed login attempts. Lockout ${Math.ceil(attemptResult.lockoutDurationMs / 60000)} minute(s).`,
+          admin._id.toString(),
+          admin.accountType,
+          null,
+          {
+            ...loginMeta,
+            lockoutUntil: new Date(attemptResult.lockoutUntil).toISOString(),
+            lockoutMinutes: Math.ceil(attemptResult.lockoutDurationMs / 60000)
+          },
+          'FAILED',
+          'CRITICAL',
+          clientIp,
+          userAgent
+        )
+      }
       // Log failed login attempt for wrong password
       await logAudit(
         'LOGIN',
@@ -414,14 +586,17 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
         admin._id.toString(),
         admin.accountType,
         null,
-        null,
+        loginMeta,
         'FAILED',
         'MEDIUM',
-        req.ip,
-        req.get('User-Agent')
+        clientIp,
+        userAgent
       )
       return res.status(401).json({ error: 'Invalid username or password.' })
     }
+
+    // Successful login resets IP attempt/lockout state
+    loginAttemptStateByIp.delete(clientIp)
 
     // Allow registrar login but include account type in response for routing
     console.log('Login - admin.accountType:', admin.accountType, 'typeof:', typeof admin.accountType)
@@ -436,8 +611,9 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
       adminId: admin._id,
       username: admin.username,
       accountType: admin.accountType,
-      ipAddress: req.ip,
-      userAgent: req.get('User-Agent')
+      ipAddress: clientIp,
+      userAgent,
+      deviceId: deviceId || undefined
     })
     
     const loginResponse = { 
@@ -458,11 +634,11 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
       admin._id.toString(),
       admin.accountType,
       null,
-      null,
+      loginMeta,
       'SUCCESS',
       'LOW',
-      req.ip,
-      req.get('User-Agent')
+      clientIp,
+      userAgent
     )
 
     res.json(loginResponse)
@@ -1037,6 +1213,7 @@ app.get('/api/admin/audit-logs', authMiddleware, async (req, res) => {
       action, 
       resourceType, 
       severity, 
+      sortOrder = 'newest',
       performedBy,
       startDate,
       endDate 
@@ -1055,9 +1232,12 @@ app.get('/api/admin/audit-logs', authMiddleware, async (req, res) => {
       if (endDate) filter.createdAt.$lte = new Date(endDate)
     }
 
+    const normalizedSortOrder = String(sortOrder || 'newest').toLowerCase()
+    const sortDirection = normalizedSortOrder === 'oldest' ? 1 : -1
+
     const logs = await AuditLog.find(filter)
       .populate('performedBy', 'username displayName')
-      .sort({ createdAt: -1 })
+      .sort({ createdAt: sortDirection })
       .limit(limit * 1)
       .skip((page - 1) * limit)
     
@@ -1621,7 +1801,18 @@ app.get('/api/admin/security-metrics', authMiddleware, async (req, res) => {
     ])
     
     // Process real threats into the expected format
-    const processedThreats = recentThreats.map(log => ({
+    const processedThreats = recentThreats
+    .filter((log) => {
+      const action = String(log.action || '').toUpperCase()
+      const status = String(log.status || '').toUpperCase()
+      const description = String(log.description || '')
+      const isFailedLoginThreat =
+        action === 'LOGIN' &&
+        status === 'FAILED' &&
+        /(failed login|too many failed|locked after|login attempts)/i.test(description)
+      return !isFailedLoginThreat
+    })
+    .map(log => ({
       id: log._id.toString(),
       timestamp: log.createdAt,
       type: log.action,
@@ -2062,8 +2253,35 @@ app.get('/api/admin/test-atlas', authMiddleware, async (req, res) => {
 
 // Backup endpoints
 app.post('/api/admin/backup/create', authMiddleware, async (req, res) => {
+  const performedBy = req.adminId || null
+  const performedByRole = req.accountType === 'registrar' ? 'registrar' : 'admin'
+  const ipAddress = req.ip || req.connection?.remoteAddress || null
+  const userAgent = req.get('user-agent') || null
   try {
     const result = await backupSystem.createBackup('manual', req.adminId || 'admin');
+
+    await logAudit(
+      'CREATE',
+      'SYSTEM',
+      String(result?.backupId || result?.fileName || 'backup'),
+      'Backup',
+      result?.success
+        ? `Manual backup created: ${result.fileName || 'backup file'}`
+        : `Manual backup failed: ${result?.error || 'Unknown error'}`,
+      performedBy,
+      performedByRole,
+      null,
+      {
+        backupType: 'manual',
+        fileName: result?.fileName || null,
+        success: Boolean(result?.success),
+        error: result?.error || null
+      },
+      result?.success ? 'SUCCESS' : 'FAILED',
+      result?.success ? 'LOW' : 'MEDIUM',
+      ipAddress,
+      userAgent
+    )
     
     // Clear system health cache so next request gets fresh backup data
     global.cachedSystemHealth = null;
@@ -2072,6 +2290,21 @@ app.post('/api/admin/backup/create', authMiddleware, async (req, res) => {
     console.log('Backup created and system health cache cleared');
     res.json(result);
   } catch (error) {
+    await logAudit(
+      'CREATE',
+      'SYSTEM',
+      'backup',
+      'Backup',
+      `Manual backup failed: ${error.message || 'Unknown error'}`,
+      performedBy,
+      performedByRole,
+      null,
+      null,
+      'FAILED',
+      'MEDIUM',
+      ipAddress,
+      userAgent
+    )
     console.error('Backup creation error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
@@ -2083,9 +2316,46 @@ app.get('/api/admin/backup/history', authMiddleware, async (req, res) => {
     const backups = await Backup.find()
       .sort({ createdAt: -1 })
       .limit(20)
-      .select('-__v');
-    
-    res.json({ success: true, backups });
+      .select('-__v')
+      .lean();
+
+    const manualTriggeredByIds = Array.from(
+      new Set(
+        backups
+          .filter((backup) => String(backup.backupType || '').toLowerCase() === 'manual')
+          .map((backup) => String(backup.triggeredBy || '').trim())
+          .filter((value) => mongoose.Types.ObjectId.isValid(value))
+      )
+    );
+
+    let adminNameById = new Map();
+    if (manualTriggeredByIds.length > 0) {
+      const admins = await Admin.find({ _id: { $in: manualTriggeredByIds } })
+        .select('displayName username')
+        .lean();
+      adminNameById = new Map(
+        admins.map((admin) => [
+          String(admin._id),
+          String(admin.displayName || '').trim() || String(admin.username || '').trim() || 'User'
+        ])
+      );
+    }
+
+    const backupsWithTrigger = backups.map((backup) => {
+      const type = String(backup.backupType || '').toLowerCase();
+      const rawTriggeredBy = String(backup.triggeredBy || '').trim();
+      const isManual = type === 'manual';
+      const resolvedTriggeredBy = isManual
+        ? (adminNameById.get(rawTriggeredBy) || rawTriggeredBy || 'User')
+        : 'System';
+
+      return {
+        ...backup,
+        triggeredBy: resolvedTriggeredBy
+      };
+    });
+
+    res.json({ success: true, backups: backupsWithTrigger });
   } catch (error) {
     console.error('Backup history error:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -2093,6 +2363,10 @@ app.get('/api/admin/backup/history', authMiddleware, async (req, res) => {
 });
 
 app.post('/api/admin/backup/restore', authMiddleware, async (req, res) => {
+  const performedBy = req.adminId || null
+  const performedByRole = req.accountType === 'registrar' ? 'registrar' : 'admin'
+  const ipAddress = req.ip || req.connection?.remoteAddress || null
+  const userAgent = req.get('user-agent') || null
   try {
     const { backupFileName } = req.body;
     if (!backupFileName) {
@@ -2100,8 +2374,47 @@ app.post('/api/admin/backup/restore', authMiddleware, async (req, res) => {
     }
     
     const result = await backupSystem.restoreBackup(backupFileName);
+    await logAudit(
+      'RESTORE',
+      'SYSTEM',
+      String(backupFileName),
+      'Backup',
+      result?.success
+        ? `Backup restored: ${backupFileName}`
+        : `Backup restore failed: ${backupFileName} (${result?.error || 'Unknown error'})`,
+      performedBy,
+      performedByRole,
+      null,
+      {
+        backupFileName,
+        success: Boolean(result?.success),
+        restoredCollections: result?.restoredCollections || [],
+        totalDocuments: result?.totalDocuments || 0,
+        error: result?.error || null
+      },
+      result?.success ? 'SUCCESS' : 'FAILED',
+      result?.success ? 'MEDIUM' : 'HIGH',
+      ipAddress,
+      userAgent
+    )
     res.json(result);
   } catch (error) {
+    const backupFileName = String(req.body?.backupFileName || 'backup').trim()
+    await logAudit(
+      'RESTORE',
+      'SYSTEM',
+      backupFileName || 'backup',
+      'Backup',
+      `Backup restore failed: ${backupFileName || 'backup'} (${error.message || 'Unknown error'})`,
+      performedBy,
+      performedByRole,
+      null,
+      null,
+      'FAILED',
+      'HIGH',
+      ipAddress,
+      userAgent
+    )
     console.error('Backup restore error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
@@ -2136,35 +2449,7 @@ app.post('/api/admin/security-scan', authMiddleware, async (req, res) => {
     const findings = []
     const recommendations = []
     
-    // Scan 1: Failed login attempts
-    const failedLogins = await AuditLog.countDocuments({
-      action: 'LOGIN',
-      status: 'FAILED',
-      createdAt: { $gte: last24h }
-    })
-    
-    if (failedLogins > 10) {
-      findings.push({
-        severity: 'high',
-        title: 'Excessive Failed Login Attempts',
-        description: `${failedLogins} failed login attempts detected in the last 24 hours`,
-        category: 'Authentication'
-      })
-      recommendations.push({
-        priority: 'high',
-        action: 'Implement rate limiting or account lockout policies',
-        details: 'Consider enabling 2FA for all admin accounts'
-      })
-    } else if (failedLogins > 5) {
-      findings.push({
-        severity: 'medium',
-        title: 'Multiple Failed Login Attempts',
-        description: `${failedLogins} failed login attempts detected`,
-        category: 'Authentication'
-      })
-    }
-    
-    // Scan 2: Blocked IPs
+    // Scan 1: Blocked IPs
     const blockedIPCount = await BlockedIP.countDocuments({ isActive: true })
     if (blockedIPCount > 0) {
       findings.push({
@@ -2175,7 +2460,7 @@ app.post('/api/admin/security-scan', authMiddleware, async (req, res) => {
       })
     }
     
-    // Scan 3: High severity audit logs
+    // Scan 2: High severity audit logs
     const highSeverityLogs = await AuditLog.countDocuments({
       severity: { $in: ['HIGH', 'CRITICAL'] },
       createdAt: { $gte: last7d }
@@ -2190,7 +2475,7 @@ app.post('/api/admin/security-scan', authMiddleware, async (req, res) => {
       })
     }
     
-    // Scan 4: Check for admin account security
+    // Scan 3: Check for admin account security
     const adminCount = await Admin.countDocuments()
     const adminsWithoutEmail = await Admin.countDocuments({ email: { $in: ['', null] } })
     

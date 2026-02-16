@@ -8,6 +8,34 @@ const Student = require('../models/Student');
 const { buildSafeQuery, safeObjectId } = require('../securityMiddleware');
 
 class BlockController {
+  extractBlockSlotFromName(value) {
+    const text = String(value || '').trim().toUpperCase().replace(/\u2013/g, '-');
+    if (!text) return null;
+
+    const match = text.match(/(?:^|-)(\d+)-?([A-D])$/);
+    if (!match) return null;
+
+    const yearLevel = Number(match[1]);
+    const letter = match[2];
+    if (!Number.isFinite(yearLevel) || yearLevel < 1) return null;
+
+    return { yearLevel, letter };
+  }
+
+  buildCanonicalBlockCode(rawValue) {
+    const normalized = String(rawValue || '')
+      .trim()
+      .toUpperCase()
+      .replace(/\u2013/g, '-')
+      .replace(/\s+/g, '');
+    if (!normalized) return '';
+
+    const course = this.extractCourseFromGroupName(normalized);
+    const slot = this.extractBlockSlotFromName(normalized);
+    if (course && slot) return `${course}-${slot.yearLevel}-${slot.letter}`;
+    return normalized.replace(/--+/g, '-');
+  }
+
   normalizeCourseCode(rawCourse) {
     if (rawCourse === null || rawCourse === undefined) return null;
     const text = String(rawCourse).trim();
@@ -154,10 +182,41 @@ class BlockController {
         return res.status(400).json({ error: 'name, semester, and year are required' });
       }
 
+      const normalizedSemester = String(semester).trim();
+      const normalizedYear = Number(year);
+      if (!Number.isFinite(normalizedYear)) {
+        return res.status(400).json({ error: 'year must be a valid number' });
+      }
+
+      const canonicalName = this.buildCanonicalBlockCode(name);
+      const incomingCourse = this.extractCourseFromGroupName(canonicalName);
+      const incomingSlot = this.extractBlockSlotFromName(canonicalName);
+
+      const sameTermGroups = await BlockGroup.find({
+        semester: normalizedSemester,
+        year: normalizedYear
+      }).select('name');
+
+      const hasSemanticDuplicate = sameTermGroups.some((group) => {
+        const existingCourse = this.extractCourseFromGroupName(group.name);
+        const existingSlot = this.extractBlockSlotFromName(group.name);
+        return (
+          incomingCourse &&
+          incomingSlot &&
+          existingCourse === incomingCourse &&
+          existingSlot?.yearLevel === incomingSlot.yearLevel &&
+          existingSlot?.letter === incomingSlot.letter
+        );
+      });
+
+      if (hasSemanticDuplicate) {
+        return res.status(409).json({ error: 'Block group already exists for this semester/year' });
+      }
+
       const group = await BlockGroup.create({
-        name: String(name).trim(),
-        semester,
-        year: Number(year),
+        name: canonicalName || String(name).trim(),
+        semester: normalizedSemester,
+        year: normalizedYear,
         policies: {
           ...(policies || {})
         }
@@ -188,9 +247,18 @@ class BlockController {
         return res.status(404).json({ error: 'Block group not found' });
       }
 
+      const canonicalSectionCode = this.buildCanonicalBlockCode(sectionCode);
+      const existingSections = await BlockSection.find({ blockGroupId: groupId }).select('sectionCode').lean();
+      const duplicateSection = existingSections.some((section) =>
+        this.buildCanonicalBlockCode(section.sectionCode) === canonicalSectionCode
+      );
+      if (duplicateSection) {
+        return res.status(409).json({ error: 'Section code already exists in this group' });
+      }
+
       const section = await BlockSection.create({
         blockGroupId: groupId,
-        sectionCode: String(sectionCode).trim(),
+        sectionCode: canonicalSectionCode || String(sectionCode).trim(),
         capacity: Number(capacity),
         schedule: schedule ? String(schedule).trim() : ''
       });
@@ -747,4 +815,3 @@ class BlockController {
 }
 
 module.exports = new BlockController();
-

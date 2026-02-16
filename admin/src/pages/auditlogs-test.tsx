@@ -18,6 +18,11 @@ interface AuditLog {
   performedByRole: string
   ipAddress: string
   userAgent: string
+  newValue?: {
+    deviceId?: string | null
+    ipAddress?: string | null
+    [key: string]: unknown
+  }
   status: 'SUCCESS' | 'FAILED' | 'PARTIAL'
   severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
   createdAt: string
@@ -36,13 +41,16 @@ interface AuditStats {
 const AuditLogs: React.FC = () => {
   const [logs, setLogs] = useState<AuditLog[]>([])
   const [stats, setStats] = useState<AuditStats | null>(null)
+  const [totalLogsCount, setTotalLogsCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
+  const [performedByInput, setPerformedByInput] = useState('')
   const [filters, setFilters] = useState({
     action: '',
     resourceType: '',
     severity: '',
+    sortOrder: 'newest',
     performedBy: '',
     startDate: '',
     endDate: ''
@@ -56,7 +64,14 @@ const AuditLogs: React.FC = () => {
   const fetchLogs = async () => {
     try {
       setLoading(true)
-      const token = localStorage.getItem('token')
+      const token = await getStoredToken()
+      if (!token) {
+        console.error('No authentication token found for audit logs')
+        setLogs([])
+        setTotalPages(1)
+        setTotalLogsCount(0)
+        return
+      }
       const params = new URLSearchParams({
         page: currentPage.toString(),
         limit: '20',
@@ -66,7 +81,10 @@ const AuditLogs: React.FC = () => {
       })
 
       const response = await fetch(`${API_URL}/api/admin/audit-logs?${params}`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       })
       
       if (!response.ok) {
@@ -80,6 +98,7 @@ const AuditLogs: React.FC = () => {
       const data = await response.json()
       setLogs(data.logs || [])
       setTotalPages(data.totalPages || 1)
+      setTotalLogsCount(typeof data.total === 'number' ? data.total : (data.logs || []).length)
     } catch (error) {
       console.error('Failed to fetch audit logs:', error)
     } finally {
@@ -119,10 +138,12 @@ const AuditLogs: React.FC = () => {
       action: '',
       resourceType: '',
       severity: '',
+      sortOrder: 'newest',
       performedBy: '',
       startDate: '',
       endDate: ''
     })
+    setPerformedByInput('')
     setCurrentPage(1)
   }
 
@@ -167,8 +188,44 @@ const AuditLogs: React.FC = () => {
     }
   }
 
+  const getSeverityDescription = (severity: string) => {
+    switch (String(severity || '').toUpperCase()) {
+      case 'CRITICAL': return 'Immediate action required'
+      case 'HIGH': return 'High risk event'
+      case 'MEDIUM': return 'Needs review'
+      case 'LOW': return 'Informational'
+      default: return 'Unclassified'
+    }
+  }
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString()
+  }
+
+  const formatIpForDisplay = (rawIp: string) => {
+    const ip = String(rawIp || '').trim()
+    if (!ip) return 'Unknown IP'
+    if (ip === '::1' || ip === '127.0.0.1') return 'Localhost'
+    if (ip.startsWith('::ffff:')) return ip.replace('::ffff:', '')
+    return ip
+  }
+
+  const getUserDisplayForLog = (log: AuditLog) => {
+    const isLoginEvent = String(log.action || '').toUpperCase() === 'LOGIN'
+    if (isLoginEvent) {
+      const deviceId = String(log.newValue?.deviceId || '').trim()
+      const shortDeviceId = deviceId ? deviceId.slice(0, 8) : ''
+      return {
+        name: shortDeviceId
+          ? `${formatIpForDisplay(log.ipAddress)} • ${shortDeviceId}`
+          : formatIpForDisplay(log.ipAddress),
+        role: shortDeviceId ? 'ip/device' : 'ip'
+      }
+    }
+    return {
+      name: log.performedBy?.displayName || log.performedBy?.username || 'System',
+      role: log.performedByRole || 'system'
+    }
   }
 
   if (loading && currentPage === 1) return <div className="loading">Loading audit logs...</div>
@@ -182,23 +239,23 @@ const AuditLogs: React.FC = () => {
         </button>
       </div>
 
-      {stats && typeof stats.totalLogs !== 'undefined' && (
+      {!loading && (
         <div className="stats-grid">
           <div className="stat-card">
             <h3>Total Logs</h3>
-            <p>{stats.totalLogs.toLocaleString()}</p>
+            <p>{(stats?.totalLogs ?? totalLogsCount).toLocaleString()}</p>
           </div>
           <div className="stat-card">
             <h3>Last 30 Days</h3>
-            <p>{stats.recentLogs.toLocaleString()}</p>
+            <p>{(stats?.recentLogs ?? 0).toLocaleString()}</p>
           </div>
           <div className="stat-card critical">
             <h3>Critical</h3>
-            <p>{stats.criticalLogs.toLocaleString()}</p>
+            <p>{(stats?.criticalLogs ?? 0).toLocaleString()}</p>
           </div>
           <div className="stat-card">
             <h3>New Accounts (Last 30 Days)</h3>
-            <p>{stats.newAccounts}</p>
+            <p>{stats?.newAccounts ?? 0}</p>
           </div>
         </div>
       )}
@@ -242,17 +299,35 @@ const AuditLogs: React.FC = () => {
             onChange={(e) => handleFilterChange('severity', e.target.value)}
           >
             <option value="">All Severities</option>
-            <option value="INFO">Info</option>
-            <option value="WARNING">Warning</option>
-            <option value="ERROR">Error</option>
+            <option value="LOW">Low</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="HIGH">High</option>
             <option value="CRITICAL">Critical</option>
+          </select>
+
+          <select
+            value={filters.sortOrder}
+            onChange={(e) => handleFilterChange('sortOrder', e.target.value)}
+          >
+            <option value="newest">Newest First</option>
+            <option value="oldest">Oldest First</option>
           </select>
 
           <input
             type="text"
             placeholder="Performed by"
-            value={filters.performedBy}
-            onChange={(e) => handleFilterChange('performedBy', e.target.value)}
+            value={performedByInput}
+            onChange={(e) => setPerformedByInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleFilterChange('performedBy', performedByInput.trim())
+              }
+            }}
+            onBlur={() => {
+              if (performedByInput.trim() !== filters.performedBy) {
+                handleFilterChange('performedBy', performedByInput.trim())
+              }
+            }}
           />
 
           <input
@@ -294,8 +369,8 @@ const AuditLogs: React.FC = () => {
               {log.description}
             </div>
             <div className="user-cell">
-              {log.performedBy.displayName || log.performedBy.username}
-              <span className="user-role">({log.performedByRole})</span>
+              {getUserDisplayForLog(log).name}
+              <span className="user-role">({getUserDisplayForLog(log).role})</span>
             </div>
             <div className="status-cell">
               {getStatusIcon(log.status)}
@@ -305,6 +380,7 @@ const AuditLogs: React.FC = () => {
               <span 
                 className="severity-badge" 
                 style={{ backgroundColor: getSeverityColor(log.severity) }}
+                title={getSeverityDescription(log.severity)}
               >
                 {log.severity}
               </span>
