@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Edit, Eye, UserPlus, GraduationCap, X, Check, AlertCircle, FileText as FileTextIcon, ExternalLink } from 'lucide-react';
+import { Search, Edit, Eye, UserPlus, GraduationCap, X, Check, AlertCircle, FileText as FileTextIcon, ExternalLink, Trash2 } from 'lucide-react';
 import { getStoredToken } from '../lib/authApi';
 import StudentService from '../lib/studentApi';
 import './StudentManagement.css';
@@ -376,6 +376,26 @@ const StudentManagement: React.FC = () => {
     }
   };
 
+  const handleDeleteStudent = async (student: Student) => {
+    const studentName = `${student.firstName} ${student.lastName}`.trim();
+    const confirmed = window.confirm(`Delete student "${studentName}" (${student.studentNumber})? This action cannot be undone.`);
+    if (!confirmed) return;
+
+    try {
+      const token = await getStoredToken();
+      if (!token) throw new Error('No authentication token found');
+
+      await StudentService.deleteStudent(token, student._id);
+      setSelectedStudent((prev) => (prev?._id === student._id ? null : prev));
+      setShowEditModal(false);
+      setShowAddModal(false);
+      setError(null);
+      await loadStudents();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete student');
+    }
+  };
+
   const handleSubmitStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -550,6 +570,14 @@ const StudentManagement: React.FC = () => {
                       title="View COR"
                     >
                       <ExternalLink size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className="action-btn delete"
+                      onClick={() => handleDeleteStudent(student)}
+                      title="Delete Student"
+                    >
+                      <Trash2 size={14} />
                     </button>
                   </div>
                 </td>

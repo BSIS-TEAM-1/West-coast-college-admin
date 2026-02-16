@@ -110,11 +110,11 @@ export async function signUp(username: string, password: string): Promise<SignUp
   return data as SignUpResponse
 }
 
-export async function login(username: string, password: string): Promise<LoginResponse> {
+export async function login(username: string, password: string, captchaToken: string): Promise<LoginResponse> {
   const res = await fetch(`${API_URL}/api/admin/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: username.trim(), password }),
+    body: JSON.stringify({ username: username.trim(), password, captchaToken }),
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {

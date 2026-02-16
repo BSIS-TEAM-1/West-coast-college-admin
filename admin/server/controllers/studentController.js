@@ -1,12 +1,108 @@
 const mongoose = require('mongoose');
 const Student = require('../models/Student');
 const Enrollment = require('../models/Enrollment');
+const Subject = require('../models/Subject');
+const StudentBlockAssignment = require('../models/StudentBlockAssignment');
+const SectionWaitlist = require('../models/SectionWaitlist');
+const BlockSection = require('../models/BlockSection');
 const Admin = require('../models/Admin');
 const PDFDocument = require('pdfkit');
 const path = require('path');
 const fs = require('fs');
 
 class StudentController {
+  static async getProfessorAccounts(req, res) {
+    try {
+      const professors = await Admin.find({
+        accountType: 'professor',
+        status: { $ne: 'inactive' }
+      })
+        .select('_id username displayName uid status')
+        .sort({ displayName: 1, username: 1 })
+        .lean();
+
+      const data = professors.map((professor) => ({
+        _id: String(professor._id),
+        username: professor.username || '',
+        displayName: professor.displayName || '',
+        uid: professor.uid || '',
+        status: professor.status || 'active',
+        label: String(professor.displayName || '').trim() || String(professor.username || '').trim()
+      }));
+
+      res.json({
+        success: true,
+        data
+      });
+    } catch (error) {
+      console.error('Error fetching professor accounts:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to fetch professor accounts'
+      });
+    }
+  }
+
+  static async cleanupBlockMembershipForStudent(studentId) {
+    const normalizedStudentId = String(studentId || '').trim();
+    if (!normalizedStudentId) return;
+
+    const assignments = await StudentBlockAssignment.find({ studentId: normalizedStudentId })
+      .select('sectionId')
+      .lean();
+    const waitlists = await SectionWaitlist.find({ studentId: normalizedStudentId })
+      .select('sectionId')
+      .lean();
+
+    const affectedSectionIds = Array.from(
+      new Set(
+        [...assignments, ...waitlists]
+          .map((entry) => String(entry.sectionId || '').trim())
+          .filter(Boolean)
+      )
+    );
+
+    if (assignments.length > 0) {
+      await StudentBlockAssignment.deleteMany({ studentId: normalizedStudentId });
+    }
+    if (waitlists.length > 0) {
+      await SectionWaitlist.deleteMany({ studentId: normalizedStudentId });
+    }
+
+    if (affectedSectionIds.length === 0) return;
+
+    const sectionObjectIds = affectedSectionIds
+      .filter((sectionId) => mongoose.Types.ObjectId.isValid(sectionId))
+      .map((sectionId) => new mongoose.Types.ObjectId(sectionId));
+
+    const assignedCounts = await StudentBlockAssignment.aggregate([
+      {
+        $match: {
+          sectionId: { $in: sectionObjectIds },
+          status: 'ASSIGNED'
+        }
+      },
+      {
+        $group: {
+          _id: '$sectionId',
+          total: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const countMap = new Map(
+      assignedCounts.map((item) => [String(item._id), Number(item.total) || 0])
+    );
+
+    await Promise.all(
+      sectionObjectIds.map((sectionId) =>
+        BlockSection.findByIdAndUpdate(sectionId, {
+          $set: { currentPopulation: countMap.get(String(sectionId)) || 0 }
+        })
+      )
+    );
+  }
+
   static async createStudentRecord(studentData) {
     if (studentData.email) {
       const existingStudent = await Student.findOne({ email: studentData.email });
@@ -69,6 +165,10 @@ class StudentController {
     });
   }
 
+  static async deleteStudentRecord(id) {
+    return Student.findByIdAndDelete(id);
+  }
+
   static async getEnrollmentHistoryRecord(studentId) {
     return Enrollment.find({ studentId })
       .sort({ schoolYear: -1, semester: -1 })
@@ -99,23 +199,41 @@ class StudentController {
     }).populate('subjects.subjectId');
   }
 
-  static mapSubjectIdsToEnrollmentSubjects(subjectIds = []) {
+  static async mapSubjectIdsToEnrollmentSubjects(subjectIds = []) {
     if (!Array.isArray(subjectIds) || subjectIds.length === 0) {
       return [];
     }
 
-    return subjectIds.map((subjectId, index) => ({
-      subjectId: mongoose.Types.ObjectId.isValid(subjectId)
-        ? subjectId
-        : new mongoose.Types.ObjectId(),
-      code: `SUBJ-${index + 1}`,
-      title: `Subject ${index + 1}`,
-      units: 3,
-      schedule: 'TBA',
-      room: 'TBA',
-      instructor: 'TBA',
-      status: 'Enrolled'
-    }));
+    const normalizedIds = subjectIds
+      .map((subjectId) => String(subjectId).trim())
+      .filter((subjectId) => mongoose.Types.ObjectId.isValid(subjectId));
+
+    const subjectsById = new Map();
+    if (normalizedIds.length > 0) {
+      const matchedSubjects = await Subject.find({ _id: { $in: normalizedIds } })
+        .select('_id code title units')
+        .lean();
+      matchedSubjects.forEach((subject) => {
+        subjectsById.set(String(subject._id), subject);
+      });
+    }
+
+    return subjectIds.map((subjectId, index) => {
+      const normalizedId = String(subjectId).trim();
+      const matched = subjectsById.get(normalizedId);
+      return {
+        subjectId: mongoose.Types.ObjectId.isValid(normalizedId)
+          ? normalizedId
+          : new mongoose.Types.ObjectId(),
+        code: matched?.code || `SUBJ-${index + 1}`,
+        title: matched?.title || `Subject ${index + 1}`,
+        units: matched?.units || 3,
+        schedule: 'TBA',
+        room: 'TBA',
+        instructor: 'TBA',
+        status: 'Enrolled'
+      };
+    });
   }
 
   static calculateTuitionFee(units) {
@@ -137,8 +255,15 @@ class StudentController {
     subjectIds,
     createdBy
   }) {
-    const subjects = this.mapSubjectIdsToEnrollmentSubjects(subjectIds);
+    const subjects = await this.mapSubjectIdsToEnrollmentSubjects(subjectIds);
     const totalUnits = subjects.reduce((sum, subject) => sum + subject.units, 0);
+    const enrollmentCourseMap = {
+      101: 'BEED',
+      102: 'BSED',
+      103: 'BSED',
+      201: 'BSBA'
+    };
+    const normalizedCourse = enrollmentCourseMap[Number(student.course)] || 'BEED';
 
     const enrollment = new Enrollment({
       studentId: student._id,
@@ -146,7 +271,7 @@ class StudentController {
       schoolYear,
       semester,
       yearLevel: student.yearLevel,
-      course: student.course,
+      course: normalizedCourse,
       subjects,
       assessment: {
         tuitionFee: this.calculateTuitionFee(totalUnits),
@@ -247,7 +372,54 @@ class StudentController {
   static async updateStudent(req, res) {
     try {
       const { id } = req.params;
+      const previous = await StudentController.getStudentByIdRecord(id);
+      if (!previous) {
+        return res.status(404).json({
+          success: false,
+          message: 'Student not found'
+        });
+      }
+
+      const hasAcademicChange =
+        (req.body?.course !== undefined && Number(req.body.course) !== Number(previous.course)) ||
+        (req.body?.yearLevel !== undefined && Number(req.body.yearLevel) !== Number(previous.yearLevel)) ||
+        (req.body?.studentStatus !== undefined && String(req.body.studentStatus) !== String(previous.studentStatus));
+
       const student = await StudentController.updateStudentRecord(id, req.body);
+
+      if (!student) {
+        return res.status(404).json({
+          success: false,
+          message: 'Student not found'
+        });
+      }
+
+      if (hasAcademicChange) {
+        await StudentController.cleanupBlockMembershipForStudent(id);
+      }
+
+      res.json({
+        success: true,
+        data: student,
+        message: hasAcademicChange
+          ? 'Student information updated successfully. Existing block assignment was cleared due to academic changes.'
+          : 'Student information updated successfully'
+      });
+    } catch (error) {
+      console.error('Error updating student:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to update student information'
+      });
+    }
+  }
+
+  static async deleteStudent(req, res) {
+    try {
+      const { id } = req.params;
+      await StudentController.cleanupBlockMembershipForStudent(id);
+
+      const student = await StudentController.deleteStudentRecord(id);
 
       if (!student) {
         return res.status(404).json({
@@ -259,13 +431,13 @@ class StudentController {
       res.json({
         success: true,
         data: student,
-        message: 'Student information updated successfully'
+        message: 'Student deleted successfully'
       });
     } catch (error) {
-      console.error('Error updating student:', error);
+      console.error('Error deleting student:', error);
       res.status(500).json({
         success: false,
-        message: error.message || 'Failed to update student information'
+        message: error.message || 'Failed to delete student'
       });
     }
   }
@@ -382,6 +554,140 @@ class StudentController {
     }
   }
 
+  static async assignSubjectInstructorToSection(req, res) {
+    try {
+      const { sectionId } = req.params;
+      const { subjectId, instructor, schedule, room, semester, schoolYear } = req.body || {};
+
+      if (!mongoose.Types.ObjectId.isValid(sectionId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid section id'
+        });
+      }
+
+      if (!mongoose.Types.ObjectId.isValid(String(subjectId || '').trim())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Valid subject id is required'
+        });
+      }
+
+      const normalizedInstructor = String(instructor || '').trim();
+      if (!normalizedInstructor) {
+        return res.status(400).json({
+          success: false,
+          message: 'Instructor name is required'
+        });
+      }
+
+      const section = await BlockSection.findById(sectionId).select('_id sectionCode');
+      if (!section) {
+        return res.status(404).json({
+          success: false,
+          message: 'Section not found'
+        });
+      }
+
+      const subject = await Subject.findById(subjectId).select('_id code title');
+      if (!subject) {
+        return res.status(404).json({
+          success: false,
+          message: 'Subject not found'
+        });
+      }
+
+      const assignments = await StudentBlockAssignment.find({
+        sectionId: section._id,
+        status: 'ASSIGNED'
+      }).select('studentId');
+
+      const studentObjectIds = assignments
+        .map((entry) => String(entry.studentId || '').trim())
+        .filter((studentId) => mongoose.Types.ObjectId.isValid(studentId))
+        .map((studentId) => new mongoose.Types.ObjectId(studentId));
+
+      if (studentObjectIds.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'No assigned students found in this section'
+        });
+      }
+
+      const enrollmentQuery = {
+        studentId: { $in: studentObjectIds },
+        status: { $ne: 'Dropped' },
+        isCurrent: true
+      };
+      if (schoolYear) enrollmentQuery.schoolYear = String(schoolYear).trim();
+      if (semester) enrollmentQuery.semester = String(semester).trim();
+
+      const enrollments = await Enrollment.find(enrollmentQuery).sort({ createdAt: -1 });
+      if (enrollments.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'No matching enrollments found for students in this section'
+        });
+      }
+
+      const normalizedSubjectId = String(subject._id);
+      const normalizedSchedule = String(schedule || '').trim();
+      const normalizedRoom = String(room || '').trim();
+      const updatedEnrollmentIds = [];
+      let matchedSubjects = 0;
+
+      for (const enrollment of enrollments) {
+        let enrollmentChanged = false;
+        enrollment.subjects.forEach((entry) => {
+          if (String(entry?.subjectId || '') === normalizedSubjectId) {
+            entry.instructor = normalizedInstructor;
+            if (normalizedSchedule) entry.schedule = normalizedSchedule;
+            if (normalizedRoom) entry.room = normalizedRoom;
+            entry.dateModified = new Date();
+            enrollmentChanged = true;
+            matchedSubjects += 1;
+          }
+        });
+
+        if (enrollmentChanged) {
+          enrollment.markModified('subjects');
+          await enrollment.save();
+          updatedEnrollmentIds.push(String(enrollment._id));
+        }
+      }
+
+      if (updatedEnrollmentIds.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: `Subject ${subject.code} is not enrolled in the selected section's current enrollments`
+        });
+      }
+
+      res.json({
+        success: true,
+        message: 'Instructor and schedule assigned successfully',
+        data: {
+          sectionId: String(section._id),
+          sectionCode: section.sectionCode,
+          subjectId: normalizedSubjectId,
+          subjectCode: subject.code,
+          subjectTitle: subject.title,
+          instructor: normalizedInstructor,
+          schedule: normalizedSchedule || 'TBA',
+          room: normalizedRoom || 'TBA',
+          updatedEnrollments: updatedEnrollmentIds.length,
+          matchedSubjectEntries: matchedSubjects
+        }
+      });
+    } catch (error) {
+      console.error('Error assigning section subject instructor:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to assign instructor to section subject'
+      });
+    }
+  }
+
   /**
    * Generate Certificate of Registration (COR) as PDF
    */
@@ -425,6 +731,54 @@ class StudentController {
       }
 
       const age = student.birthDate ? (new Date().getFullYear() - new Date(student.birthDate).getFullYear()) : 'N/A';
+      const preferredSchoolYear = String(student.schoolYear || '').trim();
+      const preferredSemester = String(student.semester || '').trim();
+
+      let enrollment = null;
+      if (preferredSchoolYear && preferredSemester) {
+        enrollment = await Enrollment.findOne({
+          studentId: student._id,
+          schoolYear: preferredSchoolYear,
+          semester: preferredSemester,
+          status: { $ne: 'Dropped' }
+        }).sort({ isCurrent: -1, createdAt: -1 });
+      }
+      if (!enrollment) {
+        enrollment = await Enrollment.findOne({
+          studentId: student._id,
+          status: { $ne: 'Dropped' },
+          isCurrent: true
+        }).sort({ createdAt: -1 });
+      }
+      if (!enrollment) {
+        enrollment = await Enrollment.findOne({
+          studentId: student._id,
+          status: { $ne: 'Dropped' }
+        }).sort({ createdAt: -1 });
+      }
+
+      const enrolledSubjects = Array.isArray(enrollment?.subjects)
+        ? enrollment.subjects.filter((subject) => String(subject?.status || '').toLowerCase() !== 'dropped')
+        : [];
+      const corSemester = enrollment?.semester || student.semester || 'N/A';
+      const corSchoolYear = enrollment?.schoolYear || student.schoolYear || 'N/A';
+      const corYearLevel = enrollment?.yearLevel || student.yearLevel || 'N/A';
+      let classBlockLabel = 'N/A';
+      const latestBlockAssignment = await StudentBlockAssignment.findOne({
+        studentId: String(student._id),
+        status: 'ASSIGNED'
+      })
+        .sort({ createdAt: -1 })
+        .select('sectionId')
+        .lean();
+      if (latestBlockAssignment?.sectionId) {
+        const assignedSection = await BlockSection.findById(latestBlockAssignment.sectionId)
+          .select('sectionCode blockCode name')
+          .lean();
+        classBlockLabel = assignedSection?.sectionCode || assignedSection?.blockCode || assignedSection?.name || 'N/A';
+      }
+      const totalSubjects = enrolledSubjects.length;
+      const totalUnits = enrolledSubjects.reduce((sum, subject) => sum + (Number(subject?.units) || 0), 0);
 
       // Fetch current registrar's display name
       const currentRegistrar = await Admin.findById(req.adminId).select('displayName');
@@ -492,7 +846,7 @@ class StudentController {
       currentY += rowHeight;
       doc.text(`Age: ${age}`, infoX + infoPad, currentY, { width: colWidth });
       currentY += rowHeight;
-      doc.text(`Semester: ${student.semester || 'N/A'}`, infoX + infoPad, currentY, { width: colWidth });
+      doc.text(`Semester: ${corSemester}`, infoX + infoPad, currentY, { width: colWidth });
       // Column 2: College, Program, Major, Year Level, School Year
       currentY = infoY + infoPad;
       doc.text(`College: Polangui`, infoX + infoPad + colWidth + gap, currentY, { width: colWidth });
@@ -501,9 +855,9 @@ class StudentController {
       currentY += rowHeight;
       doc.text(`Major: ${majorLabel}`, infoX + infoPad + colWidth + gap, currentY, { width: colWidth });
       currentY += rowHeight;
-      doc.text(`Year Level: ${student.yearLevel || 'N/A'}`, infoX + infoPad + colWidth + gap, currentY, { width: colWidth });
+      doc.text(`Year Level: ${corYearLevel}`, infoX + infoPad + colWidth + gap, currentY, { width: colWidth });
       currentY += rowHeight;
-      doc.text(`School Year: ${student.schoolYear || 'N/A'}`, infoX + infoPad + colWidth + gap, currentY, { width: colWidth });
+      doc.text(`School Year: ${corSchoolYear}`, infoX + infoPad + colWidth + gap, currentY, { width: colWidth });
       // Column 3: Curriculum, Scholarship, COR Status, Enrollment Status, Issued Date
       currentY = infoY + infoPad;
       doc.text(`Curriculum: ${student.curriculum || 'N/A'}`, infoX + infoPad + 2 * colWidth + 2 * gap, currentY, { width: colWidth });
@@ -527,49 +881,96 @@ class StudentController {
       const colWidths = [49, 138, 32, 40, 40, 89, 49, 73];
       
       // Add SCHEDULES title - centered
-      const tableWidth = colWidths.reduce((a, b) => a + b, 0);
+      const scheduleTableWidth = colWidths.reduce((a, b) => a + b, 0);
       doc.font('Helvetica-Bold').fontSize(8).text('SCHEDULES', 40, doc.y + 5, { 
-        width: tableWidth,
+        width: scheduleTableWidth,
         align: 'center'
       });
       doc.moveDown(1);
 
-      // Schedule table (placeholder rows using current student data)
+      // Schedule table rows from current/latest enrollment subjects
       doc.moveDown(1);
       const tableStartY = doc.y;
       const headers = ['Code', 'Subject', 'Units', 'Class', 'Days', 'Time', 'Room', 'Faculty'];
-      let x = 40;
+      const tableX = 40;
+      const tableWidth = colWidths.reduce((a, b) => a + b, 0);
+      const headerHeight = 16;
+      const cellPadX = 2;
+      const cellPadY = 2;
+      const baseRowHeight = 14;
+      const minimumRows = 6;
+
+      const rows = totalSubjects === 0
+        ? [['-', 'No enrolled subjects found', '-', '-', '-', '-', '-', '-']]
+        : enrolledSubjects.map((subject) => {
+            const scheduleText = String(subject?.schedule || '').trim();
+            return [
+              subject?.code || '-',
+              subject?.title || '-',
+              Number(subject?.units) ? Number(subject.units).toFixed(1) : '-',
+              classBlockLabel,
+              scheduleText || 'TBA',
+              scheduleText || 'TBA',
+              subject?.room || 'TBA',
+              subject?.instructor || 'TBA'
+            ];
+          });
+
       doc.fontSize(8).font('Helvetica-Bold');
+      let x = tableX;
       headers.forEach((h, i) => {
-        doc.text(h, x + 2, tableStartY, { width: colWidths[i] - 4, align: 'left' });
+        doc.text(h, x + cellPadX, tableStartY + cellPadY, {
+          width: colWidths[i] - (cellPadX * 2),
+          align: 'left',
+          lineBreak: true
+        });
         x += colWidths[i];
       });
-      doc.font('Helvetica');
-      const rowHeightTbl = 14;
-      const rowY = tableStartY + rowHeightTbl;
-      x = 40;
-      const placeholderRow = [
-        courseCode || 'CODE',
-        courseLabel || 'Subject Title',
-        '3.0',
-        'N/A',
-        student.schedule?.split(' ')[0] || 'N/A',
-        student.schedule || 'TBD',
-        'Room',
-        student.assignedProfessor || 'Faculty'
-      ];
-      placeholderRow.forEach((val, i) => {
-        doc.text(val, x + 2, rowY, { width: colWidths[i] - 4, align: 'left' });
-        x += colWidths[i];
+
+      doc.font('Helvetica').fontSize(8);
+      const rowHeights = rows.map((row) => {
+        const tallestCell = row.reduce((maxHeight, val, i) => {
+          const contentHeight = doc.heightOfString(String(val), {
+            width: colWidths[i] - (cellPadX * 2),
+            align: 'left'
+          });
+          return Math.max(maxHeight, contentHeight);
+        }, 0);
+        return Math.max(baseRowHeight, tallestCell + (cellPadY * 2));
       });
-      // Reserve space for future rows
-      doc.rect(40, tableStartY - 2, colWidths.reduce((a, b) => a + b, 0), rowHeightTbl * 6).stroke();
+
+      const blankRows = Math.max(0, minimumRows - rows.length);
+      const dataHeight = rowHeights.reduce((sum, h) => sum + h, 0) + (blankRows * baseRowHeight);
+      const tableHeight = headerHeight + dataHeight;
+
+      let rowY = tableStartY + headerHeight;
+      rows.forEach((row, rowIndex) => {
+        const currentRowHeight = rowHeights[rowIndex];
+        let colX = tableX;
+        row.forEach((val, colIndex) => {
+          doc.text(String(val), colX + cellPadX, rowY + cellPadY, {
+            width: colWidths[colIndex] - (cellPadX * 2),
+            align: 'left',
+            lineBreak: true
+          });
+          colX += colWidths[colIndex];
+        });
+        rowY += currentRowHeight;
+      });
+
+      rowY += blankRows * baseRowHeight;
+      doc.rect(tableX, tableStartY - 2, tableWidth, tableHeight + 2).stroke();
 
       // Totals line on far left
-      doc.fontSize(6).text('Totals: Subjects: 8  Credit Units=22  Lecture Units=22  Lab Units=0', 40, tableStartY + rowHeightTbl * 6 + 6);
+      const totalsY = tableStartY + tableHeight + 6;
+      doc.fontSize(6).text(
+        `Totals: Subjects: ${totalSubjects}  Credit Units=${totalUnits.toFixed(1)}  Lecture Units=${totalUnits.toFixed(1)}  Lab Units=0`,
+        40,
+        totalsY
+      );
 
       // Assessed Fees section
-      doc.moveDown(3);
+      doc.y = totalsY + 18;
       doc.fontSize(9).font('Helvetica-Bold').text('ASSESSED FEES', 40);
       doc.moveDown(0.5);
       doc.fontSize(7).font('Helvetica');
