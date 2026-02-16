@@ -61,7 +61,7 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
     // Auto-hide after 3 seconds
     toastTimerRef.current = setTimeout(() => {
       setShowToast(false);
-    }, 3000);
+    }, 3000) as number;
   };
   const isDirty = useMemo(() => {
     if (!profile) return false;
