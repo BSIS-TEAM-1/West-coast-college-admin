@@ -329,7 +329,8 @@ function RegistrarHome({ announcements, onAnnouncementClick, setView }: Registra
           {activeAnnouncements.length > 0 ? (
             <div className="dashboard-announcements-container">
               {activeAnnouncements.map((announcement) => {
-                const hasMedia = Boolean(announcement.media && announcement.media.length > 0)
+                const media = announcement.media?.[0]
+                const hasMedia = Boolean(media)
                 return (
                 <div 
                   key={announcement._id} 
@@ -339,9 +340,9 @@ function RegistrarHome({ announcements, onAnnouncementClick, setView }: Registra
                   {/* Media Section */}
                   {hasMedia && (
                     <div className="dashboard-media-section">
-                      {announcement.media[0].type === 'image' ? (
+                      {media?.type === 'image' ? (
                         <img 
-                          src={announcement.media[0].url} 
+                          src={media.url} 
                           alt={announcement.title}
                           className="dashboard-cover-image"
                         />
