@@ -126,6 +126,18 @@
 
 }
 
+.login-hero canvas {
+  opacity: 1;
+}
+
+[data-theme="light"] .login-hero canvas {
+  filter: contrast(1.35) saturate(1.25);
+}
+
+[data-theme="dark"] .login-hero canvas {
+  filter: contrast(1.25) saturate(1.2);
+}
+
 
 
 .hero-content {
