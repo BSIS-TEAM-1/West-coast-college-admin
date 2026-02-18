@@ -71,13 +71,14 @@ const getVantaThemeOptions = (theme: ResolvedTheme): VantaThemeOptions =>
     ? {
         // White overlay needs deeper blues so the net stays visible.
         backgroundColor: 0xffffff,
-        color: 0x1d4ed8,
-        color2: 0x1e40af
+        color: 0x1e40af,
+        color2: 0x1d4ed8
       }
     : {
         backgroundColor: 0x23153c,
-        color: 0x3b82f6,
-        color2: 0x2563eb
+        // Dark overlay needs brighter blues for line visibility.
+        color: 0x60a5fa,
+        color2: 0x3b82f6
       }
 
 
@@ -208,7 +209,7 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
         minWidth: 200,
         scale: 1,
         scaleMobile: 1,
-        size: 1,
+        size: 1.2,
         ...getVantaThemeOptions(resolvedThemeRef.current)
       })
     }
