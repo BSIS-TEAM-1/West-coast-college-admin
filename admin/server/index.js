@@ -60,8 +60,8 @@ const ADMIN_IP_WHITELIST = process.env.ADMIN_IP_WHITELIST ?
   process.env.ADMIN_IP_WHITELIST.split(',').map(ip => ip.trim()) : 
   [] // Empty whitelist allows all IPs in development
 
-// Increase payload limit for base64 images
-app.use(express.json({ limit: '10mb' }))
+// Increase payload limit for base64 announcement media
+app.use(express.json({ limit: '25mb' }))
 app.use(cors({ origin: true, credentials: true }))
 
 // Apply security headers middleware
@@ -358,7 +358,27 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, db: dbReady })
 })
 
+/**
+ * Extracts the real client IP address from HTTP request headers and socket information.
+ *
+ * This function implements a comprehensive fallback chain to handle various proxy configurations:
+ * 1. Cloudflare headers (cf-connecting-ip, true-client-ip)
+ * 2. Standard proxy headers (x-forwarded-for, x-real-ip)
+ * 3. Express request IP (req.ip)
+ * 4. Direct socket connection (socket.remoteAddress, connection.remoteAddress)
+ *
+ * The x-forwarded-for header is specially handled by taking only the first IP
+ * in the comma-separated list (which should be the original client IP).
+ *
+ * IPv6 addresses are normalized:
+ * - Localhost (::1) is converted to 127.0.0.1
+ * - IPv4-mapped IPv6 (::ffff:x.x.x.x) is converted to plain IPv4
+ *
+ * @param {Object} req - Express request object
+ * @returns {string} Client IP address or 'unknown' if none found
+ */
 function getClientIpAddress(req) {
+  // Extract IP from various proxy headers with fallbacks
   const forwardedFor = String(req.headers['x-forwarded-for'] || '').trim()
   const cfConnectingIp = String(req.headers['cf-connecting-ip'] || '').trim()
   const trueClientIp = String(req.headers['true-client-ip'] || '').trim()
@@ -366,12 +386,14 @@ function getClientIpAddress(req) {
   const socketIp = String(req.socket?.remoteAddress || req.connection?.remoteAddress || '').trim()
   const requestIp = String(req.ip || '').trim()
 
-  const candidate = cfConnectingIp || trueClientIp || (forwardedFor
-    ? forwardedFor.split(',')[0].trim()
-    : (realIp || requestIp || socketIp || ''))
+  // Priority: Cloudflare > True Client IP > Forwarded For (first IP) > Real IP > Express IP > Socket IP
+  const candidate = cfConnectingIp ||
+                   trueClientIp ||
+                   (forwardedFor ? forwardedFor.split(',')[0].trim() : (realIp || requestIp || socketIp || ''))
 
   if (!candidate) return 'unknown'
 
+  // Normalize IPv6 localhost and IPv4-mapped IPv6 addresses
   if (candidate === '::1') return '127.0.0.1'
   if (candidate.startsWith('::ffff:')) return candidate.replace('::ffff:', '')
   return candidate
@@ -477,17 +499,37 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
       }
     }
 
+    /**
+     * Handles failed login attempts with escalating lockout mechanism.
+     *
+     * Implements a progressive lockout system to prevent brute force attacks:
+     * - Tracks failed attempts per IP address in memory (loginAttemptStateByIp)
+     * - After MAX_FAILED_LOGIN_ATTEMPTS failures, triggers escalating lockout
+     * - Lockout duration increases with each violation (LOGIN_LOCKOUT_STEPS_MS)
+     * - Lockout steps: [1min, 5min, 10min] - repeats at maximum duration
+     * - Successful login resets the attempt counter and removes lockout
+     *
+     * State structure: { failedAttempts: number, lockoutStep: number, lockoutUntil: timestamp }
+     *
+     * @returns {Object} Attempt result with lockout status and metadata
+     */
     const registerFailedAttempt = () => {
       const nextFailedAttempts = Number(currentState.failedAttempts || 0) + 1
+
+      // Check if we've reached the threshold for lockout
       if (nextFailedAttempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
+        // Determine lockout duration using escalating steps
         const lockoutStep = Math.min(Number(currentState.lockoutStep || 0), LOGIN_LOCKOUT_STEPS_MS.length - 1)
         const lockoutDurationMs = LOGIN_LOCKOUT_STEPS_MS[lockoutStep]
         const lockoutUntil = now + lockoutDurationMs
+
+        // Update state: reset attempts, increment lockout step, set lockout end time
         loginAttemptStateByIp.set(clientIp, {
-          failedAttempts: 0,
-          lockoutStep: Math.min(lockoutStep + 1, LOGIN_LOCKOUT_STEPS_MS.length - 1),
+          failedAttempts: 0, // Reset counter after lockout
+          lockoutStep: Math.min(lockoutStep + 1, LOGIN_LOCKOUT_STEPS_MS.length - 1), // Escalate step
           lockoutUntil
         })
+
         return {
           lockoutTriggered: true,
           nextFailedAttempts,
@@ -495,11 +537,13 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
           lockoutUntil
         }
       } else {
+        // Below threshold: just increment attempt counter
         loginAttemptStateByIp.set(clientIp, {
           failedAttempts: nextFailedAttempts,
-          lockoutStep: Number(currentState.lockoutStep || 0),
-          lockoutUntil: 0
+          lockoutStep: Number(currentState.lockoutStep || 0), // Keep current step
+          lockoutUntil: 0 // No lockout active
         })
+
         return {
           lockoutTriggered: false,
           nextFailedAttempts,
@@ -1102,7 +1146,7 @@ app.post('/api/admin/announcements', authMiddleware, securityMiddleware.inputVal
     })
   } catch (err) {
     console.error('Create announcement error:', err.message)
-    res.status(500).json({ error: 'Failed to create announcement.' })
+    res.status(500).json({ error: err.message || 'Failed to create announcement.' })
   }
 })
 
@@ -1160,7 +1204,7 @@ app.put('/api/admin/announcements/:id', authMiddleware, securityMiddleware.input
     })
   } catch (err) {
     console.error('Update announcement error:', err.message)
-    res.status(500).json({ error: 'Failed to update announcement.' })
+    res.status(500).json({ error: err.message || 'Failed to update announcement.' })
   }
 })
 
@@ -3093,6 +3137,19 @@ app.get('/api/blocks/sections/:sectionId/students', authMiddleware, securityMidd
   } catch (error) {
     console.error('Get section students error:', error);
     res.status(500).json({ error: 'Failed to get section students.' });
+  }
+});
+
+// DELETE /api/blocks/sections/:sectionId/students/:studentId
+app.delete('/api/blocks/sections/:sectionId/students/:studentId', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.unassignStudentFromSection(req, res);
+  } catch (error) {
+    console.error('Unassign section student error:', error);
+    res.status(500).json({ error: 'Failed to unassign student from section.' });
   }
 });
 

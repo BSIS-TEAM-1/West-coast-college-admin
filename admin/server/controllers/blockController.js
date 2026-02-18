@@ -5,6 +5,7 @@ const StudentBlockAssignment = require('../models/StudentBlockAssignment');
 const SectionWaitlist = require('../models/SectionWaitlist');
 const BlockActionLog = require('../models/BlockActionLog');
 const Student = require('../models/Student');
+const Enrollment = require('../models/Enrollment');
 const { buildSafeQuery, safeObjectId } = require('../securityMiddleware');
 
 class BlockController {
@@ -754,7 +755,7 @@ class BlockController {
       );
       const students = validStudentIds.length > 0
         ? await Student.find({ _id: { $in: validStudentIds } })
-        .select('_id studentNumber firstName middleName lastName suffix yearLevel studentStatus course assignedProfessor')
+        .select('_id studentNumber firstName middleName lastName suffix yearLevel studentStatus course assignedProfessor corStatus')
         .sort({ lastName: 1, firstName: 1 })
         : [];
 
@@ -784,6 +785,7 @@ class BlockController {
           studentStatus: student.studentStatus,
           course: student.course,
           assignedProfessor: student.assignedProfessor || '',
+          corStatus: student.corStatus || 'Pending',
           assignedAt: assignment?.assignedAt || null
         };
       });
@@ -809,6 +811,135 @@ class BlockController {
     } catch (error) {
       console.error('Get section students error:', error);
       res.status(500).json({ error: 'Failed to get section students' });
+    }
+  }
+
+  // DELETE /api/blocks/sections/:sectionId/students/:studentId - unassign one student from section
+  async unassignStudentFromSection(req, res) {
+    const { sectionId, studentId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(sectionId) || !mongoose.Types.ObjectId.isValid(studentId)) {
+      return res.status(400).json({ error: 'Invalid section id or student id' });
+    }
+
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      const section = await BlockSection.findById(sectionId)
+        .select('_id sectionCode blockGroupId currentPopulation')
+        .session(session);
+      if (!section) {
+        await session.abortTransaction();
+        return res.status(404).json({ error: 'Section not found' });
+      }
+
+      const group = await BlockGroup.findById(section.blockGroupId)
+        .select('semester year')
+        .session(session);
+
+      const normalizedStudentId = String(studentId).trim();
+      const normalizedSemester = String(req.body?.semester || group?.semester || '').trim();
+      const normalizedYear = Number(req.body?.year ?? group?.year);
+
+      const assignmentQuery = {
+        sectionId: section._id,
+        studentId: normalizedStudentId,
+        status: 'ASSIGNED'
+      };
+      if (normalizedSemester) assignmentQuery.semester = normalizedSemester;
+      if (Number.isFinite(normalizedYear)) assignmentQuery.year = normalizedYear;
+
+      let assignment = await StudentBlockAssignment.findOne(assignmentQuery).session(session);
+      if (!assignment && (assignmentQuery.semester || assignmentQuery.year !== undefined)) {
+        assignment = await StudentBlockAssignment.findOne({
+          sectionId: section._id,
+          studentId: normalizedStudentId,
+          status: 'ASSIGNED'
+        }).session(session);
+      }
+
+      if (!assignment) {
+        await session.abortTransaction();
+        return res.status(404).json({ error: 'Student is not assigned to this section' });
+      }
+
+      const assignmentSemester = String(assignment.semester || '').trim();
+      const studentSnapshot = await Student.findById(normalizedStudentId)
+        .select('_id schoolYear semester')
+        .session(session);
+
+      await StudentBlockAssignment.deleteOne({ _id: assignment._id }).session(session);
+
+      await Student.findByIdAndUpdate(
+        normalizedStudentId,
+        {
+          $set: {
+            enrollmentStatus: 'Not Enrolled',
+            corStatus: 'Pending'
+          }
+        },
+        { session }
+      );
+
+      // Ensure COR generation no longer uses an active enrollment after unassign.
+      const targetSchoolYear = String(studentSnapshot?.schoolYear || '').trim();
+      const targetSemester = assignmentSemester || String(studentSnapshot?.semester || '').trim();
+      const enrollmentFilter = {
+        studentId: new mongoose.Types.ObjectId(normalizedStudentId),
+        status: { $in: ['Pending', 'Enrolled'] },
+        $or: [
+          { isCurrent: true },
+          ...(targetSchoolYear && targetSemester
+            ? [{ schoolYear: targetSchoolYear, semester: targetSemester }]
+            : [])
+        ]
+      };
+      await Enrollment.updateMany(
+        enrollmentFilter,
+        {
+          $set: {
+            status: 'Dropped',
+            isCurrent: false
+          }
+        },
+        { session }
+      );
+
+      const assignedCount = await StudentBlockAssignment.countDocuments({
+        sectionId: section._id,
+        status: 'ASSIGNED'
+      }).session(session);
+
+      const updatedSection = await BlockSection.findByIdAndUpdate(
+        section._id,
+        { $set: { currentPopulation: assignedCount } },
+        { new: true, session }
+      ).select('_id sectionCode capacity currentPopulation status blockGroupId classAdviser');
+
+      await BlockActionLog.create([{
+        actionType: 'UNASSIGN',
+        sectionId: section._id,
+        studentId: normalizedStudentId,
+        registrarId: req.registrarId || req.adminId || 'system',
+        timestamp: new Date(),
+        details: {
+          semester: normalizedSemester || undefined,
+          year: Number.isFinite(normalizedYear) ? normalizedYear : undefined
+        }
+      }], { session });
+
+      await session.commitTransaction();
+      res.json({
+        success: true,
+        message: 'Student unassigned from block successfully',
+        section: updatedSection
+      });
+    } catch (error) {
+      await session.abortTransaction();
+      console.error('Unassign student from section error:', error);
+      res.status(500).json({ error: 'Failed to unassign student from section' });
+    } finally {
+      session.endSession();
     }
   }
 

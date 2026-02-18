@@ -131,6 +131,9 @@ class StudentController {
       ? cleanData.studentStatus
       : 'Regular';
     if (!cleanData.corStatus) cleanData.corStatus = 'Pending';
+    if (String(cleanData.corStatus).trim() === 'Verified') {
+      cleanData.enrollmentStatus = 'Enrolled';
+    }
 
     const student = new Student(cleanData);
     await student.save();
@@ -159,7 +162,12 @@ class StudentController {
   }
 
   static async updateStudentRecord(id, updateData) {
-    return Student.findByIdAndUpdate(id, updateData, {
+    const normalizedUpdate = { ...(updateData || {}) };
+    if (String(normalizedUpdate.corStatus || '').trim() === 'Verified') {
+      normalizedUpdate.enrollmentStatus = 'Enrolled';
+    }
+
+    return Student.findByIdAndUpdate(id, normalizedUpdate, {
       new: true,
       runValidators: true
     });
@@ -798,6 +806,32 @@ class StudentController {
       }
       const totalSubjects = enrolledSubjects.length;
       const totalUnits = enrolledSubjects.reduce((sum, subject) => sum + (Number(subject?.units) || 0), 0);
+
+      /**
+       * Calculates the breakdown of lecture vs lab units across all enrolled subjects.
+       *
+       * This algorithm handles two scenarios for unit categorization:
+       *
+       * 1. EXPLICIT UNIT BREAKDOWN: When subjects have explicit lectureUnits/labUnits fields
+       *    - Uses the provided values directly if they exist and are valid (>= 0)
+       *    - Calculates missing values: lecture = total - lab (or total if lab unknown)
+       *    - Ensures no negative values through Math.max() guards
+       *
+       * 2. PATTERN-BASED DETECTION: When explicit breakdown is unavailable
+       *    - Searches subject code and title for lab-related keywords
+       *    - Keywords: 'LAB', 'LABORATORY', 'PRACTICUM' (case-insensitive)
+       *    - Lab subjects get all units as lab units
+       *    - Non-lab subjects get all units as lecture units
+       *
+       * Edge cases handled:
+       * - Invalid or missing unit values default to 0
+       * - Explicit units take precedence over pattern detection
+       * - Math.max() prevents negative unit assignments
+       * - Regex is case-insensitive for flexibility
+       *
+       * @param {Array} subjects - Array of enrolled subject objects
+       * @returns {Object} { lectureUnits: number, labUnits: number }
+       */
       const unitBreakdown = enrolledSubjects.reduce((acc, subject) => {
         const units = Number(subject?.units) || 0;
         const explicitLecture = Number(subject?.lectureUnits);
@@ -805,21 +839,33 @@ class StudentController {
         const hasExplicitLecture = Number.isFinite(explicitLecture) && explicitLecture >= 0;
         const hasExplicitLab = Number.isFinite(explicitLab) && explicitLab >= 0;
 
+        // Scenario 1: Use explicit unit breakdown if available
         if (hasExplicitLecture || hasExplicitLab) {
-          const lectureUnits = hasExplicitLecture ? explicitLecture : Math.max(units - (hasExplicitLab ? explicitLab : 0), 0);
-          const labUnits = hasExplicitLab ? explicitLab : Math.max(units - lectureUnits, 0);
+          // Calculate lecture units: use explicit value, or derive from total - lab
+          const lectureUnits = hasExplicitLecture
+            ? explicitLecture
+            : Math.max(units - (hasExplicitLab ? explicitLab : 0), 0);
+
+          // Calculate lab units: use explicit value, or derive from total - lecture
+          const labUnits = hasExplicitLab
+            ? explicitLab
+            : Math.max(units - lectureUnits, 0);
+
           acc.lectureUnits += lectureUnits;
           acc.labUnits += labUnits;
           return acc;
         }
 
+        // Scenario 2: Use pattern-based detection
         const subjectText = `${String(subject?.code || '')} ${String(subject?.title || '')}`;
         const isLabSubject = /(LAB|LABORATORY|PRACTICUM)/i.test(subjectText);
+
         if (isLabSubject) {
           acc.labUnits += units;
         } else {
           acc.lectureUnits += units;
         }
+
         return acc;
       }, { lectureUnits: 0, labUnits: 0 });
 
@@ -907,7 +953,6 @@ class StudentController {
       });
 
       // Add border around the student info section
-      doc.lineWidth(1);
       doc.rect(infoX, infoY - 2, infoW, infoBoxH + 4).stroke();
 
       doc.y = infoY + infoBoxH + 12;
@@ -915,16 +960,46 @@ class StudentController {
       // Registrar signature moved to bottom
 
       // Schedule table column definitions aligned to info section width
-      const tableX = infoX;
-      const tableWidth = infoW;
+      const infoWidth = infoW;
+
+      /**
+       * Calculates responsive column widths for the PDF schedule table.
+       *
+       * This scaling algorithm ensures the table fits within the available width:
+       *
+       * 1. BASE WIDTHS: Defines ideal column widths in points for 8 columns:
+       *    [Code: 49, Subject: 138, Units: 32, Class: 40, Days: 40, Time: 89, Room: 49, Faculty: 73]
+       *
+       * 2. SCALING FACTOR: Calculates how much to scale base widths to fit container:
+       *    scale = tableWidth / sum(baseWidths)
+       *    Example: If base total = 510pt and container = 450pt, scale = 0.882
+       *
+       * 3. RESPONSIVE WIDTHS: Applies scaling to each column proportionally:
+       *    scaledWidths = baseWidths.map(width => width * scale)
+       *
+       * 4. LAYOUT BENEFITS:
+       *    - Maintains relative column proportions across different page sizes
+       *    - Prevents content overflow or excessive whitespace
+       *    - Keeps table readable and well-balanced
+       *
+       * @param {Array<number>} baseColWidths - Original column widths in points
+       * @param {number} containerWidth - Available width for the table
+       * @returns {Array<number>} Scaled column widths maintaining proportions
+       */
       const baseColWidths = [49, 138, 32, 40, 40, 89, 49, 73];
       const baseTableWidth = baseColWidths.reduce((a, b) => a + b, 0);
-      const widthScale = tableWidth / baseTableWidth;
+      const widthScale = infoWidth / baseTableWidth;
       const colWidths = baseColWidths.map((value) => value * widthScale);
 
-      // Add SCHEDULES title - centered
-      doc.font('Helvetica-Bold').fontSize(8).text('SCHEDULES', tableX, doc.y + 5, {
-        width: tableWidth,
+      /**
+       * Calculates the total width of the schedule table.
+       *
+       * @returns {number} Total width of the schedule table
+       */
+      const scheduleTableWidth = colWidths.reduce((a, b) => a + b, 0);
+
+      doc.font('Helvetica-Bold').fontSize(8).text('SCHEDULES', 40, doc.y + 5, { 
+        width: scheduleTableWidth,
         align: 'center'
       });
       doc.moveDown(1);
@@ -933,6 +1008,8 @@ class StudentController {
       doc.moveDown(1);
       const tableStartY = doc.y;
       const headers = ['Code', 'Subject', 'Units', 'Class', 'Days', 'Time', 'Room', 'Faculty'];
+      const tableX = 40;
+      const totalTableWidth = colWidths.reduce((a, b) => a + b, 0);
       const headerHeight = 16;
       const cellPadX = 2;
       const cellPadY = 2;
@@ -990,6 +1067,39 @@ class StudentController {
       });
 
       doc.font('Helvetica').fontSize(8);
+      /**
+       * Calculates dynamic row heights based on content to prevent text overflow.
+       *
+       * This algorithm ensures each table row has adequate height for its content:
+       *
+       * 1. CONTENT MEASUREMENT: For each cell in each row, measures the height needed
+       *    using PDFDocument's heightOfString() method with column width constraints
+       *
+       * 2. ROW HEIGHT DETERMINATION: Takes the maximum height needed across all cells
+       *    in the row to accommodate the tallest content
+       *
+       * 3. MINIMUM HEIGHT GUARD: Ensures rows meet a baseline height (baseRowHeight)
+       *    for visual consistency, even with minimal content
+       *
+       * 4. PADDING COMPENSATION: Adds vertical padding (cellPadY * 2) to ensure
+       *    text doesn't touch cell borders
+       *
+       * 5. BLANK ROW HANDLING: Adds minimum rows when data is sparse to maintain
+       *    table structure and prevent empty-looking documents
+       *
+       * Benefits:
+       * - Prevents text clipping and overflow
+       * - Maintains professional table appearance
+       * - Adapts to varying content lengths automatically
+       * - Ensures minimum table size for consistency
+       *
+       * @param {Array<Array<string>>} rows - Array of table rows, each containing cell values
+       * @param {Array<number>} colWidths - Width of each column in points
+       * @param {number} cellPadY - Vertical padding inside cells
+       * @param {number} baseRowHeight - Minimum row height
+       * @param {number} minimumRows - Minimum number of rows to display
+       * @returns {Array<number>} Array of calculated heights for each row
+       */
       const rowHeights = rows.map((row) => {
         const tallestCell = row.reduce((maxHeight, val, i) => {
           const contentHeight = doc.heightOfString(String(val), {
@@ -1021,43 +1131,15 @@ class StudentController {
       });
 
       rowY += blankRows * baseRowHeight;
-      doc.lineWidth(1);
-      doc.rect(tableX, tableStartY - 2, tableWidth, tableHeight + 2).stroke();
+      doc.rect(tableX, tableStartY - 2, totalTableWidth, tableHeight + 2).stroke();
 
       // Totals line on far left
       const totalsY = tableStartY + tableHeight + 6;
       doc.fontSize(6).text(
         `Totals: Subjects: ${totalSubjects}  Credit Units=${totalUnits.toFixed(1)}  Lecture Units=${unitBreakdown.lectureUnits.toFixed(1)}  Lab Units=${unitBreakdown.labUnits.toFixed(1)}`,
-        tableX,
+        40,
         totalsY
       );
-
-      // Enrollment summary (replaces assessed fees section)
-      doc.y = totalsY + 14;
-      const summaryX = tableX;
-      const summaryW = tableWidth;
-      const summaryY = doc.y;
-      const summaryRowH = 12;
-      const summaryRows = [
-        ['ENROLLMENT SUMMARY', ''],
-        ['Total Subjects', String(totalSubjects)],
-        ['Total Units', totalUnits.toFixed(1)],
-        ['Semester', String(corSemester || 'N/A')],
-        ['School Year', String(corSchoolYear || 'N/A')]
-      ];
-
-      doc.lineWidth(1);
-      doc.rect(summaryX, summaryY, summaryW, summaryRows.length * summaryRowH + 8).stroke();
-      let summaryRowY = summaryY + 6;
-      summaryRows.forEach(([label, value], idx) => {
-        if (idx === 0) {
-          doc.font('Helvetica-Bold').fontSize(8).text(label, summaryX + 8, summaryRowY, { width: summaryW - 16 });
-        } else {
-          doc.font('Helvetica').fontSize(7).text(`${label}:`, summaryX + 8, summaryRowY, { width: 140 });
-          doc.font('Helvetica-Bold').fontSize(7).text(value, summaryX + 148, summaryRowY, { width: summaryW - 156 });
-        }
-        summaryRowY += summaryRowH;
-      });
 
       // Signature block
       const signatureY = doc.page.height - doc.page.margins.bottom - 26;
@@ -1072,7 +1154,7 @@ class StudentController {
         align: 'center',
         underline: true
       });
-      doc.fontSize(6).text("Student's Signature(6)", studentSigX, signatureY + 11, {
+      doc.fontSize(6).text("Student's Signature", studentSigX, signatureY + 11, {
         width: studentSigW,
         align: 'center'
       });

@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 
-import { animate } from 'animejs'
 import ReCAPTCHA from 'react-google-recaptcha'
 
 import './Login.css'
@@ -8,6 +7,78 @@ import './Login.css'
 
 
 type Theme = 'light' | 'dark' | 'auto'
+
+type ResolvedTheme = 'light' | 'dark'
+
+type VantaThemeOptions = {
+  backgroundColor: number
+  color: number
+  color2: number
+}
+
+type VantaGlobeEffect = {
+  destroy: () => void
+  setOptions?: (options: VantaThemeOptions) => void
+  renderer?: {
+    setClearColor?: (color: number, alpha?: number) => void
+  }
+}
+
+declare global {
+  interface Window {
+    THREE?: unknown
+    VANTA?: {
+      GLOBE: (options: Record<string, unknown>) => VantaGlobeEffect
+    }
+  }
+}
+
+const loadExternalScript = (src: string, isLoaded: () => boolean) =>
+  new Promise<void>((resolve, reject) => {
+    if (isLoaded()) {
+      resolve()
+      return
+    }
+
+    const existing = document.querySelector(`script[src="${src}"]`) as HTMLScriptElement | null
+    if (existing) {
+      const waitForScript = window.setInterval(() => {
+        if (isLoaded()) {
+          window.clearInterval(waitForScript)
+          resolve()
+        }
+      }, 50)
+      window.setTimeout(() => {
+        window.clearInterval(waitForScript)
+        if (!isLoaded()) reject(new Error(`Failed to load script: ${src}`))
+      }, 5000)
+      return
+    }
+
+    const script = document.createElement('script')
+    script.src = src
+    script.async = true
+    script.onload = () => {
+      if (isLoaded()) resolve()
+      else reject(new Error(`Script loaded but API missing: ${src}`))
+    }
+    script.onerror = () => reject(new Error(`Failed to load script: ${src}`))
+    document.body.appendChild(script)
+  })
+
+const getVantaThemeOptions = (theme: ResolvedTheme): VantaThemeOptions =>
+  theme === 'dark'
+    ? {
+        // White overlay needs deeper blues so the net stays visible.
+        backgroundColor: 0xffffff,
+        color: 0x1d4ed8,
+        color2: 0x1e40af
+      }
+    : {
+        backgroundColor: 0x23153c,
+        color: 0x3b82f6,
+        color2: 0x2563eb
+      }
 
 
 
@@ -32,9 +103,13 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
   const [password, setPassword] = useState('')
 
   const [theme, setTheme] = useState<Theme>('auto')
+  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>('light')
 
   const [captchaToken, setCaptchaToken] = useState<string | null>(null)
   const captchaEnabled = String(import.meta.env.VITE_CAPTCHA_ENABLED || '').toLowerCase() === 'true'
+  const heroRef = useRef<HTMLDivElement | null>(null)
+  const vantaRef = useRef<VantaGlobeEffect | null>(null)
+  const resolvedThemeRef = useRef<ResolvedTheme>('light')
 
 
 
@@ -52,27 +127,23 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
 
   useEffect(() => {
 
-    const applyTheme = (newTheme: Theme) => {
+    const applyTheme = (newTheme: Theme): ResolvedTheme => {
 
       const root = document.documentElement;
+      const computedTheme: ResolvedTheme =
+        newTheme === 'auto'
+          ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+          : newTheme
 
       
 
-      if (newTheme === 'auto') {
-
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-
-        root.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
-
-      } else {
-
-        root.setAttribute('data-theme', newTheme);
-
-      }
+      root.setAttribute('data-theme', computedTheme);
+      setResolvedTheme(computedTheme)
 
       
 
       localStorage.setItem('theme', newTheme);
+      return computedTheme
 
     };
 
@@ -100,137 +171,79 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
 
   }, [theme])
 
+  useEffect(() => {
+    resolvedThemeRef.current = resolvedTheme
+  }, [resolvedTheme])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const initVanta = async () => {
+      if (!heroRef.current) return
+
+      try {
+        await loadExternalScript(
+          'https://cdnjs.cloudflare.com/ajax/libs/three.js/r121/three.min.js',
+          () => Boolean(window.THREE)
+        )
+        await loadExternalScript(
+          'https://cdn.jsdelivr.net/npm/vanta@latest/dist/vanta.globe.min.js',
+          () => Boolean(window.VANTA?.GLOBE)
+        )
+      } catch (scriptError) {
+        console.error(scriptError)
+        return
+      }
+
+      if (cancelled || !heroRef.current || !window.VANTA?.GLOBE) return
+
+      if (vantaRef.current) return
+
+      vantaRef.current = window.VANTA.GLOBE({
+        el: heroRef.current,
+        mouseControls: true,
+        touchControls: true,
+        gyroControls: false,
+        minHeight: 200,
+        minWidth: 200,
+        scale: 1,
+        scaleMobile: 1,
+        size: 1,
+        ...getVantaThemeOptions(resolvedThemeRef.current)
+      })
+    }
+
+    void initVanta()
+
+    return () => {
+      cancelled = true
+      if (vantaRef.current) {
+        vantaRef.current.destroy()
+        vantaRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    const instance = vantaRef.current
+    if (!instance) return
+
+    const options = getVantaThemeOptions(resolvedTheme)
+    if (typeof instance.setOptions === 'function') {
+      instance.setOptions(options)
+      return
+    }
+
+    if (instance.renderer && typeof instance.renderer.setClearColor === 'function') {
+      instance.renderer.setClearColor(options.backgroundColor, 1)
+    }
+  }, [resolvedTheme])
+
 
 
   const handleThemeChange = (newTheme: Theme) => {
 
     setTheme(newTheme);
-
-  }
-
-
-
-  const handleTileHover = (index: number) => {
-
-    const tiles = document.querySelectorAll('.tile');
-
-    animate(tiles, {
-
-      scale: [
-
-        {value: 1.5, duration: 300, easing: 'easeOutQuad'},
-
-        {value: 1, duration: 500, delay: 500, easing: 'easeOutElastic(1, .5)'}
-
-      ],
-
-      delay: (_: any, i: number) => {
-
-        const distance = Math.abs(i - index);
-
-        const rowDistance = Math.floor(distance / 6);
-
-        const colDistance = distance % 6;
-
-        return (rowDistance + colDistance) * 50;
-
-      }
-
-    });
-
-  }
-
-
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-
-    const rect = e.currentTarget.getBoundingClientRect();
-
-    const x = e.clientX - rect.left;
-
-    const y = e.clientY - rect.top;
-
-    
-
-    const tiles = document.querySelectorAll('.tile');
-
-    const cols = 6;
-
-    const rows = 6;
-
-    
-
-    tiles.forEach((tile, index) => {
-
-      const tileElement = tile as HTMLElement;
-
-      const col = index % cols;
-
-      const row = Math.floor(index / cols);
-
-      
-
-      const tileX = (col + 0.5) * (rect.width / cols);
-
-      const tileY = (row + 0.5) * (rect.height / rows);
-
-      
-
-      const distance = Math.sqrt(Math.pow(x - tileX, 2) + Math.pow(y - tileY, 2));
-
-      const maxDistance = Math.sqrt(Math.pow(rect.width, 2) + Math.pow(rect.height, 2));
-
-      const intensity = Math.max(0, 1 - distance / maxDistance);
-
-      
-
-      const targetOpacity = 0.2 + (intensity * 0.4);
-
-      const targetScale = 1 + (intensity * 0.3);
-
-      
-
-      animate(tileElement, {
-
-        opacity: targetOpacity,
-
-        scale: targetScale,
-
-        duration: 100,
-
-        easing: 'easeOutQuad'
-
-      });
-
-    });
-
-  }
-
-
-
-  const handleMouseLeave = () => {
-
-    const tiles = document.querySelectorAll('.tile');
-
-    
-
-    tiles.forEach((tile) => {
-
-      const tileElement = tile as HTMLElement;
-
-      animate(tileElement, {
-
-        opacity: 0.2,
-
-        scale: 1,
-
-        duration: 300,
-
-        easing: 'easeOutQuad'
-
-      });
-
-    });
 
   }
 
@@ -258,41 +271,9 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
 
         {/* LEFT SIDE: Hero / Content Area */}
 
-        <div className="login-hero">
+        <div className="login-hero" ref={heroRef}>
 
-          {/* Interactive Tile Grid Overlay */}
-
-          <div 
-
-            className="tile-grid-overlay"
-
-            onMouseMove={handleMouseMove}
-
-            onMouseLeave={handleMouseLeave}
-
-          >
-
-            <div className="tile-grid">
-
-              {Array.from({ length: 36 }, (_, i) => (
-
-                <div 
-
-                  key={i} 
-
-                  className="tile"
-
-                  onMouseEnter={() => handleTileHover(i)}
-
-                />
-
-              ))}
-
-            </div>
-
-          </div>
-
-          <div className="hero-content" style={{zIndex: 3}}>
+          <div className="hero-content" style={{ zIndex: 3, color: resolvedTheme === 'dark' ? '#0f172a' : '#ffffff' }}>
 
             <img src="/Logo.jpg" alt="West Coast College" className="hero-logo" style={{zIndex: 3}} />
 

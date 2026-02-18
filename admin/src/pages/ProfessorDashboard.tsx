@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Plus, Video, Users, Calendar, Award, Activity } from 'lucide-react'
+import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Video, Users, Calendar, Award, Activity } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
@@ -361,25 +361,20 @@ function ProfessorHome({ announcements, onAnnouncementClick, setView, quickActio
           <div className="news-header">
             <Bell size={20} className="news-icon" />
             <h3>Latest Announcements</h3>
-            <button 
-              className="section-action-btn"
-              onClick={() => setView('announcements')}
-            >
-              <Plus size={16} />
-              View All
-            </button>
           </div>
           
           {activeAnnouncements.length > 0 ? (
             <div className="dashboard-announcements-container">
-              {activeAnnouncements.map((announcement) => (
+              {activeAnnouncements.map((announcement) => {
+                const hasMedia = Boolean(announcement.media && announcement.media.length > 0)
+                return (
                 <div 
                   key={announcement._id} 
-                  className="dashboard-announcement-card clickable"
+                  className={`dashboard-announcement-card clickable ${hasMedia ? 'has-media' : 'no-media'}`}
                   onClick={() => onAnnouncementClick(announcement)}
                 >
                   {/* Media Section */}
-                  {announcement.media && announcement.media.length > 0 && (
+                  {hasMedia && (
                     <div className="dashboard-media-section">
                       {announcement.media[0].type === 'image' ? (
                         <img 
@@ -433,7 +428,8 @@ function ProfessorHome({ announcements, onAnnouncementClick, setView, quickActio
                     </div>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
           ) : (
             <div className="no-news">

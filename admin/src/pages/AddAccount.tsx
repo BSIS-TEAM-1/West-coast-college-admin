@@ -390,7 +390,8 @@ export default function AddAccount() {
                 fontSize: '0.875rem',
                 color: 'var(--color-text-muted)',
                 fontWeight: '500',
-                textTransform: 'capitalize'
+                textTransform: 'capitalize',
+                textAlign: 'center'
               }}
             >
               {selectedType}

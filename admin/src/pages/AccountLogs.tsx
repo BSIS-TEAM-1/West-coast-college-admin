@@ -87,6 +87,21 @@ export default function AccountLogs() {
     }
   };
 
+  const filteredTypeCounts: Record<'admin' | 'registrar' | 'professor', number> = filteredLogs.reduce(
+    (totals, log) => {
+      totals[log.accountType] += 1;
+      return totals;
+    },
+    { admin: 0, registrar: 0, professor: 0 }
+  );
+
+  const summaryCards = [
+    { label: 'Total Staff', value: logs.length.toString() },
+    { label: 'Admins', value: filteredTypeCounts.admin.toString() },
+    { label: 'Registrars', value: filteredTypeCounts.registrar.toString() },
+    { label: 'Professors', value: filteredTypeCounts.professor.toString() }
+  ];
+
   const handleExport = () => {
     // TODO: Implement export functionality
     console.log('Exporting logs...');
@@ -140,9 +155,19 @@ export default function AccountLogs() {
 
   return (
     <div className="account-logs-page">
-      <header>
-        <h1 className="logs-title">Staff Registration Logs</h1>
-        <p className="logs-desc">View and manage staff creation history</p>
+      <header className="logs-hero">
+        <div className="logs-hero-copy">
+          <h1 className="logs-title">Staff Registration Logs</h1>
+          <p className="logs-desc">View and manage staff creation history</p>
+        </div>
+        <div className="logs-hero-kpis" aria-label="Registration log summary">
+          {summaryCards.map((card) => (
+            <div key={card.label} className="logs-kpi-card">
+              <span className="logs-kpi-value">{card.value}</span>
+              <span className="logs-kpi-label">{card.label}</span>
+            </div>
+          ))}
+        </div>
       </header>
 
       {/* Filters and Search */}
@@ -185,6 +210,17 @@ export default function AccountLogs() {
 
       {/* Logs Table */}
       <div className="logs-table-container">
+        <div className="logs-table-meta">
+          <span className="logs-table-count">
+            Showing {filteredLogs.length} of {logs.length} accounts
+          </span>
+          {(searchTerm || filterType !== 'all') && (
+            <span className="logs-table-filter-chip">
+              {filterType !== 'all' ? `Type: ${filterType}` : 'All types'}
+              {searchTerm ? ` | Search: ${searchTerm}` : ''}
+            </span>
+          )}
+        </div>
         <table className="logs-table">
           <thead>
             <tr>
