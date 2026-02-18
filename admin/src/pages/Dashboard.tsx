@@ -12,7 +12,7 @@ import AnnouncementDetail from './AnnouncementDetail'
 import PersonalDetails from './PersonalDetails'
 import SystemHealth from './SystemHealth'
 import Security from './Security'
-import { FileText as FileTextIcon } from 'lucide-react'
+import CorGeneration from './CorGeneration'
 import StatisticsCard from '../components/StatisticsCard'
 import MiniEventCalendar from '../components/MiniEventCalendar'
 import { User, Users, FileText, Wrench } from 'lucide-react'
@@ -169,28 +169,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
           ) : view === 'documents' ? (
             <DocumentManagement />
           ) : view === 'cor-docs' ? (
-            <div className="dashboard-content" style={{ padding: '2rem' }}>
-              <h2 style={{ margin: '0 0 0.5rem 0' }}>COR Generation</h2>
-              <p style={{ color: 'var(--text-secondary)', margin: '0 0 1.5rem 0' }}>
-                Generate and manage Certificates of Registration (COR) for students. Hook this view up to your COR workflow or document generator.
-              </p>
-              <div style={{
-                border: '1px dashed var(--border-color)',
-                padding: '1.5rem',
-                borderRadius: '12px',
-                background: 'var(--bg-secondary)'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
-                  <FileTextIcon size={18} />
-                  <strong>Next step:</strong> Wire this to your COR creation API or upload flow.
-                </div>
-                <ul style={{ margin: 0, paddingLeft: '1.25rem', color: 'var(--text-secondary)' }}>
-                  <li>Pull student data from Student Management.</li>
-                  <li>Generate COR PDF with enrollment details.</li>
-                  <li>Mark COR status to Verified when uploaded.</li>
-                </ul>
-              </div>
-            </div>
+            <CorGeneration />
           ) : view === 'announcement-detail' ? (
             <AnnouncementDetail 
               announcementId={selectedAnnouncementId} 

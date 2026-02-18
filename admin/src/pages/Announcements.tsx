@@ -26,6 +26,7 @@ interface Announcement {
     fileName: string
     originalFileName: string
     mimeType: string
+    fileSize?: number
     caption?: string
   }>
   createdBy: {
@@ -55,6 +56,9 @@ const audienceOptions = [
   { value: 'admin', label: 'Admins' },
 ]
 
+const MAX_MEDIA_FILE_BYTES = 8 * 1024 * 1024
+const MAX_MEDIA_TOTAL_BYTES = 20 * 1024 * 1024
+
 export default function Announcements({ onNavigate }: AnnouncementsProps) {
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [loading, setLoading] = useState(true)
@@ -69,6 +73,8 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
   const [isDragging, setIsDragging] = useState(false)
     const [imagePreviews, setImagePreviews] = useState<{[key: string]: string}>({})
   const [showCreateForm, setShowCreateForm] = useState(false)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [savingCreate, setSavingCreate] = useState(false)
   const [newAnnouncement, setNewAnnouncement] = useState<Partial<Announcement>>({
     title: '',
     message: '',
@@ -146,6 +152,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
     if (!editingAnnouncement) return
     
     try {
+      setSavingEdit(true)
       // Upload new media files first
       const newMedia = await uploadMediaFiles(mediaFiles)
       
@@ -169,24 +176,37 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          ...updatedAnnouncement,
+          title: String(updatedAnnouncement.title || '').trim(),
+          message: String(updatedAnnouncement.message || '').trim(),
+          type: updatedAnnouncement.type || 'info',
+          targetAudience:
+            updatedAnnouncement.targetAudience && audienceOptions.some(a => a.value === updatedAnnouncement.targetAudience)
+              ? updatedAnnouncement.targetAudience
+              : 'all',
+          isPinned: Boolean(updatedAnnouncement.isPinned),
           // If saving as draft, force isActive to false
           isActive: saveAsDraft ? false : (updatedAnnouncement.isActive ?? editingAnnouncement.isActive),
           media: allMedia
         })
       })
       
+      const responseData = await response.json().catch(() => ({}))
       if (!response.ok) {
-        throw new Error('Failed to update announcement')
+        const details = Array.isArray(responseData?.details) ? responseData.details.join(', ') : ''
+        throw new Error(responseData?.error || responseData?.message || details || `Failed to update announcement (${response.status})`)
       }
       
       // Refresh announcements list
       await fetchAnnouncements()
+      alert('Announcement edited')
       setShowEditForm(false)
       setEditingAnnouncement(null)
       setMediaFiles([])
     } catch (error) {
       console.error('Failed to update announcement:', error)
+      alert(error instanceof Error ? error.message : 'Failed to update announcement')
+    } finally {
+      setSavingEdit(false)
     }
   }
 
@@ -212,6 +232,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
 
   const handleSaveNewAnnouncement = async (saveAsDraft = false) => {
     try {
+      setSavingCreate(true)
       // Upload media files first
       const newMedia = await uploadMediaFiles(mediaFiles)
       
@@ -233,9 +254,12 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
           'Accept': 'application/json'
         },
         body: JSON.stringify({
-          ...newAnnouncement,
+          title: String(newAnnouncement.title || '').trim(),
+          message: String(newAnnouncement.message || '').trim(),
+          type: newAnnouncement.type || 'info',
           // If saving as draft, force isActive to false
           isActive: finalIsActive,
+          isPinned: Boolean(newAnnouncement.isPinned),
           // Normalize targetAudience to allowed enum values
           targetAudience:
             newAnnouncement.targetAudience && audienceOptions.some(a => a.value === newAnnouncement.targetAudience)
@@ -245,11 +269,11 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
         })
       })
       
+      const responseData = await response.json().catch(() => ({}))
       if (!response.ok) {
-        throw new Error('Failed to create announcement')
+        const details = Array.isArray(responseData?.details) ? responseData.details.join(', ') : ''
+        throw new Error(responseData?.error || responseData?.message || details || `Failed to create announcement (${response.status})`)
       }
-      
-      const responseData = await response.json()
       
       // Backend workaround: If we saved as draft but backend returned isActive: true, fix it
       if (saveAsDraft && responseData.announcement?.isActive) {
@@ -288,6 +312,9 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       setMediaFiles([])
     } catch (error) {
       console.error('Failed to create announcement:', error)
+      alert(error instanceof Error ? error.message : 'Failed to create announcement')
+    } finally {
+      setSavingCreate(false)
     }
   }
 
@@ -305,6 +332,45 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
     setMediaFiles([])
   }
 
+  const validateAndAppendMediaFiles = (incomingFiles: File[]) => {
+    const validFiles = incomingFiles.filter(file =>
+      file.type.startsWith('image/') || file.type.startsWith('video/')
+    )
+
+    if (validFiles.length === 0) {
+      alert('Please select an image or video file.')
+      return
+    }
+
+    const tooLargeFile = validFiles.find((file) => file.size > MAX_MEDIA_FILE_BYTES)
+    if (tooLargeFile) {
+      alert(`"${tooLargeFile.name}" is too large. Max per file is 8MB.`)
+      return
+    }
+
+    const currentTotal = mediaFiles.reduce((sum, file) => sum + file.size, 0)
+    const incomingTotal = validFiles.reduce((sum, file) => sum + file.size, 0)
+    if (currentTotal + incomingTotal > MAX_MEDIA_TOTAL_BYTES) {
+      alert('Total media size is too large. Keep total upload at 20MB or less.')
+      return
+    }
+
+    validFiles.forEach(file => {
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader()
+        reader.onload = (event) => {
+          setImagePreviews(prev => ({
+            ...prev,
+            [file.name + file.size]: event.target?.result as string
+          }))
+        }
+        reader.readAsDataURL(file)
+      }
+    })
+
+    setMediaFiles(prev => [...prev, ...validFiles])
+  }
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(true)
@@ -318,50 +384,12 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(false)
-    
-    const files = Array.from(e.dataTransfer.files)
-    const validFiles = files.filter(file => 
-      file.type.startsWith('image/') || file.type.startsWith('video/')
-    )
-    
-    // Create previews for image files
-    validFiles.forEach(file => {
-      if (file.type.startsWith('image/')) {
-        const reader = new FileReader()
-        reader.onload = (event) => {
-          setImagePreviews(prev => ({
-            ...prev,
-            [file.name + file.size]: event.target?.result as string
-          }))
-        }
-        reader.readAsDataURL(file)
-      }
-    })
-    
-    setMediaFiles(prev => [...prev, ...validFiles])
+    validateAndAppendMediaFiles(Array.from(e.dataTransfer.files))
   }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || [])
-    const validFiles = files.filter(file => 
-      file.type.startsWith('image/') || file.type.startsWith('video/')
-    )
-    
-    // Create previews for image files
-    validFiles.forEach(file => {
-      if (file.type.startsWith('image/')) {
-        const reader = new FileReader()
-        reader.onload = (event) => {
-          setImagePreviews(prev => ({
-            ...prev,
-            [file.name + file.size]: event.target?.result as string
-          }))
-        }
-        reader.readAsDataURL(file)
-      }
-    })
-    
-    setMediaFiles(prev => [...prev, ...validFiles])
+    validateAndAppendMediaFiles(Array.from(e.target.files || []))
+    e.target.value = ''
   }
 
   const removeMediaFile = (index: number) => {
@@ -865,16 +893,17 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
               <button 
                 className="announcements-edit-save draft"
                 onClick={() => handleSaveEdit(editingAnnouncement, true)}
+                disabled={savingEdit}
               >
-                Save Draft
+                {savingEdit ? 'Saving...' : 'Save Draft'}
               </button>
 
               <button 
                 className="announcements-edit-save"
                 onClick={() => handleSaveEdit(editingAnnouncement, false)}
-                disabled={false}
+                disabled={savingEdit}
               >
-                Save Changes
+                {savingEdit ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
           </div>
@@ -1067,16 +1096,17 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
               <button 
                 className="announcements-edit-save draft"
                 onClick={() => handleSaveNewAnnouncement(true)}
+                disabled={savingCreate}
               >
-                Save Draft
+                {savingCreate ? 'Saving...' : 'Save Draft'}
               </button>
 
               <button 
                 className="announcements-edit-save"
                 onClick={() => handleSaveNewAnnouncement(false)}
-                disabled={false}
+                disabled={savingCreate}
               >
-                Create Announcement
+                {savingCreate ? 'Saving...' : 'Create Announcement'}
               </button>
             </div>
           </div>

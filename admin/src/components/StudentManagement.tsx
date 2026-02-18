@@ -238,7 +238,12 @@ const StudentManagement: React.FC = () => {
       if (!token) throw new Error('No authentication token found');
 
       const response = await StudentService.getStudents(token);
-      setStudents(response.data || []);
+      const normalizedStudents = (response.data || []).map((student: Student) =>
+        student.corStatus === 'Verified' && student.enrollmentStatus !== 'Enrolled'
+          ? { ...student, enrollmentStatus: 'Enrolled' }
+          : student
+      );
+      setStudents(normalizedStudents);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load students');
     } finally {
@@ -444,6 +449,9 @@ const StudentManagement: React.FC = () => {
     return matchesSearch && matchesCourse && matchesYearLevel;
   });
 
+  const effectiveEnrollmentStatus = (student: Student): string =>
+    student.corStatus === 'Verified' ? 'Enrolled' : student.enrollmentStatus;
+
   if (loading) {
     return (
       <div className="student-management">
@@ -527,8 +535,8 @@ const StudentManagement: React.FC = () => {
                 <td>{courseAbbreviation(normalizeCourse(student.course))}</td>
                 <td>{formatYearLevel(student.yearLevel)}</td>
                 <td>
-                  <span className={`status-badge ${student.enrollmentStatus.toLowerCase().replace(' ', '-')}`}>
-                    {student.enrollmentStatus}
+                  <span className={`status-badge ${effectiveEnrollmentStatus(student).toLowerCase().replace(' ', '-')}`}>
+                    {effectiveEnrollmentStatus(student)}
                   </span>
                 </td>
                 <td>
@@ -1097,7 +1105,7 @@ const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({ student, onCl
               </div>
               <div className="detail-item">
                 <label>Enrollment Status:</label>
-                <span>{student.enrollmentStatus}</span>
+                <span>{student.corStatus === 'Verified' ? 'Enrolled' : student.enrollmentStatus}</span>
               </div>
             </div>
 

@@ -51,8 +51,16 @@
 .detail-video {
   width: 100%;
   height: 100%;
-  object-fit: cover;
   display: block;
+}
+
+.detail-image {
+  object-fit: contain;
+  background: #0f172a;
+}
+
+.detail-video {
+  object-fit: cover;
 }
 
 .video-container {
@@ -222,8 +230,9 @@
 }
 
 .info-item.expiry {
-  border-color: rgba(239, 68, 68, 0.35);
-  background: rgba(239, 68, 68, 0.1);
+  border: none;
+  background: transparent;
+  padding: 0;
   color: #ef4444;
 }
 

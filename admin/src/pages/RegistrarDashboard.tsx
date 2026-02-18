@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Plus, Video, Users, Blocks, Pencil, Trash2, Check, X } from 'lucide-react'
+import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Video, Users, Blocks, Pencil, Trash2, Check, X } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
@@ -324,25 +324,20 @@ function RegistrarHome({ announcements, onAnnouncementClick, setView }: Registra
           <div className="news-header">
             <Bell size={20} className="news-icon" />
             <h3>Latest Announcements</h3>
-            <button 
-              className="section-action-btn"
-              onClick={() => setView('announcements')}
-            >
-              <Plus size={16} />
-              View All
-            </button>
           </div>
           
           {activeAnnouncements.length > 0 ? (
             <div className="dashboard-announcements-container">
-              {activeAnnouncements.map((announcement) => (
+              {activeAnnouncements.map((announcement) => {
+                const hasMedia = Boolean(announcement.media && announcement.media.length > 0)
+                return (
                 <div 
                   key={announcement._id} 
-                  className="dashboard-announcement-card clickable"
+                  className={`dashboard-announcement-card clickable ${hasMedia ? 'has-media' : 'no-media'}`}
                   onClick={() => onAnnouncementClick(announcement)}
                 >
                   {/* Media Section */}
-                  {announcement.media && announcement.media.length > 0 && (
+                  {hasMedia && (
                     <div className="dashboard-media-section">
                       {announcement.media[0].type === 'image' ? (
                         <img 
@@ -380,23 +375,10 @@ function RegistrarHome({ announcements, onAnnouncementClick, setView }: Registra
                     </div>
 
                     <h3 className="dashboard-card-title">{announcement.title}</h3>
-                    <p className="dashboard-card-message">{announcement.message}</p>
-
-                    <div className="dashboard-card-footer">
-                      <div className="dashboard-meta-item">
-                        <Users size={12} />
-                        <span>{announcement.targetAudience}</span>
-                      </div>
-                      {announcement.expiresAt && (
-                        <div className="dashboard-meta-item" style={{ marginLeft: 'auto', color: '#ef4444' }}>
-                          <Clock size={12} />
-                          <span>Exp: {formatDate(announcement.expiresAt)}</span>
-                        </div>
-                      )}
-                    </div>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
           ) : (
             <div className="no-news">
@@ -1065,6 +1047,7 @@ function BlockManagement() {
   const [selectedSection, setSelectedSection] = useState('')
   const [activeDetailSectionId, setActiveDetailSectionId] = useState('')
   const [sectionStudentsLoading, setSectionStudentsLoading] = useState(false)
+  const [unassigningStudentId, setUnassigningStudentId] = useState('')
   const [overcapacityData, setOvercapacityData] = useState<OvercapacityData | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -1349,6 +1332,41 @@ function BlockManagement() {
     }
     setActiveDetailSectionId(sectionId)
     void fetchSectionStudents(sectionId)
+  }
+
+  const handleUnassignSectionStudent = async (student: SectionStudent) => {
+    if (!selectedGroup || !activeDetailSectionId) {
+      setError('Select a block section first')
+      return
+    }
+
+    const sectionCode = sections.find((section) => section._id === activeDetailSectionId)?.sectionCode || 'this section'
+    const confirmed = window.confirm(`Unassign ${formatStudentName(student)} from ${sectionCode}?`)
+    if (!confirmed) return
+
+    const targetSectionId = activeDetailSectionId
+    setUnassigningStudentId(student._id)
+    setError('')
+    setSuccess('')
+    try {
+      const data = await authorizedFetch(`/api/blocks/sections/${targetSectionId}/students/${student._id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          semester: selectedGroup.semester,
+          year: selectedGroup.year
+        })
+      })
+
+      setSuccess((data?.message as string) || 'Student unassigned from section successfully')
+      await fetchSections(selectedGroup._id)
+      await fetchAssignableStudents(selectedGroup.semester, selectedGroup.year, studentSearch, selectedGroup._id)
+      await fetchSectionStudents(targetSectionId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to unassign student')
+    } finally {
+      setUnassigningStudentId('')
+    }
   }
 
   const handleAssignStudent = async () => {
@@ -1844,16 +1862,30 @@ function BlockManagement() {
                     <span>Student No.</span>
                     <span>Year Level</span>
                     <span>Status</span>
+                    <span className="section-students-action-header">Action</span>
                   </div>
                   <div className="section-students-body">
-                    {sectionStudents.map((student) => (
-                      <div key={student._id} className="section-students-row">
-                        <span>{formatStudentName(student)}</span>
-                        <span>{formatStudentNumber(student)}</span>
-                        <span>YL {student.yearLevel || 'N/A'}</span>
-                        <span>{student.studentStatus || 'N/A'}</span>
-                      </div>
-                    ))}
+                    {sectionStudents.map((student) => {
+                      const isUnassigning = unassigningStudentId === student._id
+                      return (
+                        <div key={student._id} className="section-students-row">
+                          <span>{formatStudentName(student)}</span>
+                          <span>{formatStudentNumber(student)}</span>
+                          <span>YL {student.yearLevel || 'N/A'}</span>
+                          <span>{student.studentStatus || 'N/A'}</span>
+                          <span className="section-students-action-cell">
+                            <button
+                              type="button"
+                              className="section-unassign-btn"
+                              onClick={() => void handleUnassignSectionStudent(student)}
+                              disabled={Boolean(unassigningStudentId)}
+                            >
+                              {isUnassigning ? 'Unassigning...' : 'Unassign'}
+                            </button>
+                          </span>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )}
@@ -2423,6 +2455,14 @@ function AssignSubjectPage() {
         <div className="sections-list" style={{ marginTop: '1rem' }}>
           <h3>Create Subject</h3>
           <div className="subject-create-list">
+            <div className="subject-create-actions">
+              <button className="registrar-btn" onClick={addSubjectDraftRow} disabled={!selectedGroupId} type="button">
+                Add Another Subject
+              </button>
+              <button className="registrar-btn" onClick={handleCreateSubject} disabled={creatingSubject || !selectedGroupId} type="button">
+                {creatingSubject ? 'Creating...' : `Create ${subjectDrafts.length} Subject${subjectDrafts.length > 1 ? 's' : ''}`}
+              </button>
+            </div>
             {subjectDrafts.map((draft, index) => (
               <div key={`subject-draft-${index}`} className="subject-create-row">
                 <label>
@@ -2467,14 +2507,6 @@ function AssignSubjectPage() {
                 </button>
               </div>
             ))}
-            <div className="subject-create-actions">
-              <button className="registrar-btn" onClick={addSubjectDraftRow} disabled={!selectedGroupId} type="button">
-                Add Another Subject
-              </button>
-              <button className="registrar-btn" onClick={handleCreateSubject} disabled={creatingSubject || !selectedGroupId} type="button">
-                {creatingSubject ? 'Creating...' : `Create ${subjectDrafts.length} Subject${subjectDrafts.length > 1 ? 's' : ''}`}
-              </button>
-            </div>
           </div>
           {!selectedGroupId && (
             <p style={{ margin: '0.5rem 0 0', color: 'var(--color-text-muted)' }}>
