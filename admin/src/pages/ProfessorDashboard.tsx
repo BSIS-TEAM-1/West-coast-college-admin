@@ -212,7 +212,7 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
       case 'system-health':
         return <SystemHealth />
       default:
-        return <ProfessorHome announcements={announcements} onAnnouncementClick={handleAnnouncementClick} setView={setView} quickActionsRef={quickActionsRef} newsSectionRef={newsSectionRef} />
+        return <ProfessorHome announcements={announcements} onAnnouncementClick={handleAnnouncementClick} quickActionsRef={quickActionsRef} newsSectionRef={newsSectionRef} />
     }
   }
 
@@ -304,12 +304,11 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
 interface ProfessorHomeProps {
   announcements: Announcement[]
   onAnnouncementClick: (announcement: Announcement) => void
-  setView: (view: ProfessorView) => void
   quickActionsRef: React.RefObject<HTMLDivElement | null>
   newsSectionRef: React.RefObject<HTMLDivElement | null>
 }
 
-function ProfessorHome({ announcements, onAnnouncementClick, setView, quickActionsRef, newsSectionRef }: ProfessorHomeProps) {
+function ProfessorHome({ announcements, onAnnouncementClick, quickActionsRef, newsSectionRef }: ProfessorHomeProps) {
   const getTypeIcon = (type: string) => {
     switch (type) {
       case 'urgent': return <AlertTriangle size={12} />
@@ -366,7 +365,8 @@ function ProfessorHome({ announcements, onAnnouncementClick, setView, quickActio
           {activeAnnouncements.length > 0 ? (
             <div className="dashboard-announcements-container">
               {activeAnnouncements.map((announcement) => {
-                const hasMedia = Boolean(announcement.media && announcement.media.length > 0)
+                const media = announcement.media?.[0]
+                const hasMedia = Boolean(media)
                 return (
                 <div 
                   key={announcement._id} 
@@ -376,9 +376,9 @@ function ProfessorHome({ announcements, onAnnouncementClick, setView, quickActio
                   {/* Media Section */}
                   {hasMedia && (
                     <div className="dashboard-media-section">
-                      {announcement.media[0].type === 'image' ? (
+                      {media?.type === 'image' ? (
                         <img 
-                          src={announcement.media[0].url} 
+                          src={media.url} 
                           alt={announcement.title}
                           className="dashboard-cover-image"
                         />

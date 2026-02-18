@@ -1,6 +1,6 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import {
-  Users, Search, Filter, Download, Trash2, Eye, Clock, UserCheck,
+  Users, Search, Download, Trash2, Eye, Clock, UserCheck,
   CheckCircle, AlertCircle, RefreshCw, X, Calendar
 } from 'lucide-react'
 import { getStoredToken, API_URL, getProfile, type ProfileResponse } from '../lib/authApi'
@@ -173,15 +173,6 @@ export default function StaffRegistrationLogs() {
     if (!createdBy) return 'System'
     if (typeof createdBy === 'string') return createdBy
     return createdBy.displayName || createdBy.username || createdBy.uid || 'System'
-  }
-
-  const getAccountTypeColor = (type: string) => {
-    const colors: Record<string, string> = {
-      admin: '#3b82f6',
-      registrar: '#a855f7',
-      professor: '#10b981'
-    }
-    return colors[type] || '#64748b'
   }
 
   const getAccountTypeIcon = (type: string) => {
