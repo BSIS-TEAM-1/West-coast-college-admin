@@ -15,7 +15,11 @@ const RECAPTCHA_LOAD_TIMEOUT_MS = 8000
 let recaptchaLoadPromise: Promise<void> | null = null
 
 export const getRecaptchaSiteKey = (): string =>
-  String(import.meta.env.VITE_REACT_APP_RECAPTCHA_SITE_KEY || '').trim()
+  String(
+    import.meta.env.VITE_REACT_APP_RECAPTCHA_SITE_KEY ||
+    import.meta.env.VITE_RECAPTCHA_SITE_KEY ||
+    ''
+  ).trim()
 
 export const isRecaptchaEnabledForBuild = (): boolean =>
   import.meta.env.PROD && Boolean(getRecaptchaSiteKey())
