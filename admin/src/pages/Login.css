@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@500;700&family=Orbitron:wght@600&display=swap');
+
 .login-page {
 
   width: 100%;
@@ -710,7 +712,7 @@
   align-items: center;
   gap: 0.5rem;
   font-size: 0.75rem;
-  color: var(--color-text-secondary);
+  color: #7a8898;
   opacity: 0.7;
   transition: opacity 0.2s ease;
 }
@@ -719,7 +721,24 @@
   opacity: 1;
 }
 
+.security-text {
+  font-family: 'Inter', 'Segoe UI', 'Roboto', sans-serif;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.security-provider-prefix {
+  font-family: 'Inter', 'Segoe UI', 'Roboto', sans-serif;
+  font-weight: 700;
+}
+
 .security-provider {
-  color: #47eab4;
+  font-family: 'Orbitron', 'Inter', 'Segoe UI', sans-serif;
   font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #22c894;
+}
+
+[data-theme="light"] .security-provider {
+  color: #1d8f72;
 }
