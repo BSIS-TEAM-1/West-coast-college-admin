@@ -94,6 +94,16 @@ interface SecurityScanResults {
   error?: string;
 }
 
+interface BlockedIPRecord {
+  _id: string;
+  ipAddress: string;
+  reason: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  blockedAt: string;
+  expiresAt?: string;
+  attemptCount?: number;
+}
+
 const Security: React.FC<SecurityProps> = ({ onBack }) => {
   const [metrics, setMetrics] = useState<SecurityMetrics>({
     failedLogins: 0,
@@ -115,9 +125,13 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [auditLogsLoading, setAuditLogsLoading] = useState(false);
   const [showBlockedIPs, setShowBlockedIPs] = useState(false);
-  const [blockedIPs, setBlockedIPs] = useState<any[]>([]);
+  const [blockedIPs, setBlockedIPs] = useState<BlockedIPRecord[]>([]);
   const [blockedIPsLoading, setBlockedIPsLoading] = useState(false);
   const [newBlockIP, setNewBlockIP] = useState({ ipAddress: '', reason: '', severity: 'medium' });
+  const [unblockIpAddress, setUnblockIpAddress] = useState('');
+  const [unblockingIpId, setUnblockingIpId] = useState<string | null>(null);
+  const [blockingIpLoading, setBlockingIpLoading] = useState(false);
+  const [unblockByIpLoading, setUnblockByIpLoading] = useState(false);
   const [showScanResults, setShowScanResults] = useState(false);
   const [scanResults, setScanResults] = useState<SecurityScanResults | null>(null);
   const [systemScanLoading, setSystemScanLoading] = useState(false);
@@ -401,6 +415,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
     }
 
     try {
+      setBlockingIpLoading(true);
       const token = await getStoredToken();
       if (!token) return;
 
@@ -418,20 +433,30 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
         throw new Error(data.error || 'Failed to block IP');
       }
 
+      const data = await response.json().catch(() => ({} as { revokedSessions?: number }));
+
       // Refresh blocked IPs list
       await handleManageBlockedIPs();
       setNewBlockIP({ ipAddress: '', reason: '', severity: 'medium' });
-      alert('IP address blocked successfully');
+      const revokedSessions = Number(data?.revokedSessions || 0);
+      alert(
+        revokedSessions > 0
+          ? `IP address blocked successfully. ${revokedSessions} active session(s) were logged out.`
+          : 'IP address blocked successfully'
+      );
     } catch (error) {
       console.error('Failed to block IP:', error);
       alert(`Error: ${error instanceof Error ? error.message : 'Failed to block IP'}`);
+    } finally {
+      setBlockingIpLoading(false);
     }
   };
 
-  const handleUnblockIP = async (id: string) => {
+  const handleUnblockIP = async (id: string, ipAddress?: string) => {
     if (!confirm('Are you sure you want to unblock this IP?')) return;
 
     try {
+      setUnblockingIpId(id);
       const token = await getStoredToken();
       if (!token) return;
 
@@ -449,10 +474,51 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
 
       // Refresh blocked IPs list
       await handleManageBlockedIPs();
+      if (ipAddress && unblockIpAddress === ipAddress) {
+        setUnblockIpAddress('');
+      }
       alert('IP address unblocked successfully');
     } catch (error) {
       console.error('Failed to unblock IP:', error);
       alert('Failed to unblock IP');
+    } finally {
+      setUnblockingIpId(null);
+    }
+  };
+
+  const handleUnblockByIp = async () => {
+    const candidate = unblockIpAddress.trim();
+    if (!candidate) {
+      alert('Enter an IP address to unblock');
+      return;
+    }
+
+    try {
+      setUnblockByIpLoading(true);
+      const token = await getStoredToken();
+      if (!token) return;
+
+      const response = await fetch(`${API_URL}/api/admin/blocked-ips/by-ip/${encodeURIComponent(candidate)}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({} as { error?: string }));
+        throw new Error(data?.error || 'Failed to unblock IP');
+      }
+
+      await handleManageBlockedIPs();
+      setUnblockIpAddress('');
+      alert('IP address unblocked successfully');
+    } catch (error) {
+      console.error('Failed to unblock IP by address:', error);
+      alert(error instanceof Error ? error.message : 'Failed to unblock IP');
+    } finally {
+      setUnblockByIpLoading(false);
     }
   };
 
@@ -1155,11 +1221,36 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
 
                 <button 
                   type="submit"
-                  style={{ backgroundColor: '#3b82f6', color: 'white', padding: '0.5rem 1rem', borderRadius: '6px', border: 'none', fontWeight: '500', cursor: 'pointer' }}
+                  disabled={blockingIpLoading}
+                  style={{ backgroundColor: '#3b82f6', color: 'white', padding: '0.5rem 1rem', borderRadius: '6px', border: 'none', fontWeight: '500', cursor: blockingIpLoading ? 'not-allowed' : 'pointer', opacity: blockingIpLoading ? 0.7 : 1 }}
                 >
-                  Block IP Address
+                  {blockingIpLoading ? 'Blocking...' : 'Block IP Address'}
                 </button>
               </form>
+
+              <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#fff7ed', borderRadius: '8px', border: '1px solid #fed7aa' }}>
+                <h3 style={{ marginTop: 0, marginBottom: '0.75rem', color: '#9a3412' }}>Unblock by IP (Appeal)</h3>
+                <p style={{ marginTop: 0, marginBottom: '0.75rem', color: '#9a3412', fontSize: '0.875rem' }}>
+                  Use this when a user appeals and you need to unblock quickly even before refreshing the list.
+                </p>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <input
+                    type="text"
+                    placeholder="e.g., 122.2.183.58"
+                    value={unblockIpAddress}
+                    onChange={(e) => setUnblockIpAddress(e.target.value)}
+                    style={{ flex: '1 1 260px', minWidth: '220px', padding: '0.5rem', borderRadius: '6px', border: '1px solid #fdba74', fontFamily: 'monospace' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleUnblockByIp}
+                    disabled={unblockByIpLoading || !unblockIpAddress.trim()}
+                    style={{ backgroundColor: '#ea580c', color: 'white', padding: '0.5rem 1rem', borderRadius: '6px', border: 'none', fontWeight: '500', cursor: unblockByIpLoading ? 'not-allowed' : 'pointer', opacity: unblockByIpLoading ? 0.7 : 1 }}
+                  >
+                    {unblockByIpLoading ? 'Unblocking...' : 'Unblock IP'}
+                  </button>
+                </div>
+              </div>
 
               {blockedIPsLoading ? (
                 <div className="loading">Loading blocked IPs...</div>
@@ -1174,6 +1265,8 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
                         <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600', color: '#374151' }}>Reason</th>
                         <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600', color: '#374151' }}>Severity</th>
                         <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600', color: '#374151' }}>Blocked At</th>
+                        <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600', color: '#374151' }}>Blocked Until</th>
+                        <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600', color: '#374151' }}>Attempts</th>
                         <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600', color: '#374151' }}>Action</th>
                       </tr>
                     </thead>
@@ -1197,12 +1290,19 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
                           <td style={{ padding: '0.75rem', fontSize: '0.875rem', color: '#64748b' }}>
                             {new Date(ip.blockedAt).toLocaleDateString()}
                           </td>
+                          <td style={{ padding: '0.75rem', fontSize: '0.875rem', color: '#64748b' }}>
+                            {ip.expiresAt ? new Date(ip.expiresAt).toLocaleString() : 'N/A'}
+                          </td>
+                          <td style={{ padding: '0.75rem', fontSize: '0.875rem', color: '#64748b' }}>
+                            {Number(ip.attemptCount || 0)}
+                          </td>
                           <td style={{ padding: '0.75rem' }}>
                             <button 
-                              onClick={() => handleUnblockIP(ip._id)}
-                              style={{ backgroundColor: '#ef4444', color: 'white', padding: '0.25rem 0.75rem', borderRadius: '4px', border: 'none', fontSize: '0.875rem', cursor: 'pointer' }}
+                              onClick={() => handleUnblockIP(ip._id, ip.ipAddress)}
+                              disabled={unblockingIpId === ip._id}
+                              style={{ backgroundColor: '#ef4444', color: 'white', padding: '0.25rem 0.75rem', borderRadius: '4px', border: 'none', fontSize: '0.875rem', cursor: unblockingIpId === ip._id ? 'not-allowed' : 'pointer', opacity: unblockingIpId === ip._id ? 0.7 : 1 }}
                             >
-                              Unblock
+                              {unblockingIpId === ip._id ? 'Unblocking...' : 'Unblock'}
                             </button>
                           </td>
                         </tr>

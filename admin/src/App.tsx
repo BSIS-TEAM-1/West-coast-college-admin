@@ -14,6 +14,17 @@ import ProfessorDashboard from './pages/ProfessorDashboard.tsx'
 import './App.css'
 import type { ProfileResponse } from './lib/authApi'
 
+const isAuthSessionError = (message: string): boolean => {
+  const normalized = String(message || '').toLowerCase()
+  return (
+    normalized.includes('invalid or expired token') ||
+    normalized.includes('unauthorized') ||
+    normalized.includes('authentication failed') ||
+    normalized.includes('session was ended') ||
+    normalized.includes('session revoked')
+  )
+}
+
 function App() {
   const [user, setUser] = useState<{ username: string; accountType: string } | null>(null)
   const [loginError, setLoginError] = useState<string | undefined>(undefined)
@@ -33,8 +44,13 @@ function App() {
         const profile = await getProfile()
         if (!mounted) return
         setUser({ username: profile.username, accountType: profile.accountType })
-      } catch {
+      } catch (error) {
         await clearStoredToken()
+        if (!mounted) return
+        const message = error instanceof Error ? error.message : 'Your session has ended. Please sign in again.'
+        if (isAuthSessionError(message)) {
+          setLoginError(message)
+        }
       } finally {
         if (mounted) {
           setLoginLoading(false)
@@ -82,6 +98,33 @@ function App() {
   const handleProfileUpdated = useCallback((profile: ProfileResponse) => {
     setUser(prev => prev ? { ...prev, username: profile.username, accountType: profile.accountType } : null)
   }, [])
+
+  useEffect(() => {
+    if (!user) return
+
+    let cancelled = false
+    const intervalId = window.setInterval(() => {
+      void (async () => {
+        try {
+          await getProfile()
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Your session has ended. Please sign in again.'
+          if (!isAuthSessionError(message)) return
+
+          await clearStoredToken()
+          if (cancelled) return
+
+          setUser(null)
+          setLoginError(message)
+        }
+      })()
+    }, 30000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }, [user])
 
   if (user) {
     // Show different dashboard based on account type
