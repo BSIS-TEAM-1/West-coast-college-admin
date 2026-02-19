@@ -14,6 +14,17 @@ const RECAPTCHA_LOAD_TIMEOUT_MS = 8000
 
 let recaptchaLoadPromise: Promise<void> | null = null
 
+const getRecaptchaScriptSrc = (siteKey: string): string =>
+  `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(siteKey)}`
+
+const getRenderKeyFromScript = (script: HTMLScriptElement): string => {
+  try {
+    return new URL(script.src, window.location.origin).searchParams.get('render') || ''
+  } catch {
+    return ''
+  }
+}
+
 export const getRecaptchaSiteKey = (): string =>
   String(
     import.meta.env.VITE_REACT_APP_RECAPTCHA_SITE_KEY ||
@@ -49,18 +60,29 @@ export const ensureRecaptchaLoaded = async (siteKey: string): Promise<void> => {
   if (!siteKey) {
     throw new Error('Missing reCAPTCHA site key.')
   }
+
+  const existingScript = document.getElementById(RECAPTCHA_SCRIPT_ID) as HTMLScriptElement | null
+  if (existingScript) {
+    const existingRenderKey = getRenderKeyFromScript(existingScript)
+    if (existingRenderKey && existingRenderKey !== siteKey) {
+      existingScript.remove()
+      recaptchaLoadPromise = null
+      window.grecaptcha = undefined
+    }
+  }
+
   if (typeof window.grecaptcha?.ready === 'function' && typeof window.grecaptcha?.execute === 'function') {
     return
   }
 
   if (!recaptchaLoadPromise) {
     recaptchaLoadPromise = (async () => {
-      const existingScript = document.getElementById(RECAPTCHA_SCRIPT_ID) as HTMLScriptElement | null
+      const currentScript = document.getElementById(RECAPTCHA_SCRIPT_ID) as HTMLScriptElement | null
 
-      if (!existingScript) {
+      if (!currentScript) {
         const script = document.createElement('script')
         script.id = RECAPTCHA_SCRIPT_ID
-        script.src = `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(siteKey)}`
+        script.src = getRecaptchaScriptSrc(siteKey)
         script.async = true
         script.defer = true
         document.head.appendChild(script)
