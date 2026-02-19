@@ -87,16 +87,6 @@ const MAX_FAILED_LOGIN_ATTEMPTS = Number(process.env.MAX_FAILED_LOGIN_ATTEMPTS |
 const LOGIN_LOCKOUT_STEPS_MS = [1 * 60 * 1000, 5 * 60 * 1000, 10 * 60 * 1000]
 const loginAttemptStateByIp = new Map()
 let systemAuditActorIdCache = null
-const AUTH_DEBUG = String(process.env.AUTH_DEBUG || '').toLowerCase() === 'true'
-
-const debugAuth = (message, context) => {
-  if (!AUTH_DEBUG) return
-  if (context) {
-    console.log('[AUTH_DEBUG]', message, context)
-    return
-  }
-  console.log('[AUTH_DEBUG]', message)
-}
 
 // Security middleware to block sensitive paths
 app.use((req, res, next) => {
@@ -461,14 +451,6 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
       lockoutUntil: 0
     }
 
-    debugAuth('login-request-received', {
-      usernameLength: normalizedUsername.length,
-      clientIp,
-      deviceIdPresent: Boolean(deviceId),
-      captchaTokenPresent: Boolean(captchaToken),
-      captchaTokenLength: captchaToken ? String(captchaToken).length : 0
-    })
-
     if (Number(currentState.lockoutUntil) > now) {
       const remainingMs = Number(currentState.lockoutUntil) - now
       const remainingSeconds = Math.max(1, Math.ceil(remainingMs / 1000))
@@ -507,14 +489,6 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
       .map(action => action.trim())
       .filter(Boolean)
 
-    debugAuth('recaptcha-policy', {
-      isProduction,
-      recaptchaExplicitlyEnabled,
-      requireRecaptcha,
-      recaptchaMinScore,
-      allowedRecaptchaActions
-    })
-
     if (requireRecaptcha) {
       if (!captchaToken) {
         return res.status(400).json({ error: 'reCAPTCHA verification required.' })
@@ -551,14 +525,6 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
           }
         )
 
-        debugAuth('recaptcha-verify-response', {
-          success: Boolean(recaptchaResponse.data?.success),
-          score: recaptchaResponse.data?.score,
-          action: recaptchaResponse.data?.action,
-          hostname: recaptchaResponse.data?.hostname,
-          errorCodes: recaptchaResponse.data?.['error-codes'] || []
-        })
-
         if (!recaptchaResponse.data?.success) {
           return res.status(400).json({ error: 'reCAPTCHA verification failed. Please try again.' })
         }
@@ -584,8 +550,6 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
     } else if (captchaToken && captchaToken !== devBypassToken) {
       return res.status(400).json({ error: 'Invalid CAPTCHA bypass token for non-production environment.' })
     }
-
-    debugAuth('recaptcha-check-passed')
 
     /**
      * Handles failed login attempts with escalating lockout mechanism.
