@@ -51,7 +51,10 @@ const JWT_SECRET = process.env.JWT_SECRET || 'wcc-admin-dev-secret-change-in-pro
 app.disable('x-powered-by')
 
 // Trust reverse proxy so req.ip/x-forwarded-for can reflect real client IP in production.
-const TRUST_PROXY_ENABLED = String(process.env.TRUST_PROXY || '').trim() === 'true'
+const trustProxyEnv = String(process.env.TRUST_PROXY || '').trim().toLowerCase()
+const TRUST_PROXY_ENABLED = trustProxyEnv
+  ? trustProxyEnv === 'true'
+  : (String(process.env.NODE_ENV || '').toLowerCase() === 'production' || Boolean(process.env.RENDER))
 if (TRUST_PROXY_ENABLED) {
   app.set('trust proxy', 1)
 }
@@ -88,6 +91,7 @@ const MAX_FAILED_LOGIN_ATTEMPTS = Number(process.env.MAX_FAILED_LOGIN_ATTEMPTS |
 const LOGIN_LOCKOUT_STEPS_MS = [1 * 60 * 1000, 5 * 60 * 1000, 10 * 60 * 1000]
 const LOGIN_ATTEMPT_STATE_TTL_MS = Number(process.env.LOGIN_ATTEMPT_STATE_TTL_MS || 12 * 60 * 60 * 1000)
 const MAX_LOGIN_ATTEMPT_ENTRIES = Number(process.env.MAX_LOGIN_ATTEMPT_ENTRIES || 10000)
+const IPV4_REGEX = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/
 const loginAttemptStateByIp = new Map()
 const loginAttemptStateByUsername = new Map()
 const loginAttemptStateByDevice = new Map()
@@ -444,27 +448,41 @@ app.get('/api/health', (req, res) => {
  *
  * Forwarding headers can be spoofed by clients unless they are processed by
  * trusted upstream proxies. This implementation relies on `req.ip`, which is
- * only proxy-aware when `TRUST_PROXY=true` is enabled at startup.
+ * proxy-aware when trust proxy is enabled.
  *
  * @param {Object} req - Express request object
  * @returns {string} Client IP address or 'unknown' if none found
  */
+function normalizeClientIpAddress(ipAddress) {
+  const normalized = String(ipAddress || '').trim()
+  if (!normalized) return ''
+
+  if (normalized === '::1') return '127.0.0.1'
+  if (normalized.toLowerCase().startsWith('::ffff:')) {
+    return normalized.slice(7)
+  }
+
+  return normalized
+}
+
+function normalizeIpv4AddressInput(ipAddress) {
+  const normalized = normalizeClientIpAddress(ipAddress)
+  return normalized.replace(/[.,;]+$/, '')
+}
+
+function isValidIpv4Address(ipAddress) {
+  return IPV4_REGEX.test(normalizeIpv4AddressInput(ipAddress))
+}
+
 function getClientIpAddress(req) {
-  const socketIp = String(req.socket?.remoteAddress || req.connection?.remoteAddress || '').trim()
-  const requestIp = String(req.ip || '').trim()
-
+  const socketIp = normalizeClientIpAddress(req.socket?.remoteAddress || req.connection?.remoteAddress || '')
+  const requestIp = normalizeClientIpAddress(req.ip || '')
   const candidate = requestIp || socketIp
-
-  if (!candidate) return 'unknown'
-
-  // Normalize IPv6 localhost and IPv4-mapped IPv6 addresses
-  if (candidate === '::1') return '127.0.0.1'
-  if (candidate.startsWith('::ffff:')) return candidate.replace('::ffff:', '')
-  return candidate
+  return candidate || 'unknown'
 }
 
 async function findActiveBlockedIp(ipAddress) {
-  const normalizedIp = String(ipAddress || '').trim()
+  const normalizedIp = normalizeClientIpAddress(ipAddress)
   if (!normalizedIp || normalizedIp === 'unknown') return null
 
   return BlockedIP.findOne({
@@ -3154,18 +3172,19 @@ app.post('/api/admin/blocked-ips', authMiddleware, async (req, res) => {
   }
   try {
     const { ipAddress, reason, severity, expiresAt, notes } = req.body
+    const normalizedIpAddress = normalizeIpv4AddressInput(ipAddress)
     
-    if (!ipAddress || !reason) {
+    if (!normalizedIpAddress || !reason) {
       return res.status(400).json({ error: 'IP address and reason are required.' })
     }
     
     // Validate IP format
-    if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(ipAddress)) {
+    if (!isValidIpv4Address(normalizedIpAddress)) {
       return res.status(400).json({ error: 'Invalid IP address format.' })
     }
     
     const nextExpiry = expiresAt ? new Date(expiresAt) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-    let blockedIP = await BlockedIP.findOne({ ipAddress })
+    let blockedIP = await BlockedIP.findOne({ ipAddress: normalizedIpAddress })
 
     if (blockedIP && blockedIP.isActive && new Date(blockedIP.expiresAt) > new Date()) {
       return res.status(409).json({ error: 'IP address is already blocked.' })
@@ -3184,7 +3203,7 @@ app.post('/api/admin/blocked-ips', authMiddleware, async (req, res) => {
       await blockedIP.save()
     } else {
       blockedIP = new BlockedIP({
-        ipAddress,
+        ipAddress: normalizedIpAddress,
         reason,
         severity: severity || 'medium',
         blockedBy: req.adminId,
@@ -3198,7 +3217,7 @@ app.post('/api/admin/blocked-ips', authMiddleware, async (req, res) => {
     const revokeResult = await AuthToken.updateMany(
       {
         isActive: true,
-        ipAddress
+        ipAddress: normalizedIpAddress
       },
       {
         $set: {
@@ -3215,8 +3234,8 @@ app.post('/api/admin/blocked-ips', authMiddleware, async (req, res) => {
       'BLOCK_IP',
       'SECURITY',
       blockedIP._id.toString(),
-      ipAddress,
-      `Blocked IP address: ${ipAddress} - ${reason}`,
+      normalizedIpAddress,
+      `Blocked IP address: ${normalizedIpAddress} - ${reason}`,
       req.adminId,
       req.accountType,
       null,
@@ -3281,8 +3300,8 @@ app.delete('/api/admin/blocked-ips/by-ip/:ipAddress', authMiddleware, async (req
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
-    const ipAddress = String(req.params.ipAddress || '').trim()
-    if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(ipAddress)) {
+    const ipAddress = normalizeIpv4AddressInput(req.params.ipAddress)
+    if (!isValidIpv4Address(ipAddress)) {
       return res.status(400).json({ error: 'Invalid IP address format.' })
     }
 
@@ -3325,8 +3344,13 @@ app.get('/api/admin/blocked-ips/:ipAddress', async (req, res) => {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
+    const ipAddress = normalizeIpv4AddressInput(req.params.ipAddress)
+    if (!isValidIpv4Address(ipAddress)) {
+      return res.status(400).json({ error: 'Invalid IP address format.' })
+    }
+
     const blocked = await BlockedIP.findOne({ 
-      ipAddress: req.params.ipAddress,
+      ipAddress,
       isActive: true,
       expiresAt: { $gt: new Date() }
     }).lean()

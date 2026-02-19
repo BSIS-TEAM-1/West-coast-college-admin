@@ -104,6 +104,12 @@ interface BlockedIPRecord {
   attemptCount?: number;
 }
 
+const IPV4_REGEX = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+
+const normalizeIpv4Input = (value: string): string => {
+  return value.trim().replace(/[.,;]+$/, '');
+};
+
 const Security: React.FC<SecurityProps> = ({ onBack }) => {
   const [metrics, setMetrics] = useState<SecurityMetrics>({
     failedLogins: 0,
@@ -408,9 +414,16 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
 
   const handleBlockIP = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const normalizedIpAddress = normalizeIpv4Input(newBlockIP.ipAddress);
     
-    if (!newBlockIP.ipAddress || !newBlockIP.reason) {
+    if (!normalizedIpAddress || !newBlockIP.reason) {
       alert('Please fill in all required fields');
+      return;
+    }
+
+    if (!IPV4_REGEX.test(normalizedIpAddress)) {
+      alert('Please enter a valid IPv4 address');
       return;
     }
 
@@ -425,7 +438,10 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(newBlockIP)
+        body: JSON.stringify({
+          ...newBlockIP,
+          ipAddress: normalizedIpAddress
+        })
       });
 
       if (!response.ok) {
@@ -474,7 +490,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
 
       // Refresh blocked IPs list
       await handleManageBlockedIPs();
-      if (ipAddress && unblockIpAddress === ipAddress) {
+      if (ipAddress && normalizeIpv4Input(unblockIpAddress) === ipAddress) {
         setUnblockIpAddress('');
       }
       alert('IP address unblocked successfully');
@@ -487,9 +503,14 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
   };
 
   const handleUnblockByIp = async () => {
-    const candidate = unblockIpAddress.trim();
+    const candidate = normalizeIpv4Input(unblockIpAddress);
     if (!candidate) {
       alert('Enter an IP address to unblock');
+      return;
+    }
+
+    if (!IPV4_REGEX.test(candidate)) {
+      alert('Please enter a valid IPv4 address');
       return;
     }
 
