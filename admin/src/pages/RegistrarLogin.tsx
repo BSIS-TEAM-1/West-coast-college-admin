@@ -23,7 +23,7 @@ export default function RegistrarLogin({ onLogin, error, loading }: LoginProps) 
       return // CAPTCHA not completed
     }
 
-    onLogin(username, password, captchaEnabled ? captchaToken : devBypassToken)
+    onLogin(username, password, captchaEnabled ? (captchaToken || '') : devBypassToken)
   }
 
   return (
