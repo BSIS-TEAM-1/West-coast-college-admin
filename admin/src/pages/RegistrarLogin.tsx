@@ -1,6 +1,10 @@
-import React, { useState } from 'react'
-import ReCAPTCHA from 'react-google-recaptcha'
+import React, { useEffect, useState } from 'react'
 import './Login.css'
+import {
+  ensureRecaptchaLoaded,
+  executeRecaptchaAction,
+  getRecaptchaSiteKey
+} from '../lib/recaptcha'
 
 type LoginProps = {
   onLogin: (username: string, password: string, captchaToken: string) => void
@@ -11,19 +15,60 @@ type LoginProps = {
 export default function RegistrarLogin({ onLogin, error, loading }: LoginProps) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  const [captchaLoading, setCaptchaLoading] = useState(false)
   const captchaEnabled = import.meta.env.PROD
-  const recaptchaSiteKey = import.meta.env.VITE_REACT_APP_RECAPTCHA_SITE_KEY
-  const shouldRenderRecaptcha = captchaEnabled && Boolean(recaptchaSiteKey)
+  const [captchaReady, setCaptchaReady] = useState(!captchaEnabled)
+  const recaptchaSiteKey = getRecaptchaSiteKey()
   const devBypassToken = 'dev-bypass'
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    if (captchaEnabled && (!recaptchaSiteKey || !captchaToken)) {
-      return // CAPTCHA not completed
+  useEffect(() => {
+    if (!captchaEnabled) {
+      setCaptchaReady(true)
+      return
     }
 
-    onLogin(username, password, captchaEnabled ? (captchaToken || '') : devBypassToken)
+    if (!recaptchaSiteKey) {
+      setCaptchaReady(false)
+      return
+    }
+
+    let mounted = true
+
+    ensureRecaptchaLoaded(recaptchaSiteKey)
+      .then(() => {
+        if (mounted) setCaptchaReady(true)
+      })
+      .catch((error) => {
+        console.error('Failed to initialize reCAPTCHA v3:', error)
+        if (mounted) setCaptchaReady(false)
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [captchaEnabled, recaptchaSiteKey])
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+
+    if (captchaEnabled) {
+      if (!recaptchaSiteKey || !captchaReady) {
+        return
+      }
+
+      try {
+        setCaptchaLoading(true)
+        const token = await executeRecaptchaAction(recaptchaSiteKey, 'registrar_login')
+        onLogin(username, password, token)
+      } catch (error) {
+        console.error('Failed to execute reCAPTCHA v3:', error)
+      } finally {
+        setCaptchaLoading(false)
+      }
+      return
+    }
+
+    onLogin(username, password, devBypassToken)
   }
 
   return (
@@ -59,22 +104,12 @@ export default function RegistrarLogin({ onLogin, error, loading }: LoginProps) 
               required
             />
           </label>
-          {shouldRenderRecaptcha && (
-            <div className="recaptcha-container" style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
-              <ReCAPTCHA
-                sitekey={recaptchaSiteKey!}
-                onChange={(token) => setCaptchaToken(token)}
-                onExpired={() => setCaptchaToken(null)}
-                theme="light"
-              />
-            </div>
-          )}
           <button
             type="submit"
             className="login-submit"
-            disabled={loading || (captchaEnabled && (!recaptchaSiteKey || !captchaToken))}
+            disabled={loading || captchaLoading || (captchaEnabled && (!recaptchaSiteKey || !captchaReady))}
           >
-            {loading ? 'Signing in...' : 'Access Registrar Portal'}
+            {(loading || captchaLoading) ? 'Signing in...' : 'Access Registrar Portal'}
           </button>
         </form>
       </div>

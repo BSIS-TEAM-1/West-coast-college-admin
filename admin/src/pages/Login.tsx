@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
 
-import ReCAPTCHA from 'react-google-recaptcha'
-
 import './Login.css'
 import {
   applyThemePreference,
@@ -9,6 +7,11 @@ import {
   type ResolvedTheme,
   type ThemePreference
 } from '../lib/theme'
+import {
+  ensureRecaptchaLoaded,
+  executeRecaptchaAction,
+  getRecaptchaSiteKey
+} from '../lib/recaptcha'
 
 
 
@@ -110,10 +113,10 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
   const [theme, setTheme] = useState<Theme>(() => getStoredTheme())
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>('light')
 
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  const [captchaLoading, setCaptchaLoading] = useState(false)
   const captchaEnabled = import.meta.env.PROD
-  const recaptchaSiteKey = import.meta.env.VITE_REACT_APP_RECAPTCHA_SITE_KEY
-  const shouldRenderRecaptcha = captchaEnabled && Boolean(recaptchaSiteKey)
+  const [captchaReady, setCaptchaReady] = useState(!captchaEnabled)
+  const recaptchaSiteKey = getRecaptchaSiteKey()
   const devBypassToken = 'dev-bypass'
   const heroRef = useRef<HTMLDivElement | null>(null)
   const vantaRef = useRef<VantaGlobeEffect | null>(null)
@@ -159,6 +162,33 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
   useEffect(() => {
     resolvedThemeRef.current = resolvedTheme
   }, [resolvedTheme])
+
+  useEffect(() => {
+    if (!captchaEnabled) {
+      setCaptchaReady(true)
+      return
+    }
+
+    if (!recaptchaSiteKey) {
+      setCaptchaReady(false)
+      return
+    }
+
+    let mounted = true
+
+    ensureRecaptchaLoaded(recaptchaSiteKey)
+      .then(() => {
+        if (mounted) setCaptchaReady(true)
+      })
+      .catch((error) => {
+        console.error('Failed to initialize reCAPTCHA v3:', error)
+        if (mounted) setCaptchaReady(false)
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [captchaEnabled, recaptchaSiteKey])
 
   useEffect(() => {
     let cancelled = false
@@ -234,16 +264,28 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
 
 
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
 
     e.preventDefault()
 
-    if (captchaEnabled && (!recaptchaSiteKey || !captchaToken)) {
-      return; // CAPTCHA not completed
+    if (captchaEnabled) {
+      if (!recaptchaSiteKey || !captchaReady) {
+        return
+      }
+
+      try {
+        setCaptchaLoading(true)
+        const token = await executeRecaptchaAction(recaptchaSiteKey, 'admin_login')
+        onLogin(username, password, token)
+      } catch (error) {
+        console.error('Failed to execute reCAPTCHA v3:', error)
+      } finally {
+        setCaptchaLoading(false)
+      }
+      return
     }
 
-    const tokenToSend = captchaEnabled ? (captchaToken || undefined) : devBypassToken
-    onLogin(username, password, tokenToSend)
+    onLogin(username, password, devBypassToken)
 
   }
 
@@ -441,22 +483,11 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
 
 
 
-              <button type="submit" className="login-submit" disabled={loading || (captchaEnabled && (!recaptchaSiteKey || !captchaToken))}>
+              <button type="submit" className="login-submit" disabled={loading || captchaLoading || (captchaEnabled && (!recaptchaSiteKey || !captchaReady))}>
 
-                {loading ? 'Authenticating…' : 'Sign In'}
+                {(loading || captchaLoading) ? 'Authenticating...' : 'Sign In'}
 
               </button>
-
-              {shouldRenderRecaptcha && (
-                <div className="recaptcha-container" style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
-                  <ReCAPTCHA
-                    sitekey={recaptchaSiteKey!}
-                    onChange={(token: string | null) => setCaptchaToken(token)}
-                    onExpired={() => setCaptchaToken(null)}
-                    theme={theme === 'dark' ? 'dark' : 'light'}
-                  />
-                </div>
-              )}
 
             </form>
 
@@ -476,3 +507,4 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
   )
 
 }
+

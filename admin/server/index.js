@@ -482,6 +482,12 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
     const recaptchaExplicitlyEnabled = String(process.env.RECAPTCHA_ENABLED || '').toLowerCase() === 'true'
     const requireRecaptcha = isProduction || recaptchaExplicitlyEnabled
     const devBypassToken = 'dev-bypass'
+    const recaptchaMinScoreRaw = Number(process.env.RECAPTCHA_MIN_SCORE || 0.5)
+    const recaptchaMinScore = Number.isFinite(recaptchaMinScoreRaw) ? recaptchaMinScoreRaw : 0.5
+    const allowedRecaptchaActions = String(process.env.RECAPTCHA_ALLOWED_ACTIONS || 'admin_login,registrar_login,login')
+      .split(',')
+      .map(action => action.trim())
+      .filter(Boolean)
 
     if (requireRecaptcha) {
       if (!captchaToken) {
@@ -521,6 +527,21 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
 
         if (!recaptchaResponse.data?.success) {
           return res.status(400).json({ error: 'reCAPTCHA verification failed. Please try again.' })
+        }
+
+        const recaptchaScore = recaptchaResponse.data?.score
+        const recaptchaAction = String(recaptchaResponse.data?.action || '').trim()
+
+        if (typeof recaptchaScore !== 'number') {
+          return res.status(400).json({ error: 'Invalid reCAPTCHA token type. Expected v3 token.' })
+        }
+
+        if (recaptchaScore < recaptchaMinScore) {
+          return res.status(400).json({ error: 'reCAPTCHA score too low. Please try again.' })
+        }
+
+        if (!recaptchaAction || !allowedRecaptchaActions.includes(recaptchaAction)) {
+          return res.status(400).json({ error: 'Invalid reCAPTCHA action.' })
         }
       } catch (recaptchaError) {
         console.error('reCAPTCHA verification error:', recaptchaError.message)
