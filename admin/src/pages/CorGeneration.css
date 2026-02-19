@@ -154,6 +154,28 @@
   gap: 0.6rem;
   max-height: 62vh;
   overflow: auto;
+  padding-right: 0.25rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.5) rgba(148, 163, 184, 0.16);
+}
+
+.cor-block-grid::-webkit-scrollbar {
+  width: 10px;
+}
+
+.cor-block-grid::-webkit-scrollbar-track {
+  background: rgba(148, 163, 184, 0.16);
+  border-radius: 999px;
+}
+
+.cor-block-grid::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.55);
+  border-radius: 999px;
+  border: 2px solid rgba(148, 163, 184, 0.16);
+}
+
+.cor-block-grid::-webkit-scrollbar-thumb:hover {
+  background: rgba(71, 85, 105, 0.75);
 }
 
 .cor-block-card {
@@ -258,14 +280,35 @@
 }
 
 .student-name {
-  color: var(--text-primary);
+  color: var(--color-text-bold, var(--text-primary));
   font-weight: 600;
 }
 
 .student-number {
-  color: var(--text-secondary);
+  color: var(--color-text-secondary, var(--text-secondary));
   font-size: 0.75rem;
   margin-top: 0.2rem;
+}
+
+[data-theme="dark"] .student-name {
+  color: var(--color-text-bold, #ffffff);
+}
+
+[data-theme="dark"] .cor-block-grid {
+  scrollbar-color: rgba(148, 163, 184, 0.45) rgba(15, 23, 42, 0.45);
+}
+
+[data-theme="dark"] .cor-block-grid::-webkit-scrollbar-track {
+  background: rgba(51, 65, 85, 0.55);
+}
+
+[data-theme="dark"] .cor-block-grid::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.5);
+  border-color: rgba(15, 23, 42, 0.82);
+}
+
+[data-theme="dark"] .cor-block-grid::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.72);
 }
 
 .cor-pill {
