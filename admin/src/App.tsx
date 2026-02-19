@@ -21,7 +21,8 @@ const isAuthSessionError = (message: string): boolean => {
     normalized.includes('unauthorized') ||
     normalized.includes('authentication failed') ||
     normalized.includes('session was ended') ||
-    normalized.includes('session revoked')
+    normalized.includes('session revoked') ||
+    normalized.includes('ip address is blocked')
   )
 }
 
@@ -118,7 +119,7 @@ function App() {
           setLoginError(message)
         }
       })()
-    }, 30000)
+    }, 10000)
 
     return () => {
       cancelled = true

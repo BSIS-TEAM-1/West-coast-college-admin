@@ -8,7 +8,8 @@ const auditLogSchema = new mongoose.Schema({
       'CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'LOGOUT', 
       'VIEW', 'EXPORT', 'UPLOAD', 'DOWNLOAD', 'APPROVE', 
       'REJECT', 'ARCHIVE', 'RESTORE', 'BAN', 'UNBAN',
-      'SECURITY_SCAN', 'SECURITY_HEADERS_SCAN'
+      'SECURITY_SCAN', 'SECURITY_HEADERS_SCAN',
+      'BLOCK_IP', 'UNBLOCK_IP'
     ]
   },
   resourceType: {
