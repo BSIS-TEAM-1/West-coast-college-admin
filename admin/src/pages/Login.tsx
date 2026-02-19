@@ -3,12 +3,16 @@ import React, { useState, useEffect, useRef } from 'react'
 import ReCAPTCHA from 'react-google-recaptcha'
 
 import './Login.css'
+import {
+  applyThemePreference,
+  getStoredTheme,
+  type ResolvedTheme,
+  type ThemePreference
+} from '../lib/theme'
 
 
 
-type Theme = 'light' | 'dark' | 'auto'
-
-type ResolvedTheme = 'light' | 'dark'
+type Theme = ThemePreference
 
 type VantaThemeOptions = {
   backgroundColor: number
@@ -103,72 +107,52 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
 
   const [password, setPassword] = useState('')
 
-  const [theme, setTheme] = useState<Theme>('auto')
+  const [theme, setTheme] = useState<Theme>(() => getStoredTheme())
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>('light')
 
   const [captchaToken, setCaptchaToken] = useState<string | null>(null)
-  const captchaEnabled = String(import.meta.env.VITE_CAPTCHA_ENABLED || '').toLowerCase() === 'true'
+  const captchaEnabled = import.meta.env.PROD
+  const recaptchaSiteKey = import.meta.env.VITE_REACT_APP_RECAPTCHA_SITE_KEY
+  const shouldRenderRecaptcha = captchaEnabled && Boolean(recaptchaSiteKey)
+  const devBypassToken = 'dev-bypass'
   const heroRef = useRef<HTMLDivElement | null>(null)
   const vantaRef = useRef<VantaGlobeEffect | null>(null)
   const resolvedThemeRef = useRef<ResolvedTheme>('light')
+  const hasInitializedTheme = useRef(false)
 
 
-
-  useEffect(() => {
-
-    const storedTheme = localStorage.getItem('theme')
-
-    if (storedTheme) {
-
-      setTheme(storedTheme as Theme)
-
-    }
-
-  }, [])
 
   useEffect(() => {
 
     const applyTheme = (newTheme: Theme): ResolvedTheme => {
-
-      const root = document.documentElement;
-      const computedTheme: ResolvedTheme =
-        newTheme === 'auto'
-          ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-          : newTheme
-
-      
-
-      root.setAttribute('data-theme', computedTheme);
+      const computedTheme = applyThemePreference(newTheme, { animate: hasInitializedTheme.current })
+      hasInitializedTheme.current = true
       setResolvedTheme(computedTheme)
-
-      
-
-      localStorage.setItem('theme', newTheme);
       return computedTheme
 
-    };
+    }
 
     
 
-    applyTheme(theme);
+    applyTheme(theme)
 
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
 
     const handleChange = () => {
 
       if (theme === 'auto') {
 
-        applyTheme('auto');
+        applyTheme('auto')
 
       }
 
-    };
+    }
 
 
 
-    mediaQuery.addEventListener('change', handleChange);
+    mediaQuery.addEventListener('change', handleChange)
 
-    return () => mediaQuery.removeEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange)
 
   }, [theme])
 
@@ -254,11 +238,12 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
 
     e.preventDefault()
 
-    if (captchaEnabled && !captchaToken) {
+    if (captchaEnabled && (!recaptchaSiteKey || !captchaToken)) {
       return; // CAPTCHA not completed
     }
 
-    onLogin(username, password, captchaToken || undefined)
+    const tokenToSend = captchaEnabled ? (captchaToken || undefined) : devBypassToken
+    onLogin(username, password, tokenToSend)
 
   }
 
@@ -454,16 +439,16 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
 
 
 
-              <button type="submit" className="login-submit" disabled={loading || (captchaEnabled && !captchaToken)}>
+              <button type="submit" className="login-submit" disabled={loading || (captchaEnabled && (!recaptchaSiteKey || !captchaToken))}>
 
                 {loading ? 'Authenticating…' : 'Sign In'}
 
               </button>
 
-              {captchaEnabled && (
+              {shouldRenderRecaptcha && (
                 <div className="recaptcha-container" style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
                   <ReCAPTCHA
-                    sitekey={import.meta.env.VITE_REACT_APP_RECAPTCHA_SITE_KEY || '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI'}
+                    sitekey={recaptchaSiteKey!}
                     onChange={(token: string | null) => setCaptchaToken(token)}
                     onExpired={() => setCaptchaToken(null)}
                     theme={theme === 'dark' ? 'dark' : 'light'}
