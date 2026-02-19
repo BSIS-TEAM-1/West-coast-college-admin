@@ -40,9 +40,22 @@ const authTokenSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  deviceId: {
+    type: String,
+    default: null
+  },
   isActive: {
     type: Boolean,
     default: true
+  },
+  invalidationReason: {
+    type: String,
+    enum: ['manual_logout', 'new_ip_login', 'new_login', 'admin_revoke'],
+    default: null
+  },
+  invalidatedAt: {
+    type: Date,
+    default: null
   }
 }, {
   timestamps: true

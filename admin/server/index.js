@@ -51,7 +51,8 @@ const JWT_SECRET = process.env.JWT_SECRET || 'wcc-admin-dev-secret-change-in-pro
 app.disable('x-powered-by')
 
 // Trust reverse proxy so req.ip/x-forwarded-for can reflect real client IP in production.
-if (String(process.env.TRUST_PROXY || '').trim() === 'true') {
+const TRUST_PROXY_ENABLED = String(process.env.TRUST_PROXY || '').trim() === 'true'
+if (TRUST_PROXY_ENABLED) {
   app.set('trust proxy', 1)
 }
 
@@ -82,11 +83,69 @@ const apiLimiter = rateLimit({
 // Apply relaxed limiter to all API routes
 app.use('/api/', apiLimiter)
 
-// Failed password attempt tracking (IP-based escalating lockout)
+// Failed password attempt tracking (multi-factor escalating lockout)
 const MAX_FAILED_LOGIN_ATTEMPTS = Number(process.env.MAX_FAILED_LOGIN_ATTEMPTS || 5)
 const LOGIN_LOCKOUT_STEPS_MS = [1 * 60 * 1000, 5 * 60 * 1000, 10 * 60 * 1000]
+const LOGIN_ATTEMPT_STATE_TTL_MS = Number(process.env.LOGIN_ATTEMPT_STATE_TTL_MS || 12 * 60 * 60 * 1000)
+const MAX_LOGIN_ATTEMPT_ENTRIES = Number(process.env.MAX_LOGIN_ATTEMPT_ENTRIES || 10000)
 const loginAttemptStateByIp = new Map()
+const loginAttemptStateByUsername = new Map()
+const loginAttemptStateByDevice = new Map()
 let systemAuditActorIdCache = null
+
+const createDefaultLoginAttemptState = (now = Date.now()) => ({
+  failedAttempts: 0,
+  lockoutStep: 0,
+  lockoutCount: 0,
+  lockoutUntil: 0,
+  lastAttemptAt: now
+})
+
+const getLoginAttemptState = (store, key, now = Date.now()) => {
+  const existing = store.get(key)
+  if (!existing) {
+    return createDefaultLoginAttemptState(now)
+  }
+
+  const lockoutUntil = Number(existing.lockoutUntil || 0)
+  const lastAttemptAt = Number(existing.lastAttemptAt || 0)
+
+  if (lockoutUntil <= now && lastAttemptAt > 0 && now - lastAttemptAt > LOGIN_ATTEMPT_STATE_TTL_MS) {
+    store.delete(key)
+    return createDefaultLoginAttemptState(now)
+  }
+
+  return {
+    failedAttempts: Number(existing.failedAttempts || 0),
+    lockoutStep: Number(existing.lockoutStep || 0),
+    lockoutCount: Number(existing.lockoutCount || 0),
+    lockoutUntil,
+    lastAttemptAt: lastAttemptAt || now
+  }
+}
+
+const setLoginAttemptState = (store, key, state, now = Date.now()) => {
+  store.set(key, { ...state, lastAttemptAt: now })
+
+  if (store.size <= MAX_LOGIN_ATTEMPT_ENTRIES) {
+    return
+  }
+
+  let oldestKey = null
+  let oldestTimestamp = Number.POSITIVE_INFINITY
+
+  for (const [entryKey, entryState] of store.entries()) {
+    const entryTimestamp = Number(entryState?.lastAttemptAt || 0)
+    if (entryTimestamp < oldestTimestamp) {
+      oldestTimestamp = entryTimestamp
+      oldestKey = entryKey
+    }
+  }
+
+  if (oldestKey !== null) {
+    store.delete(oldestKey)
+  }
+}
 
 // Security middleware to block sensitive paths
 app.use((req, res, next) => {
@@ -136,14 +195,36 @@ async function authMiddleware(req, res, next) {
   }
   
   try {
-    // Find token in MongoDB
-    const authToken = await AuthToken.findOne({ 
-      token, 
-      isActive: true,
-      expiresAt: { $gt: new Date() }
-    }).populate('adminId')
+    const clientIp = getClientIpAddress(req)
+    const blockedIpRecord = await findActiveBlockedIp(clientIp)
+    if (blockedIpRecord) {
+      return res.status(403).json({
+        error: 'Access denied. This IP address is blocked.',
+        code: 'IP_BLOCKED',
+        reason: blockedIpRecord.reason,
+        blockedUntil: blockedIpRecord.expiresAt
+      })
+    }
+
+    // Find token in MongoDB (including inactive to return better session-revoked reason).
+    const authToken = await AuthToken.findOne({ token }).populate('adminId')
     
     if (!authToken) {
+      return res.status(401).json({ error: 'Invalid or expired token.' })
+    }
+
+    if (!authToken.isActive) {
+      if (authToken.invalidationReason === 'new_ip_login') {
+        return res.status(401).json({
+          error: 'Your session was ended because this account signed in from a different IP address.',
+          code: 'SESSION_REVOKED_IP_CHANGE'
+        })
+      }
+
+      return res.status(401).json({ error: 'Invalid or expired token.' })
+    }
+
+    if (authToken.expiresAt && new Date(authToken.expiresAt) <= new Date()) {
       return res.status(401).json({ error: 'Invalid or expired token.' })
     }
     
@@ -359,37 +440,20 @@ app.get('/api/health', (req, res) => {
 })
 
 /**
- * Extracts the real client IP address from HTTP request headers and socket information.
+ * Resolve client IP using Express' trusted `req.ip` and socket fallback.
  *
- * This function implements a comprehensive fallback chain to handle various proxy configurations:
- * 1. Cloudflare headers (cf-connecting-ip, true-client-ip)
- * 2. Standard proxy headers (x-forwarded-for, x-real-ip)
- * 3. Express request IP (req.ip)
- * 4. Direct socket connection (socket.remoteAddress, connection.remoteAddress)
- *
- * The x-forwarded-for header is specially handled by taking only the first IP
- * in the comma-separated list (which should be the original client IP).
- *
- * IPv6 addresses are normalized:
- * - Localhost (::1) is converted to 127.0.0.1
- * - IPv4-mapped IPv6 (::ffff:x.x.x.x) is converted to plain IPv4
+ * Forwarding headers can be spoofed by clients unless they are processed by
+ * trusted upstream proxies. This implementation relies on `req.ip`, which is
+ * only proxy-aware when `TRUST_PROXY=true` is enabled at startup.
  *
  * @param {Object} req - Express request object
  * @returns {string} Client IP address or 'unknown' if none found
  */
 function getClientIpAddress(req) {
-  // Extract IP from various proxy headers with fallbacks
-  const forwardedFor = String(req.headers['x-forwarded-for'] || '').trim()
-  const cfConnectingIp = String(req.headers['cf-connecting-ip'] || '').trim()
-  const trueClientIp = String(req.headers['true-client-ip'] || '').trim()
-  const realIp = String(req.headers['x-real-ip'] || '').trim()
   const socketIp = String(req.socket?.remoteAddress || req.connection?.remoteAddress || '').trim()
   const requestIp = String(req.ip || '').trim()
 
-  // Priority: Cloudflare > True Client IP > Forwarded For (first IP) > Real IP > Express IP > Socket IP
-  const candidate = cfConnectingIp ||
-                   trueClientIp ||
-                   (forwardedFor ? forwardedFor.split(',')[0].trim() : (realIp || requestIp || socketIp || ''))
+  const candidate = requestIp || socketIp
 
   if (!candidate) return 'unknown'
 
@@ -397,6 +461,17 @@ function getClientIpAddress(req) {
   if (candidate === '::1') return '127.0.0.1'
   if (candidate.startsWith('::ffff:')) return candidate.replace('::ffff:', '')
   return candidate
+}
+
+async function findActiveBlockedIp(ipAddress) {
+  const normalizedIp = String(ipAddress || '').trim()
+  if (!normalizedIp || normalizedIp === 'unknown') return null
+
+  return BlockedIP.findOne({
+    ipAddress: normalizedIp,
+    isActive: true,
+    expiresAt: { $gt: new Date() }
+  })
 }
 
 // POST /api/admin/signup
@@ -444,35 +519,99 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
       ipAddress: clientIp,
       deviceId: deviceId || null
     }
-    const now = Date.now()
-    const currentState = loginAttemptStateByIp.get(clientIp) || {
-      failedAttempts: 0,
-      lockoutStep: 0,
-      lockoutUntil: 0
-    }
+    const blockedIpRecord = await findActiveBlockedIp(clientIp)
+    if (blockedIpRecord) {
+      await BlockedIP.findByIdAndUpdate(blockedIpRecord._id, {
+        $inc: { attemptCount: 1 },
+        $set: { lastAttemptAt: new Date() }
+      })
 
-    if (Number(currentState.lockoutUntil) > now) {
-      const remainingMs = Number(currentState.lockoutUntil) - now
-      const remainingSeconds = Math.max(1, Math.ceil(remainingMs / 1000))
       await logAudit(
         'LOGIN',
         'SECURITY',
         clientIp,
         normalizedUsername || 'unknown',
-        `Blocked login attempt from locked IP ${clientIp}. Remaining lockout: ${remainingSeconds} second(s).`,
+        `Blocked login attempt from blocked IP ${clientIp}.`,
         null,
         'admin',
         null,
         {
           ...loginMeta,
-          remainingSeconds,
-          lockoutUntil: new Date(Number(currentState.lockoutUntil)).toISOString()
+          blockedUntil: blockedIpRecord.expiresAt,
+          reason: blockedIpRecord.reason
         },
         'FAILED',
         'HIGH',
         clientIp,
         userAgent
       )
+
+      return res.status(403).json({
+        error: 'Access denied. This IP address is blocked.',
+        code: 'IP_BLOCKED',
+        reason: blockedIpRecord.reason,
+        blockedUntil: blockedIpRecord.expiresAt
+      })
+    }
+
+    const now = Date.now()
+    const lockoutFactors = [
+      {
+        label: 'ip',
+        key: clientIp !== 'unknown' ? clientIp : '',
+        store: loginAttemptStateByIp
+      },
+      {
+        label: 'username',
+        key: normalizedUsername,
+        store: loginAttemptStateByUsername
+      },
+      {
+        label: 'device',
+        key: deviceId,
+        store: loginAttemptStateByDevice
+      }
+    ].filter((factor) => Boolean(factor.key))
+
+    const activeLockouts = lockoutFactors
+      .map((factor) => ({
+        ...factor,
+        state: getLoginAttemptState(factor.store, factor.key, now)
+      }))
+      .filter((factor) => Number(factor.state.lockoutUntil) > now)
+
+    if (activeLockouts.length > 0) {
+      const latestLockoutUntil = activeLockouts.reduce(
+        (max, factor) => Math.max(max, Number(factor.state.lockoutUntil)),
+        0
+      )
+      const remainingMs = latestLockoutUntil - now
+      const remainingSeconds = Math.max(1, Math.ceil(remainingMs / 1000))
+      const lockedBy = activeLockouts.map((factor) => factor.label)
+      const lockoutDescription = lockedBy.length === 1 && lockedBy[0] === 'ip'
+        ? `Blocked login attempt from locked IP ${clientIp}. Remaining lockout: ${remainingSeconds} second(s).`
+        : `Blocked login attempt due to active login lockout (${lockedBy.join(', ')}). Remaining lockout: ${remainingSeconds} second(s).`
+      await logAudit(
+        'LOGIN',
+        'SECURITY',
+        clientIp,
+        normalizedUsername || 'unknown',
+        lockoutDescription,
+        null,
+        'admin',
+        null,
+        {
+          ...loginMeta,
+          lockoutFactors: lockedBy,
+          remainingSeconds,
+          lockoutUntil: new Date(latestLockoutUntil).toISOString()
+        },
+        'FAILED',
+        'HIGH',
+        clientIp,
+        userAgent
+      )
+
       return res.status(429).json({
         error: `Too many failed login attempts. Please try again in ${remainingSeconds} second(s).`
       })
@@ -551,57 +690,75 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
       return res.status(400).json({ error: 'Invalid CAPTCHA bypass token for non-production environment.' })
     }
 
-    /**
-     * Handles failed login attempts with escalating lockout mechanism.
-     *
-     * Implements a progressive lockout system to prevent brute force attacks:
-     * - Tracks failed attempts per IP address in memory (loginAttemptStateByIp)
-     * - After MAX_FAILED_LOGIN_ATTEMPTS failures, triggers escalating lockout
-     * - Lockout duration increases with each violation (LOGIN_LOCKOUT_STEPS_MS)
-     * - Lockout steps: [1min, 5min, 10min] - repeats at maximum duration
-     * - Successful login resets the attempt counter and removes lockout
-     *
-     * State structure: { failedAttempts: number, lockoutStep: number, lockoutUntil: timestamp }
-     *
-     * @returns {Object} Attempt result with lockout status and metadata
-     */
+    // Register one failed login attempt across all available lockout factors.
     const registerFailedAttempt = () => {
-      const nextFailedAttempts = Number(currentState.failedAttempts || 0) + 1
+      const factorResults = lockoutFactors.map((factor) => {
+        const currentState = getLoginAttemptState(factor.store, factor.key, now)
+        const nextFailedAttempts = Number(currentState.failedAttempts || 0) + 1
 
-      // Check if we've reached the threshold for lockout
-      if (nextFailedAttempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
-        // Determine lockout duration using escalating steps
-        const lockoutStep = Math.min(Number(currentState.lockoutStep || 0), LOGIN_LOCKOUT_STEPS_MS.length - 1)
-        const lockoutDurationMs = LOGIN_LOCKOUT_STEPS_MS[lockoutStep]
-        const lockoutUntil = now + lockoutDurationMs
+        if (nextFailedAttempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
+          const lockoutStep = Math.min(Number(currentState.lockoutStep || 0), LOGIN_LOCKOUT_STEPS_MS.length - 1)
+          const lockoutDurationMs = LOGIN_LOCKOUT_STEPS_MS[lockoutStep]
+          const lockoutUntil = now + lockoutDurationMs
+          const nextLockoutCount = Number(currentState.lockoutCount || 0) + 1
 
-        // Update state: reset attempts, increment lockout step, set lockout end time
-        loginAttemptStateByIp.set(clientIp, {
-          failedAttempts: 0, // Reset counter after lockout
-          lockoutStep: Math.min(lockoutStep + 1, LOGIN_LOCKOUT_STEPS_MS.length - 1), // Escalate step
-          lockoutUntil
-        })
+          setLoginAttemptState(
+            factor.store,
+            factor.key,
+            {
+              failedAttempts: 0,
+              lockoutStep: Math.min(lockoutStep + 1, LOGIN_LOCKOUT_STEPS_MS.length - 1),
+              lockoutCount: nextLockoutCount,
+              lockoutUntil
+            },
+            now
+          )
 
-        return {
-          lockoutTriggered: true,
-          nextFailedAttempts,
-          lockoutDurationMs,
-          lockoutUntil
+          return {
+            label: factor.label,
+            lockoutTriggered: true,
+            lockoutDurationMs,
+            lockoutUntil,
+            lockoutCount: nextLockoutCount
+          }
         }
-      } else {
-        // Below threshold: just increment attempt counter
-        loginAttemptStateByIp.set(clientIp, {
-          failedAttempts: nextFailedAttempts,
-          lockoutStep: Number(currentState.lockoutStep || 0), // Keep current step
-          lockoutUntil: 0 // No lockout active
-        })
+
+        setLoginAttemptState(
+          factor.store,
+          factor.key,
+          {
+            failedAttempts: nextFailedAttempts,
+            lockoutStep: Number(currentState.lockoutStep || 0),
+            lockoutCount: Number(currentState.lockoutCount || 0),
+            lockoutUntil: 0
+          },
+          now
+        )
 
         return {
+          label: factor.label,
           lockoutTriggered: false,
-          nextFailedAttempts,
           lockoutDurationMs: 0,
-          lockoutUntil: 0
+          lockoutUntil: 0,
+          lockoutCount: Number(currentState.lockoutCount || 0)
         }
+      })
+
+      const triggeredLockouts = factorResults.filter((result) => result.lockoutTriggered)
+      const highestLockoutDurationMs = triggeredLockouts.reduce(
+        (max, result) => Math.max(max, Number(result.lockoutDurationMs || 0)),
+        0
+      )
+      const latestLockoutUntil = triggeredLockouts.reduce(
+        (max, result) => Math.max(max, Number(result.lockoutUntil || 0)),
+        0
+      )
+
+      return {
+        lockoutTriggered: triggeredLockouts.length > 0,
+        triggeredLockouts,
+        highestLockoutDurationMs,
+        latestLockoutUntil
       }
     }
 
@@ -609,19 +766,21 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
     if (!admin) {
       const attemptResult = registerFailedAttempt()
       if (attemptResult.lockoutTriggered) {
+        const lockoutLabels = attemptResult.triggeredLockouts.map((item) => item.label)
         await logAudit(
           'LOGIN',
           'SECURITY',
           clientIp,
           normalizedUsername || 'unknown',
-          `IP ${clientIp} locked after ${MAX_FAILED_LOGIN_ATTEMPTS} failed login attempts. Lockout ${Math.ceil(attemptResult.lockoutDurationMs / 60000)} minute(s).`,
+          `Login lockout triggered (${lockoutLabels.join(', ')}) after ${MAX_FAILED_LOGIN_ATTEMPTS} failed login attempts. Lockout ${Math.ceil(attemptResult.highestLockoutDurationMs / 60000)} minute(s).`,
           null,
           'admin',
           null,
           {
             ...loginMeta,
-            lockoutUntil: new Date(attemptResult.lockoutUntil).toISOString(),
-            lockoutMinutes: Math.ceil(attemptResult.lockoutDurationMs / 60000)
+            lockoutFactors: lockoutLabels,
+            lockoutUntil: new Date(attemptResult.latestLockoutUntil).toISOString(),
+            lockoutMinutes: Math.ceil(attemptResult.highestLockoutDurationMs / 60000)
           },
           'FAILED',
           'CRITICAL',
@@ -645,6 +804,7 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
         clientIp,
         userAgent
       )
+
       return res.status(401).json({ error: 'Invalid username or password.' })
     }
 
@@ -652,19 +812,21 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
     if (!match) {
       const attemptResult = registerFailedAttempt()
       if (attemptResult.lockoutTriggered) {
+        const lockoutLabels = attemptResult.triggeredLockouts.map((item) => item.label)
         await logAudit(
           'LOGIN',
           'SECURITY',
           clientIp,
           admin.username,
-          `IP ${clientIp} locked after ${MAX_FAILED_LOGIN_ATTEMPTS} failed login attempts. Lockout ${Math.ceil(attemptResult.lockoutDurationMs / 60000)} minute(s).`,
+          `Login lockout triggered (${lockoutLabels.join(', ')}) after ${MAX_FAILED_LOGIN_ATTEMPTS} failed login attempts. Lockout ${Math.ceil(attemptResult.highestLockoutDurationMs / 60000)} minute(s).`,
           admin._id.toString(),
           admin.accountType,
           null,
           {
             ...loginMeta,
-            lockoutUntil: new Date(attemptResult.lockoutUntil).toISOString(),
-            lockoutMinutes: Math.ceil(attemptResult.lockoutDurationMs / 60000)
+            lockoutFactors: lockoutLabels,
+            lockoutUntil: new Date(attemptResult.latestLockoutUntil).toISOString(),
+            lockoutMinutes: Math.ceil(attemptResult.highestLockoutDurationMs / 60000)
           },
           'FAILED',
           'CRITICAL',
@@ -688,11 +850,14 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
         clientIp,
         userAgent
       )
+
       return res.status(401).json({ error: 'Invalid username or password.' })
     }
 
-    // Successful login resets IP attempt/lockout state
-    loginAttemptStateByIp.delete(clientIp)
+    // Successful login resets all attempt/lockout factors related to this login.
+    lockoutFactors.forEach((factor) => {
+      factor.store.delete(factor.key)
+    })
 
     // Allow registrar login but include account type in response for routing
     console.log('Login - admin.accountType:', admin.accountType, 'typeof:', typeof admin.accountType)
@@ -702,7 +867,7 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
     const token = crypto.randomBytes(32).toString('hex')
     
     // Store token in MongoDB
-    const authToken = await AuthToken.create({
+    await AuthToken.create({
       token,
       adminId: admin._id,
       username: admin.username,
@@ -711,6 +876,27 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
       userAgent,
       deviceId: deviceId || undefined
     })
+
+    let revokedSessionsFromOtherIps = 0
+    if (clientIp && clientIp !== 'unknown') {
+      const revokeResult = await AuthToken.updateMany(
+        {
+          adminId: admin._id,
+          isActive: true,
+          token: { $ne: token },
+          ipAddress: { $ne: clientIp }
+        },
+        {
+          $set: {
+            isActive: false,
+            invalidationReason: 'new_ip_login',
+            invalidatedAt: new Date()
+          }
+        }
+      )
+
+      revokedSessionsFromOtherIps = Number(revokeResult.modifiedCount || 0)
+    }
     
     const loginResponse = { 
       message: 'OK', 
@@ -737,6 +923,27 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
       userAgent
     )
 
+    if (revokedSessionsFromOtherIps > 0) {
+      await logAudit(
+        'LOGOUT',
+        'SECURITY',
+        admin._id.toString(),
+        admin.username,
+        `Revoked ${revokedSessionsFromOtherIps} previous session(s) after login from IP ${clientIp}.`,
+        admin._id.toString(),
+        admin.accountType,
+        null,
+        {
+          ...loginMeta,
+          revokedSessionsFromOtherIps
+        },
+        'SUCCESS',
+        'MEDIUM',
+        clientIp,
+        userAgent
+      )
+    }
+
     res.json(loginResponse)
   } catch (err) {
     console.error('Login error:', err.message)
@@ -749,7 +956,11 @@ app.post('/api/admin/logout', authMiddleware, async (req, res) => {
   try {
     // Deactivate the token if it exists
     if (req.tokenId) {
-      await AuthToken.findByIdAndUpdate(req.tokenId, { isActive: false })
+      await AuthToken.findByIdAndUpdate(req.tokenId, {
+        isActive: false,
+        invalidationReason: 'manual_logout',
+        invalidatedAt: new Date()
+      })
     }
     
     // Log the logout action
@@ -2679,7 +2890,10 @@ app.get('/api/admin/blocked-ips', authMiddleware, async (req, res) => {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
-    const blockedIPs = await BlockedIP.find({ isActive: true })
+    const blockedIPs = await BlockedIP.find({
+      isActive: true,
+      expiresAt: { $gt: new Date() }
+    })
       .populate('blockedBy', 'username')
       .sort({ blockedAt: -1 })
       .lean()
@@ -2950,22 +3164,51 @@ app.post('/api/admin/blocked-ips', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Invalid IP address format.' })
     }
     
-    // Check if IP is already blocked
-    const existing = await BlockedIP.findOne({ ipAddress, isActive: true })
-    if (existing) {
+    const nextExpiry = expiresAt ? new Date(expiresAt) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    let blockedIP = await BlockedIP.findOne({ ipAddress })
+
+    if (blockedIP && blockedIP.isActive && new Date(blockedIP.expiresAt) > new Date()) {
       return res.status(409).json({ error: 'IP address is already blocked.' })
     }
-    
-    const blockedIP = new BlockedIP({
-      ipAddress,
-      reason,
-      severity: severity || 'medium',
-      blockedBy: req.adminId,
-      expiresAt: expiresAt ? new Date(expiresAt) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      notes: notes || ''
-    })
-    
-    await blockedIP.save()
+
+    if (blockedIP) {
+      blockedIP.reason = reason
+      blockedIP.severity = severity || 'medium'
+      blockedIP.blockedBy = req.adminId
+      blockedIP.blockedAt = new Date()
+      blockedIP.expiresAt = nextExpiry
+      blockedIP.isActive = true
+      blockedIP.notes = notes || ''
+      blockedIP.attemptCount = 0
+      blockedIP.lastAttemptAt = null
+      await blockedIP.save()
+    } else {
+      blockedIP = new BlockedIP({
+        ipAddress,
+        reason,
+        severity: severity || 'medium',
+        blockedBy: req.adminId,
+        expiresAt: nextExpiry,
+        notes: notes || ''
+      })
+
+      await blockedIP.save()
+    }
+
+    const revokeResult = await AuthToken.updateMany(
+      {
+        isActive: true,
+        ipAddress
+      },
+      {
+        $set: {
+          isActive: false,
+          invalidationReason: 'admin_revoke',
+          invalidatedAt: new Date()
+        }
+      }
+    )
+    const revokedSessions = Number(revokeResult.modifiedCount || 0)
     
     // Log the action
     await logAudit(
@@ -2977,14 +3220,18 @@ app.post('/api/admin/blocked-ips', authMiddleware, async (req, res) => {
       req.adminId,
       req.accountType,
       null,
-      auditObject(blockedIP, 'SECURITY'),
+      {
+        ...auditObject(blockedIP, 'SECURITY'),
+        revokedSessions
+      },
       'SUCCESS',
       'HIGH'
     )
     
     res.status(201).json({ 
       message: 'IP address blocked successfully.',
-      blockedIP
+      blockedIP,
+      revokedSessions
     })
   } catch (error) {
     console.error('Block IP error:', error)
@@ -3024,6 +3271,50 @@ app.delete('/api/admin/blocked-ips/:id', authMiddleware, async (req, res) => {
     res.json({ message: 'IP address unblocked successfully.' })
   } catch (error) {
     console.error('Unblock IP error:', error)
+    res.status(500).json({ error: 'Failed to unblock IP address.' })
+  }
+})
+
+// DELETE /api/admin/blocked-ips/by-ip/:ipAddress - unblock by IP address (appeal flow)
+app.delete('/api/admin/blocked-ips/by-ip/:ipAddress', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const ipAddress = String(req.params.ipAddress || '').trim()
+    if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(ipAddress)) {
+      return res.status(400).json({ error: 'Invalid IP address format.' })
+    }
+
+    const blockedIP = await BlockedIP.findOne({
+      ipAddress,
+      isActive: true
+    })
+
+    if (!blockedIP) {
+      return res.status(404).json({ error: 'Blocked IP not found.' })
+    }
+    
+    blockedIP.isActive = false
+    await blockedIP.save()
+    
+    await logAudit(
+      'UNBLOCK_IP',
+      'SECURITY',
+      blockedIP._id.toString(),
+      blockedIP.ipAddress,
+      `Unblocked IP address by lookup: ${blockedIP.ipAddress}`,
+      req.adminId,
+      req.accountType,
+      auditObject(blockedIP, 'SECURITY'),
+      null,
+      'SUCCESS',
+      'MEDIUM'
+    )
+    
+    res.json({ message: 'IP address unblocked successfully.', ipAddress: blockedIP.ipAddress })
+  } catch (error) {
+    console.error('Unblock IP by address error:', error)
     res.status(500).json({ error: 'Failed to unblock IP address.' })
   }
 })
