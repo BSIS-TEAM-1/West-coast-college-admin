@@ -478,25 +478,56 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
       })
     }
 
-    const recaptchaEnabled = String(process.env.RECAPTCHA_ENABLED || '').toLowerCase() === 'true'
+    const isProduction = process.env.NODE_ENV === 'production'
+    const recaptchaExplicitlyEnabled = String(process.env.RECAPTCHA_ENABLED || '').toLowerCase() === 'true'
+    const requireRecaptcha = isProduction || recaptchaExplicitlyEnabled
+    const devBypassToken = 'dev-bypass'
 
-    if (recaptchaEnabled) {
+    if (requireRecaptcha) {
       if (!captchaToken) {
         return res.status(400).json({ error: 'reCAPTCHA verification required.' })
       }
 
-      const recaptchaSecret = process.env.RECAPTCHA_SECRET_KEY || '6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe'
-      const recaptchaVerifyUrl = `https://www.google.com/recaptcha/api/siteverify?secret=${recaptchaSecret}&response=${captchaToken}`
+      if (captchaToken === devBypassToken) {
+        return res.status(400).json({ error: 'Invalid reCAPTCHA token.' })
+      }
+
+      const recaptchaSecret = String(process.env.RECAPTCHA_SECRET_KEY || '').trim()
+      if (!recaptchaSecret) {
+        console.error('reCAPTCHA is required but RECAPTCHA_SECRET_KEY is not configured.')
+        return res.status(500).json({ error: 'CAPTCHA verification misconfigured.' })
+      }
 
       try {
-        const recaptchaResponse = await axios.post(recaptchaVerifyUrl)
-        if (!recaptchaResponse.data.success) {
+        const verifyPayload = new URLSearchParams({
+          secret: recaptchaSecret,
+          response: captchaToken
+        })
+
+        if (clientIp && clientIp !== 'unknown') {
+          verifyPayload.append('remoteip', clientIp)
+        }
+
+        const recaptchaResponse = await axios.post(
+          'https://www.google.com/recaptcha/api/siteverify',
+          verifyPayload.toString(),
+          {
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            timeout: 5000
+          }
+        )
+
+        if (!recaptchaResponse.data?.success) {
           return res.status(400).json({ error: 'reCAPTCHA verification failed. Please try again.' })
         }
       } catch (recaptchaError) {
         console.error('reCAPTCHA verification error:', recaptchaError.message)
         return res.status(500).json({ error: 'CAPTCHA verification service unavailable.' })
       }
+    } else if (captchaToken && captchaToken !== devBypassToken) {
+      return res.status(400).json({ error: 'Invalid CAPTCHA bypass token for non-production environment.' })
     }
 
     /**

@@ -2,9 +2,10 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { updateProfile, clearStoredToken } from '../lib/authApi';
 import type { ProfileResponse, UpdateProfileRequest } from '../lib/authApi';
 import { LogOut } from 'lucide-react';
+import { applyThemePreference, getStoredTheme, type ThemePreference } from '../lib/theme';
 import './Settings.css';
 
-type Theme = 'light' | 'dark' | 'auto';
+type Theme = ThemePreference;
 
 type SettingsProps = {
   onProfileUpdated?: (profile: ProfileResponse) => void;
@@ -27,16 +28,17 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
 
   // Load theme preference from localStorage on mount
   useEffect(() => {
-    const savedTheme = localStorage.getItem('theme') as Theme;
-    const initialTheme = savedTheme && ['light', 'dark', 'auto'].includes(savedTheme) ? savedTheme : 'auto';
+    const initialTheme = getStoredTheme();
     setTheme(initialTheme);
-    applyTheme(initialTheme);
+    applyThemePreference(initialTheme, { persist: false });
+  }, []);
 
+  useEffect(() => {
     // Listen for system preference changes when in auto mode
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleChange = () => {
       if (theme === 'auto') {
-        applyTheme('auto');
+        applyThemePreference('auto', { animate: true });
       }
     };
 
@@ -44,25 +46,10 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, [theme]);
 
-  // Apply theme changes
-  const applyTheme = (newTheme: Theme) => {
-    const root = document.documentElement;
-    
-    if (newTheme === 'auto') {
-      // Check system preference
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      root.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
-    } else {
-      root.setAttribute('data-theme', newTheme);
-    }
-    
-    localStorage.setItem('theme', newTheme);
-  };
-
   // Handle theme change
   const handleThemeChange = (newTheme: Theme) => {
     setTheme(newTheme);
-    applyTheme(newTheme);
+    applyThemePreference(newTheme, { animate: true });
   };
 
   // Helper to detect if the user has actually changed anything
