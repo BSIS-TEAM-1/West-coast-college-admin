@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect } from 'react'
-import { login as apiLogin, getStoredToken, setStoredToken, clearStoredToken, getProfile, logout } from './lib/authApi'
+import { useState, useCallback } from 'react'
+import { login as apiLogin, setStoredToken, getProfile, logout } from './lib/authApi'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import RegistrarDashboard from './pages/RegistrarDashboard'
@@ -11,27 +11,6 @@ function App() {
   const [user, setUser] = useState<{ username: string; accountType: string } | null>(null)
   const [loginError, setLoginError] = useState<string | undefined>(undefined)
   const [loginLoading, setLoginLoading] = useState(false)
-  const [authChecked, setAuthChecked] = useState(false)
-
-  useEffect(() => {
-    if (user || authChecked) return
-    const checkAuth = async () => {
-      try {
-        const token = await getStoredToken()
-        if (!token) {
-          setAuthChecked(true)
-          return
-        }
-        const profile = await getProfile()
-        setUser({ username: profile.username, accountType: profile.accountType })
-      } catch (error) {
-        await clearStoredToken()
-      } finally {
-        setAuthChecked(true)
-      }
-    }
-    checkAuth()
-  }, [user, authChecked])
 
   const handleLogin = useCallback(async (username: string, password: string, captchaToken?: string) => {
     setLoginError(undefined)
@@ -93,15 +72,6 @@ function App() {
         onLogout={handleLogout}
         onProfileUpdated={handleProfileUpdated}
       />
-    )
-  }
-
-  // Show loading spinner while checking auth state to prevent login flash
-  if (!authChecked) {
-    return (
-      <div className="app-loading">
-        <div className="app-loading-spinner" aria-label="Loading"></div>
-      </div>
     )
   }
 
