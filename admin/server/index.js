@@ -200,7 +200,7 @@ async function authMiddleware(req, res, next) {
   
   try {
     const clientIpCandidates = getClientIpCandidates(req)
-    const clientIp = clientIpCandidates[0] || 'unknown'
+    const clientIp = getClientIpAddress(req)
     const blockedIpRecord = await findActiveBlockedIp(clientIpCandidates)
     if (blockedIpRecord) {
       return res.status(403).json({
@@ -475,6 +475,45 @@ function isValidIpv4Address(ipAddress) {
   return IPV4_REGEX.test(normalizeIpv4AddressInput(ipAddress))
 }
 
+function isPrivateOrReservedIpv4(ipAddress) {
+  if (!isValidIpv4Address(ipAddress)) return true
+
+  const [a, b, c] = String(ipAddress).split('.').map((value) => Number(value))
+
+  // RFC1918 private ranges
+  if (a === 10) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  if (a === 192 && b === 168) return true
+
+  // Common non-public ranges and reserved blocks
+  if (a === 127) return true
+  if (a === 169 && b === 254) return true
+  if (a === 100 && b >= 64 && b <= 127) return true
+  if (a === 0) return true
+  if (a >= 224) return true
+  if (a === 192 && b === 0 && c === 2) return true
+  if (a === 198 && b === 51 && c === 100) return true
+  if (a === 203 && b === 0 && c === 113) return true
+  if (a === 198 && (b === 18 || b === 19)) return true
+
+  return false
+}
+
+function selectPreferredClientIp(candidates = []) {
+  const normalizedCandidates = Array.from(
+    new Set(
+      candidates
+        .map((value) => normalizeIpv4AddressInput(value))
+        .filter((value) => isValidIpv4Address(value))
+    )
+  )
+
+  if (normalizedCandidates.length === 0) return 'unknown'
+
+  const publicCandidate = normalizedCandidates.find((value) => !isPrivateOrReservedIpv4(value))
+  return publicCandidate || normalizedCandidates[0]
+}
+
 function getClientIpCandidates(req) {
   const candidates = []
 
@@ -511,7 +550,7 @@ function getClientIpCandidates(req) {
 
 function getClientIpAddress(req) {
   const candidates = getClientIpCandidates(req)
-  return candidates[0] || 'unknown'
+  return selectPreferredClientIp(candidates)
 }
 
 async function findActiveBlockedIp(ipAddress) {
@@ -572,7 +611,7 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
     const { username, password, captchaToken } = req.body
     const normalizedUsername = String(username || '').trim().toLowerCase()
     const clientIpCandidates = getClientIpCandidates(req)
-    const clientIp = clientIpCandidates[0] || 'unknown'
+    const clientIp = getClientIpAddress(req)
     const userAgent = req.get('User-Agent')
     const deviceId = String(req.get('x-device-id') || '').trim()
     const loginMeta = {
