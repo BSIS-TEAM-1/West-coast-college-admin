@@ -104,6 +104,19 @@ interface BlockedIPRecord {
   attemptCount?: number;
 }
 
+interface BlockedIpAuditRecord {
+  _id: string;
+  action: 'BLOCK_IP' | 'UNBLOCK_IP';
+  resourceName?: string;
+  description: string;
+  status: string;
+  createdAt: string;
+  performedBy?: {
+    username?: string;
+    displayName?: string;
+  };
+}
+
 const IPV4_REGEX = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
 
 const normalizeIpv4Input = (value: string): string => {
@@ -133,6 +146,8 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
   const [showBlockedIPs, setShowBlockedIPs] = useState(false);
   const [blockedIPs, setBlockedIPs] = useState<BlockedIPRecord[]>([]);
   const [blockedIPsLoading, setBlockedIPsLoading] = useState(false);
+  const [blockedIpAuditLogs, setBlockedIpAuditLogs] = useState<BlockedIpAuditRecord[]>([]);
+  const [blockedIpAuditLoading, setBlockedIpAuditLoading] = useState(false);
   const [newBlockIP, setNewBlockIP] = useState({ ipAddress: '', reason: '', severity: 'medium' });
   const [unblockIpAddress, setUnblockIpAddress] = useState('');
   const [unblockingIpId, setUnblockingIpId] = useState<string | null>(null);
@@ -383,6 +398,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
   const handleManageBlockedIPs = async () => {
     setShowBlockedIPs(true);
     setBlockedIPsLoading(true);
+    setBlockedIpAuditLoading(true);
     
     try {
       const token = await getStoredToken();
@@ -391,24 +407,45 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
         return;
       }
 
-      const response = await fetch(`${API_URL}/api/admin/blocked-ips`, {
+      const blockedIpsResponse = await fetch(`${API_URL}/api/admin/blocked-ips`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });
 
-      if (!response.ok) {
+      if (!blockedIpsResponse.ok) {
         throw new Error('Failed to fetch blocked IPs');
       }
 
-      const data = await response.json();
+      const data = await blockedIpsResponse.json();
       setBlockedIPs(data || []);
+
+      const blockedAuditResponse = await fetch(
+        `${API_URL}/api/admin/blocked-ips/logs?limit=200`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (!blockedAuditResponse.ok) {
+        console.error('Failed to fetch blocked IP audit logs');
+        setBlockedIpAuditLogs([]);
+      } else {
+        const blockedAuditData = await blockedAuditResponse.json();
+        const logs = Array.isArray(blockedAuditData.logs) ? blockedAuditData.logs : [];
+        setBlockedIpAuditLogs(logs);
+      }
     } catch (error) {
       console.error('Failed to fetch blocked IPs:', error);
       setError('Failed to load blocked IPs');
+      setBlockedIpAuditLogs([]);
     } finally {
       setBlockedIPsLoading(false);
+      setBlockedIpAuditLoading(false);
     }
   };
 
@@ -1332,6 +1369,70 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
                   </table>
                 </div>
               )}
+
+              <div style={{ marginTop: '1.5rem' }}>
+                <h3 style={{ marginTop: 0, marginBottom: '0.25rem', color: '#1e293b' }}>Blocked IP Logs</h3>
+                <p style={{ marginTop: 0, marginBottom: '0.75rem', color: '#64748b', fontSize: '0.875rem' }}>
+                  Separate from general audit logs. This section only shows BLOCK_IP and UNBLOCK_IP events.
+                </p>
+                {blockedIpAuditLoading ? (
+                  <div className="loading">Loading blocked IP audit logs...</div>
+                ) : blockedIpAuditLogs.length === 0 ? (
+                  <div className="no-logs" style={{ color: '#6b7280', padding: '1rem', textAlign: 'center' }}>
+                    No blocked IP audit logs yet
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
+                          <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600', color: '#374151' }}>Timestamp</th>
+                          <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600', color: '#374151' }}>Action</th>
+                          <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600', color: '#374151' }}>IP Address</th>
+                          <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600', color: '#374151' }}>Performed By</th>
+                          <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600', color: '#374151' }}>Status</th>
+                          <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600', color: '#374151' }}>Description</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {blockedIpAuditLogs.map((log) => (
+                          <tr key={log._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '0.75rem', color: '#475569', fontSize: '0.875rem' }}>
+                              {new Date(log.createdAt).toLocaleString()}
+                            </td>
+                            <td style={{ padding: '0.75rem' }}>
+                              <span
+                                style={{
+                                  padding: '0.2rem 0.5rem',
+                                  borderRadius: '4px',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 600,
+                                  backgroundColor: log.action === 'BLOCK_IP' ? '#fee2e2' : '#dcfce7',
+                                  color: log.action === 'BLOCK_IP' ? '#b91c1c' : '#166534'
+                                }}
+                              >
+                                {log.action}
+                              </span>
+                            </td>
+                            <td style={{ padding: '0.75rem', fontFamily: 'monospace', color: '#1f2937' }}>
+                              {log.resourceName || 'N/A'}
+                            </td>
+                            <td style={{ padding: '0.75rem', color: '#475569' }}>
+                              {log.performedBy?.displayName || log.performedBy?.username || 'System'}
+                            </td>
+                            <td style={{ padding: '0.75rem', color: '#475569', fontWeight: 600 }}>
+                              {log.status}
+                            </td>
+                            <td style={{ padding: '0.75rem', color: '#475569', fontSize: '0.875rem' }}>
+                              {log.description}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

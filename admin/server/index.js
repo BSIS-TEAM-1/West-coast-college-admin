@@ -199,8 +199,9 @@ async function authMiddleware(req, res, next) {
   }
   
   try {
-    const clientIp = getClientIpAddress(req)
-    const blockedIpRecord = await findActiveBlockedIp(clientIp)
+    const clientIpCandidates = getClientIpCandidates(req)
+    const clientIp = clientIpCandidates[0] || 'unknown'
+    const blockedIpRecord = await findActiveBlockedIp(clientIpCandidates)
     if (blockedIpRecord) {
       return res.status(403).json({
         error: 'Access denied. This IP address is blocked.',
@@ -474,19 +475,59 @@ function isValidIpv4Address(ipAddress) {
   return IPV4_REGEX.test(normalizeIpv4AddressInput(ipAddress))
 }
 
+function getClientIpCandidates(req) {
+  const candidates = []
+
+  const pushCandidate = (value) => {
+    const normalized = normalizeIpv4AddressInput(value)
+    if (!normalized || normalized.toLowerCase() === 'unknown') return
+    candidates.push(normalized)
+  }
+
+  if (Array.isArray(req.ips)) {
+    req.ips.forEach((ip) => pushCandidate(ip))
+  }
+
+  pushCandidate(req.ip)
+
+  if (TRUST_PROXY_ENABLED) {
+    const forwardedForHeader = String(req.headers['x-forwarded-for'] || '')
+    forwardedForHeader
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .forEach((ip) => pushCandidate(ip))
+
+    pushCandidate(req.headers['cf-connecting-ip'])
+    pushCandidate(req.headers['true-client-ip'])
+    pushCandidate(req.headers['x-real-ip'])
+  }
+
+  pushCandidate(req.socket?.remoteAddress || req.connection?.remoteAddress || '')
+
+  const deduped = Array.from(new Set(candidates))
+  return deduped
+}
+
 function getClientIpAddress(req) {
-  const socketIp = normalizeClientIpAddress(req.socket?.remoteAddress || req.connection?.remoteAddress || '')
-  const requestIp = normalizeClientIpAddress(req.ip || '')
-  const candidate = requestIp || socketIp
-  return candidate || 'unknown'
+  const candidates = getClientIpCandidates(req)
+  return candidates[0] || 'unknown'
 }
 
 async function findActiveBlockedIp(ipAddress) {
-  const normalizedIp = normalizeClientIpAddress(ipAddress)
-  if (!normalizedIp || normalizedIp === 'unknown') return null
+  const rawCandidates = Array.isArray(ipAddress) ? ipAddress : [ipAddress]
+  const normalizedCandidates = Array.from(
+    new Set(
+      rawCandidates
+        .map((value) => normalizeIpv4AddressInput(value))
+        .filter((value) => isValidIpv4Address(value))
+    )
+  )
+
+  if (normalizedCandidates.length === 0) return null
 
   return BlockedIP.findOne({
-    ipAddress: normalizedIp,
+    ipAddress: { $in: normalizedCandidates },
     isActive: true,
     expiresAt: { $gt: new Date() }
   })
@@ -530,14 +571,15 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
   try {
     const { username, password, captchaToken } = req.body
     const normalizedUsername = String(username || '').trim().toLowerCase()
-    const clientIp = getClientIpAddress(req)
+    const clientIpCandidates = getClientIpCandidates(req)
+    const clientIp = clientIpCandidates[0] || 'unknown'
     const userAgent = req.get('User-Agent')
     const deviceId = String(req.get('x-device-id') || '').trim()
     const loginMeta = {
       ipAddress: clientIp,
       deviceId: deviceId || null
     }
-    const blockedIpRecord = await findActiveBlockedIp(clientIp)
+    const blockedIpRecord = await findActiveBlockedIp(clientIpCandidates)
     if (blockedIpRecord) {
       await BlockedIP.findByIdAndUpdate(blockedIpRecord._id, {
         $inc: { attemptCount: 1 },
@@ -1546,7 +1588,17 @@ app.get('/api/admin/audit-logs', authMiddleware, async (req, res) => {
     
     const filter = {}
     
-    if (action) filter.action = action
+    if (action) {
+      const actionFilters = String(action)
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean)
+      if (actionFilters.length === 1) {
+        filter.action = actionFilters[0]
+      } else if (actionFilters.length > 1) {
+        filter.action = { $in: actionFilters }
+      }
+    }
     if (resourceType) filter.resourceType = resourceType
     if (severity) filter.severity = severity
     if (performedBy) filter.performedBy = performedBy
@@ -2923,6 +2975,43 @@ app.get('/api/admin/blocked-ips', authMiddleware, async (req, res) => {
   }
 })
 
+// GET /api/admin/blocked-ips/logs - get blocked IP specific audit logs
+app.get('/api/admin/blocked-ips/logs', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const limitRaw = Number(req.query.limit || 100)
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(500, Math.floor(limitRaw))) : 100
+    const ipAddressQuery = String(req.query.ipAddress || '').trim()
+    const normalizedIpAddress = ipAddressQuery ? normalizeIpv4AddressInput(ipAddressQuery) : ''
+
+    if (normalizedIpAddress && !isValidIpv4Address(normalizedIpAddress)) {
+      return res.status(400).json({ error: 'Invalid IP address format.' })
+    }
+
+    const filter = {
+      resourceType: 'SECURITY',
+      action: { $in: ['BLOCK_IP', 'UNBLOCK_IP'] }
+    }
+
+    if (normalizedIpAddress) {
+      filter.resourceName = normalizedIpAddress
+    }
+
+    const logs = await AuditLog.find(filter)
+      .populate('performedBy', 'username displayName')
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean()
+
+    res.json({ logs, total: logs.length })
+  } catch (error) {
+    console.error('Get blocked IP logs error:', error)
+    res.status(500).json({ error: 'Failed to fetch blocked IP logs.' })
+  }
+})
+
 // POST /api/admin/security-headers-scan - Scan security headers
 app.post('/api/admin/security-headers-scan', authMiddleware, async (req, res) => {
   if (!dbReady) {
@@ -3214,10 +3303,14 @@ app.post('/api/admin/blocked-ips', authMiddleware, async (req, res) => {
       await blockedIP.save()
     }
 
+    const revocationIpCandidates = Array.from(
+      new Set([normalizedIpAddress, `::ffff:${normalizedIpAddress}`])
+    )
+
     const revokeResult = await AuthToken.updateMany(
       {
         isActive: true,
-        ipAddress: normalizedIpAddress
+        ipAddress: { $in: revocationIpCandidates }
       },
       {
         $set: {
