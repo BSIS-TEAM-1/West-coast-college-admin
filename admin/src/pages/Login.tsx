@@ -406,6 +406,7 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
                   onChange={(e) => setUsername(e.target.value)}
 
                   placeholder="Enter Username"
+                  autoComplete="username"
 
                   required
 
@@ -430,6 +431,7 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
                   onChange={(e) => setPassword(e.target.value)}
 
                   placeholder="********"
+                  autoComplete="current-password"
 
                   required
 

@@ -50,15 +50,16 @@ const securityConfig = {
   // Defines approved content sources
   contentSecurityPolicy: {
     header: 'Content-Security-Policy',
-    value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://www.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss: https://www.google.com; frame-ancestors 'none';",
+    value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://www.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://www.google.com https://www.gstatic.com; font-src 'self' data:; connect-src 'self' ws: wss: https://www.google.com https://www.gstatic.com; frame-src 'self' https://www.google.com https://recaptcha.google.com; frame-ancestors 'none';",
     description: 'Defines which content sources are allowed to be loaded',
     breakdown: {
       'default-src': "'self' - Only allow resources from same origin",
-      'script-src': "'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://www.google.com - Allow same-origin scripts and approved CDN scripts for animation libraries and reCAPTCHA",
+      'script-src': "'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://www.google.com https://www.gstatic.com - Allow same-origin scripts and approved CDN scripts for animation libraries and reCAPTCHA",
       'style-src': "'self' 'unsafe-inline' - Allow same-origin styles with inline for CSS-in-JS",
-      'img-src': "'self' data: blob: - Allow images from same origin and data URLs",
+      'img-src': "'self' data: blob: https://www.google.com https://www.gstatic.com - Allow images from same origin, data URLs, and reCAPTCHA assets",
       'font-src': "'self' data: - Allow fonts from same origin and data URLs",
-      'connect-src': "'self' ws: wss: https://www.google.com - Allow API calls, WebSocket connections, and reCAPTCHA API calls",
+      'connect-src': "'self' ws: wss: https://www.google.com https://www.gstatic.com - Allow API calls, WebSocket connections, and reCAPTCHA API calls",
+      'frame-src': "'self' https://www.google.com https://recaptcha.google.com - Allow embedded reCAPTCHA frames",
       'frame-ancestors': "'none' - Prevent site from being embedded in any frame"
     }
   },
