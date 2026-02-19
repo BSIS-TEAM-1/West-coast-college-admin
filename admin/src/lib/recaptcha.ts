@@ -25,7 +25,7 @@ const waitForRecaptchaApi = (): Promise<void> =>
     const start = Date.now()
 
     const check = () => {
-      if (window.grecaptcha?.ready && window.grecaptcha?.execute) {
+      if (typeof window.grecaptcha?.ready === 'function' && typeof window.grecaptcha?.execute === 'function') {
         resolve()
         return
       }
@@ -45,8 +45,7 @@ export const ensureRecaptchaLoaded = async (siteKey: string): Promise<void> => {
   if (!siteKey) {
     throw new Error('Missing reCAPTCHA site key.')
   }
-
-  if (window.grecaptcha?.ready && window.grecaptcha?.execute) {
+  if (typeof window.grecaptcha?.ready === 'function' && typeof window.grecaptcha?.execute === 'function') {
     return
   }
 
@@ -80,7 +79,7 @@ export const executeRecaptchaAction = async (siteKey: string, action: string): P
 
   return new Promise((resolve, reject) => {
     const api = window.grecaptcha
-    if (!api?.ready || !api?.execute) {
+    if (typeof api?.ready !== 'function' || typeof api?.execute !== 'function') {
       reject(new Error('reCAPTCHA API unavailable after loading.'))
       return
     }
