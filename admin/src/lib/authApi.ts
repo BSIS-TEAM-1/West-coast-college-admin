@@ -1,4 +1,24 @@
-export const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
+const rawApiUrl = import.meta.env.VITE_API_URL?.trim()
+
+function stripTrailingSlashes(url: string): string {
+  return url.replace(/\/+$/, '')
+}
+
+function resolveApiUrl(): string {
+  if (rawApiUrl) return stripTrailingSlashes(rawApiUrl)
+
+  if (typeof window !== 'undefined') {
+    const { origin, hostname } = window.location
+    const localHosts = new Set(['localhost', '127.0.0.1', '::1'])
+    if (!localHosts.has(hostname)) {
+      return stripTrailingSlashes(origin)
+    }
+  }
+
+  return 'http://localhost:3001'
+}
+
+export const API_URL = resolveApiUrl()
 
 // Use browser localStorage for secure, user-specific token storage
 const TOKEN_KEY = 'auth_token'
