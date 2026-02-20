@@ -50,7 +50,7 @@ const securityConfig = {
   // Defines approved content sources
   contentSecurityPolicy: {
     header: 'Content-Security-Policy',
-    value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://www.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://www.google.com https://www.gstatic.com; font-src 'self' data:; connect-src 'self' ws: wss: https://www.google.com https://www.gstatic.com; frame-src 'self' https://www.google.com https://recaptcha.google.com; frame-ancestors 'none';",
+    value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://www.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://www.google.com https://www.gstatic.com; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' ws: wss: https://www.google.com https://www.gstatic.com http://localhost:3001; frame-src 'self' https://www.google.com https://recaptcha.google.com; frame-ancestors 'none';",
     description: 'Defines which content sources are allowed to be loaded',
     breakdown: {
       'default-src': "'self' - Only allow resources from same origin",
