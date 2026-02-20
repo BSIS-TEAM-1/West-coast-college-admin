@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Edit, Eye, UserPlus, GraduationCap, X, Check, AlertCircle, FileText as FileTextIcon, ExternalLink, Trash2 } from 'lucide-react';
-import { getStoredToken } from '../lib/authApi';
+import { API_URL, getStoredToken } from '../lib/authApi';
 import StudentService from '../lib/studentApi';
 import './StudentManagement.css';
 
@@ -333,7 +333,7 @@ const StudentManagement: React.FC = () => {
       const token = await getStoredToken();
       if (!token) throw new Error('No authentication token found');
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL ?? 'http://localhost:3001'}/api/registrar/students/${student._id}/cor`, {
+      const response = await fetch(`${API_URL}/api/registrar/students/${student._id}/cor`, {
         headers: {
           Authorization: `Bearer ${token}`
         }
