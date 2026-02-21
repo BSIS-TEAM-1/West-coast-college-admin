@@ -2917,24 +2917,12 @@ app.post('/api/admin/security-scan', authMiddleware, async (req, res) => {
   
   try {
     const now = new Date()
-    const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000)
     const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
     
     const findings = []
     const recommendations = []
     
-    // Scan 1: Blocked IPs
-    const blockedIPCount = await BlockedIP.countDocuments({ isActive: true })
-    if (blockedIPCount > 0) {
-      findings.push({
-        severity: 'medium',
-        title: 'Active IP Blocks',
-        description: `${blockedIPCount} IP address(es) are currently blocked`,
-        category: 'Network Security'
-      })
-    }
-    
-    // Scan 2: High severity audit logs
+    // Scan 1: High severity audit logs
     const highSeverityLogs = await AuditLog.countDocuments({
       severity: { $in: ['HIGH', 'CRITICAL'] },
       createdAt: { $gte: last7d }
@@ -2949,8 +2937,7 @@ app.post('/api/admin/security-scan', authMiddleware, async (req, res) => {
       })
     }
     
-    // Scan 3: Check for admin account security
-    const adminCount = await Admin.countDocuments()
+    // Scan 2: Check for admin account security
     const adminsWithoutEmail = await Admin.countDocuments({ email: { $in: ['', null] } })
     
     if (adminsWithoutEmail > 0) {
@@ -2967,7 +2954,7 @@ app.post('/api/admin/security-scan', authMiddleware, async (req, res) => {
       })
     }
     
-    // Scan 5: Recent access patterns
+    // Scan 3: Recent access patterns
     const recentActivity = await AuditLog.countDocuments({
       createdAt: { $gte: new Date(now.getTime() - 1 * 60 * 60 * 1000) }
     })
@@ -3020,7 +3007,7 @@ app.post('/api/admin/security-scan', authMiddleware, async (req, res) => {
         low: lowCount,
         info: findings.filter(f => f.severity === 'info').length,
         criticalIssues: criticalCount,
-        warnings: mediumCount + lowCount
+        warnings: mediumCount
       },
       findings: findings,
       recommendations: recommendations,
