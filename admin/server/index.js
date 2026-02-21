@@ -1760,11 +1760,13 @@ app.get('/api/admin/documents', authMiddleware, securityMiddleware.inputValidati
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
-    const { category, status, search, page = 1, limit = 20 } = req.query
+    const { category, status, search, page, limit } = req.query
+    const pageInt = Math.max(1, parseInt(page, 10) || 1)
+    const limitInt = Math.max(1, Math.min(100, parseInt(limit, 10) || 20))
     const filter = {}
     
-    if (category) filter.category = category
-    if (status) filter.status = status
+    if (category) filter.category = { $eq: category }
+    if (status) filter.status = { $eq: status }
     if (search) {
       filter.$text = { $search: search }
     }
@@ -1773,15 +1775,15 @@ app.get('/api/admin/documents', authMiddleware, securityMiddleware.inputValidati
       .populate('createdBy', 'username displayName')
       .populate('updatedBy', 'username displayName')
       .sort({ updatedAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
+      .limit(limitInt)
+      .skip((pageInt - 1) * limitInt)
     
     const total = await Document.countDocuments(filter)
     
     res.json({
       documents,
-      totalPages: Math.ceil(total / limit),
-      currentPage: page,
+      totalPages: Math.ceil(total / limitInt),
+      currentPage: pageInt,
       total
     })
   } catch (err) {
