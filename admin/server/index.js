@@ -416,7 +416,7 @@ async function migrateExistingAccounts() {
       
       for (const admin of existingAdmins) {
         const currentYear = new Date().getFullYear()
-        const randomCount = Math.floor(Math.random() * 900) + 100
+        const randomCount = await crypto.randomInt(100, 1000)
         
         await Admin.updateOne(
           { _id: admin._id },
