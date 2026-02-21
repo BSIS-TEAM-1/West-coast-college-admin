@@ -1763,10 +1763,13 @@ app.get('/api/admin/documents', authMiddleware, securityMiddleware.inputValidati
     const { category, status, search, page, limit } = req.query
     const pageInt = Math.max(1, parseInt(page, 10) || 1)
     const limitInt = Math.max(1, Math.min(100, parseInt(limit, 10) || 20))
-    const filter = {}
+    let conditions = {}
     
-    if (category) filter.category = { $eq: category }
-    if (status) filter.status = { $eq: status }
+    if (category) conditions.category = category
+    if (status) conditions.status = status
+
+    const filter = securityMiddleware.buildSafeQuery(conditions)
+    
     if (search) {
       filter.$text = { $search: search }
     }
