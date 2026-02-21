@@ -1628,6 +1628,10 @@ app.get('/api/admin/audit-logs', authMiddleware, async (req, res) => {
       endDate 
     } = req.query
     
+    // Coerce pagination parameters to numbers to avoid unexpected types
+    const pageNumber = Number.parseInt(page, 10) || 1
+    const limitNumber = Number.parseInt(limit, 10) || 20
+    
     const filter = {}
     
     if (action) {
@@ -1641,9 +1645,18 @@ app.get('/api/admin/audit-logs', authMiddleware, async (req, res) => {
         filter.action = { $in: actionFilters }
       }
     }
-    if (resourceType) filter.resourceType = resourceType
-    if (severity) filter.severity = severity
-    if (performedBy) filter.performedBy = performedBy
+
+    if (typeof resourceType === 'string' && resourceType.trim() !== '') {
+      filter.resourceType = { $eq: resourceType.trim() }
+    }
+
+    if (typeof severity === 'string' && severity.trim() !== '') {
+      filter.severity = { $eq: severity.trim() }
+    }
+
+    if (typeof performedBy === 'string' && performedBy.trim() !== '') {
+      filter.performedBy = { $eq: performedBy.trim() }
+    }
     
     if (startDate || endDate) {
       filter.createdAt = {}
@@ -1657,15 +1670,15 @@ app.get('/api/admin/audit-logs', authMiddleware, async (req, res) => {
     const logs = await AuditLog.find(filter)
       .populate('performedBy', 'username displayName')
       .sort({ createdAt: sortDirection })
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
+      .limit(limitNumber * 1)
+      .skip((pageNumber - 1) * limitNumber)
     
     const total = await AuditLog.countDocuments(filter)
     
     res.json({
       logs,
-      totalPages: Math.ceil(total / limit),
-      currentPage: page,
+      totalPages: Math.ceil(total / limitNumber),
+      currentPage: pageNumber,
       total
     })
   } catch (err) {
