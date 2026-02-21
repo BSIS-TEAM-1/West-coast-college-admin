@@ -4,6 +4,7 @@ import './Login.css'
 import {
   applyThemePreference,
   getStoredTheme,
+  setActiveThemeScope,
   type ResolvedTheme,
   type ThemePreference
 } from '../lib/theme'
@@ -110,7 +111,7 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
 
   const [password, setPassword] = useState('')
 
-  const [theme, setTheme] = useState<Theme>(() => getStoredTheme())
+  const [theme, setTheme] = useState<Theme>(() => getStoredTheme(null))
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>('light')
 
   const [captchaLoading, setCaptchaLoading] = useState(false)
@@ -126,9 +127,13 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
 
 
   useEffect(() => {
+    setActiveThemeScope(null)
+  }, [])
+
+  useEffect(() => {
 
     const applyTheme = (newTheme: Theme): ResolvedTheme => {
-      const computedTheme = applyThemePreference(newTheme, { animate: hasInitializedTheme.current })
+      const computedTheme = applyThemePreference(newTheme, { animate: hasInitializedTheme.current, scope: null })
       hasInitializedTheme.current = true
       setResolvedTheme(computedTheme)
       return computedTheme
