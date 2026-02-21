@@ -3708,8 +3708,23 @@ app.post('/api/blocks/groups/:groupId/sections', authMiddleware, async (req, res
 });
 
 
+// Apply relaxed limiter to all API routes
+app.use('/api/', apiLimiter)
+
+// Frontend rate limiter (more permissive for static file serving)
+const frontendRateLimitMax = Number(process.env.FRONTEND_RATE_LIMIT_MAX || 1000)
+const frontendLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: Number.isFinite(frontendRateLimitMax) && frontendRateLimitMax > 0 ? frontendRateLimitMax : 1000,
+  message: {
+    error: 'Too many requests from this IP, please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+})
+
 // SPA fallback: serve index.html for non-API routes (must be last)
-app.get('*', (req, res) => {
+app.get('*', frontendLimiter, (req, res) => {
   // Don't intercept API routes
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'API endpoint not found.' })
