@@ -66,7 +66,19 @@ const ADMIN_IP_WHITELIST = process.env.ADMIN_IP_WHITELIST ?
 
 // Increase payload limit for base64 announcement media
 app.use(express.json({ limit: '25mb' }))
-app.use(cors({ origin: true, credentials: true }))
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin) return callback(null, true)
+    const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:3000', 'https://localhost:3000']
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true)
+    } else {
+      callback(new Error('Not allowed by CORS'))
+    }
+  },
+  credentials: true
+}))
 
 // Apply security headers middleware
 app.use(applySecurityHeaders)
