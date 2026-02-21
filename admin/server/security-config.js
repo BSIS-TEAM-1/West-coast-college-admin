@@ -5,6 +5,40 @@
  * the application from common web vulnerabilities.
  */
 
+const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production'
+  || Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL)
+
+function buildContentSecurityPolicyValue() {
+  const scriptSrc = [
+    "'self'",
+    'https://cdnjs.cloudflare.com',
+    'https://cdn.jsdelivr.net',
+    'https://www.google.com',
+    'https://www.gstatic.com'
+  ]
+  const connectSrc = [
+    "'self'",
+    'https://www.google.com',
+    'https://www.gstatic.com'
+  ]
+
+  if (!isProduction) {
+    scriptSrc.push("'unsafe-eval'")
+    connectSrc.push('ws:', 'wss:', 'http://localhost:3001')
+  }
+
+  return [
+    "default-src 'self'",
+    `script-src ${scriptSrc.join(' ')}`,
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "img-src 'self' data: blob: https://www.google.com https://www.gstatic.com",
+    "font-src 'self' data: https://fonts.gstatic.com",
+    `connect-src ${connectSrc.join(' ')}`,
+    "frame-src 'self' https://www.google.com https://recaptcha.google.com",
+    "frame-ancestors 'none'"
+  ].join('; ') + ';'
+}
+
 const securityConfig = {
   // HSTS (HTTP Strict Transport Security)
   // Forces browsers to use HTTPS only
@@ -50,15 +84,15 @@ const securityConfig = {
   // Defines approved content sources
   contentSecurityPolicy: {
     header: 'Content-Security-Policy',
-    value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://www.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://www.google.com https://www.gstatic.com; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' ws: wss: https://www.google.com https://www.gstatic.com http://localhost:3001; frame-src 'self' https://www.google.com https://recaptcha.google.com; frame-ancestors 'none';",
+    value: buildContentSecurityPolicyValue(),
     description: 'Defines which content sources are allowed to be loaded',
     breakdown: {
       'default-src': "'self' - Only allow resources from same origin",
-      'script-src': "'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://www.google.com https://www.gstatic.com - Allow same-origin scripts and approved CDN scripts for animation libraries and reCAPTCHA",
+      'script-src': "'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://www.google.com https://www.gstatic.com (plus unsafe-eval in development only) - Allow same-origin scripts and approved CDN/reCAPTCHA scripts",
       'style-src': "'self' 'unsafe-inline' - Allow same-origin styles with inline for CSS-in-JS",
       'img-src': "'self' data: blob: https://www.google.com https://www.gstatic.com - Allow images from same origin, data URLs, and reCAPTCHA assets",
       'font-src': "'self' data: - Allow fonts from same origin and data URLs",
-      'connect-src': "'self' ws: wss: https://www.google.com https://www.gstatic.com - Allow API calls, WebSocket connections, and reCAPTCHA API calls",
+      'connect-src': "'self' https://www.google.com https://www.gstatic.com (plus ws/wss localhost in development only) - Allow API calls and reCAPTCHA API calls",
       'frame-src': "'self' https://www.google.com https://recaptcha.google.com - Allow embedded reCAPTCHA frames",
       'frame-ancestors': "'none' - Prevent site from being embedded in any frame"
     }

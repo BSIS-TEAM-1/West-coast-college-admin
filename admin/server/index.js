@@ -351,6 +351,68 @@ async function authMiddleware(req, res, next) {
   }
 }
 
+function requireAdminRole(req, res, next) {
+  if (String(req.accountType || '').toLowerCase() !== 'admin') {
+    return res.status(403).json({ error: 'Forbidden. Admin access required.' })
+  }
+  next()
+}
+
+const AUDIT_REDACTION_PLACEHOLDER = '[REDACTED]'
+const BCRYPT_HASH_PATTERN = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/
+const SENSITIVE_AUDIT_KEY_PATTERNS = [
+  /password/i,
+  /passcode/i,
+  /hash/i,
+  /token/i,
+  /secret/i,
+  /api[-_]?key/i,
+  /authorization/i,
+  /cookie/i,
+  /session/i,
+  /captcha/i
+]
+
+function isSensitiveAuditKey(key) {
+  const normalizedKey = String(key || '').trim()
+  if (!normalizedKey) return false
+  return SENSITIVE_AUDIT_KEY_PATTERNS.some((pattern) => pattern.test(normalizedKey))
+}
+
+function redactSensitiveAuditData(value, visited = new WeakSet()) {
+  if (typeof value === 'string') {
+    return BCRYPT_HASH_PATTERN.test(value.trim()) ? AUDIT_REDACTION_PLACEHOLDER : value
+  }
+
+  if (value === null || value === undefined) return value
+  if (value?._bsontype === 'ObjectId' && typeof value.toString === 'function') {
+    return value.toString()
+  }
+  if (typeof value !== 'object') return value
+  if (value instanceof Date) return value
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactSensitiveAuditData(entry, visited))
+  }
+
+  if (visited.has(value)) {
+    return '[Circular]'
+  }
+  visited.add(value)
+
+  const source = value && typeof value.toObject === 'function' ? value.toObject() : value
+  const redacted = {}
+  for (const [entryKey, entryValue] of Object.entries(source)) {
+    if (isSensitiveAuditKey(entryKey)) {
+      redacted[entryKey] = AUDIT_REDACTION_PLACEHOLDER
+      continue
+    }
+    redacted[entryKey] = redactSensitiveAuditData(entryValue, visited)
+  }
+
+  return redacted
+}
+
 // Audit logging helper function
 async function logAudit(action, resourceType, resourceId, resourceName, description, performedBy, performedByRole, oldValue = null, newValue = null, status = 'SUCCESS', severity = 'LOW', ipAddress = null, userAgent = null) {
   try {
@@ -374,6 +436,8 @@ async function logAudit(action, resourceType, resourceId, resourceName, descript
     const normalizedRole = ['admin', 'registrar'].includes(String(performedByRole || '').toLowerCase())
       ? String(performedByRole).toLowerCase()
       : 'admin'
+    const sanitizedOldValue = redactSensitiveAuditData(oldValue)
+    const sanitizedNewValue = redactSensitiveAuditData(newValue)
 
     await AuditLog.create({
       action,
@@ -385,8 +449,8 @@ async function logAudit(action, resourceType, resourceId, resourceName, descript
       performedByRole: normalizedRole,
       ipAddress,
       userAgent,
-      oldValue,
-      newValue,
+      oldValue: sanitizedOldValue,
+      newValue: sanitizedNewValue,
       status,
       severity
     })
@@ -1462,7 +1526,7 @@ app.delete('/api/admin/accounts/:id', authMiddleware, async (req, res) => {
       `Deleted admin account: ${accountToDelete.username} (${accountToDelete.accountType})`,
       req.adminId,
       req.accountType,
-      accountToDelete.toObject(),
+      auditObject(accountToDelete, 'ADMIN'),
       null,
       'SUCCESS',
       'HIGH'
@@ -1705,7 +1769,7 @@ app.delete('/api/admin/announcements/:id', authMiddleware, securityMiddleware.in
 // ==================== AUDIT LOGS ====================
 
 // GET /api/admin/audit-logs - get audit logs with pagination and filtering
-app.get('/api/admin/audit-logs', authMiddleware, async (req, res) => {
+app.get('/api/admin/audit-logs', authMiddleware, requireAdminRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -1768,9 +1832,17 @@ app.get('/api/admin/audit-logs', authMiddleware, async (req, res) => {
       .skip((pageNumber - 1) * limitNumber)
     
     const total = await AuditLog.countDocuments(filter)
+    const sanitizedLogs = logs.map((entry) => {
+      const logEntry = entry?.toObject ? entry.toObject() : entry
+      return {
+        ...logEntry,
+        oldValue: redactSensitiveAuditData(logEntry.oldValue),
+        newValue: redactSensitiveAuditData(logEntry.newValue)
+      }
+    })
     
     res.json({
-      logs,
+      logs: sanitizedLogs,
       totalPages: Math.ceil(total / limitNumber),
       currentPage: pageNumber,
       total
@@ -1782,7 +1854,7 @@ app.get('/api/admin/audit-logs', authMiddleware, async (req, res) => {
 })
 
 // GET /api/admin/audit-logs/stats - get audit log statistics
-app.get('/api/admin/audit-logs/stats', authMiddleware, async (req, res) => {
+app.get('/api/admin/audit-logs/stats', authMiddleware, requireAdminRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
