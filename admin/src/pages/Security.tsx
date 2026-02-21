@@ -265,6 +265,12 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
 
       // Ensure we have a valid summary object
       const summary = responseData.summary || {};
+      const filteredFindings = Array.isArray(responseData.findings)
+        ? responseData.findings.filter((finding: SecurityFinding) =>
+            String(finding?.title || '').toLowerCase() !== 'active ip blocks'
+          )
+        : [];
+      const mediumFindings = filteredFindings.filter((finding: SecurityFinding) => finding.severity === 'medium').length;
       const score = typeof summary.score === 'number' ? summary.score : 0;
       const timestamp = responseData.timestamp || new Date().toISOString();
 
@@ -274,7 +280,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
         timestamp: timestamp,
         duration: responseData.duration || 0,
         status: responseData.status || 'completed',
-        findings: responseData.findings || [],
+        findings: filteredFindings,
         recommendations: responseData.recommendations || [],
         summary: {
           score: score,
@@ -286,7 +292,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
           low: summary.low || 0,
           info: summary.info || 0,
           criticalIssues: summary.criticalIssues || 0,
-          warnings: summary.warnings || 0,
+          warnings: mediumFindings,
           headersChecked: summary.headersChecked || 0,
           headersPassed: summary.headersPassed || 0
         },
@@ -304,7 +310,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
         low: summary.low || 0,
         info: summary.info || 0,
         criticalIssues: summary.criticalIssues || 0,
-        warnings: summary.warnings || 0
+        warnings: mediumFindings
       };
 
       console.log('Formatted scan results:', JSON.stringify(formattedResults, null, 2));
@@ -591,6 +597,16 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
       case 'medium': return '#f59e0b';
       case 'low': return '#10b981';
       default: return '#6b7280';
+    }
+  };
+
+  const getFindingSeverityLabel = (severity: string) => {
+    switch (severity) {
+      case 'critical': return 'CRITICAL';
+      case 'high': return 'HIGH';
+      case 'medium': return 'ATTENTION';
+      case 'low': return 'ADVISORY';
+      default: return String(severity || 'INFO').toUpperCase();
     }
   };
 
@@ -1484,7 +1500,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
                     </div>
                     
                     <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem' }}>Warnings</div>
+                      <div style={{ fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem' }}>Needs Attention</div>
                       <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#f59e0b' }}>{scanResults.summary.warnings || 0}</div>
                     </div>
                   </div>
@@ -1508,7 +1524,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
                             {finding.severity === 'critical' || finding.severity === 'high' ? <AlertTriangle size={16} color={getSeverityColor(finding.severity)} /> : <ShieldAlert size={16} color={getSeverityColor(finding.severity)} />}
                             {finding.title}
                           </span>
-                          <span style={{ fontSize: '0.75rem', padding: '0.25rem 0.75rem', borderRadius: '12px', backgroundColor: getSeverityColor(finding.severity), color: 'white', fontWeight: 'bold' }}>{finding.severity.toUpperCase()}</span>
+                          <span style={{ fontSize: '0.75rem', padding: '0.25rem 0.75rem', borderRadius: '12px', backgroundColor: getSeverityColor(finding.severity), color: 'white', fontWeight: 'bold' }}>{getFindingSeverityLabel(finding.severity)}</span>
                         </div>
                         <p style={{ fontSize: '0.875rem', color: '#94a3b8', margin: '0 0 0.5rem 0' }}>{finding.description}</p>
                         {finding.recommendation && <div style={{ fontSize: '0.875rem', color: '#cbd5e1', background: '#334155', padding: '0.5rem', borderRadius: '4px', fontStyle: 'italic' }}>💡 Recommendation: {finding.recommendation}</div>}
