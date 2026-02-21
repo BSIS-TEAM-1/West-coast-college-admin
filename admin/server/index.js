@@ -1728,8 +1728,16 @@ app.get('/api/documents', securityMiddleware.inputValidationMiddleware(securityM
   try {
     const { category, search, page = 1, limit = 10 } = req.query
     const filter = { isPublic: true, status: 'ACTIVE' }
-    
-    if (category) filter.category = category
+
+    if (category !== undefined) {
+      if (typeof category !== 'string') {
+        return res.status(400).json({ error: 'Invalid category parameter.' })
+      }
+      const safeCategory = category.trim()
+      if (safeCategory) {
+        filter.category = safeCategory
+      }
+    }
     if (search) {
       filter.$text = { $search: search }
     }
