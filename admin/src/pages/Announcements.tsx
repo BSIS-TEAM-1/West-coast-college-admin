@@ -86,7 +86,13 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
   })
   const [currentUser, setCurrentUser] = useState<ProfileResponse | null>(null)
 
-  
+  // Helper function to escape HTML entities
+  const escapeHtml = (str: string) => {
+    return str.replace(/[&<>"']/g, (match) => {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[match] || match
+    })
+  }
+
   useEffect(() => {
     fetchAnnouncements()
     getProfile()
@@ -792,7 +798,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                             {isImage && preview ? (
                               <img 
                                 src={preview} 
-                                alt={file.name}
+                                alt={escapeHtml(file.name)}
                                 className="media-file-image"
                               />
                             ) : (
@@ -831,7 +837,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                           {media.type === 'image' ? (
                             <img 
                               src={media.url} 
-                              alt={media.originalFileName}
+                              alt={escapeHtml(media.originalFileName)}
                               className="media-file-image"
                             />
                           ) : (
@@ -1055,7 +1061,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                             {isImage && preview ? (
                               <img 
                                 src={preview} 
-                                alt={file.name}
+                                alt={escapeHtml(file.name)}
                                 className="media-file-image"
                               />
                             ) : (
