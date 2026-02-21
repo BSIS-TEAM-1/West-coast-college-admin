@@ -1268,7 +1268,6 @@ app.post('/api/admin/accounts', authMiddleware, securityMiddleware.inputValidati
     console.log('username:', username, 'typeof:', typeof username)
     console.log('displayName:', displayName, 'typeof:', typeof displayName)
     console.log('accountType:', accountType, 'typeof:', typeof accountType)
-    console.log('password length:', password ? password.length : 'undefined')
     console.log('uid:', uid, 'typeof:', typeof uid)
     
     // Check if username already exists
