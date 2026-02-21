@@ -7,6 +7,7 @@ import {
   getProfile,
   logout
 } from './lib/authApi'
+import { applyThemePreference, getStoredTheme, setActiveThemeScope } from './lib/theme'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import RegistrarDashboard from './pages/RegistrarDashboard'
@@ -44,10 +45,16 @@ function App() {
       try {
         const profile = await getProfile()
         if (!mounted) return
+
+        setActiveThemeScope(profile.username)
+        applyThemePreference(getStoredTheme(profile.username), { persist: false })
         setUser({ username: profile.username, accountType: profile.accountType })
       } catch (error) {
         await clearStoredToken()
         if (!mounted) return
+
+        setActiveThemeScope(null)
+        applyThemePreference(getStoredTheme(null), { persist: false })
         const message = error instanceof Error ? error.message : 'Your session has ended. Please sign in again.'
         if (isAuthSessionError(message)) {
           setLoginError(message)
@@ -76,6 +83,9 @@ function App() {
       
       // Always fetch profile to get accurate account type
       const profile = await getProfile()
+
+      setActiveThemeScope(profile.username)
+      applyThemePreference(getStoredTheme(profile.username), { persist: false })
       
       setUser({ username: data.username, accountType: profile.accountType })
     } catch (err) {
@@ -91,12 +101,15 @@ function App() {
     } catch (error) {
       console.error('Logout error:', error)
     } finally {
+      setActiveThemeScope(null)
+      applyThemePreference(getStoredTheme(null), { persist: false })
       setUser(null)
       setLoginError(undefined)
     }
   }, [])
 
   const handleProfileUpdated = useCallback((profile: ProfileResponse) => {
+    setActiveThemeScope(profile.username)
     setUser(prev => prev ? { ...prev, username: profile.username, accountType: profile.accountType } : null)
   }, [])
 
@@ -115,6 +128,8 @@ function App() {
           await clearStoredToken()
           if (cancelled) return
 
+          setActiveThemeScope(null)
+          applyThemePreference(getStoredTheme(null), { persist: false })
           setUser(null)
           setLoginError(message)
         }
