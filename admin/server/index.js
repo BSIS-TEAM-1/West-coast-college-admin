@@ -1264,7 +1264,6 @@ app.post('/api/admin/accounts', authMiddleware, securityMiddleware.inputValidati
   try {
     const { username, displayName, accountType, password, uid } = req.body
     
-    console.log('Create account request body:', req.body)
     console.log('username:', username, 'typeof:', typeof username)
     console.log('displayName:', displayName, 'typeof:', typeof displayName)
     console.log('accountType:', accountType, 'typeof:', typeof accountType)
