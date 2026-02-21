@@ -1257,7 +1257,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
                   </label>
                   <input 
                     type="text"
-                    placeholder="e.g., 192.168.1.100"
+                    placeholder="e.g., 203.0.113.100"
                     value={newBlockIP.ipAddress}
                     onChange={(e) => setNewBlockIP({ ...newBlockIP, ipAddress: e.target.value })}
                     style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #d1d5db', fontFamily: 'monospace' }}

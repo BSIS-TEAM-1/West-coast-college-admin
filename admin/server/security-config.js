@@ -29,6 +29,9 @@ function buildContentSecurityPolicyValue() {
 
   return [
     "default-src 'self'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "object-src 'none'",
     `script-src ${scriptSrc.join(' ')}`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "img-src 'self' data: blob: https://www.google.com https://www.gstatic.com",
@@ -88,6 +91,9 @@ const securityConfig = {
     description: 'Defines which content sources are allowed to be loaded',
     breakdown: {
       'default-src': "'self' - Only allow resources from same origin",
+      'base-uri': "'self' - Restrict the document base URL to same-origin",
+      'form-action': "'self' - Restrict form submissions to same-origin only",
+      'object-src': "'none' - Disable legacy plugin content",
       'script-src': "'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://www.google.com https://www.gstatic.com (plus unsafe-eval in development only) - Allow same-origin scripts and approved CDN/reCAPTCHA scripts",
       'style-src': "'self' 'unsafe-inline' - Allow same-origin styles with inline for CSS-in-JS",
       'img-src': "'self' data: blob: https://www.google.com https://www.gstatic.com - Allow images from same origin, data URLs, and reCAPTCHA assets",
