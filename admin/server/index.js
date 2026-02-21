@@ -66,12 +66,31 @@ const ADMIN_IP_WHITELIST = process.env.ADMIN_IP_WHITELIST ?
 
 // Increase payload limit for base64 announcement media
 app.use(express.json({ limit: '25mb' }))
+
+const normalizeOrigin = (value) => String(value || '').trim().replace(/\/$/, '').toLowerCase()
+const defaultAllowedOrigins = [
+  'http://localhost:3000',
+  'https://localhost:3000',
+  'http://localhost:5173',
+  'https://localhost:5173'
+].map(normalizeOrigin)
+const configuredAllowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map(normalizeOrigin).filter(Boolean)
+  : []
+const isProductionEnv = String(process.env.NODE_ENV || '').toLowerCase() === 'production'
+const isRenderRuntime = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL)
+const allowedOrigins = new Set(
+  (isProductionEnv && isRenderRuntime)
+    ? configuredAllowedOrigins
+    : [...defaultAllowedOrigins, ...configuredAllowedOrigins]
+)
+
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true)
-    const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:3000', 'https://localhost:3000']
-    if (allowedOrigins.includes(origin)) {
+    const normalizedOrigin = normalizeOrigin(origin)
+    if (allowedOrigins.has(normalizedOrigin)) {
       callback(null, true)
     } else {
       callback(new Error('Not allowed by CORS'))
