@@ -1,4 +1,5 @@
 const path = require('path')
+const fs = require('fs')
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') })
 
 const express = require('express')
@@ -216,6 +217,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')))
 
 // Serve frontend static files
 const distPath = path.join(__dirname, '..', 'dist')
+const distAssetsPath = path.join(distPath, 'assets')
 app.use(express.static(distPath, {
   index: false,
   setHeaders: (res, filePath) => {
@@ -230,6 +232,46 @@ app.use(express.static(distPath, {
     }
   }
 }))
+
+// Stale-client compatibility: map missing hashed index assets to the latest build asset.
+const hashedIndexAssetPattern = /^index-[A-Za-z0-9_-]+\.(css|js)$/
+app.get('/assets/:assetName', (req, res, next) => {
+  const assetName = path.basename(String(req.params.assetName || ''))
+  if (!hashedIndexAssetPattern.test(assetName)) {
+    return next()
+  }
+
+  const requestedAssetPath = path.join(distAssetsPath, assetName)
+  if (fs.existsSync(requestedAssetPath)) {
+    return res.sendFile(requestedAssetPath)
+  }
+
+  if (!fs.existsSync(distAssetsPath)) {
+    return res.status(404).end()
+  }
+
+  try {
+    const requestedExtension = path.extname(assetName)
+    const fallbackCandidates = fs.readdirSync(distAssetsPath)
+      .filter((fileName) => hashedIndexAssetPattern.test(fileName) && path.extname(fileName) === requestedExtension)
+      .map((fileName) => {
+        const fullPath = path.join(distAssetsPath, fileName)
+        const stat = fs.statSync(fullPath)
+        return { fullPath, modifiedAt: stat.mtimeMs }
+      })
+      .sort((a, b) => b.modifiedAt - a.modifiedAt)
+
+    if (fallbackCandidates.length === 0) {
+      return res.status(404).end()
+    }
+
+    res.setHeader('Cache-Control', 'no-store')
+    return res.sendFile(fallbackCandidates[0].fullPath)
+  } catch (error) {
+    console.error('Asset fallback error:', error)
+    return res.status(404).end()
+  }
+})
 
 // Registrar module API routes (supports both legacy and /api-prefixed paths)
 app.use('/registrar', apiLimiter, authMiddleware, registrarRoutes)
