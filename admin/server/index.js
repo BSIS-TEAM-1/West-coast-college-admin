@@ -3753,7 +3753,7 @@ const frontendLimiter = rateLimit({
 })
 
 // SPA fallback: serve index.html for app routes only (must be last)
-app.get('/{*path}', frontendLimiter, (req, res, next) => {
+app.get('*', frontendLimiter, (req, res, next) => {
   // Allow API routes declared later to continue through the stack.
   if (req.path.startsWith('/api/')) {
     return next()
@@ -3871,12 +3871,12 @@ app.get('/api/admin/bandwidth-stats', async (req, res) => {
 })
 
 // Catch-all route for debugging
-app.all('/{*path}', (req, res, next) => {
+app.all('*', (req, res, next) => {
   console.log(`Route not found: ${req.method} ${req.path}`);
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'API endpoint not found.' })
   }
-  next()
+  res.status(404).end()
 })
 
 app.listen(PORT, () => {
