@@ -434,7 +434,7 @@ class BackupSystem {
 
   async restoreBackup(backupFileName) {
     try {
-      const backupPath = path.join(this.backupDir, backupFileName);
+      const backupPath = path.join(this.backupDir, path.basename(backupFileName));
       
       if (!fs.existsSync(backupPath)) {
         throw new Error('Backup file not found');
