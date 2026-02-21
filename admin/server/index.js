@@ -3753,11 +3753,9 @@ const frontendLimiter = rateLimit({
 })
 
 // SPA fallback: serve index.html for app routes only (must be last)
-app.get('*', frontendLimiter, (req, res, next) => {
-  // Allow API routes declared later to continue through the stack.
-  if (req.path.startsWith('/api/')) {
-    return next()
-  }
+app.use((req, res, next) => {
+  if (req.method !== 'GET') return next()
+  if (req.path.startsWith('/api/')) return next()
 
   // Never serve index.html for static file-like requests (e.g. .css/.js).
   if (path.extname(req.path)) {
