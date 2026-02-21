@@ -188,7 +188,7 @@ const distPath = path.join(__dirname, '..', 'dist')
 app.use(express.static(distPath))
 
 // Registrar module API routes (supports both legacy and /api-prefixed paths)
-app.use('/registrar', authMiddleware, registrarRoutes)
+app.use('/registrar', apiLimiter, authMiddleware, registrarRoutes)
 app.use('/api/registrar', authMiddleware, registrarRoutes)
 
 async function authMiddleware(req, res, next) {
