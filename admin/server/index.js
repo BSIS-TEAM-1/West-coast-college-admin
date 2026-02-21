@@ -80,10 +80,19 @@ const configuredAllowedOrigins = process.env.ALLOWED_ORIGINS
   : []
 const isProductionEnv = String(process.env.NODE_ENV || '').toLowerCase() === 'production'
 const isRenderRuntime = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL)
+const renderExternalHostname = String(process.env.RENDER_EXTERNAL_HOSTNAME || '').trim()
+const runtimeAllowedOrigins = [
+  process.env.RENDER_EXTERNAL_URL,
+  process.env.APP_URL,
+  process.env.PUBLIC_URL,
+  process.env.FRONTEND_URL,
+  renderExternalHostname ? `https://${renderExternalHostname}` : ''
+].map(normalizeOrigin).filter(Boolean)
+const strictCorsMode = isProductionEnv && isRenderRuntime
 const allowedOrigins = new Set(
-  (isProductionEnv && isRenderRuntime)
-    ? configuredAllowedOrigins
-    : [...defaultAllowedOrigins, ...configuredAllowedOrigins]
+  strictCorsMode
+    ? [...configuredAllowedOrigins, ...runtimeAllowedOrigins]
+    : [...defaultAllowedOrigins, ...configuredAllowedOrigins, ...runtimeAllowedOrigins]
 )
 
 app.use(cors({
@@ -92,10 +101,11 @@ app.use(cors({
     if (!origin) return callback(null, true)
     const normalizedOrigin = normalizeOrigin(origin)
     if (allowedOrigins.has(normalizedOrigin)) {
-      callback(null, true)
-    } else {
-      callback(new Error('Not allowed by CORS'))
+      return callback(null, true)
     }
+
+    // Deny CORS without throwing a server error.
+    return callback(null, false)
   },
   credentials: true
 }))
