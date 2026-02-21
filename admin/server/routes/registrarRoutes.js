@@ -1,7 +1,17 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 const StudentController = require('../controllers/studentController');
 const SubjectController = require('../controllers/subjectController');
+
+// Rate limiter for registrar routes
+const registrarLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.'
+});
+
+router.use(registrarLimiter);
 
 // Student Routes
 router.get('/professors', StudentController.getProfessorAccounts);
