@@ -216,7 +216,20 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')))
 
 // Serve frontend static files
 const distPath = path.join(__dirname, '..', 'dist')
-app.use(express.static(distPath))
+app.use(express.static(distPath, {
+  index: false,
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-store')
+      return
+    }
+
+    // Cache-bustable hashed assets can be cached aggressively.
+    if (/\.[A-Za-z0-9_-]{8,}\.(css|js)$/.test(path.basename(filePath))) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+    }
+  }
+}))
 
 // Registrar module API routes (supports both legacy and /api-prefixed paths)
 app.use('/registrar', apiLimiter, authMiddleware, registrarRoutes)
@@ -3748,6 +3761,12 @@ app.get('/{*path}', frontendLimiter, (req, res, next) => {
 
   // Never serve index.html for static file-like requests (e.g. .css/.js).
   if (path.extname(req.path)) {
+    return res.status(404).end()
+  }
+
+  // Only return SPA HTML when the client explicitly requests HTML.
+  const acceptHeader = String(req.headers.accept || '')
+  if (!acceptHeader.includes('text/html')) {
     return res.status(404).end()
   }
 
