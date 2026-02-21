@@ -9,6 +9,7 @@ const Admin = require('../models/Admin');
 const PDFDocument = require('pdfkit');
 const path = require('path');
 const fs = require('fs');
+const securityMiddleware = require('../securityMiddleware');
 
 class StudentController {
   static async getProfessorAccounts(req, res) {
@@ -486,6 +487,13 @@ class StudentController {
         });
       }
 
+      if (typeof schoolYear !== 'string' || typeof semester !== 'string') {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid school year or semester'
+        });
+      }
+
       const student = await StudentController.getStudentByIdRecord(id);
       if (!student) {
         return res.status(404).json({
@@ -621,7 +629,7 @@ class StudentController {
         });
       }
 
-      const subject = await Subject.findById(subjectId).select('_id code title');
+      const subject = await Subject.findById(securityMiddleware.safeObjectId(subjectId)).select('_id code title');
       if (!subject) {
         return res.status(404).json({
           success: false,
