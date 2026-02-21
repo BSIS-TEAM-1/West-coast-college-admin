@@ -162,7 +162,31 @@ class StudentController {
   }
 
   static async updateStudentRecord(id, updateData) {
-    const normalizedUpdate = { ...(updateData || {}) };
+    const source = updateData || {};
+    const normalizedUpdate = {};
+
+    // Only allow specific fields to be updated from user input
+    const allowedFields = [
+      'firstName',
+      'lastName',
+      'middleName',
+      'course',
+      'yearLevel',
+      'semester',
+      'schoolYear',
+      'studentStatus',
+      'corStatus',
+      'email',
+      'contactNumber',
+      'address'
+    ];
+
+    for (const field of allowedFields) {
+      if (Object.prototype.hasOwnProperty.call(source, field)) {
+        normalizedUpdate[field] = source[field];
+      }
+    }
+
     if (String(normalizedUpdate.corStatus || '').trim() === 'Verified') {
       normalizedUpdate.enrollmentStatus = 'Enrolled';
     }
