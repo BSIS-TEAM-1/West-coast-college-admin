@@ -3733,14 +3733,20 @@ const frontendLimiter = rateLimit({
   legacyHeaders: false
 })
 
-// SPA fallback: serve index.html for non-API routes (must be last)
-app.get('/{*path}', frontendLimiter, (req, res) => {
-  // Don't intercept API routes
+// SPA fallback: serve index.html for app routes only (must be last)
+app.get('/{*path}', frontendLimiter, (req, res, next) => {
+  // Allow API routes declared later to continue through the stack.
   if (req.path.startsWith('/api/')) {
-    return res.status(404).json({ error: 'API endpoint not found.' })
+    return next()
   }
-  
+
+  // Never serve index.html for static file-like requests (e.g. .css/.js).
+  if (path.extname(req.path)) {
+    return res.status(404).end()
+  }
+
   const indexFile = path.join(distPath, 'index.html')
+  res.setHeader('Cache-Control', 'no-store')
   res.sendFile(indexFile, (err) => {
     if (err) res.status(404).send('Frontend not built. Run: npm run build')
   })
