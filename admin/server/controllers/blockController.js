@@ -658,7 +658,7 @@ class BlockController {
   }
 
   async closeSection(sectionId, reason, session) {
-    await BlockSection.findByIdAndUpdate(sectionId, { status: 'CLOSED' }, { session });
+    await BlockSection.findByIdAndUpdate(safeObjectId(sectionId), { status: 'CLOSED' }, { session });
     return {};
   }
 
