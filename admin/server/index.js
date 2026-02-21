@@ -467,8 +467,11 @@ function normalizeClientIpAddress(ipAddress) {
 }
 
 function normalizeIpv4AddressInput(ipAddress) {
-  const normalized = normalizeClientIpAddress(ipAddress)
-  return normalized.replace(/[.,;]+$/, '')
+  let normalized = normalizeClientIpAddress(ipAddress)
+  while (normalized.endsWith(',') || normalized.endsWith('.') || normalized.endsWith(';')) {
+    normalized = normalized.slice(0, -1)
+  }
+  return normalized
 }
 
 function isValidIpv4Address(ipAddress) {
