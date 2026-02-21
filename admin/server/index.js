@@ -3869,7 +3869,7 @@ app.get('/api/admin/bandwidth-stats', async (req, res) => {
 })
 
 // Catch-all route for debugging
-app.all('*', (req, res, next) => {
+app.all('/{*path}', (req, res, next) => {
   console.log(`Route not found: ${req.method} ${req.path}`);
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'API endpoint not found.' })
