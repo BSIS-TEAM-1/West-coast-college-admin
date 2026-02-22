@@ -5,6 +5,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') })
 const express = require('express')
 const cors = require('cors')
 const mongoose = require('mongoose')
+const crypto = require('crypto')
 const jwt = require('jsonwebtoken')
 const si = require('systeminformation')
 const axios = require('axios')
@@ -21,11 +22,13 @@ const Backup = require('./models/Backup')
 const BlockedIP = require('./models/BlockedIP')
 const SecurityScan = require('./models/SecurityScan')
 const BackupSystem = require('./backup')
+const SemaphoreSmsService = require('./services/semaphoreSmsService')
 const registrarRoutes = require('./routes/registrarRoutes')
 const blockController = require('./controllers/blockController')
 
 // Initialize backup system
 const backupSystem = new BackupSystem()
+const semaphoreSmsService = new SemaphoreSmsService()
 
 // Schedule automatic backups (every 6 hours)
 setInterval(async () => {
@@ -47,6 +50,10 @@ setInterval(async () => {
 const app = express()
 const PORT = process.env.PORT || 3001
 const JWT_SECRET = process.env.JWT_SECRET || 'wcc-admin-dev-secret-change-in-production'
+const parsedPhoneVerificationTtlMs = Number(process.env.PHONE_VERIFICATION_CODE_TTL_MS)
+const PHONE_VERIFICATION_CODE_TTL_MS = Number.isFinite(parsedPhoneVerificationTtlMs) && parsedPhoneVerificationTtlMs > 0
+  ? parsedPhoneVerificationTtlMs
+  : 10 * 60 * 1000
 
 // Hide Express server information
 app.disable('x-powered-by')
@@ -735,6 +742,36 @@ async function findActiveBlockedIp(ipAddress) {
   })
 }
 
+function normalizePhilippineMobileNumber(rawNumber) {
+  const normalized = String(rawNumber || '').trim()
+  if (!normalized) return ''
+
+  const compactNumber = normalized.replace(/[()\-\s]/g, '')
+  if (compactNumber.startsWith('+63')) {
+    return `0${compactNumber.slice(3)}`
+  }
+  if (compactNumber.startsWith('63')) {
+    return `0${compactNumber.slice(2)}`
+  }
+  if (compactNumber.startsWith('9') && compactNumber.length === 10) {
+    return `0${compactNumber}`
+  }
+
+  return compactNumber
+}
+
+function isValidPhilippineMobileNumber(normalizedNumber) {
+  return /^09\d{9}$/.test(String(normalizedNumber || ''))
+}
+
+function generatePhoneVerificationCode() {
+  return String(crypto.randomInt(100000, 1000000))
+}
+
+function hashPhoneVerificationCode(code) {
+  return crypto.createHash('sha256').update(String(code || '')).digest('hex')
+}
+
 // POST /api/admin/signup
 app.post('/api/admin/signup', async (req, res) => {
   if (!dbReady) {
@@ -1125,7 +1162,6 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
     console.log('Login - admin.accountType:', admin.accountType, 'typeof:', typeof admin.accountType)
     
     // Generate a random token
-    const crypto = require('crypto')
     const token = crypto.randomBytes(32).toString('hex')
     
     // Store token in MongoDB
@@ -1265,6 +1301,8 @@ app.get('/api/admin/profile', authMiddleware, securityMiddleware.inputValidation
       username: admin.username,
       displayName: admin.displayName || '',
       email: admin.email || '',
+      phone: admin.phone || '',
+      phoneVerified: Boolean(admin.phoneVerified),
       avatar: admin.avatar || '',
       accountType: admin.accountType,
     }
@@ -1286,10 +1324,24 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
     const admin = await Admin.findById(req.adminId)
     if (!admin) return res.status(404).json({ error: 'Admin not found.' })
 
-    const { displayName, email, newUsername, currentPassword, newPassword } = req.body
+    const { displayName, email, phone, newUsername, currentPassword, newPassword } = req.body
 
     if (typeof displayName === 'string') admin.displayName = displayName.trim()
     if (typeof email === 'string') admin.email = email.trim().toLowerCase()
+    if (typeof phone === 'string') {
+      const trimmedPhone = String(phone || '').trim()
+      const normalizedPhone = normalizePhilippineMobileNumber(trimmedPhone)
+      const phoneForStorage = normalizedPhone && isValidPhilippineMobileNumber(normalizedPhone)
+        ? normalizedPhone
+        : trimmedPhone
+
+      if (phoneForStorage !== String(admin.phone || '')) {
+        admin.phone = phoneForStorage
+        admin.phoneVerified = false
+        admin.phoneVerificationCodeHash = ''
+        admin.phoneVerificationExpiresAt = null
+      }
+    }
 
     if (typeof newUsername === 'string') {
       const trimmed = newUsername.trim().toLowerCase()
@@ -1319,12 +1371,123 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
       username: updated.username,
       displayName: updated.displayName || '',
       email: updated.email || '',
+      phone: updated.phone || '',
+      phoneVerified: Boolean(updated.phoneVerified),
       avatar: updated.avatar || '',
       accountType: updated.accountType,
     })
   } catch (err) {
     console.error('Profile update error:', err.message)
     res.status(500).json({ error: 'Failed to update profile.' })
+  }
+})
+
+// POST /api/admin/profile/phone/send-code - send SMS verification code
+app.post('/api/admin/profile/phone/send-code', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.sendPhoneVerificationCode), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+
+  if (!semaphoreSmsService.isConfigured()) {
+    return res.status(503).json({ error: 'Semaphore SMS is not configured.' })
+  }
+
+  try {
+    const admin = await Admin.findById(req.adminId).select('+phoneVerificationCodeHash +phoneVerificationExpiresAt')
+    if (!admin) return res.status(404).json({ error: 'Admin not found.' })
+
+    const requestedPhone = String(req.body.phone || '').trim()
+    const normalizedPhone = normalizePhilippineMobileNumber(requestedPhone)
+    if (!isValidPhilippineMobileNumber(normalizedPhone)) {
+      return res.status(400).json({ error: 'Invalid mobile number. Use 09XXXXXXXXX.' })
+    }
+
+    const verificationCode = generatePhoneVerificationCode()
+    const verificationCodeHash = hashPhoneVerificationCode(verificationCode)
+    const expiresAt = new Date(Date.now() + PHONE_VERIFICATION_CODE_TTL_MS)
+    const expiresInMinutes = Math.max(1, Math.ceil(PHONE_VERIFICATION_CODE_TTL_MS / 60000))
+
+    admin.phone = normalizedPhone
+    admin.phoneVerified = false
+    admin.phoneVerificationCodeHash = verificationCodeHash
+    admin.phoneVerificationExpiresAt = expiresAt
+    await admin.save()
+
+    try {
+      await semaphoreSmsService.sendSms({
+        number: normalizedPhone,
+        message: `WCC Admin verification code: ${verificationCode}. This code expires in ${expiresInMinutes} minutes.`
+      })
+    } catch (smsError) {
+      admin.phoneVerificationCodeHash = ''
+      admin.phoneVerificationExpiresAt = null
+      await admin.save()
+      console.error('Phone verification SMS error:', smsError.message)
+      return res.status(502).json({
+        error: smsError.message || 'Failed to send verification SMS.'
+      })
+    }
+
+    res.json({
+      message: 'Verification code sent.',
+      phone: normalizedPhone,
+      expiresAt: expiresAt.toISOString()
+    })
+  } catch (err) {
+    console.error('Send phone verification code error:', err.message)
+    res.status(500).json({ error: 'Failed to send verification code.' })
+  }
+})
+
+// POST /api/admin/profile/phone/verify - verify SMS code
+app.post('/api/admin/profile/phone/verify', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.verifyPhoneVerificationCode), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+
+  try {
+    const admin = await Admin.findById(req.adminId).select('+phoneVerificationCodeHash +phoneVerificationExpiresAt')
+    if (!admin) return res.status(404).json({ error: 'Admin not found.' })
+
+    const normalizedPhone = normalizePhilippineMobileNumber(admin.phone || '')
+    if (!isValidPhilippineMobileNumber(normalizedPhone)) {
+      return res.status(400).json({ error: 'Add a valid mobile number before verification.' })
+    }
+
+    if (!admin.phoneVerificationCodeHash || !admin.phoneVerificationExpiresAt) {
+      return res.status(400).json({ error: 'No active verification code found. Request a new code first.' })
+    }
+
+    if (new Date(admin.phoneVerificationExpiresAt).getTime() < Date.now()) {
+      admin.phoneVerificationCodeHash = ''
+      admin.phoneVerificationExpiresAt = null
+      await admin.save()
+      return res.status(400).json({ error: 'Verification code has expired. Request a new one.' })
+    }
+
+    const providedCodeHash = hashPhoneVerificationCode(req.body.code)
+    if (providedCodeHash !== admin.phoneVerificationCodeHash) {
+      return res.status(400).json({ error: 'Invalid verification code.' })
+    }
+
+    admin.phone = normalizedPhone
+    admin.phoneVerified = true
+    admin.phoneVerificationCodeHash = ''
+    admin.phoneVerificationExpiresAt = null
+    await admin.save()
+
+    res.json({
+      username: admin.username,
+      displayName: admin.displayName || '',
+      email: admin.email || '',
+      phone: admin.phone || '',
+      phoneVerified: true,
+      avatar: admin.avatar || '',
+      accountType: admin.accountType,
+    })
+  } catch (err) {
+    console.error('Phone verification error:', err.message)
+    res.status(500).json({ error: 'Failed to verify phone number.' })
   }
 })
 
@@ -2536,7 +2699,7 @@ app.get('/api/admin/error-logs', authMiddleware, async (req, res) => {
       logs: errorLogs.map(log => ({
         id: log._id.toString(),
         timestamp: log.createdAt,
-        level: log.severity === 'CRITICAL' ? 'error' : log.severity === 'HIGH' ? 'warning' : 'info',
+        level: ['CRITICAL', 'HIGH'].includes(log.severity) ? 'error' : 'info',
         message: log.description,
         source: log.action,
         details: log.metadata || {}
@@ -2692,7 +2855,7 @@ app.get('/api/admin/system-health', authMiddleware, async (req, res) => {
     
     // Get real backup status
     const backupStats = await backupSystem.getBackupStats();
-    const backupStatus = backupStats.backupEnabled && backupStats.latestBackup ? 'success' : 'warning';
+    const backupStatus = backupStats.backupEnabled && backupStats.latestBackup ? 'success' : 'error';
     const lastBackup = backupStats.latestBackup ? backupStats.latestBackup.createdAt.toISOString() : 'N/A';
     
     const healthData = {
@@ -2858,6 +3021,97 @@ app.get('/api/admin/test-atlas', authMiddleware, async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message
+    })
+  }
+})
+
+// SMS test endpoint (Semaphore)
+app.post('/api/admin/sms/send-test', authMiddleware, requireAdminRole, async (req, res) => {
+  const validationSchema = Joi.object({
+    number: Joi.string().trim().min(10).max(20).required(),
+    message: Joi.string().trim().min(1).max(480).optional(),
+    senderName: Joi.string().trim().max(11).optional()
+  })
+
+  const { error, value } = validationSchema.validate(req.body || {}, { abortEarly: false })
+  if (error) {
+    return res.status(400).json({
+      error: 'Invalid SMS payload.',
+      details: error.details.map((detail) => detail.message)
+    })
+  }
+
+  if (!semaphoreSmsService.isConfigured()) {
+    return res.status(503).json({
+      error: 'Semaphore SMS is not configured.'
+    })
+  }
+
+  const performedBy = req.adminId || null
+  const performedByRole = req.accountType === 'registrar' ? 'registrar' : 'admin'
+  const ipAddress = req.ip || req.connection?.remoteAddress || null
+  const userAgent = req.get('user-agent') || null
+  const smsMessage = value.message || 'WCC Admin: Semaphore SMS integration test.'
+
+  try {
+    const result = await semaphoreSmsService.sendSms({
+      number: value.number,
+      message: smsMessage,
+      senderName: value.senderName
+    })
+
+    await logAudit(
+      'CREATE',
+      'SYSTEM',
+      String(result.messageId || `sms-${Date.now()}`),
+      'SMS',
+      `Semaphore test SMS sent to ${result.recipient}.`,
+      performedBy,
+      performedByRole,
+      null,
+      {
+        provider: result.provider,
+        recipient: result.recipient,
+        status: result.status,
+        messageId: result.messageId,
+        senderName: result.senderName
+      },
+      'SUCCESS',
+      'LOW',
+      ipAddress,
+      userAgent
+    )
+
+    res.json({
+      success: true,
+      provider: result.provider,
+      recipient: result.recipient,
+      status: result.status,
+      messageId: result.messageId
+    })
+  } catch (smsError) {
+    await logAudit(
+      'CREATE',
+      'SYSTEM',
+      'sms-test',
+      'SMS',
+      `Semaphore test SMS failed for ${value.number}: ${smsError.message || 'Unknown error'}`,
+      performedBy,
+      performedByRole,
+      null,
+      {
+        provider: 'semaphore',
+        recipient: value.number
+      },
+      'FAILED',
+      'MEDIUM',
+      ipAddress,
+      userAgent
+    )
+
+    console.error('Semaphore test SMS error:', smsError.message)
+    res.status(502).json({
+      error: smsError.message || 'Failed to send SMS via Semaphore.'
     })
   }
 })
@@ -4008,5 +4262,8 @@ app.listen(PORT, () => {
   console.log('  GET /api/admin/bandwidth-stats')
   console.log('  GET /api/admin/security-metrics')
   console.log('  GET /api/admin/error-logs')
+  console.log('  POST /api/admin/profile/phone/send-code')
+  console.log('  POST /api/admin/profile/phone/verify')
+  console.log('  POST /api/admin/sms/send-test')
   console.log('  POST /api/admin/security-scan')
 })

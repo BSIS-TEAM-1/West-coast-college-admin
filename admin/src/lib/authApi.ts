@@ -102,10 +102,19 @@ export async function logout(): Promise<{ message: string }> {
 
 export type SignUpResponse = { message: string; username: string }
 export type LoginResponse = { message: string; username: string; token: string; accountType?: 'admin' | 'registrar' | 'professor' }
-export type ProfileResponse = { username: string; displayName: string; email: string; avatar: string; accountType: 'admin' | 'registrar' | 'professor' }
+export type ProfileResponse = {
+  username: string
+  displayName: string
+  email: string
+  phone?: string
+  phoneVerified?: boolean
+  avatar: string
+  accountType: 'admin' | 'registrar' | 'professor'
+}
 export type UpdateProfileRequest = {
   displayName?: string
   email?: string
+  phone?: string
   newUsername?: string
   currentPassword?: string
   newPassword?: string
@@ -185,6 +194,7 @@ export async function getProfile(): Promise<ProfileResponse> {
 export async function updateProfile(updates: {
   displayName?: string
   email?: string
+  phone?: string
   newUsername?: string
   currentPassword?: string
   newPassword?: string
@@ -197,6 +207,32 @@ export async function updateProfile(updates: {
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
     throw new Error((data?.error as string) || 'Failed to update profile.')
+  }
+  return data as ProfileResponse
+}
+
+export async function sendPhoneVerificationCode(phone: string): Promise<{ message: string; phone: string; expiresAt: string }> {
+  const res = await fetch(`${API_URL}/api/admin/profile/phone/send-code`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify({ phone }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error((data?.error as string) || 'Failed to send phone verification code.')
+  }
+  return data as { message: string; phone: string; expiresAt: string }
+}
+
+export async function verifyPhoneNumber(code: string): Promise<ProfileResponse> {
+  const res = await fetch(`${API_URL}/api/admin/profile/phone/verify`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify({ code }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error((data?.error as string) || 'Failed to verify phone number.')
   }
   return data as ProfileResponse
 }

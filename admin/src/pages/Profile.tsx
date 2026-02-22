@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { getProfile, updateProfile, uploadAvatar } from '../lib/authApi';
+import { getProfile, updateProfile, uploadAvatar, sendPhoneVerificationCode, verifyPhoneNumber } from '../lib/authApi';
 import { Edit, Info } from 'lucide-react';
 import type { ProfileResponse, UpdateProfileRequest } from '../lib/authApi';
 import './Profile.css';
@@ -12,20 +12,44 @@ type ProfileProps = {
 const MAX_AVATAR_SIZE = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
 
+const normalizePhoneNumber = (rawPhone: string): string => {
+  const normalized = String(rawPhone || '').trim();
+  if (!normalized) return '';
+
+  const compactNumber = normalized.replace(/[()\-\s]/g, '');
+  if (compactNumber.startsWith('+63')) {
+    return `0${compactNumber.slice(3)}`;
+  }
+  if (compactNumber.startsWith('63')) {
+    return `0${compactNumber.slice(2)}`;
+  }
+  if (compactNumber.startsWith('9') && compactNumber.length === 10) {
+    return `0${compactNumber}`;
+  }
+
+  return compactNumber;
+};
+
+const isCompletePhoneNumber = (normalizedPhone: string): boolean => /^09\d{9}$/.test(normalizedPhone);
+
 export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) {
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [verifyingPhone, setVerifyingPhone] = useState(false);
+  const [phoneEditMode, setPhoneEditMode] = useState(false);
   const [status, setStatus] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
   const [showToast, setShowToast] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarLoadError, setAvatarLoadError] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const phoneInputRef = useRef<HTMLInputElement>(null);
   const toastTimerRef = useRef<number | null>(null);
 
   const [formData, setFormData] = useState({
     displayName: '',
     email: '',
+    phone: '',
     username: '',
   });
 
@@ -36,8 +60,10 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
         setFormData({
           displayName: p.displayName,
           email: p.email,
+          phone: p.phone || '',
           username: p.username,
         });
+        setPhoneEditMode(false);
         setAvatarLoadError(false);
       })
       .catch((err) =>
@@ -72,7 +98,11 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
 
   const isDirty = useMemo(() => {
     if (!profile) return false;
-    return formData.displayName !== profile.displayName || formData.email !== profile.email;
+    return (
+      formData.displayName !== profile.displayName ||
+      formData.email !== profile.email ||
+      normalizePhoneNumber(formData.phone) !== normalizePhoneNumber(profile.phone || '')
+    );
   }, [formData, profile]);
 
   const accountTypeLabel = useMemo(() => {
@@ -80,9 +110,94 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
     return `${profile.accountType.charAt(0).toUpperCase()}${profile.accountType.slice(1)}`;
   }, [profile]);
 
+  const normalizedPhoneInput = useMemo(() => normalizePhoneNumber(formData.phone), [formData.phone]);
+  const normalizedProfilePhone = useMemo(() => normalizePhoneNumber(profile?.phone || ''), [profile?.phone]);
+  const hasPhoneInput = Boolean(formData.phone.trim());
+  const isPhoneComplete = isCompletePhoneNumber(normalizedPhoneInput);
+  const isStoredPhoneVerified = Boolean(profile?.phoneVerified) && Boolean(normalizedProfilePhone);
+  const isCurrentPhoneStored = Boolean(normalizedPhoneInput) && normalizedPhoneInput === normalizedProfilePhone;
+  const activePhoneIsVerified = isStoredPhoneVerified && isCurrentPhoneStored;
+  const phoneInputLocked = activePhoneIsVerified && !phoneEditMode;
+  const showVerifyButton = !activePhoneIsVerified && isPhoneComplete;
+  const showPhoneActionButton = activePhoneIsVerified || showVerifyButton;
+  const phoneVerificationHint = activePhoneIsVerified
+    ? 'Phone number is verified.'
+    : showVerifyButton
+      ? 'Click Verify to confirm this number through SMS.'
+      : hasPhoneInput
+        ? 'Enter a complete 11-digit mobile number to enable verification.'
+        : 'Add a mobile number, then verify it through SMS.';
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
+    if (name === 'phone') {
+      const sanitizedPhone = value.replace(/[^\d+\-\s()]/g, '');
+      setFormData((prev) => ({ ...prev, [name]: sanitizedPhone }));
+      if (profile?.phoneVerified) {
+        const normalizedIncomingPhone = normalizePhoneNumber(sanitizedPhone);
+        if (normalizedIncomingPhone !== normalizedProfilePhone) {
+          setPhoneEditMode(true);
+        }
+      }
+      return;
+    }
     setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handlePhoneAction = async () => {
+    if (!profile) return;
+
+    if (activePhoneIsVerified) {
+      setPhoneEditMode(true);
+      phoneInputRef.current?.focus();
+      phoneInputRef.current?.select();
+      return;
+    }
+
+    if (!showVerifyButton) {
+      showToastNotification('error', 'Enter a complete 11-digit mobile number before verifying.');
+      return;
+    }
+
+    setVerifyingPhone(true);
+    setStatus(null);
+
+    try {
+      await sendPhoneVerificationCode(normalizedPhoneInput);
+
+      const enteredCode = window.prompt(
+        `Verification code sent to ${normalizedPhoneInput}. Enter the 6-digit code:`,
+        ''
+      );
+
+      if (enteredCode === null) {
+        showToastNotification('success', 'Verification code sent. Verify anytime by clicking Verify again.');
+        return;
+      }
+
+      const code = enteredCode.trim();
+      if (!/^\d{6}$/.test(code)) {
+        showToastNotification('error', 'Please enter a valid 6-digit verification code.');
+        return;
+      }
+
+      const verifiedProfile = await verifyPhoneNumber(code);
+      setProfile(verifiedProfile);
+      setFormData((prev) => ({
+        ...prev,
+        username: verifiedProfile.username,
+        displayName: verifiedProfile.displayName,
+        email: verifiedProfile.email,
+        phone: verifiedProfile.phone || '',
+      }));
+      setPhoneEditMode(false);
+      showToastNotification('success', 'Phone number verified successfully.');
+      onProfileUpdated?.(verifiedProfile);
+    } catch (err) {
+      showToastNotification('error', err instanceof Error ? err.message : 'Failed to verify phone number.');
+    } finally {
+      setVerifyingPhone(false);
+    }
   };
 
   const handleAvatarClick = () => {
@@ -135,10 +250,12 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
         displayName: formData.displayName.trim() || undefined,
         email: formData.email.trim() || undefined,
       };
+      updates.phone = formData.phone.trim();
 
       const updated = await updateProfile(updates);
       setProfile(updated);
-      setFormData((prev) => ({ ...prev, displayName: updated.displayName, email: updated.email }));
+      setFormData((prev) => ({ ...prev, displayName: updated.displayName, email: updated.email, phone: updated.phone || '' }));
+      setPhoneEditMode(false);
       showToastNotification('success', 'Profile updated successfully.');
       onProfileUpdated?.(updated);
     } catch (err) {
@@ -239,6 +356,37 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
                 onChange={handleChange}
                 autoComplete="email"
               />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="phone" className="profile-label">Phone Number</label>
+              <div className="profile-input-action-wrap">
+                <input
+                  ref={phoneInputRef}
+                  id="phone"
+                  name="phone"
+                  type="tel"
+                  className={`profile-input ${showPhoneActionButton ? 'profile-input-has-action' : ''}`}
+                  value={formData.phone}
+                  onChange={handleChange}
+                  autoComplete="tel"
+                  placeholder="09XXXXXXXXX"
+                  readOnly={phoneInputLocked}
+                />
+                {showPhoneActionButton && (
+                  <button
+                    type="button"
+                    className="profile-input-action-btn"
+                    onClick={handlePhoneAction}
+                    disabled={saving || verifyingPhone}
+                  >
+                    {activePhoneIsVerified ? 'Edit' : (verifyingPhone ? 'Verifying...' : 'Verify')}
+                  </button>
+                )}
+              </div>
+              <p className={`profile-verify-hint ${activePhoneIsVerified ? 'verified' : 'unverified'}`}>
+                {phoneVerificationHint}
+              </p>
             </div>
 
             <div className="profile-actions">

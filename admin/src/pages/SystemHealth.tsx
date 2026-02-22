@@ -9,7 +9,7 @@ interface SystemMetrics {
   uptime: number;
   activeUsers: number;
   databaseUsage: number;
-  backupStatus: 'success' | 'warning' | 'error';
+  backupStatus: 'success' | 'error';
   errorCount: number;
   serverLoad: number;
   memoryUsage: number;
@@ -341,7 +341,6 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
 
   const getStatusColor = (value: number, thresholds: { good: number; warning: number }) => {
     if (value >= thresholds.good) return 'success';
-    if (value >= thresholds.warning) return 'warning';
     return 'error';
   };
 
@@ -456,7 +455,7 @@ const getHealthStatus = () => {
     ].filter(Boolean).length;
 
     if (issues === 0) return { status: 'healthy', color: '#10b981', issues };
-    if (issues <= 2) return { status: 'warning', color: '#f59e0b', issues };
+    if (issues <= 2) return { status: 'degraded', color: '#f59e0b', issues };
     return { status: 'critical', color: '#ef4444', issues };
   };
 
@@ -602,7 +601,7 @@ const getHealthStatus = () => {
                   onClick={() => metrics.backupStatus !== 'success' && handleWarningClick('backup')}
                   title={metrics.backupStatus !== 'success' ? 'Click to see details' : ''}>
               {metrics.backupStatus === 'success' ? '✓ Success' : 
-               metrics.backupStatus === 'warning' ? '⚠ Warning' : '✗ Error'}
+               '✗ Error'}
             </span>
             <div className="last-backup">Last: {metrics.lastBackup}</div>
           </div>

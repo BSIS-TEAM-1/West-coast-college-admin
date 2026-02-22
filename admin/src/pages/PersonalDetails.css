@@ -159,6 +159,40 @@
   word-break: break-word;
 }
 
+.verification-status.verified {
+  color: #15803d;
+  font-weight: 700;
+}
+
+.verification-status.unverified {
+  color: #b45309;
+  font-weight: 700;
+}
+
+.verification-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.22rem 0.62rem;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  border: 1px solid transparent;
+}
+
+.verification-badge.verified {
+  color: #166534;
+  background: #dcfce7;
+  border-color: #86efac;
+}
+
+.verification-badge.unverified {
+  color: #92400e;
+  background: #fef3c7;
+  border-color: #fcd34d;
+}
+
 .avatar-display {
   display: flex;
   justify-content: center;
@@ -390,6 +424,26 @@
 
 [data-theme="dark"] .detail-value {
   color: #e2e8f0;
+}
+
+[data-theme="dark"] .verification-status.verified {
+  color: #4ade80;
+}
+
+[data-theme="dark"] .verification-status.unverified {
+  color: #fbbf24;
+}
+
+[data-theme="dark"] .verification-badge.verified {
+  color: #bbf7d0;
+  background: rgba(22, 101, 52, 0.35);
+  border-color: rgba(74, 222, 128, 0.45);
+}
+
+[data-theme="dark"] .verification-badge.unverified {
+  color: #fde68a;
+  background: rgba(146, 64, 14, 0.35);
+  border-color: rgba(251, 191, 36, 0.45);
 }
 
 [data-theme="dark"] .avatar-image {

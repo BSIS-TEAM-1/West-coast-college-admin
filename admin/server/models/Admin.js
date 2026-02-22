@@ -16,6 +16,10 @@ const adminSchema = new mongoose.Schema({
   },
   displayName: { type: String, trim: true, default: '' },
   email: { type: String, trim: true, lowercase: true, default: '' },
+  phone: { type: String, trim: true, default: '' },
+  phoneVerified: { type: Boolean, default: false },
+  phoneVerificationCodeHash: { type: String, default: '', select: false },
+  phoneVerificationExpiresAt: { type: Date, default: null, select: false },
   avatar: { 
     type: String, 
     default: '' 
