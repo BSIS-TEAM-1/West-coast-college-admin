@@ -169,9 +169,20 @@ const schemas = {
       body: Joi.object({
         displayName: Joi.string().trim().max(254).optional(),
         email: Joi.string().email().lowercase().max(254).optional(),
+        phone: Joi.string().trim().max(30).allow('').optional(),
         newUsername: Joi.string().trim().lowercase().min(1).max(254).optional(),
         currentPassword: Joi.string().min(1).max(128).optional(),
         newPassword: Joi.string().min(8).max(128).optional()
+      })
+    },
+    sendPhoneVerificationCode: {
+      body: Joi.object({
+        phone: Joi.string().trim().max(30).required()
+      })
+    },
+    verifyPhoneVerificationCode: {
+      body: Joi.object({
+        code: Joi.string().trim().pattern(/^\d{6}$/).required()
       })
     },
     createAccount: {

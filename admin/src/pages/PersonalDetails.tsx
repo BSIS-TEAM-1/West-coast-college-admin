@@ -11,7 +11,7 @@ interface PersonalDetailsProps {
 
 interface AdditionalInfo {
   bio: string;
-  phone: string;
+  secondPhone: string;
   address: string;
   emergencyContact: string;
   emergencyRelationship: string;
@@ -22,22 +22,26 @@ interface AdditionalInfo {
   skills: string;
 }
 
+function normalizeAdditionalInfo(raw: Partial<AdditionalInfo> & { phone?: string }): AdditionalInfo {
+  return {
+    bio: raw.bio || '',
+    secondPhone: raw.secondPhone || raw.phone || '',
+    address: raw.address || '',
+    emergencyContact: raw.emergencyContact || '',
+    emergencyRelationship: raw.emergencyRelationship || '',
+    emergencyPhone: raw.emergencyPhone || '',
+    bloodType: raw.bloodType || '',
+    allergies: raw.allergies || '',
+    medicalConditions: raw.medicalConditions || '',
+    skills: raw.skills || ''
+  };
+}
+
 export default function PersonalDetails({ onBack }: PersonalDetailsProps) {
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [isEditingAdditional, setIsEditingAdditional] = useState(false);
-  const [additionalInfo, setAdditionalInfo] = useState<AdditionalInfo>({
-    bio: '',
-    phone: '',
-    address: '',
-    emergencyContact: '',
-    emergencyRelationship: '',
-    emergencyPhone: '',
-    bloodType: '',
-    allergies: '',
-    medicalConditions: '',
-    skills: ''
-  });
+  const [additionalInfo, setAdditionalInfo] = useState<AdditionalInfo>(normalizeAdditionalInfo({}));
   const [savedAdditionalInfo, setSavedAdditionalInfo] = useState<AdditionalInfo | null>(null);
 
   useEffect(() => {
@@ -76,7 +80,7 @@ export default function PersonalDetails({ onBack }: PersonalDetailsProps) {
         resourceType: 'USER_PROFILE',
         resourceId: profile?.username || 'unknown',
         resourceName: 'Personal Information',
-        description: `User updated personal information: ${additionalInfo.bio ? 'Bio, ' : ''}${additionalInfo.phone ? 'Phone, ' : ''}${additionalInfo.address ? 'Address, ' : ''}${additionalInfo.emergencyContact ? 'Emergency Contact, ' : ''}${additionalInfo.emergencyRelationship ? 'Relationship, ' : ''}${additionalInfo.emergencyPhone ? 'Emergency Phone, ' : ''}${additionalInfo.bloodType ? 'Blood Type, ' : ''}${additionalInfo.allergies ? 'Allergies, ' : ''}${additionalInfo.medicalConditions ? 'Medical Conditions' : ''}`,
+        description: `User updated personal information: ${additionalInfo.bio ? 'Bio, ' : ''}${additionalInfo.secondPhone ? 'Second Phone Number, ' : ''}${additionalInfo.address ? 'Address, ' : ''}${additionalInfo.emergencyContact ? 'Emergency Contact, ' : ''}${additionalInfo.emergencyRelationship ? 'Relationship, ' : ''}${additionalInfo.emergencyPhone ? 'Emergency Phone, ' : ''}${additionalInfo.bloodType ? 'Blood Type, ' : ''}${additionalInfo.allergies ? 'Allergies, ' : ''}${additionalInfo.medicalConditions ? 'Medical Conditions' : ''}`,
         status: 'SUCCESS',
         severity: 'LOW'
       };
@@ -99,18 +103,7 @@ export default function PersonalDetails({ onBack }: PersonalDetailsProps) {
     if (savedAdditionalInfo) {
       setAdditionalInfo(savedAdditionalInfo);
     } else {
-      setAdditionalInfo({
-        bio: '',
-        phone: '',
-        address: '',
-        emergencyContact: '',
-        emergencyRelationship: '',
-        emergencyPhone: '',
-        bloodType: '',
-        allergies: '',
-        medicalConditions: '',
-        skills: ''
-      });
+      setAdditionalInfo(normalizeAdditionalInfo({}));
     }
   };
 
@@ -124,8 +117,9 @@ export default function PersonalDetails({ onBack }: PersonalDetailsProps) {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        setSavedAdditionalInfo(parsed);
-        setAdditionalInfo(parsed);
+        const normalized = normalizeAdditionalInfo(parsed || {});
+        setSavedAdditionalInfo(normalized);
+        setAdditionalInfo(normalized);
       } catch (error) {
         console.error('Failed to parse additional info:', error);
       }
@@ -196,6 +190,20 @@ export default function PersonalDetails({ onBack }: PersonalDetailsProps) {
             <span className="detail-value">{profile.email}</span>
           </div>
           <div className="detail-row">
+            <span className="detail-label">Phone Number:</span>
+            <span className="detail-value">{profile.phone?.trim() ? profile.phone : 'Not set'}</span>
+          </div>
+          <div className="detail-row">
+            <span className="detail-label">Phone Verification:</span>
+            <span className="detail-value">
+              <span className={`verification-badge ${profile.phoneVerified ? 'verified' : 'unverified'}`}>
+                {profile.phone?.trim()
+                  ? (profile.phoneVerified ? 'Verified' : 'Not verified')
+                  : 'No phone'}
+              </span>
+            </span>
+          </div>
+          <div className="detail-row">
             <span className="detail-label">Account Type:</span>
             <span className="detail-value">{profile.accountType}</span>
           </div>
@@ -259,11 +267,11 @@ export default function PersonalDetails({ onBack }: PersonalDetailsProps) {
               </div>
               <div className="form-row">
                 <div className="form-group">
-                  <label>Phone</label>
+                  <label>Second Phone Number</label>
                   <input
                     type="tel"
-                    value={additionalInfo.phone}
-                    onChange={(e) => handleAdditionalInfoChange('phone', e.target.value)}
+                    value={additionalInfo.secondPhone}
+                    onChange={(e) => handleAdditionalInfoChange('secondPhone', e.target.value)}
                     placeholder="+(63)"
                   />
                 </div>
@@ -299,10 +307,10 @@ export default function PersonalDetails({ onBack }: PersonalDetailsProps) {
                   <span className="detail-value">{savedAdditionalInfo.bio}</span>
                 </div>
               )}
-              {savedAdditionalInfo?.phone && (
+              {savedAdditionalInfo?.secondPhone && (
                 <div className="detail-row">
-                  <span className="detail-label">Phone:</span>
-                  <span className="detail-value">{savedAdditionalInfo.phone}</span>
+                  <span className="detail-label">Second Phone Number:</span>
+                  <span className="detail-value">{savedAdditionalInfo.secondPhone}</span>
                 </div>
               )}
               {savedAdditionalInfo?.address && (
@@ -317,7 +325,7 @@ export default function PersonalDetails({ onBack }: PersonalDetailsProps) {
                   <span className="detail-value">{savedAdditionalInfo.skills}</span>
                 </div>
               )}
-              {(!savedAdditionalInfo || (!savedAdditionalInfo.bio && !savedAdditionalInfo.phone && !savedAdditionalInfo.address && 
+              {(!savedAdditionalInfo || (!savedAdditionalInfo.bio && !savedAdditionalInfo.secondPhone && !savedAdditionalInfo.address && 
                 !savedAdditionalInfo.emergencyContact && !savedAdditionalInfo.skills)) && (
                 <div style={{ textAlign: 'center', color: '#64748b', fontStyle: 'italic' }}>
                   No additional information provided yet. Click "Add Info" to get started.

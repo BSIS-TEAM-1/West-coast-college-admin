@@ -11,6 +11,11 @@ node_modules
 dist
 .env
 .env.local
+.env.development
+.env.production
+.env.example
+.env.production.local
+.env.credential-details
 .env.*.local
 .env.*
 .jwt
