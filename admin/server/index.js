@@ -149,6 +149,20 @@ const apiLimiter = rateLimit({
   legacyHeaders: false
 })
 
+// Limit stale-asset fallback lookups because the handler hits the filesystem.
+const staleAssetFallbackRateLimitMax = Number(process.env.STALE_ASSET_FALLBACK_RATE_LIMIT_MAX || 60)
+const staleAssetFallbackLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: Number.isFinite(staleAssetFallbackRateLimitMax) && staleAssetFallbackRateLimitMax > 0
+    ? staleAssetFallbackRateLimitMax
+    : 60,
+  message: {
+    error: 'Too many asset fallback requests from this IP, please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+})
+
 // Apply relaxed limiter to all API routes
 app.use('/api/', apiLimiter)
 
@@ -269,7 +283,7 @@ app.use(express.static(distPath, {
 
 // Stale-client compatibility: map missing hashed index assets to the latest build asset.
 const hashedIndexAssetPattern = /^index-[A-Za-z0-9_-]+\.(css|js)$/
-app.get('/assets/:assetName', (req, res, next) => {
+app.get('/assets/:assetName', staleAssetFallbackLimiter, (req, res, next) => {
   const assetName = path.basename(String(req.params.assetName || ''))
   if (!hashedIndexAssetPattern.test(assetName)) {
     return next()
