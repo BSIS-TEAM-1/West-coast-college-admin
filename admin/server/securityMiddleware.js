@@ -172,7 +172,19 @@ const schemas = {
         phone: Joi.string().trim().max(30).allow('').optional(),
         newUsername: Joi.string().trim().lowercase().min(1).max(254).optional(),
         currentPassword: Joi.string().min(1).max(128).optional(),
-        newPassword: Joi.string().min(8).max(128).optional()
+        newPassword: Joi.string().min(8).max(128).optional(),
+        additionalInfo: Joi.object({
+          bio: Joi.string().trim().max(1000).allow('').optional(),
+          secondPhone: Joi.string().trim().max(30).allow('').optional(),
+          address: Joi.string().trim().max(500).allow('').optional(),
+          emergencyContact: Joi.string().trim().max(254).allow('').optional(),
+          emergencyRelationship: Joi.string().trim().max(254).allow('').optional(),
+          emergencyPhone: Joi.string().trim().max(30).allow('').optional(),
+          bloodType: Joi.string().trim().max(20).allow('').optional(),
+          allergies: Joi.string().trim().max(500).allow('').optional(),
+          medicalConditions: Joi.string().trim().max(1000).allow('').optional(),
+          skills: Joi.string().trim().max(1000).allow('').optional()
+        }).optional()
       })
     },
     sendPhoneVerificationCode: {

@@ -102,6 +102,18 @@ export async function logout(): Promise<{ message: string }> {
 
 export type SignUpResponse = { message: string; username: string }
 export type LoginResponse = { message: string; username: string; token: string; accountType?: 'admin' | 'registrar' | 'professor' }
+export type AdditionalInfo = {
+  bio: string
+  secondPhone: string
+  address: string
+  emergencyContact: string
+  emergencyRelationship: string
+  emergencyPhone: string
+  bloodType: string
+  allergies: string
+  medicalConditions: string
+  skills: string
+}
 export type ProfileResponse = {
   username: string
   displayName: string
@@ -110,6 +122,7 @@ export type ProfileResponse = {
   phoneVerified?: boolean
   avatar: string
   accountType: 'admin' | 'registrar' | 'professor'
+  additionalInfo?: AdditionalInfo
 }
 export type UpdateProfileRequest = {
   displayName?: string
@@ -118,6 +131,7 @@ export type UpdateProfileRequest = {
   newUsername?: string
   currentPassword?: string
   newPassword?: string
+  additionalInfo?: Partial<AdditionalInfo>
 }
 
 export type AccountLog = {
@@ -191,14 +205,7 @@ export async function getProfile(): Promise<ProfileResponse> {
   return data as ProfileResponse
 }
 
-export async function updateProfile(updates: {
-  displayName?: string
-  email?: string
-  phone?: string
-  newUsername?: string
-  currentPassword?: string
-  newPassword?: string
-}): Promise<ProfileResponse> {
+export async function updateProfile(updates: UpdateProfileRequest): Promise<ProfileResponse> {
   const res = await fetch(`${API_URL}/api/admin/profile`, {
     method: 'PATCH',
     headers: await authHeaders(),

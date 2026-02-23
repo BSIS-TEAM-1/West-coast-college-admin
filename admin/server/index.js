@@ -1300,6 +1300,43 @@ app.post('/api/admin/logout', authMiddleware, async (req, res) => {
   }
 })
 
+const ADMIN_ADDITIONAL_INFO_FIELDS = [
+  'bio',
+  'secondPhone',
+  'address',
+  'emergencyContact',
+  'emergencyRelationship',
+  'emergencyPhone',
+  'bloodType',
+  'allergies',
+  'medicalConditions',
+  'skills'
+]
+
+const normalizeAdminAdditionalInfo = (rawValue) => {
+  const source = rawValue && typeof rawValue === 'object' && !Array.isArray(rawValue)
+    ? rawValue
+    : {}
+  const normalized = {}
+
+  ADMIN_ADDITIONAL_INFO_FIELDS.forEach((field) => {
+    normalized[field] = String(source[field] || '').trim()
+  })
+
+  return normalized
+}
+
+const buildAdminProfileResponse = (adminRecord) => ({
+  username: adminRecord.username,
+  displayName: adminRecord.displayName || '',
+  email: adminRecord.email || '',
+  phone: adminRecord.phone || '',
+  phoneVerified: Boolean(adminRecord.phoneVerified),
+  avatar: adminRecord.avatar || '',
+  accountType: adminRecord.accountType,
+  additionalInfo: normalizeAdminAdditionalInfo(adminRecord.additionalInfo)
+})
+
 // GET /api/admin/profile – requires Bearer token
 app.get('/api/admin/profile', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.getProfile), async (req, res) => {
   // No body/query validation needed for GET
@@ -1310,21 +1347,12 @@ app.get('/api/admin/profile', authMiddleware, securityMiddleware.inputValidation
     const admin = await Admin.findById(req.adminId).select('-password')
     if (!admin) return res.status(404).json({ error: 'Admin not found.' })
     
-    console.log('Raw admin document from DB:', admin)
-    console.log('admin.accountType value:', admin.accountType)
-    console.log('typeof admin.accountType:', typeof admin.accountType)
+    const profileData = buildAdminProfileResponse(admin)
     
-    const profileData = {
-      username: admin.username,
-      displayName: admin.displayName || '',
-      email: admin.email || '',
-      phone: admin.phone || '',
-      phoneVerified: Boolean(admin.phoneVerified),
-      avatar: admin.avatar || '',
-      accountType: admin.accountType,
-    }
-    
-    console.log('Profile data being returned:', profileData)
+    console.log('Profile data being returned:', {
+      username: profileData.username,
+      accountType: profileData.accountType
+    })
     res.json(profileData)
   } catch (err) {
     console.error('Profile get error:', err.message)
@@ -1341,7 +1369,7 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
     const admin = await Admin.findById(req.adminId)
     if (!admin) return res.status(404).json({ error: 'Admin not found.' })
 
-    const { displayName, email, phone, newUsername, currentPassword, newPassword } = req.body
+    const { displayName, email, phone, newUsername, currentPassword, newPassword, additionalInfo } = req.body
 
     if (typeof displayName === 'string') admin.displayName = displayName.trim()
     if (typeof email === 'string') admin.email = email.trim().toLowerCase()
@@ -1382,17 +1410,16 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
       admin.password = newPassword
     }
 
+    if (additionalInfo && typeof additionalInfo === 'object' && !Array.isArray(additionalInfo)) {
+      admin.additionalInfo = normalizeAdminAdditionalInfo({
+        ...(admin.additionalInfo || {}),
+        ...additionalInfo
+      })
+    }
+
     await admin.save()
     const updated = await Admin.findById(admin._id).select('-password')
-    res.json({
-      username: updated.username,
-      displayName: updated.displayName || '',
-      email: updated.email || '',
-      phone: updated.phone || '',
-      phoneVerified: Boolean(updated.phoneVerified),
-      avatar: updated.avatar || '',
-      accountType: updated.accountType,
-    })
+    res.json(buildAdminProfileResponse(updated))
   } catch (err) {
     console.error('Profile update error:', err.message)
     res.status(500).json({ error: 'Failed to update profile.' })
@@ -1520,15 +1547,7 @@ app.post('/api/admin/profile/phone/verify', authMiddleware, securityMiddleware.i
     admin.phoneVerificationExpiresAt = null
     await admin.save()
 
-    res.json({
-      username: admin.username,
-      displayName: admin.displayName || '',
-      email: admin.email || '',
-      phone: admin.phone || '',
-      phoneVerified: true,
-      avatar: admin.avatar || '',
-      accountType: admin.accountType,
-    })
+    res.json(buildAdminProfileResponse(admin))
   } catch (err) {
     console.error('Phone verification error:', err.message)
     res.status(500).json({ error: 'Failed to verify phone number.' })
