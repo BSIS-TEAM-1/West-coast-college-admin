@@ -85,6 +85,10 @@ export default function Sidebar({ activeLink = 'dashboard', onNavigate, profileU
           if (id === 'announcements' && profile?.accountType === 'registrar') {
             return false
           }
+          // Hide system-health for professor users
+          if (id === 'system-health' && profile?.accountType === 'professor') {
+            return false
+          }
           return true
         }).map(({ id, label, icon: Icon }) => (
           <button

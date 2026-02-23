@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Video, Users, Calendar, Award, Activity } from 'lucide-react'
+import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Video, Users, Calendar, Award } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
-import SystemHealth from './SystemHealth'
 import { getProfile, getStoredToken } from '../lib/authApi'
 import type { ProfileResponse } from '../lib/authApi'
 import { API_URL } from '../lib/authApi'
@@ -47,7 +46,7 @@ interface Announcement {
   scheduledFor?: string
 }
 
-type ProfessorView = 'dashboard' | 'courses' | 'students' | 'grades' | 'schedule' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'system-health'
+type ProfessorView = 'dashboard' | 'courses' | 'students' | 'grades' | 'schedule' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details'
 
 type ProfessorDashboardProps = {
   username: string
@@ -62,7 +61,6 @@ const PROFESSOR_NAV_ITEMS: { id: ProfessorView; label: string; icon: any }[] = [
   { id: 'grades', label: 'Grades', icon: Award },
   { id: 'schedule', label: 'Schedule', icon: Calendar },
   { id: 'announcements', label: 'Announcements', icon: Bell },
-  { id: 'system-health', label: 'System Health', icon: Activity },
   { id: 'profile', label: 'Profile', icon: User },
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
 ]
@@ -209,8 +207,6 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
         />
       case 'personal-details':
         return <PersonalDetails onBack={() => setView('profile')} />
-      case 'system-health':
-        return <SystemHealth />
       default:
         return <ProfessorHome announcements={announcements} onAnnouncementClick={handleAnnouncementClick} quickActionsRef={quickActionsRef} newsSectionRef={newsSectionRef} />
     }

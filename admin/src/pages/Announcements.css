@@ -104,8 +104,23 @@
   font-weight: 500;
 }
 
+.announcements-archive-selected-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  padding: 12px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: var(--color-text);
+  font-weight: 500;
+}
+
 .announcements-filter-btn:hover,
-.announcements-refresh-btn:hover {
+.announcements-refresh-btn:hover,
+.announcements-archive-selected-btn:hover {
   background: var(--color-surface-hover);
   border-color: var(--color-border);
 }

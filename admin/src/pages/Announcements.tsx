@@ -460,6 +460,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
     
     return matchesSearch && matchesType && matchesStatus
   })
+  const hasSelectedAnnouncements = selectedAnnouncements.length > 0
 
   const handleSelectAnnouncement = (id: string) => {
     setSelectedAnnouncements(prev => 
@@ -609,6 +610,40 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
     }
   }
 
+  const handleArchiveAnnouncement = async (id: string) => {
+    if (!window.confirm('Archive this announcement? It will be marked inactive.')) return
+
+    try {
+      const token = await getStoredToken()
+      const res = await fetch(`${API_URL}/api/admin/announcements/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ isActive: false, isArchived: true })
+      })
+
+      if (!res.ok) {
+        console.error('Failed to archive announcement', id, res.status)
+        alert('Failed to archive announcement')
+        return
+      }
+
+      setAnnouncements(prev =>
+        prev.map((announcement) =>
+          announcement._id === id
+            ? { ...announcement, isActive: false, isArchived: true }
+            : announcement
+        )
+      )
+      setSelectedAnnouncements(prev => prev.filter(sid => sid !== id))
+    } catch (err) {
+      console.error('Failed to archive announcement:', err)
+      alert('Failed to archive announcement')
+    }
+  }
+
   return (
     <div className="announcements-page">
       <div className="announcements-header">
@@ -634,6 +669,15 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
         </div>
 
         <div className="announcements-actions">
+          {hasSelectedAnnouncements && (
+            <button
+              className="announcements-archive-selected-btn"
+              onClick={() => handleBulkAction('archive')}
+            >
+              <Archive size={20} />
+              Archive Selected
+            </button>
+          )}
           <button 
             className="announcements-filter-btn"
             onClick={() => setShowFilters(!showFilters)}
@@ -670,22 +714,6 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
             <option value="inactive">Inactive</option>
             <option value="archived">Archived</option>
           </select>
-        </div>
-      )}
-
-      {selectedAnnouncements.length > 0 && (
-        <div className="announcements-bulk-actions">
-          <span>{selectedAnnouncements.length} selected</span>
-          <div className="bulk-actions-buttons">
-            <button onClick={() => handleBulkAction('archive')}>
-              <Archive size={16} />
-              Archive
-            </button>
-            <button onClick={() => handleBulkAction('delete')}>
-              <Trash2 size={16} />
-              Delete
-            </button>
-          </div>
         </div>
       )}
 
@@ -1157,13 +1185,14 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
             {filteredAnnouncements.map((announcement) => {
               const canEdit = currentUser?.accountType === 'admin' || 
                             currentUser?.username === announcement.createdBy.username
+              const isSelected = selectedAnnouncements.includes(announcement._id)
 
               return (
                 <div className="announcements-table-row" key={announcement._id}>
                   <div className="table-checkbox">
                     <input
                       type="checkbox"
-                      checked={selectedAnnouncements.includes(announcement._id)}
+                      checked={isSelected}
                       onChange={() => handleSelectAnnouncement(announcement._id)}
                     />
                   </div>
@@ -1215,6 +1244,16 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                     >
                       <Eye size={16} />
                     </button>
+                    {canEdit && (
+                      <button
+                        className="action-btn archive-action"
+                        onClick={() => handleArchiveAnnouncement(announcement._id)}
+                        title="Archive"
+                        disabled={Boolean(announcement.isArchived)}
+                      >
+                        <Archive size={16} />
+                      </button>
+                    )}
                     {canEdit && (
                       <button 
                         className="action-btn"
