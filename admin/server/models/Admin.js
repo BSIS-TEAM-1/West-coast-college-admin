@@ -1,6 +1,19 @@
 const mongoose = require('mongoose')
 const bcrypt = require('bcryptjs')
 
+const additionalInfoSchema = new mongoose.Schema({
+  bio: { type: String, trim: true, default: '' },
+  secondPhone: { type: String, trim: true, default: '' },
+  address: { type: String, trim: true, default: '' },
+  emergencyContact: { type: String, trim: true, default: '' },
+  emergencyRelationship: { type: String, trim: true, default: '' },
+  emergencyPhone: { type: String, trim: true, default: '' },
+  bloodType: { type: String, trim: true, default: '' },
+  allergies: { type: String, trim: true, default: '' },
+  medicalConditions: { type: String, trim: true, default: '' },
+  skills: { type: String, trim: true, default: '' }
+}, { _id: false })
+
 const adminSchema = new mongoose.Schema({
   username: {
     type: String,
@@ -25,6 +38,10 @@ const adminSchema = new mongoose.Schema({
     default: '' 
   },
   avatarMimeType: { type: String, default: '' },
+  additionalInfo: {
+    type: additionalInfoSchema,
+    default: () => ({})
+  },
   accountType: {
     type: String,
     enum: ['admin', 'registrar', 'professor'],

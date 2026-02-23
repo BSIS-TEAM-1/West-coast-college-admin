@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getProfile } from '../lib/authApi';
-import { API_URL } from '../lib/authApi';
+import { getProfile, updateProfile, getStoredToken, API_URL } from '../lib/authApi';
 import { Info, Save, X } from 'lucide-react';
 import type { ProfileResponse } from '../lib/authApi';
 import './PersonalDetails.css';
@@ -50,6 +49,9 @@ export default function PersonalDetails({ onBack }: PersonalDetailsProps) {
     getProfile()
       .then((p) => {
         setProfile(p);
+        const normalized = normalizeAdditionalInfo(p.additionalInfo || {});
+        setSavedAdditionalInfo(normalized);
+        setAdditionalInfo(normalized);
       })
       .catch((err) => {
         console.error('Failed to load profile:', err);
@@ -67,18 +69,29 @@ export default function PersonalDetails({ onBack }: PersonalDetailsProps) {
   };
 
   const handleSaveAdditional = async () => {
-    setSavedAdditionalInfo(additionalInfo);
-    setIsEditingAdditional(false);
-    // TODO: Save to backend instead of localStorage for sensitive data
-    // localStorage.setItem('additionalInfo', JSON.stringify(additionalInfo));
-    
+    let updatedUsername = profile?.username || 'unknown';
+    try {
+      const updatedProfile = await updateProfile({ additionalInfo });
+      const normalizedSaved = normalizeAdditionalInfo(updatedProfile.additionalInfo || additionalInfo);
+      updatedUsername = updatedProfile.username || updatedUsername;
+      setProfile(updatedProfile);
+      setSavedAdditionalInfo(normalizedSaved);
+      setAdditionalInfo(normalizedSaved);
+      setIsEditingAdditional(false);
+    } catch (error) {
+      console.error('Failed to save additional info:', error);
+      return;
+    }
+
     // Create audit log for personal information update
     try {
-      const token = localStorage.getItem('token');
+      const token = await getStoredToken();
+      if (!token) return;
+
       const auditData = {
         action: 'UPDATE_PERSONAL_INFO',
         resourceType: 'USER_PROFILE',
-        resourceId: profile?.username || 'unknown',
+        resourceId: updatedUsername,
         resourceName: 'Personal Information',
         description: `User updated personal information: ${additionalInfo.bio ? 'Bio, ' : ''}${additionalInfo.secondPhone ? 'Second Phone Number, ' : ''}${additionalInfo.address ? 'Address, ' : ''}${additionalInfo.emergencyContact ? 'Emergency Contact, ' : ''}${additionalInfo.emergencyRelationship ? 'Relationship, ' : ''}${additionalInfo.emergencyPhone ? 'Emergency Phone, ' : ''}${additionalInfo.bloodType ? 'Blood Type, ' : ''}${additionalInfo.allergies ? 'Allergies, ' : ''}${additionalInfo.medicalConditions ? 'Medical Conditions' : ''}`,
         status: 'SUCCESS',
@@ -110,21 +123,6 @@ export default function PersonalDetails({ onBack }: PersonalDetailsProps) {
   const handleAdditionalInfoChange = (field: keyof AdditionalInfo, value: string) => {
     setAdditionalInfo(prev => ({ ...prev, [field]: value }));
   };
-
-  // Load saved additional info on mount
-  useEffect(() => {
-    const saved = localStorage.getItem('additionalInfo');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        const normalized = normalizeAdditionalInfo(parsed || {});
-        setSavedAdditionalInfo(normalized);
-        setAdditionalInfo(normalized);
-      } catch (error) {
-        console.error('Failed to parse additional info:', error);
-      }
-    }
-  }, []);
 
   if (loading) {
     return (
