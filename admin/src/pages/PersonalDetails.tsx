@@ -69,8 +69,8 @@ export default function PersonalDetails({ onBack }: PersonalDetailsProps) {
   const handleSaveAdditional = async () => {
     setSavedAdditionalInfo(additionalInfo);
     setIsEditingAdditional(false);
-    // Here you would typically save to backend
-    localStorage.setItem('additionalInfo', JSON.stringify(additionalInfo));
+    // TODO: Save to backend instead of localStorage for sensitive data
+    // localStorage.setItem('additionalInfo', JSON.stringify(additionalInfo));
     
     // Create audit log for personal information update
     try {
