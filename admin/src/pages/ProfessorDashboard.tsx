@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Video, Users, Calendar, Award } from 'lucide-react'
+import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Video, Calendar, Award } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
