@@ -1,6 +1,18 @@
 const path = require('path')
 const fs = require('fs')
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') })
+const dotenv = require('dotenv')
+
+const envFileCandidates = [
+  { filePath: path.join(__dirname, '..', '.env'), override: false },
+  { filePath: path.join(__dirname, '..', '.env.credential-details'), override: true },
+  { filePath: path.join(__dirname, '..', '.env.credentail-details'), override: true },
+]
+
+envFileCandidates.forEach(({ filePath, override }) => {
+  if (fs.existsSync(filePath)) {
+    dotenv.config({ path: filePath, override })
+  }
+})
 
 const express = require('express')
 const cors = require('cors')
@@ -21,14 +33,19 @@ const Document = require('./models/Document')
 const Backup = require('./models/Backup')
 const BlockedIP = require('./models/BlockedIP')
 const SecurityScan = require('./models/SecurityScan')
+const Student = require('./models/Student')
+const Enrollment = require('./models/Enrollment')
+const BlockSection = require('./models/BlockSection')
 const BackupSystem = require('./backup')
 const SemaphoreSmsService = require('./services/semaphoreSmsService')
+const SmsApiPhService = require('./services/smsApiPhService')
 const registrarRoutes = require('./routes/registrarRoutes')
 const blockController = require('./controllers/blockController')
 
 // Initialize backup system
 const backupSystem = new BackupSystem()
 const semaphoreSmsService = new SemaphoreSmsService()
+const smsApiPhService = new SmsApiPhService()
 
 // Schedule automatic backups (every 6 hours)
 setInterval(async () => {
@@ -1388,8 +1405,10 @@ app.post('/api/admin/profile/phone/send-code', authMiddleware, securityMiddlewar
     return res.status(503).json({ error: 'Database unavailable.' })
   }
 
-  if (!semaphoreSmsService.isConfigured()) {
-    return res.status(503).json({ error: 'Semaphore SMS is not configured.' })
+  if (!smsApiPhService.isConfigured()) {
+    return res.status(503).json({
+      error: 'SMS gateway is not configured. Set SMS_API_PH_API_KEY.'
+    })
   }
 
   try {
@@ -1413,25 +1432,50 @@ app.post('/api/admin/profile/phone/send-code', authMiddleware, securityMiddlewar
     admin.phoneVerificationExpiresAt = expiresAt
     await admin.save()
 
+    const smsMessage = `Your verification code is ${verificationCode}`
+    const adminEmail = String(admin.email || '').trim().toLowerCase()
+    let deliveryResult = null
+
     try {
-      await semaphoreSmsService.sendSms({
-        number: normalizedPhone,
-        message: `WCC Admin verification code: ${verificationCode}. This code expires in ${expiresInMinutes} minutes.`
+      deliveryResult = await smsApiPhService.sendMessage({
+        recipient: normalizedPhone,
+        message: smsMessage,
+        fallbackEmail: adminEmail
       })
-    } catch (smsError) {
+    } catch (deliveryError) {
       admin.phoneVerificationCodeHash = ''
       admin.phoneVerificationExpiresAt = null
       await admin.save()
-      console.error('Phone verification SMS error:', smsError.message)
+      const deliveryErrorMessage = deliveryError?.message || 'Failed to send verification code.'
+      console.error('Phone verification delivery error:', deliveryErrorMessage)
       return res.status(502).json({
-        error: smsError.message || 'Failed to send verification SMS.'
+        error: deliveryErrorMessage
       })
     }
+
+    const channel = deliveryResult.channel === 'email' ? 'email' : 'sms'
+    const usedEmailFallback = Boolean(channel === 'email' || deliveryResult.fallbackUsed)
+    const emailProvider = channel === 'email' ? 'sms-api-ph' : null
+    console.log('Phone verification gateway request accepted.', {
+      channel,
+      recipient: deliveryResult.recipient,
+      status: deliveryResult.status,
+      messageId: deliveryResult.messageId,
+      fallbackUsed: usedEmailFallback
+    })
 
     res.json({
       message: 'Verification code sent.',
       phone: normalizedPhone,
-      expiresAt: expiresAt.toISOString()
+      expiresAt: expiresAt.toISOString(),
+      channel,
+      emailProvider,
+      destination: deliveryResult.recipient || normalizedPhone,
+      fallbackUsed: usedEmailFallback,
+      fallbackReason: usedEmailFallback ? (deliveryResult.fallbackReason || 'SMS delivery fallback was used by the gateway.') : null,
+      deliveryStatus: deliveryResult.status,
+      messageId: deliveryResult.messageId,
+      providerMessage: deliveryResult.providerMessage || null
     })
   } catch (err) {
     console.error('Send phone verification code error:', err.message)
@@ -1677,6 +1721,52 @@ app.delete('/api/admin/accounts/:id', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'Only super admin can delete other admin accounts.' })
     }
 
+    // If a professor account is deleted, clear professor references so
+    // COR and section views no longer display a removed professor.
+    if (accountToDelete.accountType === 'professor') {
+      const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const identifiers = Array.from(
+        new Set(
+          [accountToDelete.displayName, accountToDelete.username, accountToDelete.uid]
+            .map((value) => String(value || '').trim())
+            .filter(Boolean)
+        )
+      )
+
+      if (identifiers.length > 0) {
+        const exactIdentifierPatterns = identifiers.map(
+          (value) => new RegExp(`^\\s*${escapeRegExp(value)}\\s*$`, 'i')
+        )
+
+        await Promise.all([
+          Student.updateMany(
+            { assignedProfessor: { $in: exactIdentifierPatterns } },
+            { $set: { assignedProfessor: '' } }
+          ),
+          Student.updateMany(
+            { gradeProfessor: { $in: exactIdentifierPatterns } },
+            { $set: { gradeProfessor: '' } }
+          ),
+          BlockSection.updateMany(
+            { classAdviser: { $in: exactIdentifierPatterns } },
+            { $set: { classAdviser: '' } }
+          ),
+          Enrollment.updateMany(
+            { 'subjects.instructor': { $in: exactIdentifierPatterns } },
+            {
+              $set: {
+                'subjects.$[subject].instructor': 'TBA',
+                'subjects.$[subject].dateModified': new Date()
+              }
+            },
+            {
+              arrayFilters: [{ 'subject.instructor': { $in: exactIdentifierPatterns } }]
+            }
+          )
+        ])
+      }
+    }
+
     // Delete the account
     await Admin.findByIdAndDelete(req.params.id)
 
@@ -1686,7 +1776,7 @@ app.delete('/api/admin/accounts/:id', authMiddleware, async (req, res) => {
       'ADMIN',
       accountToDelete._id.toString(),
       accountToDelete.username,
-      `Deleted admin account: ${accountToDelete.username} (${accountToDelete.accountType})`,
+      `Deleted an account: ${accountToDelete.username} (${accountToDelete.accountType})`,
       req.adminId,
       req.accountType,
       auditObject(accountToDelete, 'ADMIN'),
@@ -1995,10 +2085,16 @@ app.get('/api/admin/audit-logs', authMiddleware, requireAdminRole, async (req, r
       .skip((pageNumber - 1) * limitNumber)
     
     const total = await AuditLog.countDocuments(filter)
+    const normalizeAuditDescription = (value) => {
+      const text = String(value || '')
+      return text.replace(/^Deleted admin account:/i, 'Deleted an account:')
+    }
+
     const sanitizedLogs = logs.map((entry) => {
       const logEntry = entry?.toObject ? entry.toObject() : entry
       return {
         ...logEntry,
+        description: normalizeAuditDescription(logEntry.description),
         oldValue: redactSensitiveAuditData(logEntry.oldValue),
         newValue: redactSensitiveAuditData(logEntry.newValue)
       }

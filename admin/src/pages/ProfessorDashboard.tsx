@@ -412,20 +412,6 @@ function ProfessorHome({ announcements, onAnnouncementClick, quickActionsRef, ne
                     </div>
 
                     <h3 className="dashboard-card-title">{announcement.title}</h3>
-                    <p className="dashboard-card-message">{announcement.message}</p>
-
-                    <div className="dashboard-card-footer">
-                      <div className="dashboard-meta-item">
-                        <Users size={12} />
-                        <span>{announcement.targetAudience}</span>
-                      </div>
-                      {announcement.expiresAt && (
-                        <div className="dashboard-meta-item" style={{ marginLeft: 'auto', color: '#ef4444' }}>
-                          <Clock size={12} />
-                          <span>Exp: {formatDate(announcement.expiresAt)}</span>
-                        </div>
-                      )}
-                    </div>
                   </div>
                 </div>
                 )

@@ -443,24 +443,6 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
     }
   };
 
-const getHealthStatus = () => {
-    const issues = [
-      metrics.uptime < 99,
-      metrics.activeUsers > 500,
-      metrics.databaseUsage > 80,
-      metrics.backupStatus !== 'success',
-      metrics.errorCount > 50,
-      metrics.serverLoad > 70,
-      metrics.memoryUsage > 80
-    ].filter(Boolean).length;
-
-    if (issues === 0) return { status: 'healthy', color: '#10b981', issues };
-    if (issues <= 2) return { status: 'degraded', color: '#f59e0b', issues };
-    return { status: 'critical', color: '#ef4444', issues };
-  };
-
-  const healthStatus = getHealthStatus();
-  
   
   // Calculate document change percentage
   const getDocumentChange = () => {
@@ -545,10 +527,6 @@ const getHealthStatus = () => {
           >
             Security
           </button>
-          <div className="overall-status">
-            <span className="status-indicator" style={{ backgroundColor: healthStatus.color }}></span>
-            <span className="status-text" style={{ color: healthStatus.color }}>{healthStatus.status.toUpperCase()}</span>
-          </div>
         </div>
       </div>
 

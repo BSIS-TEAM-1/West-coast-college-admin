@@ -741,8 +741,25 @@ class StudentController {
         return res.status(404).json({ success: false, message: 'Student not found' });
       }
 
-      const courseCode = String(student.course || '').toUpperCase();
-      const courseLabel = StudentController.courseLabelMap[student.course] || student.course || 'N/A';
+      const courseCodeFromValue = (value) => {
+        const text = String(value ?? '').trim();
+        if (!text) return '';
+        if (/^\d+$/.test(text)) return text;
+
+        const normalized = text.toUpperCase().replace(/\s+/g, '').replace(/_/g, '-');
+        if (normalized.includes('BEED')) return '101';
+        if (normalized.includes('BSED-ENGLISH') || normalized === 'ENGLISH') return '102';
+        if (normalized.includes('BSED-MATH') || normalized === 'MATH' || normalized === 'MATHEMATICS') return '103';
+        if (normalized.includes('BSBA-HRM') || normalized === 'HRM') return '201';
+        return '';
+      };
+
+      const courseCode = courseCodeFromValue(student.course) || '000';
+      const courseLabel =
+        StudentController.courseLabelMap[Number(courseCode)] ||
+        StudentController.courseLabelMap[student.course] ||
+        student.course ||
+        'N/A';
       const extractProgram = (value) => {
         const text = String(value || '').trim();
         if (!text) return 'N/A';
@@ -758,10 +775,14 @@ class StudentController {
       };
       const programLabel = extractProgram(courseLabel);
       const majorLabel = extractMajor(student.major) || extractMajor(courseLabel) || 'N/A';
-      const parts = (student.studentNumber || '').split('-');
-      const yearPart = parts[0] || '0000';
-      const seqPart = parts[2] || parts[1] || '00000';
-      const studentNumber = `${yearPart}-${courseCode || '0000'}-${seqPart}`.replace(/--+/g, '-');
+      const parts = String(student.studentNumber || '')
+        .split('-')
+        .map((part) => part.trim())
+        .filter(Boolean);
+      const yearPart = /^\d{4}$/.test(parts[0] || '') ? parts[0] : '0000';
+      const seqRaw = [...parts].reverse().find((part) => /^\d+$/.test(part)) || '00000';
+      const seqPart = seqRaw.slice(-5).padStart(5, '0');
+      const studentNumber = `${yearPart}-${courseCode}-${seqPart}`;
       const studentName = `${student.firstName} ${student.middleName ?? ''} ${student.lastName} ${student.suffix ?? ''}`.trim();
       const registrationNumber = student.registrationNumber || `${new Date().getFullYear()}${Math.floor(100000 + Math.random() * 900000)}`;
       if (!student.registrationNumber) {
@@ -794,6 +815,39 @@ class StudentController {
           studentId: student._id,
           status: { $ne: 'Dropped' }
         }).sort({ createdAt: -1 });
+      }
+
+      const normalizeIdentifier = (value) => String(value || '').trim().toLowerCase();
+      const activeProfessors = await Admin.find({
+        accountType: 'professor',
+        status: { $ne: 'inactive' }
+      })
+        .select('username displayName uid')
+        .lean();
+      const professorIdentifierSet = new Set(
+        activeProfessors
+          .flatMap((professor) => [professor.username, professor.displayName, professor.uid])
+          .map((value) => normalizeIdentifier(value))
+          .filter(Boolean)
+      );
+
+      // Safety cleanup: if a professor account was deleted but old subject instructor
+      // text remains in enrollment, force it back to TBA so COR doesn't show stale names.
+      if (enrollment && Array.isArray(enrollment.subjects)) {
+        let normalized = false;
+        enrollment.subjects.forEach((subject) => {
+          const currentInstructor = String(subject?.instructor || '').trim();
+          if (!currentInstructor || /^TBA$/i.test(currentInstructor)) return;
+          if (!professorIdentifierSet.has(normalizeIdentifier(currentInstructor))) {
+            subject.instructor = 'TBA';
+            subject.dateModified = new Date();
+            normalized = true;
+          }
+        });
+        if (normalized) {
+          enrollment.markModified('subjects');
+          await enrollment.save();
+        }
       }
 
       const enrolledSubjects = Array.isArray(enrollment?.subjects)

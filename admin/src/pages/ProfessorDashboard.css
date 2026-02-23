@@ -378,7 +378,7 @@
   justify-content: center;
 }
 
-/* Keep cover media stretched to full card height on professor dashboard */
+/* Keep announcement media fixed-size so tall/long images do not stretch cards */
 .professor-dashboard .dashboard-announcement-card {
   align-items: stretch;
 }
@@ -394,20 +394,20 @@
 }
 
 .professor-dashboard .dashboard-media-section {
-  width: clamp(132px, 36%, 176px);
-  align-self: stretch;
-  min-height: 100%;
-  height: auto;
-  display: flex;
-  flex: 0 0 clamp(132px, 36%, 176px);
-  flex-shrink: 0;
+  width: clamp(112px, 30%, 148px);
+  flex: 0 0 clamp(112px, 30%, 148px);
+  height: 124px;
+  min-height: 124px;
+  max-height: 124px;
+  overflow: hidden;
+  display: block;
 }
 
 .professor-dashboard .dashboard-cover-image,
 .professor-dashboard .dashboard-cover-video {
   width: 100%;
   height: 100%;
-  flex: 1 1 auto;
+  display: block;
 }
 
 .professor-dashboard .dashboard-content-section {
@@ -624,5 +624,20 @@
     flex-direction: column;
     gap: 0.5rem;
     align-items: flex-start;
+  }
+
+}
+
+@media (max-width: 640px) {
+  .professor-dashboard .dashboard-announcement-card.has-media {
+    display: block;
+  }
+
+  .professor-dashboard .dashboard-media-section {
+    width: 100%;
+    flex: 0 0 auto;
+    min-height: 120px;
+    height: clamp(120px, 30vw, 160px);
+    max-height: clamp(120px, 30vw, 160px);
   }
 }

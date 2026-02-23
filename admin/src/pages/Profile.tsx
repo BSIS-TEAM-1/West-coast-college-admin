@@ -31,19 +31,31 @@ const normalizePhoneNumber = (rawPhone: string): string => {
 };
 
 const isCompletePhoneNumber = (normalizedPhone: string): boolean => /^09\d{9}$/.test(normalizedPhone);
+const VERIFICATION_CODE_LENGTH = 6;
 
 export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) {
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [verifyingPhone, setVerifyingPhone] = useState(false);
+  const [sendingPhoneCode, setSendingPhoneCode] = useState(false);
+  const [confirmingPhoneCode, setConfirmingPhoneCode] = useState(false);
   const [phoneEditMode, setPhoneEditMode] = useState(false);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [verificationDigits, setVerificationDigits] = useState<string[]>(() => Array(VERIFICATION_CODE_LENGTH).fill(''));
+  const [verificationChannel, setVerificationChannel] = useState<'sms' | 'email'>('sms');
+  const [verificationEmailProvider, setVerificationEmailProvider] = useState<'semaphore' | 'sendgrid' | 'sms-api-ph' | ''>('');
+  const [verificationDestination, setVerificationDestination] = useState('');
+  const [verificationDeliveryStatus, setVerificationDeliveryStatus] = useState('');
+  const [verificationMessageId, setVerificationMessageId] = useState('');
+  const [verificationProviderMessage, setVerificationProviderMessage] = useState('');
+  const [verificationFallbackReason, setVerificationFallbackReason] = useState('');
   const [status, setStatus] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
   const [showToast, setShowToast] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarLoadError, setAvatarLoadError] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const phoneInputRef = useRef<HTMLInputElement>(null);
+  const verificationCodeInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const toastTimerRef = useRef<number | null>(null);
 
   const [formData, setFormData] = useState({
@@ -82,6 +94,12 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (showVerificationModal) {
+      verificationCodeInputRefs.current[0]?.focus();
+    }
+  }, [showVerificationModal]);
 
   const showToastNotification = (type: 'error' | 'success', message: string) => {
     setStatus({ type, message });
@@ -159,28 +177,122 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
       return;
     }
 
-    setVerifyingPhone(true);
+    setSendingPhoneCode(true);
     setStatus(null);
 
     try {
-      await sendPhoneVerificationCode(normalizedPhoneInput);
+      const sendResult = await sendPhoneVerificationCode(normalizedPhoneInput);
+      setVerificationChannel(sendResult.channel || 'sms');
+      setVerificationEmailProvider(sendResult.emailProvider || '');
+      setVerificationDestination(sendResult.destination || sendResult.phone || normalizedPhoneInput);
+      setVerificationDeliveryStatus(sendResult.deliveryStatus || 'accepted');
+      setVerificationMessageId(sendResult.messageId || '');
+      setVerificationProviderMessage(String(sendResult.providerMessage || '').trim());
+      setVerificationFallbackReason(sendResult.fallbackUsed ? String(sendResult.fallbackReason || '').trim() : '');
+      setVerificationDigits(Array(VERIFICATION_CODE_LENGTH).fill(''));
+      setShowVerificationModal(true);
+      if (sendResult.channel === 'email') {
+        const providerText = sendResult.emailProvider ? ` via ${sendResult.emailProvider}` : '';
+        showToastNotification('success', `SMS failed. Verification code sent to your email${providerText}.`);
+      } else {
+        showToastNotification('success', 'Verification code sent. Enter the code in the popup.');
+      }
+    } catch (err) {
+      showToastNotification('error', err instanceof Error ? err.message : 'Failed to verify phone number.');
+    } finally {
+      setSendingPhoneCode(false);
+    }
+  };
 
-      const enteredCode = window.prompt(
-        `Verification code sent to ${normalizedPhoneInput}. Enter the 6-digit code:`,
-        ''
-      );
+  const closeVerificationModal = () => {
+    if (confirmingPhoneCode) return;
+    setShowVerificationModal(false);
+    setVerificationDigits(Array(VERIFICATION_CODE_LENGTH).fill(''));
+  };
 
-      if (enteredCode === null) {
-        showToastNotification('success', 'Verification code sent. Verify anytime by clicking Verify again.');
+  const handleVerificationDigitChange = (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const digitsOnly = e.target.value.replace(/\D/g, '');
+    const nextDigit = digitsOnly ? digitsOnly.slice(-1) : '';
+
+    setVerificationDigits((prev) => {
+      const next = [...prev];
+      next[index] = nextDigit;
+      return next;
+    });
+
+    if (nextDigit && index < VERIFICATION_CODE_LENGTH - 1) {
+      verificationCodeInputRefs.current[index + 1]?.focus();
+      verificationCodeInputRefs.current[index + 1]?.select();
+    }
+  };
+
+  const handleVerificationDigitKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace') {
+      if (verificationDigits[index]) {
+        setVerificationDigits((prev) => {
+          const next = [...prev];
+          next[index] = '';
+          return next;
+        });
         return;
       }
 
-      const code = enteredCode.trim();
-      if (!/^\d{6}$/.test(code)) {
-        showToastNotification('error', 'Please enter a valid 6-digit verification code.');
-        return;
+      if (index > 0) {
+        verificationCodeInputRefs.current[index - 1]?.focus();
+        setVerificationDigits((prev) => {
+          const next = [...prev];
+          next[index - 1] = '';
+          return next;
+        });
       }
+      return;
+    }
 
+    if (e.key === 'ArrowLeft' && index > 0) {
+      e.preventDefault();
+      verificationCodeInputRefs.current[index - 1]?.focus();
+      return;
+    }
+
+    if (e.key === 'ArrowRight' && index < VERIFICATION_CODE_LENGTH - 1) {
+      e.preventDefault();
+      verificationCodeInputRefs.current[index + 1]?.focus();
+      return;
+    }
+
+    if (e.key.length === 1 && !/\d/.test(e.key)) {
+      e.preventDefault();
+    }
+  };
+
+  const handleVerificationCodePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pastedDigits = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, VERIFICATION_CODE_LENGTH);
+    if (!pastedDigits) return;
+
+    e.preventDefault();
+    const nextDigits = Array(VERIFICATION_CODE_LENGTH).fill('');
+    for (let index = 0; index < pastedDigits.length; index += 1) {
+      nextDigits[index] = pastedDigits[index];
+    }
+    setVerificationDigits(nextDigits);
+
+    const nextFocusIndex = Math.min(pastedDigits.length, VERIFICATION_CODE_LENGTH - 1);
+    verificationCodeInputRefs.current[nextFocusIndex]?.focus();
+  };
+
+  const submitVerificationCode = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    const code = verificationDigits.join('');
+    if (!new RegExp(`^\\d{${VERIFICATION_CODE_LENGTH}}$`).test(code)) {
+      showToastNotification('error', 'Please enter a valid 6-digit verification code.');
+      return;
+    }
+
+    setConfirmingPhoneCode(true);
+    setStatus(null);
+
+    try {
       const verifiedProfile = await verifyPhoneNumber(code);
       setProfile(verifiedProfile);
       setFormData((prev) => ({
@@ -191,12 +303,14 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
         phone: verifiedProfile.phone || '',
       }));
       setPhoneEditMode(false);
+      setShowVerificationModal(false);
+      setVerificationDigits(Array(VERIFICATION_CODE_LENGTH).fill(''));
       showToastNotification('success', 'Phone number verified successfully.');
       onProfileUpdated?.(verifiedProfile);
     } catch (err) {
       showToastNotification('error', err instanceof Error ? err.message : 'Failed to verify phone number.');
     } finally {
-      setVerifyingPhone(false);
+      setConfirmingPhoneCode(false);
     }
   };
 
@@ -378,9 +492,9 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
                     type="button"
                     className="profile-input-action-btn"
                     onClick={handlePhoneAction}
-                    disabled={saving || verifyingPhone}
+                    disabled={saving || sendingPhoneCode || confirmingPhoneCode}
                   >
-                    {activePhoneIsVerified ? 'Edit' : (verifyingPhone ? 'Verifying...' : 'Verify')}
+                    {activePhoneIsVerified ? 'Edit' : (sendingPhoneCode ? 'Sending...' : 'Verify')}
                   </button>
                 )}
               </div>
@@ -402,6 +516,72 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
           </section>
         </div>
       </form>
+
+      {showVerificationModal && (
+        <div className="profile-verify-modal-backdrop" role="presentation">
+          <div className="profile-verify-modal" role="dialog" aria-modal="true" aria-labelledby="verify-phone-title">
+            <h3 id="verify-phone-title" className="profile-verify-modal-title">Verify Phone Number</h3>
+            <p className="profile-verify-modal-desc">
+              Enter the 6-digit code sent via <strong>{verificationChannel === 'email' ? 'Email' : 'SMS'}</strong>
+              {verificationDestination ? <> to <strong>{verificationDestination}</strong></> : null}.
+            </p>
+            {verificationChannel === 'email' && verificationEmailProvider ? (
+              <p className="profile-verify-modal-provider">
+                Email provider: {verificationEmailProvider}
+              </p>
+            ) : null}
+            <p className="profile-verify-modal-meta">
+              Status: {verificationDeliveryStatus || 'accepted'}
+              {verificationMessageId ? ` | Message ID: ${verificationMessageId}` : ''}
+            </p>
+            {verificationProviderMessage ? (
+              <p className="profile-verify-modal-provider">Gateway: {verificationProviderMessage}</p>
+            ) : null}
+            {verificationFallbackReason ? (
+              <p className="profile-verify-modal-fallback">Fallback reason: {verificationFallbackReason}</p>
+            ) : null}
+
+            <form className="profile-verify-modal-form" onSubmit={submitVerificationCode}>
+              <div className="profile-verify-otp-group">
+                {verificationDigits.map((digit, index) => (
+                  <input
+                    key={`otp-digit-${index}`}
+                    ref={(element) => { verificationCodeInputRefs.current[index] = element; }}
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    autoComplete={index === 0 ? 'one-time-code' : 'off'}
+                    className="profile-verify-otp-input"
+                    value={digit}
+                    onChange={(e) => handleVerificationDigitChange(index, e)}
+                    onKeyDown={(e) => handleVerificationDigitKeyDown(index, e)}
+                    onPaste={handleVerificationCodePaste}
+                    maxLength={1}
+                    aria-label={`Verification code digit ${index + 1}`}
+                  />
+                ))}
+              </div>
+              <div className="profile-verify-modal-actions">
+                <button
+                  type="button"
+                  className="profile-verify-cancel-btn"
+                  onClick={closeVerificationModal}
+                  disabled={confirmingPhoneCode}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="profile-verify-submit-btn"
+                  disabled={confirmingPhoneCode}
+                >
+                  {confirmingPhoneCode ? 'Verifying...' : 'Verify Code'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {status && (
         <div className={`profile-toast ${status.type} ${showToast ? 'show' : ''}`} role="alert">
