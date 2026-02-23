@@ -211,7 +211,19 @@ export async function updateProfile(updates: {
   return data as ProfileResponse
 }
 
-export async function sendPhoneVerificationCode(phone: string): Promise<{ message: string; phone: string; expiresAt: string }> {
+export async function sendPhoneVerificationCode(phone: string): Promise<{
+  message: string
+  phone: string
+  expiresAt: string
+  channel?: 'sms' | 'email'
+  emailProvider?: 'semaphore' | 'sendgrid' | 'sms-api-ph' | null
+  destination?: string
+  fallbackUsed?: boolean
+  fallbackReason?: string | null
+  deliveryStatus?: string
+  messageId?: string | null
+  providerMessage?: string | null
+}> {
   const res = await fetch(`${API_URL}/api/admin/profile/phone/send-code`, {
     method: 'POST',
     headers: await authHeaders(),
@@ -221,7 +233,19 @@ export async function sendPhoneVerificationCode(phone: string): Promise<{ messag
   if (!res.ok) {
     throw new Error((data?.error as string) || 'Failed to send phone verification code.')
   }
-  return data as { message: string; phone: string; expiresAt: string }
+  return data as {
+    message: string
+    phone: string
+    expiresAt: string
+    channel?: 'sms' | 'email'
+    emailProvider?: 'semaphore' | 'sendgrid' | 'sms-api-ph' | null
+    destination?: string
+    fallbackUsed?: boolean
+    fallbackReason?: string | null
+    deliveryStatus?: string
+    messageId?: string | null
+    providerMessage?: string | null
+  }
 }
 
 export async function verifyPhoneNumber(code: string): Promise<ProfileResponse> {

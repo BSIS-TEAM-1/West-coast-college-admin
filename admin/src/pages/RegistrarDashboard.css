@@ -616,7 +616,7 @@
   justify-content: center;
 }
 
-/* Keep cover media stretched to full card height on registrar dashboard */
+/* Keep announcement media fixed-size so tall/long images do not stretch cards */
 .registrar-dashboard .dashboard-announcement-card {
   align-items: stretch;
 }
@@ -633,19 +633,19 @@
 
 .registrar-dashboard .dashboard-media-section {
   width: clamp(112px, 30%, 148px);
-  align-self: stretch;
-  min-height: 100%;
-  height: auto;
-  display: flex;
   flex: 0 0 clamp(112px, 30%, 148px);
-  flex-shrink: 0;
+  height: 124px;
+  min-height: 124px;
+  max-height: 124px;
+  overflow: hidden;
+  display: block;
 }
 
 .registrar-dashboard .dashboard-cover-image,
 .registrar-dashboard .dashboard-cover-video {
   width: 100%;
   height: 100%;
-  flex: 1 1 auto;
+  display: block;
 }
 
 .registrar-dashboard .dashboard-cover-image {
@@ -689,6 +689,7 @@
     flex: 0 0 auto;
     min-height: 120px;
     height: clamp(120px, 30vw, 160px);
+    max-height: clamp(120px, 30vw, 160px);
   }
 }
 

@@ -1,4 +1,4 @@
-import { LayoutDashboard, User, Settings, Users, Bell, FileText, Shield, Activity, CheckCircle2 } from 'lucide-react';
+import { LayoutDashboard, User, UserPlus, Settings, Users, Bell, FileText, Shield, Activity, CheckCircle2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { getProfile } from '../lib/authApi';
 import type { ProfileResponse } from '../lib/authApi';
@@ -18,8 +18,8 @@ const NAV_ITEMS: { id: View; label: string; icon: any }[] = [
   { id: 'announcements', label: 'Manage Announcements', icon: Bell },
   { id: 'documents', label: 'Document Management', icon: FileText },
   { id: 'cor-docs', label: 'COR Generation', icon: CheckCircle2 },
+  { id: 'add-account', label: 'Add Account', icon: UserPlus },
   { id: 'audit-logs', label: 'System Audit Logs', icon: Shield },
-  { id: 'add-account', label: 'Add Account', icon: User },
   { id: 'account-logs', label: 'Staff Registration Logs', icon: Users },
   { id: 'profile', label: 'Profile', icon: User },
   { id: 'settings', label: 'Settings', icon: Settings },

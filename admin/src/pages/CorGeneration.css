@@ -279,19 +279,24 @@
   letter-spacing: 0.03em;
 }
 
-.student-name {
+.cor-student-name {
   color: var(--color-text-bold, var(--text-primary));
   font-weight: 600;
 }
 
-.student-number {
+.cor-student-number {
   color: var(--color-text-secondary, var(--text-secondary));
   font-size: 0.75rem;
   margin-top: 0.2rem;
+  font-family: 'Courier New', monospace;
 }
 
-[data-theme="dark"] .student-name {
+[data-theme="dark"] .cor-student-name {
   color: var(--color-text-bold, #ffffff);
+}
+
+[data-theme="dark"] .cor-student-number {
+  color: var(--color-text-secondary, #cbd5e1);
 }
 
 [data-theme="dark"] .cor-block-grid {

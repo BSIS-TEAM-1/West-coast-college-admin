@@ -46,6 +46,19 @@ const COURSE_LABELS: Record<CourseCode, string> = {
   '201': 'BSBA-HRM'
 }
 
+function getCourseCode(value: string | number): string {
+  const text = String(value ?? '').trim()
+  if (!text) return ''
+  if (/^\d+$/.test(text)) return text
+
+  const normalized = text.toUpperCase().replace(/\s+/g, '').replace(/_/g, '-')
+  if (normalized.includes('BEED')) return '101'
+  if (normalized.includes('BSED-ENGLISH') || normalized === 'ENGLISH') return '102'
+  if (normalized.includes('BSED-MATH') || normalized === 'MATH' || normalized === 'MATHEMATICS') return '103'
+  if (normalized.includes('BSBA-HRM') || normalized === 'HRM') return '201'
+  return ''
+}
+
 function extractCourseCode(value: string): string {
   const text = String(value || '').toUpperCase().trim()
   const codeMatch = text.match(/(?:^|[^0-9])(101|102|103|201)(?:[^0-9]|$)/)
@@ -62,6 +75,22 @@ function getCourseLabel(code: string | number): string {
   if (!text) return 'N/A'
   const normalized = extractCourseCode(text) || text
   return (COURSE_LABELS as Record<string, string>)[normalized] || normalized
+}
+
+function formatStudentNumber(student: SectionStudent): string {
+  const raw = String(student.studentNumber || '').trim()
+  const fallbackCourseCode = getCourseCode(student.course ?? '')
+
+  if (!raw) return fallbackCourseCode ? `0000-${fallbackCourseCode}-00000` : 'N/A'
+
+  const parts = raw.split('-').map((part) => part.trim()).filter(Boolean)
+  const year = /^\d{4}$/.test(parts[0] || '') ? parts[0] : '0000'
+  const seqPart = [...parts].reverse().find((part) => /^\d+$/.test(part)) || '00000'
+  const seq = seqPart.slice(-5).padStart(5, '0')
+  const codeFromRaw = getCourseCode(parts.find((part) => /[A-Za-z]/.test(part)) || parts[1] || '')
+  const courseCode = fallbackCourseCode || codeFromRaw || '000'
+
+  return `${year}-${courseCode}-${seq}`
 }
 
 function formatStudentName(student: SectionStudent): string {
@@ -253,7 +282,7 @@ export default function CorGeneration() {
         return next
       })
 
-      setNotice(`COR opened for ${student.studentNumber}. Review it, then approve if correct.`)
+      setNotice(`COR opened for ${formatStudentNumber(student)}. Review it, then approve if correct.`)
       window.setTimeout(() => window.URL.revokeObjectURL(url), 30000)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to view COR')
@@ -299,7 +328,7 @@ export default function CorGeneration() {
       setStudents((prev) =>
         prev.map((item) => (item._id === student._id ? { ...item, corStatus: 'Verified' } : item))
       )
-      setNotice(`COR approved for ${student.studentNumber}. Status is now returned to registrar as Verified.`)
+      setNotice(`COR approved for ${formatStudentNumber(student)}. Status is now returned to registrar as Verified.`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to approve COR')
     } finally {
@@ -419,8 +448,8 @@ export default function CorGeneration() {
                     return (
                       <tr key={student._id}>
                         <td>
-                          <div className="student-name">{formatStudentName(student)}</div>
-                          <div className="student-number">{student.studentNumber}</div>
+                          <div className="cor-student-name">{formatStudentName(student)}</div>
+                          <div className="cor-student-number">{formatStudentNumber(student)}</div>
                         </td>
                         <td>{getCourseLabel(student.course || '')}</td>
                         <td>
