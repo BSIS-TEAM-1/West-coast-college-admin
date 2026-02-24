@@ -82,6 +82,12 @@
   color: #38bdf8;
 }
 
+.maintenance-copyright {
+  margin: 1.2rem 0 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #9ca3af);
+}
+
 @keyframes maintenance-spin {
   0% {
     transform: rotate(0deg);

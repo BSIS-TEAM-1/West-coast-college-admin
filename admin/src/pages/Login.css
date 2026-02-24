@@ -6,11 +6,15 @@
 
   min-height: 100vh;
 
+  min-height: 100dvh;
+
   display: flex;
 
   background-color: var(--color-bg);
 
   position: relative;
+
+  overflow-x: hidden;
 
 }
 
@@ -108,6 +112,8 @@
 
   flex-direction: row;
 
+  min-height: 100vh;
+
 }
 
 
@@ -134,6 +140,8 @@
 
   overflow: hidden; /* Prevent tiles from overflowing */
 
+  min-height: 100vh;
+
 }
 
 .login-hero canvas {
@@ -153,6 +161,8 @@
 .hero-content {
 
   max-width: 500px;
+
+  width: min(100%, 500px);
 
 }
 
@@ -174,7 +184,7 @@
 
 .hero-title {
 
-  font-size: 3rem;
+  font-size: clamp(2rem, 4vw, 3rem);
 
   font-weight: 800;
 
@@ -188,7 +198,7 @@
 
 .hero-text {
 
-  font-size: 1.25rem;
+  font-size: clamp(1rem, 1.9vw, 1.25rem);
 
   opacity: 0.9;
 
@@ -208,6 +218,8 @@
   background: var(--color-surface);
   padding: 2rem;
   position: relative; /* REQUIRED for badge */
+  min-width: 0;
+  min-height: 100vh;
 }
 
 
@@ -219,6 +231,8 @@
   max-width: 400px; /* Bigger form area */
 
   position: relative;
+
+  padding-top: 0.25rem;
 
 }
 
@@ -338,7 +352,7 @@
 
 .login-title {
 
-  font-size: 2rem;
+  font-size: clamp(1.65rem, 3.2vw, 2rem);
 
   font-weight: 700;
 
@@ -500,7 +514,7 @@
 
   padding: 1rem;
 
-  font-size: 1.1rem;
+  font-size: clamp(1rem, 1.9vw, 1.1rem);
 
   margin-top: 1rem;
 
@@ -550,22 +564,166 @@
 
 
 
-/* Responsive: Stack them on small screens */
+@media (max-width: 1200px) {
+  .login-hero {
+    flex: 1;
+    padding: 1.6rem;
+  }
 
-@media (max-width: 900px) {
+  .hero-logo {
+    width: 104px;
+    height: 104px;
+    margin-bottom: 1.3rem;
+  }
 
+  .login-side {
+    padding: 1.6rem;
+  }
+
+  .security-badge {
+    left: 1.6rem;
+    bottom: 1.2rem;
+  }
+}
+
+@media (max-width: 1024px) {
   .login-container {
-
-    flex-direction: column;
-
+    min-height: auto;
   }
 
   .login-hero {
-
-    display: none; /* Hide hero on mobile to focus on login */
-
+    min-height: 320px;
+    flex: none;
+    padding: 1.25rem;
   }
 
+  .hero-content {
+    text-align: center;
+  }
+
+  .hero-logo {
+    margin: 0 auto 1rem;
+  }
+
+  .hero-title {
+    font-size: clamp(1.8rem, 4.4vw, 2.35rem);
+  }
+
+  .hero-text {
+    max-width: 40ch;
+    margin: 0 auto;
+  }
+
+  .login-side {
+    min-height: auto;
+    padding: 1.25rem 1rem 2.25rem;
+  }
+
+  .login-card {
+    max-width: 520px;
+  }
+}
+
+@media (max-width: 900px) {
+  .login-container {
+    flex-direction: column;
+  }
+
+  .login-hero {
+    min-height: 240px;
+  }
+
+  .login-side {
+    padding: 1rem 0.9rem 2rem;
+  }
+
+  .security-badge {
+    position: static;
+    margin-top: 1rem;
+    justify-content: center;
+    opacity: 0.9;
+  }
+}
+
+@media (max-width: 768px) {
+  .login-hero {
+    display: none;
+  }
+
+  .login-side {
+    padding: 1rem 0.85rem 1.2rem;
+  }
+
+  .login-card {
+    max-width: 100%;
+    padding-top: 0;
+  }
+
+  .login-theme-toggle-card {
+    position: static;
+    margin: 0 0 0.8rem;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .login-title {
+    font-size: clamp(1.5rem, 6vw, 1.9rem);
+    margin-top: 0.25rem;
+  }
+
+  .login-subtitle {
+    margin-bottom: 1.2rem;
+    font-size: 0.9rem;
+  }
+
+  .login-form {
+    gap: 0.85rem;
+  }
+
+  .login-label {
+    font-size: 0.85rem;
+  }
+
+  .login-input {
+    padding: 0.8rem 0.9rem;
+    font-size: 0.95rem;
+  }
+
+  .login-submit {
+    margin-top: 0.6rem;
+    padding: 0.9rem;
+  }
+}
+
+@media (max-width: 560px) {
+  .login-side {
+    padding: 0.85rem 0.7rem 1rem;
+  }
+
+  .login-theme-options {
+    width: 100%;
+    justify-content: space-between;
+    gap: 0.45rem;
+  }
+
+  .login-back-btn {
+    width: 100%;
+    text-align: center;
+  }
+
+  .login-title {
+    font-size: 1.4rem;
+  }
+
+  .login-input {
+    font-size: 0.92rem;
+  }
+
+  .security-badge {
+    margin-top: 0.8rem;
+    flex-wrap: wrap;
+    text-align: center;
+  }
 }
 
 

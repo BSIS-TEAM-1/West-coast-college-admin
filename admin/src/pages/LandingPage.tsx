@@ -8,6 +8,10 @@ import {
 } from '../lib/theme'
 
 type LandingPageProps = {
+  onOpenAbout: () => void
+  onOpenTermsPolicy: () => void
+  onOpenCookiePolicy: () => void
+  onOpenCookieSystem: () => void
   onOpenStaffLogin: () => void
 }
 
@@ -204,9 +208,14 @@ function LandingVideoCarousel() {
   )
 }
 
-export default function LandingPage({ onOpenStaffLogin }: LandingPageProps) {
+export default function LandingPage({
+  onOpenAbout,
+  onOpenTermsPolicy,
+  onOpenCookiePolicy,
+  onOpenCookieSystem,
+  onOpenStaffLogin
+}: LandingPageProps) {
   const [theme, setTheme] = useState<ThemePreference>(() => getStoredTheme(null))
-  const [isCookieSettingsOpen, setIsCookieSettingsOpen] = useState(false)
 
   useEffect(() => {
     setActiveThemeScope(null)
@@ -232,25 +241,6 @@ export default function LandingPage({ onOpenStaffLogin }: LandingPageProps) {
     applyThemePreference(nextTheme, { animate: true, scope: null })
   }
 
-  useEffect(() => {
-    if (!isCookieSettingsOpen) return
-
-    const previousOverflow = document.body.style.overflow
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsCookieSettingsOpen(false)
-      }
-    }
-
-    document.body.style.overflow = 'hidden'
-    window.addEventListener('keydown', handleEscape)
-
-    return () => {
-      document.body.style.overflow = previousOverflow
-      window.removeEventListener('keydown', handleEscape)
-    }
-  }, [isCookieSettingsOpen])
-
   return (
     <div className="landing-page">
       <header className="landing-navbar">
@@ -259,7 +249,9 @@ export default function LandingPage({ onOpenStaffLogin }: LandingPageProps) {
           <span>West Coast College</span>
         </a>
         <nav className="landing-nav-links" aria-label="Landing page navigation">
-          <a href="#about">About</a>
+          <button type="button" className="landing-nav-link-btn" onClick={onOpenAbout}>
+            About
+          </button>
           <a href="#services">Services</a>
           <a href="#contact">Contact</a>
         </nav>
@@ -296,7 +288,7 @@ export default function LandingPage({ onOpenStaffLogin }: LandingPageProps) {
 
         <aside className="landing-image-wrap" aria-label="Campus hero image">
           <img
-            src="landingpage-intropic.png"
+            src="/logo-header.jpg"
             alt="West Coast College campus visual"
             className="landing-hero-image"
           />
@@ -318,7 +310,7 @@ export default function LandingPage({ onOpenStaffLogin }: LandingPageProps) {
             </p>
           </article>
 
-          <article className="landing-value-card landing-value-card-mission" id="services">
+          <article className="landing-value-card landing-value-card-mission">
             <p className="landing-value-eyebrow">Institutional Commitment</p>
             <h3>Mission</h3>
             <p className="landing-value-summary">
@@ -326,6 +318,51 @@ export default function LandingPage({ onOpenStaffLogin }: LandingPageProps) {
               The College commits itself to pursue relevant and responsive programs utilizing modern educational technology that would develop competent and ethical professionals dedicated to the advancement of knowledge, appreciative of arts and culture, and who provide meaningful leadership to their community and the Philippine society as a whole.
             </p>
             
+          </article>
+        </div>
+      </section>
+
+      <section className="landing-services" id="services" aria-label="Services section">
+        <div className="landing-services-head">
+          <p>Institutional Services</p>
+          <h2>Student And School Services</h2>
+        </div>
+
+        <div className="landing-services-grid">
+          <article className="landing-service-card">
+            <p className="landing-service-kicker">01</p>
+            <h3>Academic Programs</h3>
+            <p className="landing-service-desc">
+              West Coast College provides relevant higher education programs designed to build
+              professional competence, academic excellence, and ethical leadership.
+            </p>
+          </article>
+
+          <article className="landing-service-card">
+            <p className="landing-service-kicker">02</p>
+            <h3>Admissions and Registrar Services</h3>
+            <p className="landing-service-desc">
+              The institution supports students through admissions processing, enrollment guidance,
+              records management, and issuance of official academic documents.
+            </p>
+          </article>
+
+          <article className="landing-service-card">
+            <p className="landing-service-kicker">03</p>
+            <h3>Student Affairs and Support</h3>
+            <p className="landing-service-desc">
+              Student services include counseling, co-curricular activities, and campus support
+              initiatives that promote student welfare and holistic development.
+            </p>
+          </article>
+
+          <article className="landing-service-card">
+            <p className="landing-service-kicker">04</p>
+            <h3>Faculty and Staff Development</h3>
+            <p className="landing-service-desc">
+              West Coast College strengthens institutional quality through faculty training,
+              administrative development, and continuous improvement of school services.
+            </p>
           </article>
         </div>
       </section>
@@ -349,7 +386,7 @@ export default function LandingPage({ onOpenStaffLogin }: LandingPageProps) {
           <button
             type="button"
             className="landing-footer-cookie-link"
-            onClick={() => setIsCookieSettingsOpen(true)}
+            onClick={onOpenCookieSystem}
           >
             Cookie Settings
           </button>
@@ -360,13 +397,51 @@ export default function LandingPage({ onOpenStaffLogin }: LandingPageProps) {
           <a href="tel:+639778276806" className="landing-footer-contact-link">
             0977 827 6806
           </a>
-          <a href="mailto:wcc.theregistrar@gmail.com" className="landing-footer-contact-link">
-            wcc.theregistrar@gmail.com
+          <a
+            href="mailto:westcoastcollegeregistrar@gmail.com"
+            className="landing-footer-contact-link"
+          >
+            westcoastcollegeregistrar@gmail.com
+          </a>
+          <a
+            href="mailto:westcoastcollegeregistrar@gmail.com?subject=West%20Coast%20College%20Inquiry"
+            className="landing-footer-contact-cta"
+          >
+            Contact Us
           </a>
           <p>West Coast College</p>
           <button type="button" className="landing-footer-btn" onClick={onOpenStaffLogin}>
             Staff Login
           </button>
+        </div>
+
+        <div className="landing-footer-bottom" aria-label="Footer policies">
+          <button
+            type="button"
+            className="landing-footer-bottom-link landing-footer-bottom-btn"
+            onClick={onOpenTermsPolicy}
+          >
+            Terms &amp; Policy
+          </button>
+          <span className="landing-footer-separator">|</span>
+          <button
+            type="button"
+            className="landing-footer-bottom-link landing-footer-bottom-btn"
+            onClick={onOpenCookiePolicy}
+          >
+            Cookie Policy
+          </button>
+          <span className="landing-footer-separator">|</span>
+          <button
+            type="button"
+            className="landing-footer-bottom-link landing-footer-bottom-btn"
+            onClick={onOpenCookieSystem}
+          >
+            Cookie System
+          </button>
+          <span className="landing-footer-copyright">
+            &copy; 2026 West Coast College All rights reserved
+          </span>
         </div>
       </footer>
     </div>

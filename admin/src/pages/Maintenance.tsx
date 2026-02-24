@@ -24,6 +24,9 @@ const Maintenance: React.FC<MaintenanceProps> = ({ featureName, description }) =
           <Clock size={16} />
           <span>Feature coming soon. Thank you for your patience.</span>
         </div>
+        <p className="maintenance-copyright">
+          &copy; 2026 West Coast College All rights reserved
+        </p>
       </div>
     </div>
   )
