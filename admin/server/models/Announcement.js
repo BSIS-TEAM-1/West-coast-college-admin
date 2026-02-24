@@ -11,7 +11,7 @@ const announcementSchema = new mongoose.Schema({
     type: String,
     required: true,
     trim: true,
-    maxlength: 2000
+    maxlength: 500
   },
   type: {
     type: String,

@@ -56,8 +56,12 @@ const audienceOptions = [
   { value: 'admin', label: 'Admins' },
 ]
 
-const MAX_MEDIA_FILE_BYTES = 8 * 1024 * 1024
+const MAX_TITLE_LENGTH = 200
+const MAX_MESSAGE_LENGTH = 500
+const MAX_IMAGE_FILE_BYTES = 5 * 1024 * 1024
+const MAX_VIDEO_FILE_BYTES = 8 * 1024 * 1024
 const MAX_MEDIA_TOTAL_BYTES = 20 * 1024 * 1024
+const MAX_MEDIA_FILES = 6
 
 export default function Announcements({ onNavigate }: AnnouncementsProps) {
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
@@ -91,6 +95,29 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
     return str.replace(/[&<>"']/g, (match) => {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[match] || match
     })
+  }
+
+  const validateAnnouncementContent = (titleValue: string, messageValue: string) => {
+    const normalizedTitle = String(titleValue || '').trim()
+    const normalizedMessage = String(messageValue || '').trim()
+
+    if (!normalizedTitle) return 'Title is required.'
+    if (normalizedTitle.length > MAX_TITLE_LENGTH) {
+      return `Title is too long. Limit is ${MAX_TITLE_LENGTH} characters.`
+    }
+
+    if (!normalizedMessage) return 'Message is required.'
+    if (normalizedMessage.length > MAX_MESSAGE_LENGTH) {
+      return `Message is too long. Limit is ${MAX_MESSAGE_LENGTH} characters.`
+    }
+
+    return ''
+  }
+
+  const getCounterClassName = (length: number, maxLength: number) => {
+    if (length >= maxLength) return 'form-character-count is-at-limit'
+    if (length >= Math.floor(maxLength * 0.9)) return 'form-character-count is-near-limit'
+    return 'form-character-count'
   }
 
   useEffect(() => {
@@ -156,23 +183,39 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
 
   const handleSaveEdit = async (updatedAnnouncement: Partial<Announcement>, saveAsDraft = false) => {
     if (!editingAnnouncement) return
-    
+
+    const trimmedTitle = String(updatedAnnouncement.title || '').trim()
+    const trimmedMessage = String(updatedAnnouncement.message || '').trim()
+    const validationError = validateAnnouncementContent(trimmedTitle, trimmedMessage)
+    if (validationError) {
+      alert(validationError)
+      return
+    }
+
     try {
       setSavingEdit(true)
-      // Upload new media files first
-      const newMedia = await uploadMediaFiles(mediaFiles)
-      
-      // If user uploaded new media, treat it as a replacement for existing media.
-      // Otherwise, keep the current media array as-is.
-      const sourceMedia =
-        mediaFiles.length > 0
-          ? newMedia
-          : (editingAnnouncement.media || [])
+      const hasNewMedia = mediaFiles.length > 0
+      const newMedia = hasNewMedia ? await uploadMediaFiles(mediaFiles) : []
 
-      const allMedia = sourceMedia.map((m) => ({
-        ...m,
-        fileSize: (m as any).fileSize ?? 0,
-      })) as NonNullable<Announcement['media']>
+      const requestBody: Record<string, unknown> = {
+        title: trimmedTitle,
+        message: trimmedMessage,
+        type: updatedAnnouncement.type || 'info',
+        targetAudience:
+          updatedAnnouncement.targetAudience && audienceOptions.some(a => a.value === updatedAnnouncement.targetAudience)
+            ? updatedAnnouncement.targetAudience
+            : 'all',
+        isPinned: Boolean(updatedAnnouncement.isPinned),
+        // If saving as draft, force isActive to false
+        isActive: saveAsDraft ? false : (updatedAnnouncement.isActive ?? editingAnnouncement.isActive)
+      }
+
+      if (hasNewMedia) {
+        requestBody.media = newMedia.map((m) => ({
+          ...m,
+          fileSize: (m as any).fileSize ?? 0,
+        }))
+      }
       
       const token = await getStoredToken()
       const response = await fetch(`${API_URL}/api/admin/announcements/${editingAnnouncement._id}`, {
@@ -181,19 +224,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          title: String(updatedAnnouncement.title || '').trim(),
-          message: String(updatedAnnouncement.message || '').trim(),
-          type: updatedAnnouncement.type || 'info',
-          targetAudience:
-            updatedAnnouncement.targetAudience && audienceOptions.some(a => a.value === updatedAnnouncement.targetAudience)
-              ? updatedAnnouncement.targetAudience
-              : 'all',
-          isPinned: Boolean(updatedAnnouncement.isPinned),
-          // If saving as draft, force isActive to false
-          isActive: saveAsDraft ? false : (updatedAnnouncement.isActive ?? editingAnnouncement.isActive),
-          media: allMedia
-        })
+        body: JSON.stringify(requestBody)
       })
       
       const responseData = await response.json().catch(() => ({}))
@@ -237,14 +268,20 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
   }
 
   const handleSaveNewAnnouncement = async (saveAsDraft = false) => {
+    const trimmedTitle = String(newAnnouncement.title || '').trim()
+    const trimmedMessage = String(newAnnouncement.message || '').trim()
+    const validationError = validateAnnouncementContent(trimmedTitle, trimmedMessage)
+    if (validationError) {
+      alert(validationError)
+      return
+    }
+
     try {
       setSavingCreate(true)
       // Upload media files first
       const newMedia = await uploadMediaFiles(mediaFiles)
-      
-      // Combine with existing media
-      const allMediaRaw = [...(newAnnouncement.media || []), ...newMedia]
-      const allMedia = allMediaRaw.map((m) => ({
+
+      const allMedia = newMedia.map((m) => ({
         ...m,
         fileSize: (m as any).fileSize ?? 0,
       })) as NonNullable<Announcement['media']>
@@ -260,8 +297,8 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
           'Accept': 'application/json'
         },
         body: JSON.stringify({
-          title: String(newAnnouncement.title || '').trim(),
-          message: String(newAnnouncement.message || '').trim(),
+          title: trimmedTitle,
+          message: trimmedMessage,
           type: newAnnouncement.type || 'info',
           // If saving as draft, force isActive to false
           isActive: finalIsActive,
@@ -348,9 +385,19 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       return
     }
 
-    const tooLargeFile = validFiles.find((file) => file.size > MAX_MEDIA_FILE_BYTES)
+    if (mediaFiles.length + validFiles.length > MAX_MEDIA_FILES) {
+      alert(`You can upload up to ${MAX_MEDIA_FILES} files per announcement.`)
+      return
+    }
+
+    const tooLargeFile = validFiles.find((file) => {
+      const perFileLimit = file.type.startsWith('image/') ? MAX_IMAGE_FILE_BYTES : MAX_VIDEO_FILE_BYTES
+      return file.size > perFileLimit
+    })
     if (tooLargeFile) {
-      alert(`"${tooLargeFile.name}" is too large. Max per file is 8MB.`)
+      const limitMb = tooLargeFile.type.startsWith('image/') ? 5 : 8
+      const fileCategory = tooLargeFile.type.startsWith('image/') ? 'image' : 'video'
+      alert(`"${tooLargeFile.name}" is too large. Max ${fileCategory} size is ${limitMb}MB.`)
       return
     }
 
@@ -447,6 +494,13 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
     const date = new Date(dateString)
     return date.toLocaleDateString() + ' ' + 
            date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+
+  const truncateDisplayText = (value: string, maxLength: number) => {
+    const text = String(value || '').replace(/\s+/g, ' ').trim()
+    if (!text) return ''
+    if (text.length <= maxLength) return text
+    return `${text.slice(0, maxLength).trimEnd()}...`
   }
 
   const filteredAnnouncements = announcements.filter(announcement => {
@@ -740,7 +794,13 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                     ...editingAnnouncement,
                     title: e.target.value
                   })}
+                  maxLength={MAX_TITLE_LENGTH}
                 />
+                <div className="form-input-meta">
+                  <span className={getCounterClassName(String(editingAnnouncement.title || '').length, MAX_TITLE_LENGTH)}>
+                    {String(editingAnnouncement.title || '').length}/{MAX_TITLE_LENGTH}
+                  </span>
+                </div>
               </div>
               
               <div className="form-group">
@@ -752,7 +812,13 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                     ...editingAnnouncement,
                     message: e.target.value
                   })}
+                  maxLength={MAX_MESSAGE_LENGTH}
                 />
+                <div className="form-input-meta">
+                  <span className={getCounterClassName(String(editingAnnouncement.message || '').length, MAX_MESSAGE_LENGTH)}>
+                    {String(editingAnnouncement.message || '').length}/{MAX_MESSAGE_LENGTH}
+                  </span>
+                </div>
               </div>
               
               <div className="form-group">
@@ -801,7 +867,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                   <div className="media-upload-content">
                     <Upload size={48} className="media-upload-icon" />
                     <p>Drag and drop media files here or click to browse</p>
-                    <p className="media-upload-hint">Supported: Images (JPG, PNG, GIF) and Videos (MP4, WebM)</p>
+                    <p className="media-upload-hint">Supported: Images up to 5MB, videos up to 8MB, max 6 files, total 20MB.</p>
                     <input
                       type="file"
                       multiple
@@ -971,7 +1037,13 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                     ...newAnnouncement,
                     title: e.target.value
                   })}
+                  maxLength={MAX_TITLE_LENGTH}
                 />
+                <div className="form-input-meta">
+                  <span className={getCounterClassName(String(newAnnouncement.title || '').length, MAX_TITLE_LENGTH)}>
+                    {String(newAnnouncement.title || '').length}/{MAX_TITLE_LENGTH}
+                  </span>
+                </div>
               </div>
               
               <div className="form-group">
@@ -983,7 +1055,13 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                     ...newAnnouncement,
                     message: e.target.value
                   })}
+                  maxLength={MAX_MESSAGE_LENGTH}
                 />
+                <div className="form-input-meta">
+                  <span className={getCounterClassName(String(newAnnouncement.message || '').length, MAX_MESSAGE_LENGTH)}>
+                    {String(newAnnouncement.message || '').length}/{MAX_MESSAGE_LENGTH}
+                  </span>
+                </div>
               </div>
               
               <div className="form-group">
@@ -1064,7 +1142,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                   <div className="media-upload-content">
                     <Upload size={48} className="media-upload-icon" />
                     <p>Drag and drop media files here or click to browse</p>
-                    <p className="media-upload-hint">Supported: Images (JPG, PNG, GIF) and Videos (MP4, WebM)</p>
+                    <p className="media-upload-hint">Supported: Images up to 5MB, videos up to 8MB, max 6 files, total 20MB.</p>
                     <input
                       type="file"
                       multiple
@@ -1197,11 +1275,11 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                     />
                   </div>
                   <div className="table-title">
-                    <span className="announcement-title" style={{ fontWeight: 'bold' }}>{announcement.title}</span>
-                    <span className="announcement-description">
-                      {announcement.message.split(' ').length > 10 
-                        ? `${announcement.message.split(' ').slice(0, 10).join(' ')}...` 
-                        : announcement.message}
+                    <span className="announcement-title" title={announcement.title}>
+                      {truncateDisplayText(announcement.title, 88)}
+                    </span>
+                    <span className="announcement-description" title={announcement.message}>
+                      {truncateDisplayText(announcement.message, 120)}
                     </span>
                   </div>
                   <div className="table-type">

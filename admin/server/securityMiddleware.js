@@ -43,6 +43,13 @@ function sanitizeInput(obj, path = 'root') {
  * @param {Object} options.paramsSchema - Joi schema for params validation
  */
 function inputValidationMiddleware(options = {}) {
+  // Backward compatibility:
+  // existing routes pass { body/query/params }, while newer callers may pass
+  // { bodySchema/querySchema/paramsSchema }.
+  const bodySchema = options.bodySchema || options.body;
+  const querySchema = options.querySchema || options.query;
+  const paramsSchema = options.paramsSchema || options.params;
+
   return (req, res, next) => {
     try {
       // Sanitize all inputs
@@ -51,34 +58,37 @@ function inputValidationMiddleware(options = {}) {
       sanitizeInput(req.params, 'params');
 
       // If schemas are provided, validate against them
-      if (options.bodySchema) {
-        const { error } = options.bodySchema.validate(req.body);
+      if (bodySchema) {
+        const { error, value } = bodySchema.validate(req.body, { abortEarly: false });
         if (error) {
           return res.status(400).json({
             error: 'Invalid request body.',
             details: error.details.map(d => d.message)
           });
         }
+        req.body = value;
       }
 
-      if (options.querySchema) {
-        const { error } = options.querySchema.validate(req.query);
+      if (querySchema) {
+        const { error, value } = querySchema.validate(req.query, { abortEarly: false });
         if (error) {
           return res.status(400).json({
             error: 'Invalid query parameters.',
             details: error.details.map(d => d.message)
           });
         }
+        req.query = value;
       }
 
-      if (options.paramsSchema) {
-        const { error } = options.paramsSchema.validate(req.params);
+      if (paramsSchema) {
+        const { error, value } = paramsSchema.validate(req.params, { abortEarly: false });
         if (error) {
           return res.status(400).json({
             error: 'Invalid URL parameters.',
             details: error.details.map(d => d.message)
           });
         }
+        req.params = value;
       }
 
       next();
@@ -223,25 +233,45 @@ const schemas = {
   announcements: {
     create: {
       body: Joi.object({
-        title: Joi.string().trim().min(1).max(254).required(),
-        message: Joi.string().trim().min(1).required(),
-        type: Joi.string().valid('info', 'warning', 'success', 'error', 'urgent').optional(),
-        targetAudience: Joi.string().valid('all', 'admin', 'registrar', 'professor').optional(),
+        title: Joi.string().trim().min(1).max(200).required(),
+        message: Joi.string().trim().min(1).max(500).required(),
+        type: Joi.string().valid('info', 'warning', 'urgent', 'maintenance').optional(),
+        targetAudience: Joi.string().valid('all', 'students', 'faculty', 'staff', 'admin').optional(),
         expiresAt: Joi.date().optional(),
         isPinned: Joi.boolean().optional(),
-        media: Joi.array().items(Joi.object()).optional()
+        media: Joi.array().max(6).items(
+          Joi.object({
+            type: Joi.string().valid('image', 'video').required(),
+            url: Joi.string().trim().min(1).required(),
+            fileName: Joi.string().trim().min(1).max(260).required(),
+            originalFileName: Joi.string().trim().min(1).max(260).required(),
+            mimeType: Joi.string().trim().min(1).max(120).required(),
+            fileSize: Joi.number().integer().min(1).max(20 * 1024 * 1024).required(),
+            caption: Joi.string().trim().max(500).allow('').optional()
+          })
+        ).optional()
       })
     },
     update: {
       body: Joi.object({
-        title: Joi.string().trim().min(1).max(254).optional(),
-        message: Joi.string().trim().min(1).optional(),
-        type: Joi.string().valid('info', 'warning', 'success', 'error', 'urgent').optional(),
-        targetAudience: Joi.string().valid('all', 'admin', 'registrar', 'professor').optional(),
+        title: Joi.string().trim().min(1).max(200).optional(),
+        message: Joi.string().trim().min(1).max(500).optional(),
+        type: Joi.string().valid('info', 'warning', 'urgent', 'maintenance').optional(),
+        targetAudience: Joi.string().valid('all', 'students', 'faculty', 'staff', 'admin').optional(),
         expiresAt: Joi.date().optional(),
         isPinned: Joi.boolean().optional(),
         isActive: Joi.boolean().optional(),
-        media: Joi.array().items(Joi.object()).optional()
+        media: Joi.array().max(6).items(
+          Joi.object({
+            type: Joi.string().valid('image', 'video').required(),
+            url: Joi.string().trim().min(1).required(),
+            fileName: Joi.string().trim().min(1).max(260).required(),
+            originalFileName: Joi.string().trim().min(1).max(260).required(),
+            mimeType: Joi.string().trim().min(1).max(120).required(),
+            fileSize: Joi.number().integer().min(1).max(20 * 1024 * 1024).required(),
+            caption: Joi.string().trim().max(500).allow('').optional()
+          })
+        ).optional()
       })
     },
     query: {
