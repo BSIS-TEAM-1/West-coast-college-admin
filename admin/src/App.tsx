@@ -9,6 +9,7 @@ import {
 } from './lib/authApi'
 import { applyThemePreference, getStoredTheme, setActiveThemeScope } from './lib/theme'
 import Login from './pages/Login'
+import LandingPage from './pages/LandingPage'
 import Dashboard from './pages/Dashboard'
 import RegistrarDashboard from './pages/RegistrarDashboard'
 import ProfessorDashboard from './pages/ProfessorDashboard.tsx'
@@ -29,15 +30,20 @@ const isAuthSessionError = (message: string): boolean => {
 
 function App() {
   const [user, setUser] = useState<{ username: string; accountType: string } | null>(null)
+  const [showStaffLogin, setShowStaffLogin] = useState(false)
   const [loginError, setLoginError] = useState<string | undefined>(undefined)
   const [loginLoading, setLoginLoading] = useState(false)
+  const [sessionBootstrapping, setSessionBootstrapping] = useState(true)
 
   useEffect(() => {
     let mounted = true
 
     const restoreSession = async () => {
       const token = await getStoredToken()
-      if (!token) return
+      if (!token) {
+        if (mounted) setSessionBootstrapping(false)
+        return
+      }
 
       setLoginLoading(true)
       setLoginError(undefined)
@@ -58,10 +64,12 @@ function App() {
         const message = error instanceof Error ? error.message : 'Your session has ended. Please sign in again.'
         if (isAuthSessionError(message)) {
           setLoginError(message)
+          setShowStaffLogin(false)
         }
       } finally {
         if (mounted) {
           setLoginLoading(false)
+          setSessionBootstrapping(false)
         }
       }
     }
@@ -104,6 +112,7 @@ function App() {
       setActiveThemeScope(null)
       applyThemePreference(getStoredTheme(null), { persist: false })
       setUser(null)
+      setShowStaffLogin(false)
       setLoginError(undefined)
     }
   }, [])
@@ -171,12 +180,28 @@ function App() {
     )
   }
 
+  if (sessionBootstrapping) {
+    return (
+      <div className="app-loading" aria-label="Loading">
+        <div className="app-loading-spinner" />
+      </div>
+    )
+  }
+
+  if (!showStaffLogin) {
+    return <LandingPage onOpenStaffLogin={() => setShowStaffLogin(true)} />
+  }
+
   // Show appropriate login page
   return (
     <Login
       onLogin={handleLogin}
       error={loginError}
       loading={loginLoading}
+      onBack={() => {
+        setShowStaffLogin(false)
+        setLoginError(undefined)
+      }}
     />
   )
 }

@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/prepare-landing-videos.mjs",
     "build": "tsc -b && vite build",
+    "postbuild": "node scripts/prune-landing-videos-in-dist.mjs",
     "build:deploy": "npm run build && cd server && npm install",
     "start": "node server/index.js",
     "lint": "eslint .",
