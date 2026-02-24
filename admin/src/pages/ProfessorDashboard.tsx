@@ -46,7 +46,54 @@ interface Announcement {
   scheduledFor?: string
 }
 
-type ProfessorView = 'dashboard' | 'courses' | 'students' | 'grades' | 'schedule' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details'
+interface ProfessorAssignedSubject {
+  subjectId: string
+  code: string
+  title: string
+  schedule: string
+  room: string
+  enrolledStudents: number
+}
+
+interface ProfessorAssignedBlock {
+  sectionId: string | null
+  sectionCode: string
+  semester: string
+  schoolYear: string
+  yearLevel: number | null
+  subjects: ProfessorAssignedSubject[]
+}
+
+interface ProfessorAssignedCourse {
+  courseCode: string
+  blocks: ProfessorAssignedBlock[]
+}
+
+interface ProfessorSubjectDetailState {
+  courseCode: string
+  blockCode: string
+  sectionId: string | null
+  sectionCode: string
+  semester: string
+  schoolYear: string
+  subject: ProfessorAssignedSubject
+}
+
+interface ProfessorAssignedStudent {
+  _id: string
+  studentNumber: string | number
+  firstName: string
+  middleName?: string
+  lastName: string
+  suffix?: string
+  yearLevel?: number
+  studentStatus?: string
+  course?: string | number
+  corStatus?: string
+  assignedAt?: string | null
+}
+
+type ProfessorView = 'dashboard' | 'courses' | 'students' | 'grades' | 'schedule' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'subject-detail'
 
 type ProfessorDashboardProps = {
   username: string
@@ -70,6 +117,10 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
   const [profile, setProfile] = useState<ProfileResponse | null>(null)
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string | null>(null)
+  const [assignedCourses, setAssignedCourses] = useState<ProfessorAssignedCourse[]>([])
+  const [coursesLoading, setCoursesLoading] = useState(false)
+  const [coursesError, setCoursesError] = useState('')
+  const [selectedSubjectDetail, setSelectedSubjectDetail] = useState<ProfessorSubjectDetailState | null>(null)
   
   // Animation refs
   const dashboardRef = useRef<HTMLDivElement>(null)
@@ -135,6 +186,12 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
     }
   }, [view])
 
+  useEffect(() => {
+    if (view === 'courses') {
+      void fetchAssignedCourses()
+    }
+  }, [view])
+
   const handleProfileUpdated = (profile: ProfileResponse) => {
     setProfile(profile)
     onProfileUpdated?.(profile)
@@ -165,6 +222,44 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
     }
   }
 
+  const fetchAssignedCourses = async () => {
+    try {
+      setCoursesLoading(true)
+      setCoursesError('')
+
+      const token = await getStoredToken()
+      if (!token) {
+        setAssignedCourses([])
+        setCoursesError('You are not logged in.')
+        return
+      }
+
+      const response = await fetch(`${API_URL}/api/professor/assigned-blocks`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        if (response.status === 403) {
+          throw new Error('Only professor accounts can view assigned blocks.')
+        }
+        throw new Error(`Failed to fetch assigned blocks: ${response.status}`)
+      }
+
+      const payload = await response.json().catch(() => ({}))
+      const courses = Array.isArray(payload?.data?.courses) ? payload.data.courses : []
+      setAssignedCourses(courses)
+    } catch (error) {
+      console.error('Failed to fetch professor assigned blocks:', error)
+      setAssignedCourses([])
+      setCoursesError(error instanceof Error ? error.message : 'Failed to load assigned blocks.')
+    } finally {
+      setCoursesLoading(false)
+    }
+  }
+
   const handleAnnouncementClick = (announcement: Announcement) => {
     setSelectedAnnouncementId(announcement._id)
     setView('announcement-detail')
@@ -178,7 +273,18 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
   const renderContent = () => {
     switch (view) {
       case 'courses':
-        return <CourseManagement />
+        return (
+          <CourseManagement
+            courses={assignedCourses}
+            loading={coursesLoading}
+            error={coursesError}
+            onRefresh={fetchAssignedCourses}
+            onOpenSubjectDetail={(detail) => {
+              setSelectedSubjectDetail(detail)
+              setView('subject-detail')
+            }}
+          />
+        )
       case 'students':
         return <StudentManagement />
       case 'grades':
@@ -207,6 +313,13 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
         />
       case 'personal-details':
         return <PersonalDetails onBack={() => setView('profile')} />
+      case 'subject-detail':
+        return (
+          <ProfessorSubjectDetail
+            detail={selectedSubjectDetail}
+            onBack={() => setView('courses')}
+          />
+        )
       default:
         return <ProfessorHome announcements={announcements} onAnnouncementClick={handleAnnouncementClick} quickActionsRef={quickActionsRef} newsSectionRef={newsSectionRef} />
     }
@@ -245,9 +358,9 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
             <button
               key={id}
               type="button"
-              className={`professor-sidebar-link ${view === id ? 'professor-sidebar-link-active' : ''}`}
+              className={`professor-sidebar-link ${(view === id || (view === 'subject-detail' && id === 'courses')) ? 'professor-sidebar-link-active' : ''}`}
               onClick={() => setView(id)}
-              aria-current={view === id ? 'page' : undefined}
+              aria-current={(view === id || (view === 'subject-detail' && id === 'courses')) ? 'page' : undefined}
             >
               <Icon size={18} className="professor-sidebar-icon" />
               <span>{label}</span>
@@ -425,28 +538,304 @@ function ProfessorHome({ announcements, onAnnouncementClick, quickActionsRef, ne
   )
 }
 
-function CourseManagement() {
+interface CourseManagementProps {
+  courses: ProfessorAssignedCourse[]
+  loading: boolean
+  error: string
+  onRefresh: () => Promise<void>
+  onOpenSubjectDetail: (detail: ProfessorSubjectDetailState) => void
+}
+
+function CourseManagement({ courses, loading, error, onRefresh, onOpenSubjectDetail }: CourseManagementProps) {
+  const [layoutMode, setLayoutMode] = useState<'grid' | 'list'>('grid')
+
+  const toCourseDisplayCode = (value: string) => {
+    const raw = String(value || '').trim()
+    if (!raw) return '000'
+    if (/^\d+$/.test(raw)) return raw
+
+    const normalized = raw.toUpperCase().replace(/\s+/g, '').replace(/_/g, '-')
+    if (normalized.includes('BEED')) return '101'
+    if (normalized.includes('BSED-ENGLISH') || normalized === 'ENGLISH') return '102'
+    if (normalized.includes('BSED-MATH') || normalized === 'MATH' || normalized === 'MATHEMATICS') return '103'
+    if (normalized.includes('BSBA-HRM') || normalized === 'HRM') return '201'
+    return raw
+  }
+
+  const getSectionSuffix = (sectionCode: string) => {
+    const text = String(sectionCode || '').trim()
+    if (!text) return 'TBA'
+    const parts = text.split('-').map((part) => part.trim()).filter(Boolean)
+    return parts.length > 1 ? parts[parts.length - 1] : text
+  }
+
+  const formatBlockCode = (courseCode: string, sectionCode: string) => {
+    const displayCourseCode = toCourseDisplayCode(courseCode)
+    const sectionSuffix = getSectionSuffix(sectionCode)
+    return String(`${displayCourseCode}-${sectionSuffix}`)
+  }
+
   return (
     <div className="professor-section">
       <h2 className="professor-section-title">My Courses</h2>
-      <p className="professor-section-desc">Manage your course materials, assignments, and class resources.</p>
-      
-      <div className="placeholder-content">
-        <div className="placeholder-card">
-          <h3>Course Materials</h3>
-          <p>Upload and organize lecture materials and resources</p>
-          <button className="professor-btn" disabled>Coming Soon</button>
+      <p className="professor-section-desc">View course blocks and subjects assigned by the registrar.</p>
+
+      <div className="professor-course-toolbar">
+        <div className="professor-layout-toggle" role="group" aria-label="Course layout mode">
+          <button
+            type="button"
+            className={`professor-layout-btn ${layoutMode === 'grid' ? 'is-active' : ''}`}
+            onClick={() => setLayoutMode('grid')}
+          >
+            Grid
+          </button>
+          <button
+            type="button"
+            className={`professor-layout-btn ${layoutMode === 'list' ? 'is-active' : ''}`}
+            onClick={() => setLayoutMode('list')}
+          >
+            List
+          </button>
         </div>
+        <button className="professor-btn" onClick={() => void onRefresh()} disabled={loading}>
+          {loading ? 'Loading...' : 'Refresh Assigned Blocks'}
+        </button>
+      </div>
+
+      {error && (
+        <p className="professor-data-error">{error}</p>
+      )}
+
+      {!loading && courses.length === 0 ? (
         <div className="placeholder-card">
-          <h3>Assignments</h3>
-          <p>Create and manage course assignments and deadlines</p>
-          <button className="professor-btn" disabled>Coming Soon</button>
+          <h3>No assigned blocks yet</h3>
+          <p>The registrar has not assigned subjects/blocks to this professor yet.</p>
         </div>
-        <div className="placeholder-card">
-          <h3>Class Resources</h3>
-          <p>Manage syllabus, textbooks, and additional resources</p>
-          <button className="professor-btn" disabled>Coming Soon</button>
+      ) : (
+        <div className={`professor-course-grid ${layoutMode === 'list' ? 'professor-course-layout-list' : 'professor-course-layout-grid'}`}>
+          {courses.map((course) => (
+            <div key={course.courseCode} className="placeholder-card professor-course-card">
+              <div className="professor-course-header">
+                <h3>{course.courseCode}</h3>
+                <span className="professor-course-summary">{course.blocks.length} block(s)</span>
+              </div>
+
+              <div className="professor-block-list">
+                {course.blocks.map((block) => (
+                  <div
+                    key={`${course.courseCode}-${block.sectionCode}-${block.semester}-${block.schoolYear}`}
+                    className="professor-block-item"
+                  >
+                    <div className="professor-block-head">
+                      <strong>{formatBlockCode(course.courseCode, block.sectionCode)}</strong>
+                      <span>{block.semester} | {block.schoolYear}</span>
+                    </div>
+                    <div className="professor-subject-list">
+                      {block.subjects.map((subject) => {
+                        const blockCode = formatBlockCode(course.courseCode, block.sectionCode)
+                        return (
+                        <button
+                          key={`${block.sectionCode}-${subject.subjectId}`}
+                          type="button"
+                          className="professor-subject-item professor-subject-btn"
+                          onClick={() => onOpenSubjectDetail({
+                            courseCode: course.courseCode,
+                            blockCode,
+                            sectionId: block.sectionId,
+                            sectionCode: block.sectionCode,
+                            semester: block.semester,
+                            schoolYear: block.schoolYear,
+                            subject
+                          })}
+                        >
+                          <div className="professor-subject-main">
+                            <BookOpen size={16} className="professor-subject-icon" />
+                            <div className="professor-subject-text">
+                              <div className="professor-subject-title">{subject.code} - {subject.title}</div>
+                              <div className="professor-subject-meta">
+                                {subject.schedule || 'TBA'} | Room: {subject.room || 'TBA'} | Students: {subject.enrolledStudents}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="professor-subject-linkhint">View details</div>
+                        </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
+      )}
+    </div>
+  )
+}
+
+interface ProfessorSubjectDetailProps {
+  detail: ProfessorSubjectDetailState | null
+  onBack: () => void
+}
+
+function ProfessorSubjectDetail({ detail, onBack }: ProfessorSubjectDetailProps) {
+  const [students, setStudents] = useState<ProfessorAssignedStudent[]>([])
+  const [studentsLoading, setStudentsLoading] = useState(false)
+  const [studentsError, setStudentsError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+
+    const fetchSubjectStudents = async () => {
+      if (!detail?.sectionId) {
+        setStudents([])
+        setStudentsError('No section is linked to this subject assignment yet.')
+        return
+      }
+
+      try {
+        setStudentsLoading(true)
+        setStudentsError('')
+
+        const token = await getStoredToken()
+        if (!token) {
+          setStudents([])
+          setStudentsError('You are not logged in.')
+          return
+        }
+
+        const response = await fetch(`${API_URL}/api/blocks/sections/${detail.sectionId}/students`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        })
+
+        if (!response.ok) {
+          throw new Error(`Failed to load students: ${response.status}`)
+        }
+
+        const payload = await response.json().catch(() => ({}))
+        const list = Array.isArray(payload?.students) ? payload.students : []
+        if (!cancelled) {
+          setStudents(list)
+        }
+      } catch (error) {
+        console.error('Failed to fetch subject students:', error)
+        if (!cancelled) {
+          setStudents([])
+          setStudentsError(error instanceof Error ? error.message : 'Failed to load students.')
+        }
+      } finally {
+        if (!cancelled) {
+          setStudentsLoading(false)
+        }
+      }
+    }
+
+    void fetchSubjectStudents()
+    return () => { cancelled = true }
+  }, [detail?.sectionId])
+
+  const formatStudentName = (student: ProfessorAssignedStudent) => {
+    return [student.lastName, student.firstName, student.middleName, student.suffix]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+      .join(', ')
+  }
+
+  const getCourseCode = (value: string | number) => {
+    const text = String(value ?? '').trim()
+    if (!text) return ''
+    if (/^\d+$/.test(text)) return text
+
+    const normalized = text.toUpperCase().replace(/\s+/g, '').replace(/_/g, '-')
+    if (normalized.includes('BEED')) return '101'
+    if (normalized.includes('BSED-ENGLISH') || normalized === 'ENGLISH') return '102'
+    if (normalized.includes('BSED-MATH') || normalized === 'MATH' || normalized === 'MATHEMATICS') return '103'
+    if (normalized.includes('BSBA-HRM') || normalized === 'HRM') return '201'
+    return ''
+  }
+
+  const formatStudentNumber = (student: ProfessorAssignedStudent) => {
+    const raw = String(student.studentNumber || '').trim()
+    const fallbackCourseCode = getCourseCode(student.course ?? detail?.courseCode ?? '')
+
+    if (!raw) return fallbackCourseCode ? `0000-${fallbackCourseCode}-00000` : 'N/A'
+
+    const parts = raw.split('-').map((part) => part.trim()).filter(Boolean)
+
+    let year = /^\d{4}$/.test(parts[0] || '') ? parts[0] : '0000'
+    let seqPart = [...parts].reverse().find((part) => /^\d+$/.test(part)) || '00000'
+
+    const compactDigits = raw.replace(/\D+/g, '')
+    if (parts.length === 1 && /^\d{8,}$/.test(compactDigits)) {
+      year = compactDigits.slice(0, 4)
+      seqPart = compactDigits.slice(-5)
+    }
+
+    const seq = seqPart.slice(-5).padStart(5, '0')
+    const codeFromRaw = getCourseCode(parts.find((part) => /[A-Za-z]/.test(part)) || parts[1] || '')
+    const courseCode = fallbackCourseCode || codeFromRaw || '000'
+
+    return `${year}-${courseCode}-${seq}`
+  }
+
+  if (!detail) {
+    return (
+      <div className="professor-section">
+        <h2 className="professor-section-title">Subject Details</h2>
+        <p className="professor-section-desc">No subject selected.</p>
+        <button className="professor-btn" onClick={onBack}>Back to My Courses</button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="professor-section">
+      <h2 className="professor-section-title">Subject Details</h2>
+      <p className="professor-section-desc">Assigned subject and block information.</p>
+
+      <div className="professor-course-toolbar">
+        <button className="professor-btn" onClick={onBack}>Back to My Courses</button>
+      </div>
+
+      <div className="placeholder-card professor-subject-detail-card">
+        <div className="professor-detail-grid">
+          <div><strong>Course:</strong> {detail.courseCode}</div>
+          <div><strong>Block:</strong> {detail.blockCode}</div>
+          <div><strong>Section:</strong> {detail.sectionCode}</div>
+          <div><strong>Term:</strong> {detail.semester} {detail.schoolYear}</div>
+          <div><strong>Subject Code:</strong> {detail.subject.code}</div>
+          <div><strong>Subject Title:</strong> {detail.subject.title}</div>
+          <div><strong>Schedule:</strong> {detail.subject.schedule || 'TBA'}</div>
+          <div><strong>Room:</strong> {detail.subject.room || 'TBA'}</div>
+          <div><strong>Enrolled Students:</strong> {detail.subject.enrolledStudents}</div>
+        </div>
+      </div>
+
+      <div className="placeholder-card professor-subject-students-card">
+        <h3>Students</h3>
+        {studentsLoading ? (
+          <p>Loading students...</p>
+        ) : studentsError ? (
+          <p className="professor-data-error">{studentsError}</p>
+        ) : students.length === 0 ? (
+          <p>No students found for this assigned subject/block.</p>
+        ) : (
+          <div className="professor-student-grid">
+            {students.map((student) => (
+              <div key={student._id} className="professor-student-item">
+                <div className="professor-student-name">{formatStudentName(student)}</div>
+                <div className="professor-student-meta">Student No: {formatStudentNumber(student)}</div>
+                <div className="professor-student-meta">Course: {student.course || 'N/A'}</div>
+                <div className="professor-student-meta">Year Level: {student.yearLevel ?? 'N/A'}</div>
+                <div className="professor-student-meta">Status: {student.studentStatus || 'N/A'}</div>
+                <div className="professor-student-meta">COR: {student.corStatus || 'Pending'}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

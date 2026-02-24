@@ -245,7 +245,7 @@
 
 .announcements-table-header {
   display: grid;
-  grid-template-columns: 40px 1fr 120px 140px 120px 140px 180px;
+  grid-template-columns: 40px minmax(0, 1fr) 120px 140px 120px 140px 180px;
   gap: 16px;
   padding: 16px 20px;
   background: var(--color-bg-soft);
@@ -268,7 +268,7 @@
 
 .announcements-table-row {
   display: grid;
-  grid-template-columns: 40px 1fr 120px 140px 120px 140px 180px;
+  grid-template-columns: 40px minmax(0, 1fr) 120px 140px 120px 140px 180px;
   gap: 16px;
   padding: 18px;
   margin: 12px 16px;
@@ -301,6 +301,28 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
+}
+
+.announcement-title {
+  display: block;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.announcement-description {
+  display: block;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .announcement-title-content {
@@ -685,6 +707,27 @@
   min-height: 100px;
 }
 
+.form-input-meta {
+  margin-top: 6px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.form-character-count {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.form-character-count.is-near-limit {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.form-character-count.is-at-limit {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
 .form-group label input[type="checkbox"] {
   width: auto;
   margin-right: 8px;
@@ -996,6 +1039,8 @@ body[data-theme="dark"] .filter-section {
 }
 
 [data-theme="dark"] .announcement-title-content,
+[data-theme="dark"] .announcement-title,
+[data-theme="dark"] .announcement-description,
 [data-theme="dark"] .announcement-message,
 [data-theme="dark"] .table-audience,
 [data-theme="dark"] .table-date {
@@ -1024,7 +1069,7 @@ body[data-theme="dark"] .filter-section {
 @media (max-width: 1200px) {
   .announcements-table-header,
   .announcements-table-row {
-    grid-template-columns: 40px 1fr 100px 120px 90px 120px 140px;
+    grid-template-columns: 40px minmax(0, 1fr) 100px 120px 90px 120px 140px;
     gap: 12px;
   }
 }

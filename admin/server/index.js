@@ -36,6 +36,7 @@ const SecurityScan = require('./models/SecurityScan')
 const Student = require('./models/Student')
 const Enrollment = require('./models/Enrollment')
 const BlockSection = require('./models/BlockSection')
+const StudentBlockAssignment = require('./models/StudentBlockAssignment')
 const BackupSystem = require('./backup')
 const SemaphoreSmsService = require('./services/semaphoreSmsService')
 const SmsApiPhService = require('./services/smsApiPhService')
@@ -324,6 +325,263 @@ app.get('/assets/:assetName', staleAssetFallbackLimiter, (req, res, next) => {
 // Registrar module API routes (supports both legacy and /api-prefixed paths)
 app.use('/registrar', apiLimiter, authMiddleware, registrarRoutes)
 app.use('/api/registrar', authMiddleware, registrarRoutes)
+
+// GET /api/professor/assigned-blocks
+// Returns blocks/subjects currently assigned by registrar to the authenticated professor.
+app.get('/api/professor/assigned-blocks', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+
+  if (String(req.accountType || '').toLowerCase() !== 'professor') {
+    return res.status(403).json({ error: 'Forbidden. Professor access required.' })
+  }
+
+  try {
+    const professor = await Admin.findById(req.adminId)
+      .select('_id username displayName uid accountType status')
+      .lean()
+
+    if (!professor) {
+      return res.status(404).json({ error: 'Professor account not found.' })
+    }
+
+    const normalizeText = (value) => String(value || '').trim()
+    const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const parseSchoolYearStart = (schoolYearValue) => {
+      const match = String(schoolYearValue || '').trim().match(/^(\d{4})\s*-\s*\d{4}$/)
+      return match ? Number(match[1]) : null
+    }
+
+    const professorIdentifiers = Array.from(
+      new Set(
+        [professor.displayName, professor.username, professor.uid]
+          .map(normalizeText)
+          .filter(Boolean)
+      )
+    )
+
+    if (professorIdentifiers.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          courses: [],
+          totalCourses: 0,
+          totalBlocks: 0,
+          totalSubjects: 0
+        }
+      })
+    }
+
+    const exactIdentifierPatterns = professorIdentifiers.map(
+      (value) => new RegExp(`^\\s*${escapeRegExp(value)}\\s*$`, 'i')
+    )
+
+    const enrollments = await Enrollment.find({
+      status: { $ne: 'Dropped' },
+      subjects: {
+        $elemMatch: {
+          instructor: { $in: exactIdentifierPatterns },
+          status: { $ne: 'Dropped' }
+        }
+      }
+    })
+      .select('studentId course schoolYear semester yearLevel subjects')
+      .lean()
+
+    if (enrollments.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          courses: [],
+          totalCourses: 0,
+          totalBlocks: 0,
+          totalSubjects: 0
+        }
+      })
+    }
+
+    const studentIds = Array.from(
+      new Set(
+        enrollments
+          .map((enrollment) => normalizeText(enrollment.studentId))
+          .filter(Boolean)
+      )
+    )
+
+    const assignments = await StudentBlockAssignment.find({
+      studentId: { $in: studentIds },
+      status: 'ASSIGNED'
+    })
+      .select('studentId sectionId semester year assignedAt')
+      .lean()
+
+    const assignmentsByStudentId = new Map()
+    assignments.forEach((assignment) => {
+      const studentId = normalizeText(assignment.studentId)
+      if (!studentId) return
+      const list = assignmentsByStudentId.get(studentId) || []
+      list.push(assignment)
+      assignmentsByStudentId.set(studentId, list)
+    })
+    assignmentsByStudentId.forEach((list) => {
+      list.sort((a, b) => new Date(b.assignedAt).getTime() - new Date(a.assignedAt).getTime())
+    })
+
+    const sectionIds = Array.from(
+      new Set(
+        assignments
+          .map((assignment) => normalizeText(assignment.sectionId))
+          .filter((value) => mongoose.Types.ObjectId.isValid(value))
+      )
+    )
+    const sectionObjectIds = sectionIds.map((id) => new mongoose.Types.ObjectId(id))
+    const sections = sectionObjectIds.length > 0
+      ? await BlockSection.find({ _id: { $in: sectionObjectIds } }).select('_id sectionCode').lean()
+      : []
+    const sectionCodeById = new Map(
+      sections.map((section) => [String(section._id), normalizeText(section.sectionCode) || 'Unknown Block'])
+    )
+
+    const findAssignmentForEnrollment = (studentId, semesterValue, schoolYearValue) => {
+      const list = assignmentsByStudentId.get(studentId) || []
+      if (list.length === 0) return null
+
+      const semester = normalizeText(semesterValue)
+      const yearStart = parseSchoolYearStart(schoolYearValue)
+      const strictMatch = list.find((entry) => {
+        const semesterMatch = normalizeText(entry.semester) === semester
+        const yearMatch = Number(entry.year || 0) === Number(yearStart || 0)
+        return semesterMatch && yearMatch
+      })
+      if (strictMatch) return strictMatch
+
+      const semesterMatch = list.find((entry) => normalizeText(entry.semester) === semester)
+      if (semesterMatch) return semesterMatch
+
+      return list[0]
+    }
+
+    const instructorMatchesProfessor = (instructorValue) => {
+      const normalized = normalizeText(instructorValue)
+      if (!normalized || /^TBA$/i.test(normalized)) return false
+      return exactIdentifierPatterns.some((pattern) => pattern.test(normalized))
+    }
+
+    const courseMap = new Map()
+
+    enrollments.forEach((enrollment) => {
+      const studentId = normalizeText(enrollment.studentId)
+      if (!studentId) return
+
+      const assignment = findAssignmentForEnrollment(studentId, enrollment.semester, enrollment.schoolYear)
+      const sectionId = assignment ? normalizeText(assignment.sectionId) : ''
+      const sectionCode = sectionCodeById.get(sectionId) || (sectionId ? 'Unknown Block' : 'Unassigned Block')
+      const courseCode = normalizeText(enrollment.course) || 'Unspecified'
+      const semester = normalizeText(enrollment.semester) || 'N/A'
+      const schoolYear = normalizeText(enrollment.schoolYear) || 'N/A'
+      const yearLevel = Number(enrollment.yearLevel || 0) || null
+
+      let courseEntry = courseMap.get(courseCode)
+      if (!courseEntry) {
+        courseEntry = {
+          courseCode,
+          blocks: new Map()
+        }
+        courseMap.set(courseCode, courseEntry)
+      }
+
+      const blockKey = `${sectionId || sectionCode}::${semester}::${schoolYear}`
+      let blockEntry = courseEntry.blocks.get(blockKey)
+      if (!blockEntry) {
+        blockEntry = {
+          sectionId: sectionId || null,
+          sectionCode,
+          semester,
+          schoolYear,
+          yearLevel,
+          subjects: new Map()
+        }
+        courseEntry.blocks.set(blockKey, blockEntry)
+      }
+
+      ;(enrollment.subjects || []).forEach((subject) => {
+        if (!instructorMatchesProfessor(subject?.instructor)) return
+        if (String(subject?.status || '').toLowerCase() === 'dropped') return
+
+        const subjectId = normalizeText(subject?.subjectId) || `${normalizeText(subject?.code)}::${normalizeText(subject?.title)}`
+        let subjectEntry = blockEntry.subjects.get(subjectId)
+        if (!subjectEntry) {
+          subjectEntry = {
+            subjectId,
+            code: normalizeText(subject?.code) || 'N/A',
+            title: normalizeText(subject?.title) || 'Untitled Subject',
+            schedule: normalizeText(subject?.schedule) || 'TBA',
+            room: normalizeText(subject?.room) || 'TBA',
+            studentIds: new Set()
+          }
+          blockEntry.subjects.set(subjectId, subjectEntry)
+        }
+
+        subjectEntry.studentIds.add(studentId)
+      })
+    })
+
+    const courses = Array.from(courseMap.values())
+      .map((courseEntry) => {
+        const blocks = Array.from(courseEntry.blocks.values())
+          .map((blockEntry) => {
+            const subjects = Array.from(blockEntry.subjects.values())
+              .map((subjectEntry) => ({
+                subjectId: subjectEntry.subjectId,
+                code: subjectEntry.code,
+                title: subjectEntry.title,
+                schedule: subjectEntry.schedule,
+                room: subjectEntry.room,
+                enrolledStudents: subjectEntry.studentIds.size
+              }))
+              .sort((a, b) => a.code.localeCompare(b.code))
+
+            return {
+              sectionId: blockEntry.sectionId,
+              sectionCode: blockEntry.sectionCode,
+              semester: blockEntry.semester,
+              schoolYear: blockEntry.schoolYear,
+              yearLevel: blockEntry.yearLevel,
+              subjects
+            }
+          })
+          .filter((block) => block.subjects.length > 0)
+          .sort((a, b) => a.sectionCode.localeCompare(b.sectionCode))
+
+        return {
+          courseCode: courseEntry.courseCode,
+          blocks
+        }
+      })
+      .filter((course) => course.blocks.length > 0)
+      .sort((a, b) => a.courseCode.localeCompare(b.courseCode))
+
+    const totalBlocks = courses.reduce((sum, course) => sum + course.blocks.length, 0)
+    const totalSubjects = courses.reduce(
+      (sum, course) => sum + course.blocks.reduce((blockSum, block) => blockSum + block.subjects.length, 0),
+      0
+    )
+
+    res.json({
+      success: true,
+      data: {
+        courses,
+        totalCourses: courses.length,
+        totalBlocks,
+        totalSubjects
+      }
+    })
+  } catch (error) {
+    console.error('Error fetching professor assigned blocks:', error)
+    res.status(500).json({ error: 'Failed to fetch professor assigned blocks.' })
+  }
+})
 
 async function authMiddleware(req, res, next) {
   const auth = req.headers.authorization
@@ -1827,6 +2085,148 @@ app.delete('/api/admin/accounts/:id', authMiddleware, async (req, res) => {
 
 // ==================== ANNOUNCEMENTS ====================
 
+const ANNOUNCEMENT_MAX_TITLE_LENGTH = 200
+const ANNOUNCEMENT_MAX_MESSAGE_LENGTH = 500
+const ANNOUNCEMENT_MAX_IMAGE_FILE_BYTES = 5 * 1024 * 1024
+const ANNOUNCEMENT_MAX_VIDEO_FILE_BYTES = 8 * 1024 * 1024
+const ANNOUNCEMENT_MAX_MEDIA_TOTAL_BYTES = 20 * 1024 * 1024
+const ANNOUNCEMENT_MAX_MEDIA_ITEMS = 6
+
+const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key)
+
+function estimateDataUrlBytes(dataUrl = '') {
+  const normalized = String(dataUrl || '').trim()
+  const commaIndex = normalized.indexOf(',')
+  if (commaIndex < 0) return 0
+
+  const base64Data = normalized.slice(commaIndex + 1).replace(/\s+/g, '')
+  if (!base64Data) return 0
+
+  let padding = 0
+  if (base64Data.endsWith('==')) padding = 2
+  else if (base64Data.endsWith('=')) padding = 1
+
+  return Math.max(0, Math.floor((base64Data.length * 3) / 4) - padding)
+}
+
+function resolveAnnouncementMediaSize(mediaItem = {}) {
+  const parsedSize = Number(mediaItem.fileSize)
+  if (Number.isFinite(parsedSize) && parsedSize > 0) {
+    return Math.trunc(parsedSize)
+  }
+
+  const itemUrl = String(mediaItem.url || '').trim()
+  if (itemUrl.startsWith('data:')) {
+    return estimateDataUrlBytes(itemUrl)
+  }
+
+  return 0
+}
+
+function normalizeAnnouncementMedia(media = []) {
+  return media.map((item) => {
+    const normalizedType = String(item?.type || '').trim().toLowerCase() === 'video' ? 'video' : 'image'
+    const normalizedUrl = String(item?.url || '').trim()
+    const normalizedFileName = String(item?.fileName || '').trim()
+    const normalizedOriginalFileName = String(item?.originalFileName || '').trim()
+    const normalizedMimeType = String(item?.mimeType || '').trim()
+    const resolvedSize = resolveAnnouncementMediaSize(item)
+    const caption = typeof item?.caption === 'string' ? item.caption.trim() : undefined
+
+    return {
+      type: normalizedType,
+      url: normalizedUrl,
+      fileName: normalizedFileName,
+      originalFileName: normalizedOriginalFileName,
+      mimeType: normalizedMimeType,
+      fileSize: resolvedSize > 0 ? resolvedSize : 0,
+      ...(caption ? { caption } : {})
+    }
+  })
+}
+
+function validateAnnouncementPayload(payload = {}, { isUpdate = false } = {}) {
+  const details = []
+
+  if (!isUpdate || hasOwn(payload, 'title')) {
+    const title = String(payload.title ?? '').trim()
+    if (!title) {
+      details.push('Title is required.')
+    } else if (title.length > ANNOUNCEMENT_MAX_TITLE_LENGTH) {
+      details.push(`Title must be ${ANNOUNCEMENT_MAX_TITLE_LENGTH} characters or less.`)
+    }
+  }
+
+  if (!isUpdate || hasOwn(payload, 'message')) {
+    const message = String(payload.message ?? '').trim()
+    if (!message) {
+      details.push('Message is required.')
+    } else if (message.length > ANNOUNCEMENT_MAX_MESSAGE_LENGTH) {
+      details.push(`Message must be ${ANNOUNCEMENT_MAX_MESSAGE_LENGTH} characters or less.`)
+    }
+  }
+
+  if (hasOwn(payload, 'media') && payload.media !== undefined) {
+    if (!Array.isArray(payload.media)) {
+      details.push('Media must be an array.')
+    } else {
+      if (payload.media.length > ANNOUNCEMENT_MAX_MEDIA_ITEMS) {
+        details.push(`You can upload up to ${ANNOUNCEMENT_MAX_MEDIA_ITEMS} media files per announcement.`)
+      }
+
+      let totalMediaBytes = 0
+
+      payload.media.forEach((item, index) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          details.push(`Media item #${index + 1} is invalid.`)
+          return
+        }
+
+        const mediaType = String(item.type || '').trim().toLowerCase()
+        if (mediaType !== 'image' && mediaType !== 'video') {
+          details.push(`Media item #${index + 1} has an invalid type.`)
+          return
+        }
+
+        const mediaUrl = String(item.url || '').trim()
+        const fileName = String(item.fileName || '').trim()
+        const originalFileName = String(item.originalFileName || '').trim()
+        const mimeType = String(item.mimeType || '').trim()
+
+        if (!mediaUrl || !fileName || !originalFileName || !mimeType) {
+          details.push(`Media item #${index + 1} is missing required file metadata.`)
+          return
+        }
+
+        const mediaBytes = resolveAnnouncementMediaSize(item)
+        if (mediaBytes <= 0) {
+          if (mediaUrl.startsWith('data:')) {
+            details.push(`Media item #${index + 1} has an invalid file size.`)
+          }
+          return
+        }
+
+        const perFileLimit = mediaType === 'image'
+          ? ANNOUNCEMENT_MAX_IMAGE_FILE_BYTES
+          : ANNOUNCEMENT_MAX_VIDEO_FILE_BYTES
+
+        if (mediaBytes > perFileLimit) {
+          const mbLimit = Math.round(perFileLimit / (1024 * 1024))
+          details.push(`Media item #${index + 1} exceeds the ${mbLimit}MB ${mediaType} limit.`)
+        }
+
+        totalMediaBytes += mediaBytes
+      })
+
+      if (totalMediaBytes > ANNOUNCEMENT_MAX_MEDIA_TOTAL_BYTES) {
+        details.push('Total media size exceeds 20MB.')
+      }
+    }
+  }
+
+  return details
+}
+
 // GET /api/announcements - get all active announcements
 app.get('/api/announcements', async (req, res) => {
   if (!dbReady) {
@@ -1915,19 +2315,26 @@ app.post('/api/admin/announcements', authMiddleware, securityMiddleware.inputVal
   }
   try {
     const { title, message, type, targetAudience, expiresAt, isPinned, media } = req.body
-    
-    if (!title || !message) {
-      return res.status(400).json({ error: 'Title and message are required.' })
+    const validationErrors = validateAnnouncementPayload(req.body, { isUpdate: false })
+    if (validationErrors.length > 0) {
+      return res.status(400).json({
+        error: validationErrors[0],
+        details: validationErrors
+      })
     }
 
+    const normalizedTitle = String(title || '').trim()
+    const normalizedMessage = String(message || '').trim()
+    const normalizedMedia = Array.isArray(media) ? normalizeAnnouncementMedia(media) : []
+
     const announcement = new Announcement({
-      title,
-      message,
+      title: normalizedTitle,
+      message: normalizedMessage,
       type: type || 'info',
       targetAudience: targetAudience || 'all',
       expiresAt: expiresAt ? new Date(expiresAt) : undefined,
       isPinned: isPinned || false,
-      media: media || [],
+      media: normalizedMedia,
       createdBy: req.adminId
     })
 
@@ -1939,8 +2346,8 @@ app.post('/api/admin/announcements', authMiddleware, securityMiddleware.inputVal
       'CREATE',
       'ANNOUNCEMENT',
       announcement._id.toString(),
-      title,
-      `Created announcement: ${title}`,
+      normalizedTitle,
+      `Created announcement: ${normalizedTitle}`,
       req.adminId,
       req.accountType,
       null,
@@ -1966,6 +2373,13 @@ app.put('/api/admin/announcements/:id', authMiddleware, securityMiddleware.input
   }
   try {
     const { title, message, type, targetAudience, expiresAt, isPinned, isActive, media } = req.body
+    const validationErrors = validateAnnouncementPayload(req.body, { isUpdate: true })
+    if (validationErrors.length > 0) {
+      return res.status(400).json({
+        error: validationErrors[0],
+        details: validationErrors
+      })
+    }
     
     const announcement = await Announcement.findById(req.params.id)
     if (!announcement) {
@@ -1974,19 +2388,16 @@ app.put('/api/admin/announcements/:id', authMiddleware, securityMiddleware.input
 
     const oldValue = announcement.toObject()
     
-    if (title) announcement.title = title
-    if (message) announcement.message = message
-    if (type) announcement.type = type
-    if (targetAudience) announcement.targetAudience = targetAudience
+    if (title !== undefined) announcement.title = String(title ?? '').trim()
+    if (message !== undefined) announcement.message = String(message ?? '').trim()
+    if (type !== undefined) announcement.type = type
+    if (targetAudience !== undefined) announcement.targetAudience = targetAudience
     if (expiresAt !== undefined) announcement.expiresAt = new Date(expiresAt)
     if (isPinned !== undefined) announcement.isPinned = isPinned
     if (isActive !== undefined) announcement.isActive = isActive
 
     if (Array.isArray(media)) {
-      announcement.media = media.map((m) => ({
-        ...m,
-        fileSize: m.fileSize ?? 0,
-      }))
+      announcement.media = normalizeAnnouncementMedia(media)
     }
 
     await announcement.save()
