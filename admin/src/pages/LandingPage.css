@@ -1,13 +1,14 @@
 .landing-page {
   --landing-max-width: 1400px;
   --landing-video-max-width: 1040px;
+  --landing-page-padding: clamp(0.9rem, 2vw, 1.5rem);
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
   gap: 1rem;
-  padding: clamp(0.9rem, 2vw, 1.5rem);
+  padding: var(--landing-page-padding);
   background:
     linear-gradient(155deg, rgba(18, 18, 18, 0.88), rgba(38, 38, 38, 0.78)),
     radial-gradient(circle at 14% 10%, rgba(148, 163, 184, 0.16), transparent 42%);
@@ -222,15 +223,19 @@
 }
 
 .landing-footer {
-  width: 100%;
-  max-width: var(--landing-max-width);
+  width: calc(100% + (var(--landing-page-padding) * 2));
+  max-width: none;
   box-sizing: border-box;
-  border-radius: 20px;
+  border-radius: 0;
   border: 1px solid rgba(255, 255, 255, 0.2);
+  border-left: 0;
+  border-right: 0;
   background: rgba(20, 20, 20, 0.6);
   box-shadow: 0 24px 46px rgba(0, 0, 0, 0.35);
-  padding: clamp(1.2rem, 2.8vw, 2rem);
-  margin-bottom: 0.5rem;
+  padding: clamp(1.2rem, 2.8vw, 2rem) clamp(1rem, 4.5vw, 3.25rem);
+  margin-left: calc(var(--landing-page-padding) * -1);
+  margin-right: calc(var(--landing-page-padding) * -1);
+  margin-bottom: calc(var(--landing-page-padding) * -1);
   display: grid;
   grid-template-columns: 1.35fr 0.85fr 1fr;
   gap: 1rem;
