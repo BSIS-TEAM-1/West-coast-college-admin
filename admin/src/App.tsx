@@ -10,6 +10,10 @@ import {
 import { applyThemePreference, getStoredTheme, setActiveThemeScope } from './lib/theme'
 import Login from './pages/Login'
 import LandingPage from './pages/LandingPage'
+import AboutPage from './pages/AboutPage'
+import TermsPolicyPage from './pages/TermsPolicyPage'
+import CookiePolicyPage from './pages/CookiePolicyPage'
+import CookieSystemPage from './pages/CookieSystemPage'
 import Dashboard from './pages/Dashboard'
 import RegistrarDashboard from './pages/RegistrarDashboard'
 import ProfessorDashboard from './pages/ProfessorDashboard.tsx'
@@ -31,6 +35,10 @@ const isAuthSessionError = (message: string): boolean => {
 function App() {
   const [user, setUser] = useState<{ username: string; accountType: string } | null>(null)
   const [showStaffLogin, setShowStaffLogin] = useState(false)
+  const [showAboutPage, setShowAboutPage] = useState(false)
+  const [showTermsPolicyPage, setShowTermsPolicyPage] = useState(false)
+  const [showCookiePolicyPage, setShowCookiePolicyPage] = useState(false)
+  const [showCookieSystemPage, setShowCookieSystemPage] = useState(false)
   const [loginError, setLoginError] = useState<string | undefined>(undefined)
   const [loginLoading, setLoginLoading] = useState(false)
   const [sessionBootstrapping, setSessionBootstrapping] = useState(true)
@@ -65,6 +73,10 @@ function App() {
         if (isAuthSessionError(message)) {
           setLoginError(message)
           setShowStaffLogin(false)
+          setShowAboutPage(false)
+          setShowTermsPolicyPage(false)
+          setShowCookiePolicyPage(false)
+          setShowCookieSystemPage(false)
         }
       } finally {
         if (mounted) {
@@ -113,6 +125,10 @@ function App() {
       applyThemePreference(getStoredTheme(null), { persist: false })
       setUser(null)
       setShowStaffLogin(false)
+      setShowAboutPage(false)
+      setShowTermsPolicyPage(false)
+      setShowCookiePolicyPage(false)
+      setShowCookieSystemPage(false)
       setLoginError(undefined)
     }
   }, [])
@@ -189,7 +205,105 @@ function App() {
   }
 
   if (!showStaffLogin) {
-    return <LandingPage onOpenStaffLogin={() => setShowStaffLogin(true)} />
+    if (showCookiePolicyPage) {
+      return (
+        <CookiePolicyPage
+          onBack={() => setShowCookiePolicyPage(false)}
+          onOpenStaffLogin={() => {
+            setShowCookiePolicyPage(false)
+            setShowCookieSystemPage(false)
+            setShowTermsPolicyPage(false)
+            setShowAboutPage(false)
+            setShowStaffLogin(true)
+          }}
+        />
+      )
+    }
+
+    if (showCookieSystemPage) {
+      return (
+        <CookieSystemPage
+          onBack={() => setShowCookieSystemPage(false)}
+          onOpenStaffLogin={() => {
+            setShowCookiePolicyPage(false)
+            setShowCookieSystemPage(false)
+            setShowTermsPolicyPage(false)
+            setShowAboutPage(false)
+            setShowStaffLogin(true)
+          }}
+        />
+      )
+    }
+
+    if (showTermsPolicyPage) {
+      return (
+        <TermsPolicyPage
+          onBack={() => setShowTermsPolicyPage(false)}
+          onOpenStaffLogin={() => {
+            setShowCookiePolicyPage(false)
+            setShowCookieSystemPage(false)
+            setShowTermsPolicyPage(false)
+            setShowAboutPage(false)
+            setShowStaffLogin(true)
+          }}
+        />
+      )
+    }
+
+    if (showAboutPage) {
+      return (
+        <AboutPage
+          onBack={() => setShowAboutPage(false)}
+          onOpenStaffLogin={() => {
+            setShowCookiePolicyPage(false)
+            setShowCookieSystemPage(false)
+            setShowAboutPage(false)
+            setShowTermsPolicyPage(false)
+            setShowStaffLogin(true)
+          }}
+        />
+      )
+    }
+
+    return (
+      <LandingPage
+        onOpenAbout={() => {
+          setShowStaffLogin(false)
+          setShowCookiePolicyPage(false)
+          setShowCookieSystemPage(false)
+          setShowTermsPolicyPage(false)
+          setShowAboutPage(true)
+        }}
+        onOpenTermsPolicy={() => {
+          setShowStaffLogin(false)
+          setShowCookiePolicyPage(false)
+          setShowCookieSystemPage(false)
+          setShowAboutPage(false)
+          setShowTermsPolicyPage(true)
+        }}
+        onOpenCookiePolicy={() => {
+          setShowStaffLogin(false)
+          setShowAboutPage(false)
+          setShowTermsPolicyPage(false)
+          setShowCookieSystemPage(false)
+          setShowCookiePolicyPage(true)
+        }}
+        onOpenCookieSystem={() => {
+          setShowStaffLogin(false)
+          setShowCookiePolicyPage(false)
+          setShowAboutPage(false)
+          setShowTermsPolicyPage(false)
+          setShowCookieSystemPage(true)
+        }}
+        onOpenStaffLogin={() => {
+          setShowCookiePolicyPage(false)
+          setShowCookieSystemPage(false)
+          setShowTermsPolicyPage(false)
+          setShowAboutPage(false)
+          setShowStaffLogin(true)
+        }}
+      />
+    )
   }
 
   // Show appropriate login page
@@ -200,6 +314,9 @@ function App() {
       loading={loginLoading}
       onBack={() => {
         setShowStaffLogin(false)
+        setShowCookiePolicyPage(false)
+        setShowCookieSystemPage(false)
+        setShowAboutPage(false)
         setLoginError(undefined)
       }}
     />
