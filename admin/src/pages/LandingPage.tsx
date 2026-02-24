@@ -292,7 +292,7 @@ export default function LandingPage({ onOpenStaffLogin }: LandingPageProps) {
 
         <aside className="landing-image-wrap" aria-label="Campus hero image">
           <img
-            src="/logo-header.jpg"
+            src="landingpage-intropic.png"
             alt="West Coast College campus visual"
             className="landing-hero-image"
           />
