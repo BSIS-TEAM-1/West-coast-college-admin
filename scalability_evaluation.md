@@ -11,11 +11,11 @@
 5. **Indexes**: None yet.
 6. **Write pattern**: Low; inserts/updates ~1-5 per minute (e.g., student creation, enrollment updates).
 7. **File uploads**: No (static logo images in public folder, not GridFS).
-8. **Backend stack + hosting**: Node.js/Express; hosted local (XAMPP).
+8. **Backend stack + hosting**: Node.js/Express; hosted on Render (cloud platform).
 
 ## Main Scalability Risks (MongoDB + Backend)
 - **MongoDB**: No indexes → slow queries on large collections; single node → no HA/replication; potential hot documents (e.g., frequent enrollment updates); data growth without partitioning.
-- **Backend**: Local hosting limits scalability; no caching/connection pooling; potential for slow aggregates on enrollment history; no rate limiting for concurrent requests.
+- **Backend**: Cloud hosting on Render improves scalability over local, but still limited by no caching/connection pooling; potential for slow aggregates on enrollment history; partial rate limiting.
 
 ## Concrete Fixes
 ### Index Recommendations per Query Pattern
@@ -59,5 +59,10 @@
 - [ ] Add indexes to top collections.
 - [ ] Implement pagination and connection pooling.
 - [ ] Set up monitoring (MongoDB logs, Node metrics).
-- [ ] Add caching and rate limiting.
+- [x] Add rate limiting (partially implemented for asset fallbacks).
 - [ ] Monitor: Slow queries (>100ms), CPU/RAM usage, ops/sec, active connections, replication lag (if replica).
+
+## Recent Updates (February 2026)
+- **Implemented Rate Limiting**: Added rate limiter for stale asset fallback (60 requests per minute) to prevent abuse on static assets.
+- **Professor Dashboard Enhancements**: Added course and student data fetching, which may increase database load; monitor for performance impacts.
+- **Current Scalability Rating**: Improved to 5/10. Cloud hosting on Render addresses local hosting bottleneck; no indexes or caching implemented yet, but rate limiting improves resilience against abuse.

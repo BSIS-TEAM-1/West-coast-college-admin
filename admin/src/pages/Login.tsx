@@ -77,16 +77,16 @@ const loadExternalScript = (src: string, isLoaded: () => boolean) =>
 const getVantaThemeOptions = (theme: ResolvedTheme): VantaThemeOptions =>
   theme === 'dark'
     ? {
-        // White overlay needs deeper blues so the net stays visible.
+        // Dark mode: dots and grid lines are both blue.
         backgroundColor: 0xffffff,
-        color: 0x1e40af,
-        color2: 0x1d4ed8
+        color: 0x2563eb,
+        color2: 0x2563eb
       }
     : {
-        backgroundColor: 0x23153c,
-        // Dark overlay needs brighter blues for line visibility.
-        color: 0x60a5fa,
-        color2: 0x3b82f6
+        // Light mode: keep the same blue accents (no orange).
+        backgroundColor: 0x0f172a,
+        color: 0x2563eb,
+        color2: 0x2563eb
       }
 
 
@@ -101,11 +101,13 @@ type LoginProps = {
 
   loading?: boolean
 
+  onBack?: () => void
+
 }
 
 
 
-export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, loading }: LoginProps) {
+export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, loading, onBack }: LoginProps) {
 
   const [username, setUsername] = useState('')
 
@@ -425,6 +427,12 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
             </div>
 
 
+
+            {onBack && (
+              <button type="button" className="login-back-btn" onClick={onBack}>
+                Back to Landing
+              </button>
+            )}
 
             <h1 className="login-title">Sign In</h1>
 
