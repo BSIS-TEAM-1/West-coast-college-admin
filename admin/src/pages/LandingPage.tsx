@@ -15,18 +15,21 @@ type LandingVideoItem = {
   title: string
   src: string
   optimizedSrc: string
+  poster?: string
 }
 
 const LANDING_VIDEOS: LandingVideoItem[] = [
   {
     title: '2024 SHS Graduation Ceremony',
     src: '/2024SHSintrovid.mp4',
-    optimizedSrc: '/videos/2024SHSintrovid.mp4'
+    optimizedSrc: '/videos/2024SHSintrovid.mp4',
+    poster: '/intro-img1.png'
   },
   {
     title: '2024 Graduation Ceremony',
     src: '/2024introvid.mp4',
-    optimizedSrc: '/videos/2024introvid.mp4'
+    optimizedSrc: '/videos/2024introvid.mp4',
+    poster: '/intro-img2.png'
   },
   {
     title: 'Video Premiere "West Coast College"',
@@ -155,6 +158,7 @@ function LandingVideoCarousel() {
           key={currentVideoSrc}
           ref={videoRef}
           className="landing-video-player"
+          poster={activeVideo.poster}
           preload="metadata"
           playsInline
           onError={() => {
