@@ -12,7 +12,8 @@ type LandingPageProps = {
   onOpenTermsPolicy: () => void
   onOpenCookiePolicy: () => void
   onOpenCookieSystem: () => void
-  onOpenStaffLogin: () => void
+  onOpenSignIn: () => void
+  onOpenApplicantMaintenance: () => void
 }
 
 type LandingVideoItem = {
@@ -213,9 +214,11 @@ export default function LandingPage({
   onOpenTermsPolicy,
   onOpenCookiePolicy,
   onOpenCookieSystem,
-  onOpenStaffLogin
+  onOpenSignIn,
+  onOpenApplicantMaintenance
 }: LandingPageProps) {
   const [theme, setTheme] = useState<ThemePreference>(() => getStoredTheme(null))
+  const [isApplyModalOpen, setIsApplyModalOpen] = useState(false)
 
   useEffect(() => {
     setActiveThemeScope(null)
@@ -239,6 +242,37 @@ export default function LandingPage({
   const handleThemeChange = (nextTheme: ThemePreference) => {
     setTheme(nextTheme)
     applyThemePreference(nextTheme, { animate: true, scope: null })
+  }
+
+  useEffect(() => {
+    if (!isApplyModalOpen) return
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsApplyModalOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isApplyModalOpen])
+
+  const handleOpenApplyModal = () => {
+    setIsApplyModalOpen(true)
+  }
+
+  const handleCloseApplyModal = () => {
+    setIsApplyModalOpen(false)
+  }
+
+  const handleSignIn = () => {
+    setIsApplyModalOpen(false)
+    onOpenSignIn()
+  }
+
+  const handleApplicantClick = () => {
+    setIsApplyModalOpen(false)
+    onOpenApplicantMaintenance()
   }
 
   return (
@@ -283,7 +317,11 @@ export default function LandingPage({
           <p className="landing-subtitle">
              Providing a digital enrollment platform that simplifies the process and makes it more accessible for students.
           </p>
-        
+          <div className="landing-hero-actions">
+            <button type="button" className="landing-apply-btn" onClick={handleOpenApplyModal}>
+              Apply Now
+            </button>
+          </div>
         </section>
 
         <aside className="landing-image-wrap" aria-label="Campus hero image">
@@ -369,6 +407,101 @@ export default function LandingPage({
 
       <LandingVideoCarousel />
 
+      {isApplyModalOpen && (
+        <div
+          className="landing-apply-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="landing-apply-modal-title"
+          onClick={event => {
+            if (event.target === event.currentTarget) {
+              handleCloseApplyModal()
+            }
+          }}
+        >
+          <div className="landing-apply-modal-card">
+            <button
+              type="button"
+              className="landing-apply-modal-close"
+              onClick={handleCloseApplyModal}
+              aria-label="Close apply options"
+            >
+              &times;
+            </button>
+
+            <div className="landing-apply-modal-brand">
+              <img
+                src="/Logo.jpg"
+                alt="West Coast College"
+                className="landing-apply-modal-logo"
+              />
+              <h3 id="landing-apply-modal-title">West Coast College</h3>
+            </div>
+
+            <p className="landing-apply-modal-desc">
+              Choose how you want to continue
+            </p>
+
+            <div className="landing-apply-choice-list">
+              <button
+                type="button"
+                className="landing-apply-choice-card landing-apply-choice-btn"
+                onClick={handleSignIn}
+              >
+                <span className="landing-apply-choice-icon landing-apply-choice-icon-signin" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-3.3 0-6 1.8-6 4v1h12v-1c0-2.2-2.7-4-6-4Z" />
+                  </svg>
+                </span>
+                <span className="landing-apply-choice-content">
+                  <span className="landing-apply-choice-title">WCC Personnel &amp; Students</span>
+                  <span className="landing-apply-choice-meta">Admin and account access</span>
+                  <span className="landing-apply-choice-text">Sign in using your registered portal account</span>
+                </span>
+                <span className="landing-apply-choice-arrow" aria-hidden="true">
+                  &gt;
+                </span>
+              </button>
+
+              <button
+                type="button"
+                className="landing-apply-choice-card landing-apply-choice-btn"
+                onClick={handleApplicantClick}
+              >
+                <span className="landing-apply-choice-icon landing-apply-choice-icon-apply" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M7 4h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm0 2v12h10V6Zm2 2h6v2H9Zm0 4h6v2H9Z" />
+                  </svg>
+                </span>
+                <span className="landing-apply-choice-content">
+                  <span className="landing-apply-choice-title">Applicants</span>
+                  <span className="landing-apply-choice-meta">Admissions and enrollment inquiry</span>
+                  <span className="landing-apply-choice-text">Apply in school and coordinate with Software Support</span>
+                </span>
+                <span className="landing-apply-choice-arrow" aria-hidden="true">
+                  &gt;
+                </span>
+              </button>
+            </div>
+
+            <div className="landing-apply-modal-footer-links">
+              <p>
+                New applicant?{' '}
+                <a href="mailto:westcoastcollegeregistrar@gmail.com?subject=New%20Applicant%20Registration%20Inquiry">
+                  Register here
+                </a>
+              </p>
+              <p>
+                Need assistance?{' '}
+                <a href="mailto:westcoastcollegeregistrar@gmail.com?subject=Software%20Support%20Inquiry%20-%20West%20Coast%20College">
+                  Contact Software Support
+                </a>
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <footer className="landing-footer" aria-label="Landing page footer">
         <div className="landing-footer-brand">
           <img src="/Logo.jpg" alt="West Coast College" className="landing-footer-logo" />
@@ -410,9 +543,6 @@ export default function LandingPage({
             Contact Us
           </a>
           <p>West Coast College</p>
-          <button type="button" className="landing-footer-btn" onClick={onOpenStaffLogin}>
-            Staff Login
-          </button>
         </div>
 
         <div className="landing-footer-bottom" aria-label="Footer policies">

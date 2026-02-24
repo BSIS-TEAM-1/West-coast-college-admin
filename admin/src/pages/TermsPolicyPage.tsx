@@ -2,7 +2,6 @@ import './TermsPolicyPage.css'
 
 type TermsPolicyPageProps = {
   onBack: () => void
-  onOpenStaffLogin: () => void
 }
 
 const definitions = [
@@ -39,7 +38,7 @@ const availableServices = [
   'Authorized staff and faculty service tools'
 ]
 
-export default function TermsPolicyPage({ onBack, onOpenStaffLogin }: TermsPolicyPageProps) {
+export default function TermsPolicyPage({ onBack }: TermsPolicyPageProps) {
   return (
     <div className="terms-page">
       <header className="terms-header">
@@ -50,9 +49,6 @@ export default function TermsPolicyPage({ onBack, onOpenStaffLogin }: TermsPolic
         <div className="terms-header-actions">
           <button type="button" className="terms-btn terms-btn-ghost" onClick={onBack}>
             Back to Landing
-          </button>
-          <button type="button" className="terms-btn terms-btn-primary" onClick={onOpenStaffLogin}>
-            Staff Login
           </button>
         </div>
       </header>

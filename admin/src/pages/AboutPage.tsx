@@ -2,7 +2,6 @@ import './AboutPage.css'
 
 type AboutPageProps = {
   onBack: () => void
-  onOpenStaffLogin: () => void
 }
 
 const institutionalMandate = [
@@ -12,7 +11,7 @@ const institutionalMandate = [
   'Uphold institutional values that foster discipline, integrity, and social responsibility'
 ]
 
-export default function AboutPage({ onBack, onOpenStaffLogin }: AboutPageProps) {
+export default function AboutPage({ onBack }: AboutPageProps) {
   return (
     <div className="about-page">
       <header className="about-header">
@@ -23,9 +22,6 @@ export default function AboutPage({ onBack, onOpenStaffLogin }: AboutPageProps) 
         <div className="about-header-actions">
           <button type="button" className="about-btn about-btn-ghost" onClick={onBack}>
             Back to Landing
-          </button>
-          <button type="button" className="about-btn about-btn-primary" onClick={onOpenStaffLogin}>
-            Staff Login
           </button>
         </div>
       </header>
