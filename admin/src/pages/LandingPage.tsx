@@ -283,7 +283,7 @@ export default function LandingPage({ onOpenStaffLogin }: LandingPageProps) {
             <img src="/Logo.jpg" alt="West Coast College" className="landing-logo" />
             <p className="landing-kicker">West Coast College</p>
           </div>
-          <h1 className="landing-title">A Dedicated Platform For the West Cost College</h1>
+          <h1 className="landing-title">A Developing Higher Education Institution in the Bicol Region</h1>
           <p className="landing-subtitle">
              Providing a digital enrollment platform that simplifies the process and makes it more accessible for students.
           </p>
