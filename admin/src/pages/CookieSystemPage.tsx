@@ -3,7 +3,6 @@ import './CookieSystemPage.css'
 
 type CookieSystemPageProps = {
   onBack: () => void
-  onOpenStaffLogin: () => void
 }
 
 type OptionalPreferenceKey = 'analytics' | 'marketing' | 'functional'
@@ -122,7 +121,7 @@ const parseStoredPreferences = (value: string): CookiePreferences | null => {
   }
 }
 
-export default function CookieSystemPage({ onBack, onOpenStaffLogin }: CookieSystemPageProps) {
+export default function CookieSystemPage({ onBack }: CookieSystemPageProps) {
   const [preferences, setPreferences] = useState<CookiePreferences>(DEFAULT_COOKIE_PREFERENCES)
   const [statusMessage, setStatusMessage] = useState('')
 
@@ -203,13 +202,6 @@ export default function CookieSystemPage({ onBack, onOpenStaffLogin }: CookieSys
         <div className="cookie-system-header-actions">
           <button type="button" className="cookie-system-btn cookie-system-btn-ghost" onClick={onBack}>
             Back to Landing
-          </button>
-          <button
-            type="button"
-            className="cookie-system-btn cookie-system-btn-primary"
-            onClick={onOpenStaffLogin}
-          >
-            Staff Login
           </button>
         </div>
       </header>

@@ -2,7 +2,6 @@ import './CookiePolicyPage.css'
 
 type CookiePolicyPageProps = {
   onBack: () => void
-  onOpenStaffLogin: () => void
 }
 
 const cookieCategories = [
@@ -47,7 +46,7 @@ const cookieCategories = [
   }
 ]
 
-export default function CookiePolicyPage({ onBack, onOpenStaffLogin }: CookiePolicyPageProps) {
+export default function CookiePolicyPage({ onBack }: CookiePolicyPageProps) {
   return (
     <div className="cookie-policy-page">
       <header className="cookie-policy-header">
@@ -58,13 +57,6 @@ export default function CookiePolicyPage({ onBack, onOpenStaffLogin }: CookiePol
         <div className="cookie-policy-header-actions">
           <button type="button" className="cookie-policy-btn cookie-policy-btn-ghost" onClick={onBack}>
             Back to Landing
-          </button>
-          <button
-            type="button"
-            className="cookie-policy-btn cookie-policy-btn-primary"
-            onClick={onOpenStaffLogin}
-          >
-            Staff Login
           </button>
         </div>
       </header>

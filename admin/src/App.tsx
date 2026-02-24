@@ -17,6 +17,7 @@ import CookieSystemPage from './pages/CookieSystemPage'
 import Dashboard from './pages/Dashboard'
 import RegistrarDashboard from './pages/RegistrarDashboard'
 import ProfessorDashboard from './pages/ProfessorDashboard.tsx'
+import Maintenance from './pages/Maintenance'
 import './App.css'
 import type { ProfileResponse } from './lib/authApi'
 
@@ -34,11 +35,12 @@ const isAuthSessionError = (message: string): boolean => {
 
 function App() {
   const [user, setUser] = useState<{ username: string; accountType: string } | null>(null)
-  const [showStaffLogin, setShowStaffLogin] = useState(false)
+  const [showSignIn, setShowSignIn] = useState(false)
   const [showAboutPage, setShowAboutPage] = useState(false)
   const [showTermsPolicyPage, setShowTermsPolicyPage] = useState(false)
   const [showCookiePolicyPage, setShowCookiePolicyPage] = useState(false)
   const [showCookieSystemPage, setShowCookieSystemPage] = useState(false)
+  const [showApplicantMaintenance, setShowApplicantMaintenance] = useState(false)
   const [loginError, setLoginError] = useState<string | undefined>(undefined)
   const [loginLoading, setLoginLoading] = useState(false)
   const [sessionBootstrapping, setSessionBootstrapping] = useState(true)
@@ -52,9 +54,6 @@ function App() {
         if (mounted) setSessionBootstrapping(false)
         return
       }
-
-      setLoginLoading(true)
-      setLoginError(undefined)
 
       try {
         const profile = await getProfile()
@@ -72,7 +71,7 @@ function App() {
         const message = error instanceof Error ? error.message : 'Your session has ended. Please sign in again.'
         if (isAuthSessionError(message)) {
           setLoginError(message)
-          setShowStaffLogin(false)
+          setShowSignIn(false)
           setShowAboutPage(false)
           setShowTermsPolicyPage(false)
           setShowCookiePolicyPage(false)
@@ -80,7 +79,6 @@ function App() {
         }
       } finally {
         if (mounted) {
-          setLoginLoading(false)
           setSessionBootstrapping(false)
         }
       }
@@ -98,16 +96,15 @@ function App() {
 
     try {
       const data = await apiLogin(username, password, captchaToken)
-      
       setStoredToken(data.token)
-      
-      // Always fetch profile to get accurate account type
+
       const profile = await getProfile()
 
       setActiveThemeScope(profile.username)
       applyThemePreference(getStoredTheme(profile.username), { persist: false })
-      
       setUser({ username: data.username, accountType: profile.accountType })
+      setShowApplicantMaintenance(false)
+      setShowSignIn(false)
     } catch (err) {
       setLoginError(err instanceof Error ? err.message : 'Invalid username or password.')
     } finally {
@@ -124,12 +121,14 @@ function App() {
       setActiveThemeScope(null)
       applyThemePreference(getStoredTheme(null), { persist: false })
       setUser(null)
-      setShowStaffLogin(false)
+      setShowSignIn(false)
       setShowAboutPage(false)
       setShowTermsPolicyPage(false)
       setShowCookiePolicyPage(false)
       setShowCookieSystemPage(false)
+      setShowApplicantMaintenance(false)
       setLoginError(undefined)
+      setLoginLoading(false)
     }
   }, [])
 
@@ -157,6 +156,7 @@ function App() {
           applyThemePreference(getStoredTheme(null), { persist: false })
           setUser(null)
           setLoginError(message)
+          setShowSignIn(true)
         }
       })()
     }, 10000)
@@ -204,120 +204,97 @@ function App() {
     )
   }
 
-  if (!showStaffLogin) {
-    if (showCookiePolicyPage) {
-      return (
-        <CookiePolicyPage
-          onBack={() => setShowCookiePolicyPage(false)}
-          onOpenStaffLogin={() => {
-            setShowCookiePolicyPage(false)
-            setShowCookieSystemPage(false)
-            setShowTermsPolicyPage(false)
-            setShowAboutPage(false)
-            setShowStaffLogin(true)
-          }}
-        />
-      )
-    }
-
-    if (showCookieSystemPage) {
-      return (
-        <CookieSystemPage
-          onBack={() => setShowCookieSystemPage(false)}
-          onOpenStaffLogin={() => {
-            setShowCookiePolicyPage(false)
-            setShowCookieSystemPage(false)
-            setShowTermsPolicyPage(false)
-            setShowAboutPage(false)
-            setShowStaffLogin(true)
-          }}
-        />
-      )
-    }
-
-    if (showTermsPolicyPage) {
-      return (
-        <TermsPolicyPage
-          onBack={() => setShowTermsPolicyPage(false)}
-          onOpenStaffLogin={() => {
-            setShowCookiePolicyPage(false)
-            setShowCookieSystemPage(false)
-            setShowTermsPolicyPage(false)
-            setShowAboutPage(false)
-            setShowStaffLogin(true)
-          }}
-        />
-      )
-    }
-
-    if (showAboutPage) {
-      return (
-        <AboutPage
-          onBack={() => setShowAboutPage(false)}
-          onOpenStaffLogin={() => {
-            setShowCookiePolicyPage(false)
-            setShowCookieSystemPage(false)
-            setShowAboutPage(false)
-            setShowTermsPolicyPage(false)
-            setShowStaffLogin(true)
-          }}
-        />
-      )
-    }
-
+  if (showSignIn) {
     return (
-      <LandingPage
-        onOpenAbout={() => {
-          setShowStaffLogin(false)
-          setShowCookiePolicyPage(false)
-          setShowCookieSystemPage(false)
-          setShowTermsPolicyPage(false)
-          setShowAboutPage(true)
-        }}
-        onOpenTermsPolicy={() => {
-          setShowStaffLogin(false)
-          setShowCookiePolicyPage(false)
-          setShowCookieSystemPage(false)
-          setShowAboutPage(false)
-          setShowTermsPolicyPage(true)
-        }}
-        onOpenCookiePolicy={() => {
-          setShowStaffLogin(false)
-          setShowAboutPage(false)
-          setShowTermsPolicyPage(false)
-          setShowCookieSystemPage(false)
-          setShowCookiePolicyPage(true)
-        }}
-        onOpenCookieSystem={() => {
-          setShowStaffLogin(false)
-          setShowCookiePolicyPage(false)
-          setShowAboutPage(false)
-          setShowTermsPolicyPage(false)
-          setShowCookieSystemPage(true)
-        }}
-        onOpenStaffLogin={() => {
-          setShowCookiePolicyPage(false)
-          setShowCookieSystemPage(false)
-          setShowTermsPolicyPage(false)
-          setShowAboutPage(false)
-          setShowStaffLogin(true)
+      <Login
+        onLogin={handleLogin}
+        error={loginError}
+        loading={loginLoading}
+        onBack={() => {
+          setShowSignIn(false)
+          setLoginError(undefined)
+          setLoginLoading(false)
         }}
       />
     )
   }
 
-  // Show appropriate login page
+  if (showCookiePolicyPage) {
+    return <CookiePolicyPage onBack={() => setShowCookiePolicyPage(false)} />
+  }
+
+  if (showCookieSystemPage) {
+    return <CookieSystemPage onBack={() => setShowCookieSystemPage(false)} />
+  }
+
+  if (showTermsPolicyPage) {
+    return <TermsPolicyPage onBack={() => setShowTermsPolicyPage(false)} />
+  }
+
+  if (showAboutPage) {
+    return <AboutPage onBack={() => setShowAboutPage(false)} />
+  }
+
+  if (showApplicantMaintenance) {
+    return (
+      <Maintenance
+        featureName="Applicant Portal"
+        description="The applicant experience is temporarily unavailable while we complete updates. Please try again later or contact Software Support for assistance."
+        onBack={() => setShowApplicantMaintenance(false)}
+      />
+    )
+  }
+
   return (
-    <Login
-      onLogin={handleLogin}
-      error={loginError}
-      loading={loginLoading}
-      onBack={() => {
-        setShowStaffLogin(false)
+    <LandingPage
+      onOpenAbout={() => {
+        setShowSignIn(false)
+        setShowCookiePolicyPage(false)
+        setShowCookieSystemPage(false)
+        setShowTermsPolicyPage(false)
+        setShowApplicantMaintenance(false)
+        setShowAboutPage(true)
+      }}
+      onOpenTermsPolicy={() => {
+        setShowSignIn(false)
         setShowCookiePolicyPage(false)
         setShowCookieSystemPage(false)
         setShowAboutPage(false)
+        setShowApplicantMaintenance(false)
+        setShowTermsPolicyPage(true)
+      }}
+      onOpenCookiePolicy={() => {
+        setShowSignIn(false)
+        setShowAboutPage(false)
+        setShowTermsPolicyPage(false)
+        setShowCookieSystemPage(false)
+        setShowApplicantMaintenance(false)
+        setShowCookiePolicyPage(true)
+      }}
+      onOpenCookieSystem={() => {
+        setShowSignIn(false)
+        setShowCookiePolicyPage(false)
+        setShowAboutPage(false)
+        setShowTermsPolicyPage(false)
+        setShowApplicantMaintenance(false)
+        setShowCookieSystemPage(true)
+      }}
+      onOpenSignIn={() => {
+        setShowCookiePolicyPage(false)
+        setShowCookieSystemPage(false)
+        setShowAboutPage(false)
+        setShowTermsPolicyPage(false)
+        setShowApplicantMaintenance(false)
+        setShowSignIn(true)
         setLoginError(undefined)
+      }}
+      onOpenApplicantMaintenance={() => {
+        setShowSignIn(false)
+        setShowCookiePolicyPage(false)
+        setShowCookieSystemPage(false)
+        setShowAboutPage(false)
+        setShowTermsPolicyPage(false)
+        setShowApplicantMaintenance(true)
       }}
     />
   )
