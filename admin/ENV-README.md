@@ -6,7 +6,7 @@
 
 ## Production  
 - Use `.env.production` for production deployment
-- API URL: `https://west-coast-college-admin.onrender.com`
+- API URL: `https://west-coast-college.onrender.com`
 
 ## Current Setup
 - `.env` file is currently set to development
