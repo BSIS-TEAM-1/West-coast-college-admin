@@ -47,7 +47,7 @@ const COOKIE_CATEGORIES: CookieCategory[] = [
     title: 'Essential Cookies',
     statusText: 'Always Active',
     description:
-      'These cookies are strictly necessary to provide services available through the portal and to use secure features.',
+      'These cookies are strictly necessary to provide services available through the portal and to use secure features. If essential cookies are blocked, you may not be able to sign in.',
     examples: [
       'Authentication and security tokens',
       'Session management',

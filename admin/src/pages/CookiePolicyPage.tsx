@@ -8,7 +8,7 @@ const cookieCategories = [
   {
     title: 'Essential Cookies',
     description:
-      'Required for core platform security and access. These cannot be disabled because they are necessary for portal functionality.',
+      'Required for core platform security and access. These cannot be disabled because they are necessary for portal functionality. If essential cookies are blocked in the browser, users may not be able to sign in.',
     examples: [
       'Authentication and security tokens',
       'Session management',
@@ -120,7 +120,7 @@ export default function CookiePolicyPage({ onBack }: CookiePolicyPageProps) {
             <h2>Managing Your Preferences</h2>
             <p>
               You can update optional cookie preferences through the Cookie System page. Browser
-              settings can also block or delete cookies, though this may affect some functionality.
+              settings can also block or delete cookies, though this may affect some functionality. Blocking essential cookies can prevent sign-in.
             </p>
           </article>
 
