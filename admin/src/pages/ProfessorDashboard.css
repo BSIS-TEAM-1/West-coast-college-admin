@@ -605,7 +605,7 @@
 .professor-section-desc {
   font-size: 0.875rem;
   color: var(--color-text-muted);
-  margin: 0 0 2rem;
+  margin: 0 0 1rem;
 }
 
 .placeholder-content {
@@ -614,12 +614,151 @@
   gap: 1.5rem;
 }
 
+.professor-first-time-card {
+  margin-bottom: 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 22%, var(--color-border));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)) 0%,
+    var(--color-surface) 100%
+  );
+}
+
+.professor-first-time-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-text);
+  margin-bottom: 0.35rem;
+}
+
+.professor-first-time-text {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--color-text-muted);
+  line-height: 1.55;
+}
+
+.professor-course-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.professor-course-stat {
+  padding: 0.85rem 0.95rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.professor-course-stat span {
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.professor-course-stat strong {
+  font-size: 1.25rem;
+  line-height: 1.1;
+  color: var(--color-text);
+}
+
+.professor-course-stat small {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.professor-course-controls {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.professor-course-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 420px;
+  border: 1px solid var(--color-border);
+  border-radius: 0.625rem;
+  padding: 0.55rem 0.65rem;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+.professor-course-search:focus-within {
+  border-color: color-mix(in srgb, var(--color-primary) 46%, var(--color-border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 16%, transparent);
+}
+
+.professor-course-search input {
+  border: none;
+  outline: none;
+  width: 100%;
+  font-size: 0.86rem;
+  color: var(--color-text);
+  background: transparent;
+}
+
+.professor-course-search input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.professor-course-filter-group {
+  display: inline-flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.professor-course-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.professor-course-select span {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.professor-course-select select {
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  padding: 0.44rem 0.55rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.84rem;
+}
+
+.professor-course-select select:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--color-primary) 46%, var(--color-border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 16%, transparent);
+}
+
 .professor-course-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 0.75rem;
   margin-bottom: 1rem;
+}
+
+.professor-course-toolbar-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
 }
 
 .professor-layout-toggle {
@@ -652,6 +791,12 @@
 .professor-layout-btn.is-active {
   background: var(--color-primary);
   color: #fff;
+}
+
+.professor-course-results {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
 }
 
 .professor-data-error {
@@ -701,6 +846,7 @@
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--color-text-muted);
+  text-align: right;
 }
 
 .professor-block-list {
@@ -719,11 +865,20 @@
 .professor-block-head {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
   margin-bottom: 0.5rem;
   font-size: 0.875rem;
   color: var(--color-text);
+}
+
+.professor-block-head strong {
+  letter-spacing: 0.01em;
+}
+
+.professor-block-head span {
+  font-size: 0.77rem;
+  color: var(--color-text-muted);
 }
 
 .professor-subject-list {
@@ -819,15 +974,35 @@
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--color-text);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .professor-subject-meta {
-  margin-top: 0.2rem;
+  margin-top: 0.35rem;
   font-size: 0.75rem;
   color: var(--color-text-muted);
+}
+
+.professor-subject-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.professor-subject-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 88%, var(--color-primary));
+  background: color-mix(in srgb, var(--color-bg-soft) 80%, white);
+  padding: 0.16rem 0.48rem;
+  line-height: 1.2;
+  font-size: 0.7rem;
 }
 
 .professor-subject-linkhint {
@@ -931,6 +1106,16 @@
   cursor: not-allowed;
 }
 
+.professor-btn-secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+
+.professor-btn-secondary:hover:not(:disabled) {
+  background: var(--color-bg-soft);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .quick-action-card,
   .dashboard-announcement-card,
@@ -980,6 +1165,38 @@
 
   .placeholder-content {
     grid-template-columns: 1fr;
+  }
+
+  .professor-course-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .professor-course-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .professor-course-search {
+    max-width: none;
+  }
+
+  .professor-course-filter-group {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .professor-course-select {
+    flex: 1;
+    min-width: 140px;
+  }
+
+  .professor-course-select select {
+    width: 100%;
+  }
+
+  .professor-course-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .professor-course-grid {
