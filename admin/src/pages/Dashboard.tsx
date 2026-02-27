@@ -34,6 +34,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
   const [metrics, setMetrics] = useState<any>(null)
   const [registrationLogs, setRegistrationLogs] = useState<any[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
 
   // Debug view changes
   useEffect(() => {
@@ -46,6 +47,45 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
       fetchRegistrationLogs()
     }
   }, [view])
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(min-width: 1025px)')
+    const handleViewportChange = (event: MediaQueryListEvent) => {
+      if (event.matches) {
+        setIsSidebarOpen(false)
+      }
+    }
+
+    mediaQuery.addEventListener('change', handleViewportChange)
+    return () => mediaQuery.removeEventListener('change', handleViewportChange)
+  }, [])
+
+  useEffect(() => {
+    if (!isSidebarOpen) {
+      return
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsSidebarOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [isSidebarOpen])
+
+  useEffect(() => {
+    if (!isSidebarOpen) {
+      return
+    }
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [isSidebarOpen])
 
   const fetchMetrics = async (forceScan = false) => {
     try {
@@ -139,11 +179,31 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
     }
   }
 
+  const handleNavigate = (nextView: View) => {
+    setView(nextView)
+    setIsSidebarOpen(false)
+  }
+
   return (
     <div className="dashboard">
-      <Sidebar activeLink={view} onNavigate={setView} />
+      <Sidebar
+        activeLink={view}
+        onNavigate={handleNavigate}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+      />
+      <button
+        type="button"
+        className={`dashboard-sidebar-backdrop ${isSidebarOpen ? 'visible' : ''}`}
+        onClick={() => setIsSidebarOpen(false)}
+        aria-label="Close navigation menu"
+      />
       <div className="dashboard-body">
-        <Navbar username={username} onLogout={onLogout} />
+        <Navbar
+          username={username}
+          onLogout={onLogout}
+          onMenuToggle={() => setIsSidebarOpen((prev) => !prev)}
+        />
         <main className="dashboard-main">
           {view === 'profile' ? (
             <Profile onProfileUpdated={handleProfileUpdated} onNavigate={(viewName) => {
@@ -225,7 +285,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
                     Administration Portal
                   </p>
                 </div>
-                <div style={{ textAlign: 'right' }}>
+                <div className="school-info-year" style={{ textAlign: 'right' }}>
                   <div style={{ 
                     fontSize: '1.25rem', 
                     fontWeight: '700', 
@@ -273,7 +333,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
               </div>
 
               {/* Recent Registration Logs & Calendar */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '2rem', marginBottom: '2rem' }}>
+              <div className="dashboard-secondary-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '2rem', marginBottom: '2rem' }}>
                 <div className="dashboard-stats-section">
                   <h2 className="section-title" style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--text-primary)' }}>Recent Registration Logs</h2>
                   <div className="registration-logs-card" style={{
@@ -297,9 +357,9 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
                         <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Loading registration logs...</div>
                       </div>
                     ) : registrationLogs.length > 0 ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <div className="registration-logs-list" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                         {registrationLogs.map((log, index) => (
-                          <div key={index} style={{
+                          <div key={index} className="registration-log-item" style={{
                             padding: '1rem',
                             background: 'var(--bg-primary)',
                             borderRadius: '8px',
@@ -309,7 +369,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
                             alignItems: 'center',
                             transition: 'all 0.2s'
                           }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                            <div className="registration-log-main" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                               <div style={{
                                 width: '40px',
                                 height: '40px',
@@ -350,7 +410,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
                                 </div>
                               </div>
                             </div>
-                            <div style={{
+                            <div className="registration-log-status" style={{
                               padding: '0.25rem 0.75rem',
                               background: getAccountTypeColor(log.accountType, 0.1),
                               color: getAccountTypeColor(log.accountType),
@@ -380,13 +440,14 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
                     )}
                     
                     {registrationLogs.length > 0 && (
-                      <div style={{ 
+                      <div className="registration-logs-footer" style={{ 
                         marginTop: '1rem', 
                         paddingTop: '1rem', 
                         borderTop: '1px solid var(--border-color)',
                         textAlign: 'center'
                       }}>
-                        <button 
+                        <button
+                          className="registration-logs-btn"
                           onClick={() => setView('account-logs')}
                           style={{
                             padding: '0.5rem 1rem',

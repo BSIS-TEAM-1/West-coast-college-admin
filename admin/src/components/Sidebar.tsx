@@ -1,4 +1,4 @@
-import { LayoutDashboard, User, UserPlus, Settings, Users, Bell, FileText, Shield, Activity, CheckCircle2 } from 'lucide-react';
+import { LayoutDashboard, User, UserPlus, Settings, Users, Bell, FileText, Shield, Activity, CheckCircle2, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { getProfile } from '../lib/authApi';
 import type { ProfileResponse } from '../lib/authApi';
@@ -10,6 +10,8 @@ type SidebarProps = {
   activeLink?: View;
   onNavigate?: (view: View) => void;
   profileUpdateTrigger?: number; // Add this to trigger re-fetch
+  isOpen?: boolean;
+  onClose?: () => void;
 };
 
 const NAV_ITEMS: { id: View; label: string; icon: any }[] = [
@@ -25,7 +27,7 @@ const NAV_ITEMS: { id: View; label: string; icon: any }[] = [
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
-export default function Sidebar({ activeLink = 'dashboard', onNavigate, profileUpdateTrigger }: SidebarProps) {
+export default function Sidebar({ activeLink = 'dashboard', onNavigate, profileUpdateTrigger, isOpen = false, onClose }: SidebarProps) {
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -51,7 +53,7 @@ export default function Sidebar({ activeLink = 'dashboard', onNavigate, profileU
   }, []);
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${isOpen ? 'sidebar-open' : ''}`}>
       <div className="sidebar-brand">
         <div className="brand-content">
           <div className="logo-container">
@@ -76,6 +78,14 @@ export default function Sidebar({ activeLink = 'dashboard', onNavigate, profileU
             <span className="sidebar-title">West Coast College</span>
             <span className="sidebar-tagline">Admin Portal</span>
           </div>
+          <button
+            type="button"
+            className="sidebar-close-btn"
+            onClick={onClose}
+            aria-label="Close navigation"
+          >
+            <X size={18} />
+          </button>
         </div>
       </div>
 
@@ -95,7 +105,10 @@ export default function Sidebar({ activeLink = 'dashboard', onNavigate, profileU
             key={id}
             type="button"
             className={`sidebar-link ${activeLink === id ? 'sidebar-link-active' : ''}`}
-            onClick={() => onNavigate?.(id)}
+            onClick={() => {
+              onNavigate?.(id)
+              onClose?.()
+            }}
             aria-current={activeLink === id ? 'page' : undefined}
           >
             <Icon size={18} className="sidebar-icon" />
