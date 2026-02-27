@@ -1,63 +1,63 @@
-# 📢 West Coast College Admin - Announcement Features Update
+# West Coast College Admin - Announcement Features Update
 
-## 🎉 New Announcement System Released!
+##  New Announcement System Released!
 
 We're excited to announce the launch of our comprehensive announcement management system for both Admin and Registrar dashboards. This major update brings powerful communication tools to keep students and staff informed.
 
 ---
 
-## ✨ Key Features
+##  Key Features
 
-### 📋 **Announcement Management**
+### **Announcement Management**
 - **Create & Edit Announcements** - Full CRUD operations with rich content support
 - **Media Support** - Upload images and videos to announcements
 - **Targeted Messaging** - Send announcements to specific audiences (students, staff, etc.)
 - **Scheduling** - Set publication dates and expiration times
 - **Priority Levels** - Mark announcements as info, warning, urgent, or maintenance
 
-### 🎯 **Smart Dashboard Integration**
+### **Smart Dashboard Integration**
 - **Admin Dashboard** - View latest announcements in card format with images
 - **Registrar Dashboard** - Dedicated announcement section with full management
 - **Real-time Updates** - Instant refresh when new announcements are posted
 - **Click-to-View** - Navigate from dashboard cards to detailed announcement view
 
-### 🖼️ **Rich Media Support**
+### **Rich Media Support**
 - **Image Uploads** - Drag & drop or select multiple images
 - **Video Embedding** - Support for video content in announcements
 - **Media Preview** - See thumbnails before publishing
 - **Responsive Display** - Media adapts to different screen sizes
 
-### 🏷️ **Advanced Organization**
+###  **Advanced Organization**
 - **Type Badges** - Color-coded indicators (info, warning, urgent, maintenance)
 - **Pinned Announcements** - Keep important notices at the top
 - **Tag System** - Categorize announcements with custom tags
 - **Search & Filter** - Find announcements quickly by type, audience, or content
 
-### 📊 **Engagement Tracking**
+###  **Engagement Tracking**
 - **View Counts** - Track how many people have seen announcements
 - **Engagement Metrics** - Monitor likes, comments, and shares
 - **Analytics Dashboard** - Comprehensive reporting on announcement performance
 
 ---
 
-## 🚀 What's New for Each Role
+##  What's New for Each Role
 
 ### **Administrators**
-- ✅ Full announcement creation and management
-- ✅ Media upload and management
-- ✅ Audience targeting and scheduling
-- ✅ Analytics and engagement tracking
-- ✅ Dashboard preview of latest announcements
+-  Full announcement creation and management
+-  Media upload and management
+-  Audience targeting and scheduling
+-  Analytics and engagement tracking
+-  Dashboard preview of latest announcements
 
 ### **Registrars**
-- ✅ View all announcements in dedicated section
-- ✅ Dashboard integration with announcement cards
-- ✅ Search and filter capabilities
-- ✅ Detailed announcement view with media support
+-  View all announcements in dedicated section
+-  Dashboard integration with announcement cards
+-  Search and filter capabilities
+-  Detailed announcement view with media support
 
 ---
 
-## 🎨 UI/UX Improvements
+##  UI/UX Improvements
 
 ### **Modern Card Design**
 - Clean, responsive announcement cards
@@ -113,7 +113,7 @@ We're excited to announce the launch of our comprehensive announcement managemen
 
 ---
 
-## 🎯 Benefits
+##  Benefits
 
 ### **For Students & Staff**
 - **Stay Informed** - Never miss important updates
@@ -132,7 +132,7 @@ We're excited to announce the launch of our comprehensive announcement managemen
 
 ---
 
-## 🔄 What's Next
+##  What's Next
 
 We're already working on additional enhancements:
 - **Email Notifications** - Automatic email alerts for new announcements
@@ -142,7 +142,7 @@ We're already working on additional enhancements:
 
 ---
 
-## 🐛 Bug Fixes & Improvements
+##  Bug Fixes & Improvements
 
 - Fixed TypeScript compilation errors
 - Resolved authentication token issues
@@ -152,7 +152,7 @@ We're already working on additional enhancements:
 
 ---
 
-## 📞 Support
+## Support
 
 For questions, issues, or feature requests:
 - **Technical Support**: Contact the development team

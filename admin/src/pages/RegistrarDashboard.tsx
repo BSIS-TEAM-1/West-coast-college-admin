@@ -47,7 +47,17 @@ interface Announcement {
   scheduledFor?: string
 }
 
-type RegistrarView = 'dashboard' | 'students' | 'courses' | 'block-management' | 'assign-subject' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details'
+type Semester = '1st' | '2nd' | 'Summer'
+
+type BlockWorkspaceSelection = {
+  groupId: string
+  groupName: string
+  semester: Semester
+  year: number
+  initialSectionId?: string | null
+}
+
+type RegistrarView = 'dashboard' | 'students' | 'courses' | 'block-management' | 'block-workspace' | 'assign-subject' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details'
 
 type RegistrarDashboardProps = {
   username: string
@@ -73,6 +83,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
   const [currentTime, setCurrentTime] = useState(new Date())
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string | null>(null)
+  const [blockWorkspaceSelection, setBlockWorkspaceSelection] = useState<BlockWorkspaceSelection | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -147,7 +158,12 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
       case 'courses':
         return <CourseManagement setView={setView} />
       case 'block-management':
-        return <BlockManagement />
+        return <BlockManagement onOpenWorkspace={(selection) => {
+          setBlockWorkspaceSelection(selection)
+          setView('block-workspace')
+        }} />
+      case 'block-workspace':
+        return <BlockWorkspace selection={blockWorkspaceSelection} onBack={() => setView('block-management')} />
       case 'assign-subject':
         return <AssignSubjectPage />
       case 'reports':
@@ -822,8 +838,6 @@ function CourseManagement({ setView }: { setView: (view: RegistrarView) => void 
   )
 }
 
-type Semester = '1st' | '2nd' | 'Summer'
-
 type BlockGroup = {
   _id: string
   name: string
@@ -884,154 +898,11 @@ type SubjectDraft = {
   units: string
 }
 
-type OvercapacityData = {
-  status: 'OVER_CAPACITY'
-  section: {
-    id: string
-    code: string
-    capacity: number
-    currentPopulation: number
-  }
-  projectedPopulation: number
-  allowedActions: string[]
-  suggestedSections: Array<{
-    id: string
-    code: string
-    availableSlots: number
-  }>
+type BlockManagementProps = {
+  onOpenWorkspace: (selection: BlockWorkspaceSelection) => void
 }
 
-type OvercapacityDecision = {
-  action: string
-  reason?: string
-  targetSectionId?: string
-  newCapacity?: number
-}
-
-type OvercapacityControllerModalProps = {
-  isOpen: boolean
-  data: OvercapacityData | null
-  onClose: () => void
-  onDecision: (decision: OvercapacityDecision) => void
-}
-
-function OvercapacityControllerModal({ isOpen, data, onClose, onDecision }: OvercapacityControllerModalProps) {
-  const [selectedAction, setSelectedAction] = useState('')
-  const [reason, setReason] = useState('')
-  const [targetSection, setTargetSection] = useState('')
-  const [newCapacity, setNewCapacity] = useState('')
-
-  if (!isOpen || !data) return null
-
-  const handleSubmit = () => {
-    const decision: OvercapacityDecision = { action: selectedAction, reason }
-
-    if (selectedAction === 'TRANSFER') {
-      decision.targetSectionId = targetSection
-    } else if (selectedAction === 'INCREASE_CAPACITY') {
-      decision.newCapacity = parseInt(newCapacity, 10)
-    }
-
-    onDecision(decision)
-    setSelectedAction('')
-    setReason('')
-    setTargetSection('')
-    setNewCapacity('')
-  }
-
-  const section = data.section
-  const overCapCount = Math.max(0, data.projectedPopulation - section.capacity)
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3>Section Overcapacity Controller</h3>
-          <button onClick={onClose}>&times;</button>
-        </div>
-
-        <div className="modal-body">
-          <div className="info-section">
-            <h4>Section Information</h4>
-            <p><strong>Section:</strong> {section.code}</p>
-            <p><strong>Current Population:</strong> {section.currentPopulation}</p>
-            <p><strong>Capacity:</strong> {section.capacity}</p>
-            <p><strong>Projected Population:</strong> {data.projectedPopulation}</p>
-          </div>
-
-          <div className="capacity-status">
-            <h4>Capacity Status</h4>
-            <div className="status-bar">
-              <div className="filled" style={{ width: `${(section.currentPopulation / section.capacity) * 100}%` }}></div>
-              <div className="projected" style={{ width: `${((data.projectedPopulation - section.currentPopulation) / section.capacity) * 100}%` }}></div>
-            </div>
-            <p>Overcapacity: {overCapCount}</p>
-          </div>
-
-          <div className="suggested-sections">
-            <h4>Suggested Sections</h4>
-            <ul>
-              {data.suggestedSections.map(s => (
-                <li key={s.id}>{s.code} - {s.availableSlots} slots available</li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="actions-section">
-            <h4>Choose Action</h4>
-            <div className="action-buttons">
-              {data.allowedActions.map(action => (
-                <button key={action} onClick={() => setSelectedAction(action)} className={selectedAction === action ? 'selected' : ''}>
-                  {action.replace('_', ' ')}
-                </button>
-              ))}
-            </div>
-
-            {(selectedAction === 'OVERRIDE' || selectedAction === 'INCREASE_CAPACITY' || selectedAction === 'CLOSE_SECTION') && (
-              <div className="reason-form">
-                <label>Reason:</label>
-                <textarea value={reason} onChange={(e) => setReason(e.target.value)} required />
-              </div>
-            )}
-
-            {selectedAction === 'TRANSFER' && (
-              <div className="transfer-form">
-                <label>Select Target Block:</label>
-                <select value={targetSection} onChange={(e) => setTargetSection(e.target.value)}>
-                  <option value="">-- Select Block --</option>
-                  {data.suggestedSections.map(s => (
-                    <option key={s.id} value={s.id}>{s.code}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {selectedAction === 'INCREASE_CAPACITY' && (
-              <div className="capacity-form">
-                <label>New Capacity:</label>
-                <input type="number" value={newCapacity} onChange={(e) => setNewCapacity(e.target.value)} min={section.capacity} />
-              </div>
-            )}
-
-            <button
-              onClick={handleSubmit}
-              disabled={
-                !selectedAction ||
-                (selectedAction === 'OVERRIDE' && !reason) ||
-                (selectedAction === 'TRANSFER' && !targetSection) ||
-                (selectedAction === 'INCREASE_CAPACITY' && (!reason || !newCapacity))
-              }
-            >
-              Execute Action
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function BlockManagement() {
+function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
   const blockCourseOptions: Array<{ value: number; label: string }> = [
     { value: 101, label: 'BEED' },
     { value: 102, label: 'BSEd-English' },
@@ -1041,16 +912,9 @@ function BlockManagement() {
   const [blockGroups, setBlockGroups] = useState<BlockGroup[]>([])
   const [selectedGroup, setSelectedGroup] = useState<BlockGroup | null>(null)
   const [sections, setSections] = useState<BlockSection[]>([])
-  const [students, setStudents] = useState<BlockStudent[]>([])
-  const [sectionStudents, setSectionStudents] = useState<SectionStudent[]>([])
-  const [studentSearch, setStudentSearch] = useState('')
-  const [selectedStudents, setSelectedStudents] = useState<string[]>([])
+  const [selectedCourseFilter, setSelectedCourseFilter] = useState('')
+  const [selectedYearFilter, setSelectedYearFilter] = useState('')
   const [selectedSection, setSelectedSection] = useState('')
-  const [activeDetailSectionId, setActiveDetailSectionId] = useState('')
-  const [sectionStudentsLoading, setSectionStudentsLoading] = useState(false)
-  const [unassigningStudentId, setUnassigningStudentId] = useState('')
-  const [overcapacityData, setOvercapacityData] = useState<OvercapacityData | null>(null)
-  const [isModalOpen, setIsModalOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -1120,20 +984,6 @@ function BlockManagement() {
     return first
   }
 
-  const compareYearBlockLabel = (a: string, b: string) => {
-    const matchA = String(a || '').match(/^(\d+)-([A-Z])$/)
-    const matchB = String(b || '').match(/^(\d+)-([A-Z])$/)
-    if (matchA && matchB) {
-      const yearA = Number(matchA[1]) || 99
-      const yearB = Number(matchB[1]) || 99
-      if (yearA !== yearB) return yearA - yearB
-      return matchA[2].localeCompare(matchB[2])
-    }
-    if (matchA) return -1
-    if (matchB) return 1
-    return String(a || '').localeCompare(String(b || ''))
-  }
-
   const compareBlockOrder = (a: string, b: string) => {
     const slotA = parseBlockSlot(a)
     const slotB = parseBlockSlot(b)
@@ -1149,16 +999,9 @@ function BlockManagement() {
     if (slotB) return 1
     return String(a || '').localeCompare(String(b || ''))
   }
-
-  const sortedBlockGroups = [...blockGroups].sort((a, b) => compareBlockOrder(a.name, b.name))
-  const sortedOpenBlocks = [...openBlocks].sort((a, b) => compareBlockOrder(a.sectionCode, b.sectionCode))
-  const sortedSections = [...sections].sort((a, b) => compareBlockOrder(a.sectionCode, b.sectionCode))
   const courseRowOrder = ['BEED', 'BSEd-English', 'BSEd-Math', 'BSBA-HRM']
-  const yearBlockColumns = Array.from(
-    new Set(sortedBlockGroups.map((group) => formatBlockColumnLabel(group.name)))
-  ).sort(compareYearBlockLabel)
-  const courseRows = Array.from(
-    new Set(sortedBlockGroups.map((group) => getCourseAbbreviation(group.name)))
+  const courseOptions = Array.from(
+    new Set(blockGroups.map((group) => getCourseAbbreviation(group.name)))
   ).sort((a, b) => {
     const indexA = courseRowOrder.indexOf(a)
     const indexB = courseRowOrder.indexOf(b)
@@ -1167,16 +1010,70 @@ function BlockManagement() {
     if (indexB >= 0) return 1
     return a.localeCompare(b)
   })
-  const blockMatrixMap = new Map<string, BlockGroup[]>()
-  sortedBlockGroups.forEach((group) => {
-    const rowKey = getCourseAbbreviation(group.name)
-    const columnKey = formatBlockColumnLabel(group.name)
-    const key = `${rowKey}|${columnKey}`
-    const existing = blockMatrixMap.get(key) || []
-    existing.push(group)
-    blockMatrixMap.set(key, existing)
-  })
-  const matrixGridColumns = `minmax(140px, 180px) repeat(${Math.max(1, yearBlockColumns.length)}, minmax(120px, 1fr))`
+  const yearOptions = Array.from(
+    new Set(
+      blockGroups
+        .filter((group) => !selectedCourseFilter || getCourseAbbreviation(group.name) === selectedCourseFilter)
+        .map((group) => parseBlockSlot(group.name)?.yearLevel)
+        .filter((year): year is number => typeof year === 'number' && Number.isFinite(year))
+    )
+  ).sort((a, b) => a - b)
+  const filteredBlockGroups = blockGroups
+    .filter((group) => selectedCourseFilter && getCourseAbbreviation(group.name) === selectedCourseFilter)
+    .filter((group) => {
+      if (!selectedYearFilter) return false
+      const year = parseBlockSlot(group.name)?.yearLevel
+      return String(year || '') === selectedYearFilter
+    })
+    .sort((a, b) => {
+      const byName = compareBlockOrder(a.name, b.name)
+      if (byName !== 0) return byName
+      if (Number(a.year) !== Number(b.year)) return Number(b.year) - Number(a.year)
+      return String(a.semester).localeCompare(String(b.semester))
+    })
+  const formatBlockGroupOptionLabel = (group: BlockGroup) => {
+    const blockLabel = formatBlockColumnLabel(group.name)
+    return `Block-${blockLabel.replace('-', '')} | ${group.semester} ${group.year}`
+  }
+
+  useEffect(() => {
+    if (!selectedGroup) return
+    const nextCourse = getCourseAbbreviation(selectedGroup.name)
+    const nextYear = parseBlockSlot(selectedGroup.name)?.yearLevel
+    setSelectedCourseFilter(nextCourse)
+    setSelectedYearFilter(nextYear ? String(nextYear) : '')
+  }, [selectedGroup])
+
+  useEffect(() => {
+    if (!selectedGroup) return
+    const stillExists = blockGroups.some((group) => group._id === selectedGroup._id)
+    if (!stillExists) {
+      setSelectedGroup(null)
+    }
+  }, [blockGroups, selectedGroup])
+
+  const handleCourseFilterChange = (nextCourse: string) => {
+    setSelectedCourseFilter(nextCourse)
+    setSelectedYearFilter('')
+    setSelectedGroup(null)
+  }
+
+  const handleYearFilterChange = (nextYear: string) => {
+    setSelectedYearFilter(nextYear)
+    setSelectedGroup(null)
+  }
+
+  const handleBlockGroupChange = (groupId: string) => {
+    const nextGroup = blockGroups.find((group) => group._id === groupId) || null
+    setSelectedGroup(nextGroup)
+  }
+
+  const blockPickerStatusText = selectedGroup
+    ? `Selected block: ${formatBlockGroupOptionLabel(selectedGroup)}`
+    : 'Pick course, year, and block to continue.'
+
+  const hasYearOptions = Boolean(selectedCourseFilter && yearOptions.length > 0)
+  const hasBlockOptions = Boolean(selectedCourseFilter && selectedYearFilter && filteredBlockGroups.length > 0)
 
   useEffect(() => {
     void fetchBlockGroups()
@@ -1185,21 +1082,22 @@ function BlockManagement() {
   useEffect(() => {
     if (!selectedGroup) {
       setSections([])
-      setStudents([])
-      setSectionStudents([])
       setSelectedSection('')
-      setSelectedStudents([])
-      setActiveDetailSectionId('')
       return
     }
     void fetchSections(selectedGroup._id)
-    void fetchAssignableStudents(selectedGroup.semester, selectedGroup.year, '', selectedGroup._id)
   }, [selectedGroup])
 
   useEffect(() => {
     if (!selectedGroup) return
-    if (!openBlocks.some((b) => b._id === selectedSection)) setSelectedSection('')
-  }, [selectedGroup, sections, selectedSection])
+    if (openBlocks.length === 0) {
+      if (selectedSection) setSelectedSection('')
+      return
+    }
+    if (!openBlocks.some((block) => block._id === selectedSection)) {
+      setSelectedSection(openBlocks[0]._id)
+    }
+  }, [selectedGroup, openBlocks, selectedSection])
 
   const authorizedFetch = async (path: string, init: RequestInit = {}) => {
     const token = await getStoredToken()
@@ -1236,234 +1134,6 @@ function BlockManagement() {
       setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch sections')
-    }
-  }
-
-  const fetchAssignableStudents = async (semester: Semester, year: number, q = '', groupId = '') => {
-    try {
-      const encodedQ = encodeURIComponent(q)
-      const encodedGroupId = encodeURIComponent(groupId)
-      const data = await authorizedFetch(`/api/blocks/assignable-students?semester=${semester}&year=${year}&q=${encodedQ}&groupId=${encodedGroupId}`)
-      const nextStudents = Array.isArray(data) ? data : []
-      setStudents(nextStudents)
-      setSelectedStudents((prev) => prev.filter((id) => nextStudents.some((s) => s._id === id)))
-      setError('')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch assignable students')
-    }
-  }
-
-  const fetchSectionStudents = async (sectionId: string) => {
-    setSectionStudentsLoading(true)
-    try {
-      const data = await authorizedFetch(`/api/blocks/sections/${sectionId}/students`)
-      setSectionStudents(Array.isArray(data?.students) ? data.students as SectionStudent[] : [])
-      if (data?.section?._id) {
-        setSections((prev) =>
-          prev.map((section) =>
-            section._id === data.section._id
-              ? { ...section, currentPopulation: Number(data.section.currentPopulation) || 0 }
-              : section
-          )
-        )
-      }
-      setError('')
-    } catch (err) {
-      setSectionStudents([])
-      setError(err instanceof Error ? err.message : 'Failed to fetch section students')
-    } finally {
-      setSectionStudentsLoading(false)
-    }
-  }
-
-  const formatStudentName = (student: BlockStudent) =>
-    `${student.firstName} ${student.middleName || ''} ${student.lastName} ${student.suffix || ''}`.replace(/\s+/g, ' ').trim()
-
-  const courseCodeFromValue = (course?: number | string) => {
-    if (course === null || course === undefined) return '000'
-
-    const text = String(course).trim()
-    if (!text) return '000'
-
-    const numeric = Number(text)
-    if (Number.isFinite(numeric)) return String(Math.trunc(numeric))
-
-    const normalized = text.toUpperCase().replace(/\s+/g, '').replace(/_/g, '-')
-    if (normalized.includes('BEED')) return '101'
-    if (normalized.includes('BSED-ENGLISH') || normalized === 'ENGLISH') return '102'
-    if (normalized.includes('BSED-MATH') || normalized === 'MATH' || normalized === 'MATHEMATICS') return '103'
-    if (normalized.includes('BSBA-HRM') || normalized === 'HRM') return '201'
-
-    return '000'
-  }
-
-  const formatStudentNumber = (student: BlockStudent) => {
-    const raw = String(student.studentNumber || '').trim()
-    const fallbackCourseCode = courseCodeFromValue(student.course)
-
-    if (!raw) return `0000-${fallbackCourseCode}-00000`
-
-    const parts = raw.split('-').map((part) => part.trim()).filter(Boolean)
-    const year = /^\d{4}$/.test(parts[0] || '') ? parts[0] : '0000'
-    const seqPart = [...parts].reverse().find((part) => /^\d+$/.test(part)) || '00000'
-    const seq = seqPart.slice(-5).padStart(5, '0')
-    const courseCode = fallbackCourseCode !== '000'
-      ? fallbackCourseCode
-      : courseCodeFromValue(parts.find((part) => /[A-Za-z]/.test(part)))
-
-    return `${year}-${courseCode}-${seq}`
-  }
-
-  const formatCourseLabel = (course?: number | string) => {
-    const code = courseCodeFromValue(course)
-    return courseAbbreviationByCode[code] || String(course || 'N/A')
-  }
-
-  const toggleStudentSelection = (studentId: string) => {
-    setSelectedStudents((prev) =>
-      prev.includes(studentId) ? prev.filter((id) => id !== studentId) : [...prev, studentId]
-    )
-  }
-
-  const handleSectionCardClick = (sectionId: string) => {
-    if (activeDetailSectionId === sectionId) {
-      setActiveDetailSectionId('')
-      setSectionStudents([])
-      return
-    }
-    setActiveDetailSectionId(sectionId)
-    void fetchSectionStudents(sectionId)
-  }
-
-  const handleUnassignSectionStudent = async (student: SectionStudent) => {
-    if (!selectedGroup || !activeDetailSectionId) {
-      setError('Select a block section first')
-      return
-    }
-
-    const sectionCode = sections.find((section) => section._id === activeDetailSectionId)?.sectionCode || 'this section'
-    const confirmed = window.confirm(`Unassign ${formatStudentName(student)} from ${sectionCode}?`)
-    if (!confirmed) return
-
-    const targetSectionId = activeDetailSectionId
-    setUnassigningStudentId(student._id)
-    setError('')
-    setSuccess('')
-    try {
-      const data = await authorizedFetch(`/api/blocks/sections/${targetSectionId}/students/${student._id}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          semester: selectedGroup.semester,
-          year: selectedGroup.year
-        })
-      })
-
-      setSuccess((data?.message as string) || 'Student unassigned from section successfully')
-      await fetchSections(selectedGroup._id)
-      await fetchAssignableStudents(selectedGroup.semester, selectedGroup.year, studentSearch, selectedGroup._id)
-      await fetchSectionStudents(targetSectionId)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to unassign student')
-    } finally {
-      setUnassigningStudentId('')
-    }
-  }
-
-  const handleAssignStudent = async () => {
-    if (!selectedGroup || selectedStudents.length === 0 || !selectedSection) {
-      setError('Please select a block and at least one student')
-      return
-    }
-
-    setLoading(true)
-    setError('')
-    setSuccess('')
-    try {
-      const overcapacityStudents: string[] = []
-      let singleOvercapacityData: OvercapacityData | null = null
-      let assignedCount = 0
-
-      for (const studentId of selectedStudents) {
-        const data = await authorizedFetch('/api/blocks/assign-student', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            studentId,
-            sectionId: selectedSection,
-            semester: selectedGroup.semester,
-            year: selectedGroup.year
-          })
-        })
-
-        if (data?.status === 'OVER_CAPACITY') {
-          if (selectedStudents.length === 1) {
-            singleOvercapacityData = data as OvercapacityData
-            break
-          }
-          const student = students.find((s) => s._id === studentId)
-          overcapacityStudents.push(student ? formatStudentName(student) : studentId)
-          continue
-        }
-        assignedCount += 1
-      }
-
-      if (singleOvercapacityData) {
-        setOvercapacityData(singleOvercapacityData)
-        setIsModalOpen(true)
-        return
-      }
-
-      const notices: string[] = []
-      if (assignedCount > 0) notices.push(`${assignedCount} student(s) assigned successfully`)
-      if (overcapacityStudents.length > 0) {
-        notices.push(`Overcapacity for: ${overcapacityStudents.join(', ')}`)
-      }
-
-      if (notices.length > 0) {
-        if (assignedCount > 0) setSuccess(notices.join('. '))
-        else setError(notices.join('. '))
-      }
-
-      setSelectedStudents([])
-      await fetchSections(selectedGroup._id)
-      await fetchAssignableStudents(selectedGroup.semester, selectedGroup.year, studentSearch, selectedGroup._id)
-      if (activeDetailSectionId) {
-        await fetchSectionStudents(activeDetailSectionId)
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to assign student')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleOvercapacityDecision = async (decision: OvercapacityDecision) => {
-    if (!selectedGroup || selectedStudents.length !== 1 || !selectedSection) return
-    try {
-      const data = await authorizedFetch('/api/blocks/overcapacity/decision', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...decision,
-          studentId: selectedStudents[0],
-          sectionId: selectedSection,
-          semester: selectedGroup.semester,
-          year: selectedGroup.year
-        })
-      })
-
-      setSuccess((data?.message as string) || 'Action completed successfully')
-      setIsModalOpen(false)
-      setOvercapacityData(null)
-      setSelectedStudents([])
-      await fetchSections(selectedGroup._id)
-      await fetchAssignableStudents(selectedGroup.semester, selectedGroup.year, studentSearch, selectedGroup._id)
-      if (activeDetailSectionId) {
-        await fetchSectionStudents(activeDetailSectionId)
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to process decision')
     }
   }
 
@@ -1548,11 +1218,7 @@ function BlockManagement() {
       setSuccess((data?.message as string) || 'Block deleted successfully')
       setSelectedGroup(null)
       setSections([])
-      setStudents([])
-      setSectionStudents([])
       setSelectedSection('')
-      setSelectedStudents([])
-      setActiveDetailSectionId('')
       await fetchBlockGroups()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete block')
@@ -1561,17 +1227,65 @@ function BlockManagement() {
     }
   }
 
-  return (
-    <><div className="registrar-section">
-      <h2 className="registrar-section-title">Block Management</h2>
-      <p className="registrar-section-desc">Assign students and manage capacity by block.</p>
+  const selectedGroupLabel = selectedGroup
+    ? `${formatBlockLabel(selectedGroup.name)} (${selectedGroup.semester} ${selectedGroup.year})`
+    : 'No block selected yet'
+  const selectedTargetSection = sections.find((section) => section._id === selectedSection) || null
+  const handleOpenWorkspace = () => {
+    if (!selectedGroup) return
+    onOpenWorkspace({
+      groupId: selectedGroup._id,
+      groupName: selectedGroup.name,
+      semester: selectedGroup.semester,
+      year: Number(selectedGroup.year),
+      initialSectionId: selectedTargetSection?._id || null
+    })
+  }
 
-      {error && <p style={{ color: '#dc2626', marginBottom: '0.75rem' }}>{error}</p>}
-      {success && <p style={{ color: '#16a34a', marginBottom: '0.75rem' }}>{success}</p>}
+  return (
+    <div className="registrar-section">
+      <h2 className="registrar-section-title">Block Management</h2>
+      <p className="registrar-section-desc">Create blocks, assign students, and monitor block capacity with a guided flow.</p>
+
+      {error && <p className="registrar-feedback registrar-feedback-error">{error}</p>}
+      {success && <p className="registrar-feedback registrar-feedback-success">{success}</p>}
 
       <div className="block-management-content">
+        <div className="assignment-section block-first-time-card">
+          <h3>Quick Start (First Time Guide)</h3>
+          <ol className="block-first-time-list">
+            <li>Create a block group or pick one using Course, Year Level, then Block.</li>
+            <li>Use Refresh Blocks if you recently added or changed block data.</li>
+            <li>Delete Block is available once a specific block is selected.</li>
+          </ol>
+        </div>
+
+        <div className="block-summary-grid">
+          <div className="assignment-section block-summary-card">
+            <span className="block-summary-label">Block Groups</span>
+            <strong className="block-summary-value">{blockGroups.length}</strong>
+            <small>Available this registrar view</small>
+          </div>
+          <div className="assignment-section block-summary-card">
+            <span className="block-summary-label">Open Sections</span>
+            <strong className="block-summary-value">{openBlocks.length}</strong>
+            <small>{selectedGroup ? 'Inside selected block group' : 'Select a block group to view'}</small>
+          </div>
+          <div className="assignment-section block-summary-card">
+            <span className="block-summary-label">Sections</span>
+            <strong className="block-summary-value">{sections.length}</strong>
+            <small>{selectedGroup ? 'Inside selected block group' : 'Select a block group to view'}</small>
+          </div>
+          <div className="assignment-section block-summary-card">
+            <span className="block-summary-label">Selected Section</span>
+            <strong className="block-summary-value">{selectedTargetSection ? formatBlockColumnLabel(selectedTargetSection.sectionCode) : 'N/A'}</strong>
+            <small>{selectedTargetSection ? `Target: ${formatBlockColumnLabel(selectedTargetSection.sectionCode)}` : 'No target section selected'}</small>
+          </div>
+        </div>
+
         <div className="assignment-section">
-          <h3>Create Block</h3>
+          <h3>Step 1: Create Block</h3>
+          <p className="assignment-help-text">Set course, block number, semester, and year to create a new block group.</p>
           <div className="assignment-form">
             <label>
               Course:
@@ -1625,13 +1339,13 @@ function BlockManagement() {
                 value={newGroupYear}
                 onChange={(e) => setNewGroupYear(parseInt(e.target.value || `${new Date().getFullYear()}`, 10))} />
             </label>
-            <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>
+            <p className="assignment-inline-note">
               Block name preview:{' '}
-              <strong style={{ color: 'var(--color-text)' }}>
+              <strong>
                 {`${blockCourseOptions.find((course) => course.value === Number(newGroupCourse))?.value || '000'}-${newGroupBlockNumber}`}
               </strong>
             </p>
-            <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+            <p className="assignment-inline-note assignment-inline-note-small">
               Uses student course code format (e.g., 103-1-A).
             </p>
             <button className="registrar-btn" onClick={handleCreateGroup} disabled={loading}>
@@ -1643,58 +1357,55 @@ function BlockManagement() {
 
       <div className="block-selection">
         <div className="block-selection-head">
-          <p className="block-selection-title">Select Block:</p>
+          <p className="block-selection-title">Step 2: Select Block Group</p>
           <p className="block-selection-subtitle">{blockGroups.length} available</p>
         </div>
-        <div className="block-matrix" role="table" aria-label="Block groups by course and year-block">
-          {blockGroups.length > 0 ? (
-            <>
-              <div className="block-matrix-row block-matrix-header" role="row" style={{ gridTemplateColumns: matrixGridColumns }}>
-                <div className="block-matrix-course-cell" role="columnheader">Course</div>
-                {yearBlockColumns.map((column) => (
-                  <div key={column} className="block-matrix-cell block-matrix-column-head" role="columnheader">
-                    {column}
-                  </div>
-                ))}
-              </div>
-              {courseRows.map((course) => (
-                <div key={course} className="block-matrix-row" role="row" style={{ gridTemplateColumns: matrixGridColumns }}>
-                  <div className="block-matrix-course-cell" role="rowheader">{course}</div>
-                  {yearBlockColumns.map((column) => {
-                    const cellGroups = blockMatrixMap.get(`${course}|${column}`) || []
-                    return (
-                      <div key={`${course}-${column}`} className="block-matrix-cell" role="cell">
-                        {cellGroups.length > 0 ? (
-                          <div className="block-segmented compact">
-                            {cellGroups.map((group) => (
-                              <button
-                                key={group._id}
-                                type="button"
-                                role="tab"
-                                aria-selected={selectedGroup?._id === group._id}
-                                className={`block-segment-btn block-segment-btn-matrix ${selectedGroup?._id === group._id ? 'active' : ''}`}
-                                onClick={() => setSelectedGroup(group)}
-                                title={`${group.semester} ${group.year}`}
-                              >
-                                <span className="block-segment-meta">
-                                  {`Block-${formatBlockColumnLabel(group.name).replace('-', '')}`}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="block-matrix-empty">-</span>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
+        <p className="block-selection-helper">Current selection: {selectedGroupLabel}</p>
+        <div className="block-picker-grid">
+          <label className="block-picker-field">
+            <span>Course</span>
+            <select
+              value={selectedCourseFilter}
+              onChange={(event) => handleCourseFilterChange(event.target.value)}
+            >
+              <option value="">Choose course</option>
+              {courseOptions.map((course) => (
+                <option key={course} value={course}>{course}</option>
               ))}
-            </>
-          ) : (
-            <p className="block-segment-empty">No blocks yet. Create one above.</p>
-          )}
+            </select>
+          </label>
+
+          <label className="block-picker-field">
+            <span>Year Level</span>
+            <select
+              value={selectedYearFilter}
+              onChange={(event) => handleYearFilterChange(event.target.value)}
+              disabled={!selectedCourseFilter || !hasYearOptions}
+            >
+              <option value="">{selectedCourseFilter ? 'Choose year level' : 'Select course first'}</option>
+              {yearOptions.map((yearLevel) => (
+                <option key={yearLevel} value={yearLevel}>{`Year ${yearLevel}`}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block-picker-field">
+            <span>Block</span>
+            <select
+              value={selectedGroup?._id || ''}
+              onChange={(event) => handleBlockGroupChange(event.target.value)}
+              disabled={!selectedCourseFilter || !selectedYearFilter || !hasBlockOptions}
+            >
+              <option value="">
+                {selectedYearFilter ? 'Choose block' : 'Select year level first'}
+              </option>
+              {filteredBlockGroups.map((group) => (
+                <option key={group._id} value={group._id}>{formatBlockGroupOptionLabel(group)}</option>
+              ))}
+            </select>
+          </label>
         </div>
+        <p className="block-selection-helper">{blockPickerStatusText}</p>
         <div className="block-selection-actions">
           <button
             className="registrar-btn"
@@ -1704,7 +1415,7 @@ function BlockManagement() {
             } }
             disabled={loading}
           >
-            Refresh
+            Refresh Blocks
           </button>
           {selectedGroup && (
             <button
@@ -1716,189 +1427,605 @@ function BlockManagement() {
             </button>
           )}
         </div>
+        {selectedGroup && (
+          <button type="button" className="block-workspace-launch-card" onClick={handleOpenWorkspace}>
+            <div className="block-workspace-launch-badge">Workspace Ready</div>
+            <h3>Open Block Assignment Workspace</h3>
+            <p>Assign students and review block details for this selected block.</p>
+            <div className="block-workspace-launch-meta">
+              <span>{formatBlockLabel(selectedGroup.name)}</span>
+              <span>{selectedGroup.semester} {selectedGroup.year}</span>
+              <span>{openBlocks.length} open section(s)</span>
+            </div>
+          </button>
+        )}
       </div>
+    </div>
+  )
+}
 
-      {selectedGroup && (
+type BlockWorkspaceProps = {
+  selection: BlockWorkspaceSelection | null
+  onBack: () => void
+}
+
+function BlockWorkspace({ selection, onBack }: BlockWorkspaceProps) {
+  const [group, setGroup] = useState<BlockGroup | null>(null)
+  const [sections, setSections] = useState<BlockSection[]>([])
+  const [students, setStudents] = useState<BlockStudent[]>([])
+  const [sectionStudentsById, setSectionStudentsById] = useState<Record<string, SectionStudent[]>>({})
+  const [sectionLoadingById, setSectionLoadingById] = useState<Record<string, boolean>>({})
+  const [studentSearch, setStudentSearch] = useState('')
+  const [selectedStudents, setSelectedStudents] = useState<string[]>([])
+  const [targetSectionId, setTargetSectionId] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [assigning, setAssigning] = useState(false)
+  const [unassigningStudentKey, setUnassigningStudentKey] = useState('')
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const courseAbbreviationByCode: Record<string, string> = {
+    '101': 'BEED',
+    '102': 'BSEd-English',
+    '103': 'BSEd-Math',
+    '201': 'BSBA-HRM'
+  }
+
+  const formatBlockLabel = (value: string) => {
+    const text = String(value || '').trim()
+    if (!text) return value
+    const parts = text.split('-')
+    if (parts.length === 0) return text
+    const first = parts[0]
+    const mapped = courseAbbreviationByCode[first] || first
+    return [mapped, ...parts.slice(1)].join('-')
+  }
+
+  const parseBlockSlot = (value: string) => {
+    const text = String(value || '').trim().toUpperCase()
+    if (!text) return null
+
+    const directMatch = text.match(/(?:^|-)(\d+)([A-Z])$/)
+    if (directMatch) {
+      return {
+        yearLevel: Number(directMatch[1]) || 99,
+        letter: directMatch[2]
+      }
+    }
+
+    const dashedMatch = text.match(/(?:^|-)(\d+)-([A-Z])$/)
+    if (dashedMatch) {
+      return {
+        yearLevel: Number(dashedMatch[1]) || 99,
+        letter: dashedMatch[2]
+      }
+    }
+
+    return null
+  }
+
+  const formatBlockColumnLabel = (value: string) => {
+    const slot = parseBlockSlot(value)
+    if (!slot) return formatBlockLabel(value)
+    return `${slot.yearLevel}-${slot.letter}`
+  }
+
+  const compareBlockOrder = (a: string, b: string) => {
+    const slotA = parseBlockSlot(a)
+    const slotB = parseBlockSlot(b)
+
+    if (slotA && slotB) {
+      if (slotA.yearLevel !== slotB.yearLevel) {
+        return slotA.yearLevel - slotB.yearLevel
+      }
+      return slotA.letter.localeCompare(slotB.letter)
+    }
+
+    if (slotA) return -1
+    if (slotB) return 1
+    return String(a || '').localeCompare(String(b || ''))
+  }
+
+  const courseCodeFromValue = (course?: number | string) => {
+    if (course === null || course === undefined) return '000'
+
+    const text = String(course).trim()
+    if (!text) return '000'
+
+    const numeric = Number(text)
+    if (Number.isFinite(numeric)) return String(Math.trunc(numeric))
+
+    const normalized = text.toUpperCase().replace(/\s+/g, '').replace(/_/g, '-')
+    if (normalized.includes('BEED')) return '101'
+    if (normalized.includes('BSED-ENGLISH') || normalized === 'ENGLISH') return '102'
+    if (normalized.includes('BSED-MATH') || normalized === 'MATH' || normalized === 'MATHEMATICS') return '103'
+    if (normalized.includes('BSBA-HRM') || normalized === 'HRM') return '201'
+
+    return '000'
+  }
+
+  const formatCourseLabel = (course?: number | string) => {
+    const code = courseCodeFromValue(course)
+    return courseAbbreviationByCode[code] || String(course || 'N/A')
+  }
+
+  const formatStudentName = (student: BlockStudent) =>
+    `${student.firstName} ${student.middleName || ''} ${student.lastName} ${student.suffix || ''}`.replace(/\s+/g, ' ').trim()
+
+  const formatStudentNumber = (student: BlockStudent) => {
+    const raw = String(student.studentNumber || '').trim()
+    const fallbackCourseCode = courseCodeFromValue(student.course)
+
+    if (!raw) return `0000-${fallbackCourseCode}-00000`
+
+    const parts = raw.split('-').map((part) => part.trim()).filter(Boolean)
+    const year = /^\d{4}$/.test(parts[0] || '') ? parts[0] : '0000'
+    const seqPart = [...parts].reverse().find((part) => /^\d+$/.test(part)) || '00000'
+    const seq = seqPart.slice(-5).padStart(5, '0')
+    const courseCode = fallbackCourseCode !== '000'
+      ? fallbackCourseCode
+      : courseCodeFromValue(parts.find((part) => /[A-Za-z]/.test(part)))
+
+    return `${year}-${courseCode}-${seq}`
+  }
+
+  const formatAssignedAt = (value?: string | null) => {
+    if (!value) return 'N/A'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return 'N/A'
+    return date.toLocaleString()
+  }
+
+  const authorizedFetch = async (path: string, init: RequestInit = {}) => {
+    const token = await getStoredToken()
+    if (!token) throw new Error('No authentication token found')
+
+    const response = await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers: {
+        ...(init.headers || {}),
+        Authorization: `Bearer ${token}`
+      }
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error((data?.error as string) || (data?.message as string) || `Request failed (${response.status})`)
+    }
+    return data
+  }
+
+  const fetchSections = async (groupId: string) => {
+    try {
+      const data = await authorizedFetch(`/api/blocks/groups/${groupId}/sections`)
+      const nextSections = Array.isArray(data) ? data as BlockSection[] : []
+      setSections(nextSections)
+      setError('')
+      return nextSections
+    } catch (err) {
+      setSections([])
+      setError(err instanceof Error ? err.message : 'Failed to fetch block sections')
+      return [] as BlockSection[]
+    }
+  }
+
+  const fetchAssignableStudents = async (workspaceGroup: BlockGroup, q = '') => {
+    try {
+      const encodedQ = encodeURIComponent(q)
+      const encodedGroupId = encodeURIComponent(workspaceGroup._id)
+      const data = await authorizedFetch(`/api/blocks/assignable-students?semester=${workspaceGroup.semester}&year=${workspaceGroup.year}&q=${encodedQ}&groupId=${encodedGroupId}`)
+      const nextStudents = Array.isArray(data) ? data as BlockStudent[] : []
+      setStudents(nextStudents)
+      setSelectedStudents((prev) => prev.filter((id) => nextStudents.some((student) => student._id === id)))
+      setError('')
+      return nextStudents
+    } catch (err) {
+      setStudents([])
+      setError(err instanceof Error ? err.message : 'Failed to fetch assignable students')
+      return [] as BlockStudent[]
+    }
+  }
+
+  const fetchSectionStudents = async (sectionId: string) => {
+    setSectionLoadingById((prev) => ({ ...prev, [sectionId]: true }))
+    try {
+      const data = await authorizedFetch(`/api/blocks/sections/${sectionId}/students`)
+      const nextStudents = Array.isArray(data?.students) ? data.students as SectionStudent[] : []
+      setSectionStudentsById((prev) => ({ ...prev, [sectionId]: nextStudents }))
+      if (data?.section?._id) {
+        const sectionData = data.section as { _id: string; currentPopulation?: number }
+        setSections((prev) =>
+          prev.map((section) =>
+            section._id === sectionData._id
+              ? { ...section, currentPopulation: Number(sectionData.currentPopulation) || 0 }
+              : section
+          )
+        )
+      }
+      setError('')
+    } catch (err) {
+      setSectionStudentsById((prev) => ({ ...prev, [sectionId]: [] }))
+      setError(err instanceof Error ? err.message : 'Failed to fetch section students')
+    } finally {
+      setSectionLoadingById((prev) => ({ ...prev, [sectionId]: false }))
+    }
+  }
+
+  const refreshSectionStudents = async (nextSections: BlockSection[]) => {
+    await Promise.all(nextSections.map((section) => fetchSectionStudents(section._id)))
+  }
+
+  useEffect(() => {
+    if (!selection) {
+      setGroup(null)
+      setSections([])
+      setStudents([])
+      setSectionStudentsById({})
+      setSectionLoadingById({})
+      setTargetSectionId('')
+      setSelectedStudents([])
+      return
+    }
+
+    const workspaceGroup: BlockGroup = {
+      _id: selection.groupId,
+      name: selection.groupName,
+      semester: selection.semester,
+      year: Number(selection.year)
+    }
+
+    setGroup(workspaceGroup)
+    setStudentSearch('')
+    setSelectedStudents([])
+    setError('')
+    setSuccess('')
+
+    const loadWorkspace = async () => {
+      setLoading(true)
+      const nextSections = await fetchSections(workspaceGroup._id)
+      await fetchAssignableStudents(workspaceGroup, '')
+      await refreshSectionStudents(nextSections)
+
+      const nextOpenSections = nextSections.filter((section) => (section.status || 'OPEN').toUpperCase() === 'OPEN')
+      const preferredSectionId = nextOpenSections.find((section) => section._id === selection.initialSectionId)?._id
+        || nextOpenSections[0]?._id
+        || nextSections[0]?._id
+        || ''
+      setTargetSectionId(preferredSectionId)
+      setLoading(false)
+    }
+
+    void loadWorkspace()
+  }, [selection?.groupId, selection?.groupName, selection?.semester, selection?.year, selection?.initialSectionId])
+
+  const sortedSections = [...sections].sort((a, b) => compareBlockOrder(a.sectionCode, b.sectionCode))
+  const openSections = sortedSections.filter((section) => (section.status || 'OPEN').toUpperCase() === 'OPEN')
+  const targetSections = openSections.length > 0 ? openSections : sortedSections
+  const selectedTargetSection = sortedSections.find((section) => section._id === targetSectionId) || null
+  const isTargetSectionOpen = (selectedTargetSection?.status || 'OPEN').toUpperCase() === 'OPEN'
+
+  useEffect(() => {
+    if (targetSections.length === 0) {
+      if (targetSectionId) setTargetSectionId('')
+      return
+    }
+
+    const stillExists = targetSections.some((section) => section._id === targetSectionId)
+    if (!stillExists) {
+      setTargetSectionId(targetSections[0]._id)
+    }
+  }, [targetSectionId, targetSections])
+
+  const toggleStudentSelection = (studentId: string) => {
+    setSelectedStudents((prev) =>
+      prev.includes(studentId) ? prev.filter((id) => id !== studentId) : [...prev, studentId]
+    )
+  }
+
+  const handleSearchStudents = async () => {
+    if (!group) return
+    setLoading(true)
+    await fetchAssignableStudents(group, studentSearch)
+    setLoading(false)
+  }
+
+  const handleRefreshWorkspace = async () => {
+    if (!group) return
+    setLoading(true)
+    const nextSections = await fetchSections(group._id)
+    await fetchAssignableStudents(group, studentSearch)
+    await refreshSectionStudents(nextSections)
+    setLoading(false)
+  }
+
+  const handleAssignStudents = async () => {
+    if (!group || selectedStudents.length === 0 || !targetSectionId) {
+      setError('Select students and target section before assigning.')
+      return
+    }
+    if (!isTargetSectionOpen) {
+      setError('Assignments are allowed only for OPEN sections.')
+      return
+    }
+
+    setAssigning(true)
+    setError('')
+    setSuccess('')
+    try {
+      const overcapacityStudents: string[] = []
+      let assignedCount = 0
+
+      for (const studentId of selectedStudents) {
+        const data = await authorizedFetch('/api/blocks/assign-student', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            studentId,
+            sectionId: targetSectionId,
+            semester: group.semester,
+            year: group.year
+          })
+        })
+
+        if (data?.status === 'OVER_CAPACITY') {
+          const student = students.find((item) => item._id === studentId)
+          overcapacityStudents.push(student ? formatStudentName(student) : studentId)
+          continue
+        }
+
+        assignedCount += 1
+      }
+
+      const notices: string[] = []
+      if (assignedCount > 0) notices.push(`${assignedCount} student(s) assigned successfully`)
+      if (overcapacityStudents.length > 0) notices.push(`Overcapacity: ${overcapacityStudents.join(', ')}`)
+
+      if (assignedCount > 0) {
+        setSuccess(notices.join('. '))
+      } else {
+        setError(notices.join('. ') || 'No students were assigned.')
+      }
+
+      setSelectedStudents([])
+
+      const nextSections = await fetchSections(group._id)
+      await fetchAssignableStudents(group, studentSearch)
+      await refreshSectionStudents(nextSections)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to assign students')
+    } finally {
+      setAssigning(false)
+    }
+  }
+
+  const handleUnassignStudent = async (sectionId: string, student: SectionStudent) => {
+    if (!group) return
+    const sectionCode = sections.find((section) => section._id === sectionId)?.sectionCode || 'this section'
+    const confirmed = window.confirm(`Unassign ${formatStudentName(student)} from ${sectionCode}?`)
+    if (!confirmed) return
+
+    setUnassigningStudentKey(`${sectionId}:${student._id}`)
+    setError('')
+    setSuccess('')
+    try {
+      const data = await authorizedFetch(`/api/blocks/sections/${sectionId}/students/${student._id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          semester: group.semester,
+          year: group.year
+        })
+      })
+
+      setSuccess((data?.message as string) || 'Student unassigned from section successfully')
+
+      const nextSections = await fetchSections(group._id)
+      await fetchAssignableStudents(group, studentSearch)
+      await refreshSectionStudents(nextSections)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to unassign student')
+    } finally {
+      setUnassigningStudentKey('')
+    }
+  }
+
+  if (!group) {
+    return (
+      <div className="registrar-section">
+        <div className="block-workspace-shell">
+          <button type="button" className="registrar-btn registrar-btn-secondary" onClick={onBack}>
+            Back to Step 2
+          </button>
+          <h2 className="registrar-section-title">Block Assignment Workspace</h2>
+          <p className="registrar-section-desc">Select a block in Step 2 first, then open workspace.</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="registrar-section">
+      <div className="block-workspace-shell">
+        <div className="block-workspace-header">
+          <button type="button" className="registrar-btn registrar-btn-secondary" onClick={onBack}>
+            Back to Step 2
+          </button>
+          <button type="button" className="registrar-btn registrar-btn-secondary" onClick={() => void handleRefreshWorkspace()} disabled={loading || assigning}>
+            {loading ? 'Refreshing...' : 'Refresh Workspace'}
+          </button>
+        </div>
+
+        <div className="block-workspace-hero">
+          <div className="block-workspace-hero-badge">Active Block Workspace</div>
+          <h2>{formatBlockLabel(group.name)}</h2>
+          <p>{group.semester} {group.year}</p>
+          <div className="block-workspace-meta">
+            <span>{sortedSections.length} section(s)</span>
+            <span>{openSections.length} open</span>
+            <span>{students.length} assignable student(s)</span>
+          </div>
+        </div>
+
+        {error && <p className="registrar-feedback registrar-feedback-error">{error}</p>}
+        {success && <p className="registrar-feedback registrar-feedback-success">{success}</p>}
+
         <div className="assignment-section">
-          <h3>Assign Student to Block</h3>
+          <h3>Step 3: Assign Students</h3>
+          <p className="assignment-help-text">Search and select students, then assign them to the target section.</p>
           <div className="assignment-form">
             <label>
-              Search Student:
+              Search Student
               <input
                 type="text"
                 value={studentSearch}
-                onChange={(e) => setStudentSearch(e.target.value)}
-                placeholder="Name or student number" />
+                onChange={(event) => setStudentSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    void handleSearchStudents()
+                  }
+                }}
+                placeholder="Name or student number"
+              />
             </label>
-            <button
-              className="registrar-btn"
-              onClick={() => {
-                if (!selectedGroup) return
-                void fetchAssignableStudents(selectedGroup.semester, selectedGroup.year, studentSearch, selectedGroup._id)
-              } }
-              disabled={loading}
-            >
-              Search
-            </button>
-            <div className="assignment-segmented-group">
-              <p className="assignment-segmented-label">Select Block:</p>
-              <div className="block-segmented compact" role="tablist" aria-label="Open blocks">
-                {sortedOpenBlocks.map((section) => (
-                  <button
-                    key={section._id}
-                    type="button"
-                    role="tab"
-                    aria-selected={selectedSection === section._id}
-                    className={`block-segment-btn ${selectedSection === section._id ? 'active' : ''}`}
-                    onClick={() => setSelectedSection(section._id)}
-                  >
-                    <span className="block-segment-name">{formatBlockColumnLabel(section.sectionCode)}</span>
-                    <span className="block-segment-meta">{section.currentPopulation}/{section.capacity}</span>
-                  </button>
-                ))}
-                {openBlocks.length === 0 && (
-                  <p className="block-segment-empty">No open blocks available.</p>
-                )}
-              </div>
-            </div>
 
+            <label>
+              Target Section
+              <select value={targetSectionId} onChange={(event) => setTargetSectionId(event.target.value)} disabled={targetSections.length === 0}>
+                <option value="">{targetSections.length > 0 ? 'Choose section' : 'No sections available'}</option>
+                {targetSections.map((section) => (
+                  <option key={section._id} value={section._id}>
+                    {`${formatBlockColumnLabel(section.sectionCode)} (${section.currentPopulation}/${section.capacity})`}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <button type="button" className="registrar-btn" onClick={() => void handleSearchStudents()} disabled={loading || assigning}>
+              {loading ? 'Searching...' : 'Search'}
+            </button>
             <button
+              type="button"
               className="registrar-btn"
-              onClick={handleAssignStudent}
-              disabled={loading || selectedStudents.length === 0 || !selectedSection}
+              onClick={() => void handleAssignStudents()}
+              disabled={assigning || selectedStudents.length === 0 || !targetSectionId || !isTargetSectionOpen}
             >
-              {loading ? 'Assigning...' : `Assign Student${selectedStudents.length > 1 ? 's' : ''}`}
+              {assigning ? 'Assigning...' : `Assign Selected (${selectedStudents.length})`}
             </button>
           </div>
-          <p style={{ margin: '0.35rem 0 0', fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>
-            Selected students: {selectedStudents.length}
-          </p>
-          <div className="sections-list" style={{ marginTop: '0.75rem' }}>
-            <h3>Student List</h3>
-            <div className="student-list" role="listbox" aria-label="Assignable students">
-              <div className="student-list-header">
-                <span>Name</span>
-                <span>Student No.</span>
-                <span>Course</span>
-                <span>Year Level</span>
-                <span>Status</span>
-                <span className="student-action-header">Action</span>
-              </div>
-              <div className="student-list-body">
-                {students.map((student) => (
-                  <div
-                    key={student._id}
-                    className={`student-list-row ${selectedStudents.includes(student._id) ? 'selected' : ''}`}
-                    role="option"
-                    aria-selected={selectedStudents.includes(student._id)}
-                  >
-                    <span className="student-list-name">{formatStudentName(student)}</span>
-                    <span className="student-list-meta">{formatStudentNumber(student)}</span>
-                    <span className="student-list-meta">{formatCourseLabel(student.course)}</span>
-                    <span className="student-list-meta">YL {student.yearLevel || 'N/A'}</span>
-                    <span className="student-list-meta">{student.studentStatus || 'N/A'}</span>
-                    <span className="student-action-cell">
+
+          {!isTargetSectionOpen && selectedTargetSection && (
+            <p className="assignment-inline-note">Target section is CLOSED. Select an OPEN section to assign students.</p>
+          )}
+
+          <p className="assignment-inline-note">Selected students: {selectedStudents.length}</p>
+          <div className="block-student-detail-table">
+            <div className="block-student-detail-header">
+              <span>Name</span>
+              <span>Student No.</span>
+              <span>Course</span>
+              <span>Year</span>
+              <span>Status</span>
+              <span>Adviser</span>
+              <span className="block-student-detail-action-head">Action</span>
+            </div>
+            <div className="block-student-detail-body">
+              {students.map((student) => {
+                const selected = selectedStudents.includes(student._id)
+                return (
+                  <div key={student._id} className="block-student-detail-row">
+                    <span className="block-student-detail-name">{formatStudentName(student)}</span>
+                    <span>{formatStudentNumber(student)}</span>
+                    <span>{formatCourseLabel(student.course)}</span>
+                    <span>{student.yearLevel || 'N/A'}</span>
+                    <span>{student.studentStatus || 'N/A'}</span>
+                    <span>{(student as SectionStudent).assignedProfessor || 'Unassigned'}</span>
+                    <span className="block-student-detail-action-cell">
                       <button
                         type="button"
-                        className={`student-add-btn ${selectedStudents.includes(student._id) ? 'selected' : ''}`}
+                        className={`student-add-btn ${selected ? 'selected' : ''}`}
                         onClick={() => toggleStudentSelection(student._id)}
-                        aria-label={selectedStudents.includes(student._id) ? `Remove ${formatStudentName(student)}` : `Add ${formatStudentName(student)}`}
+                        aria-label={selected ? `Remove ${formatStudentName(student)}` : `Add ${formatStudentName(student)}`}
                       >
-                        {selectedStudents.includes(student._id) ? '-' : '+'}
+                        {selected ? '-' : '+'}
                       </button>
                     </span>
                   </div>
-                ))}
-              </div>
+                )
+              })}
             </div>
-            {students.length === 0 && (
-              <p style={{ margin: '0.5rem 0 0', color: 'var(--color-text-muted)' }}>
-                No assignable students found for this block.
-              </p>
-            )}
           </div>
-          <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
-            Assignable students available: {students.length}
-          </p>
+          {students.length === 0 && (
+            <p className="block-student-empty">No assignable students found for this block.</p>
+          )}
         </div>
-      )}
 
-      {selectedGroup && (
-        <div className="sections-list">
-          <h3>Block Details: {selectedGroup.name}</h3>
-          <div className="sections-grid">
-            {sortedSections.map(section => (
-              <button
-                key={section._id}
-                type="button"
-                className={`section-card section-card-button ${activeDetailSectionId === section._id ? 'active' : ''}`}
-                onClick={() => handleSectionCardClick(section._id)}
-              >
-                <h4>{formatBlockColumnLabel(section.sectionCode)}</h4>
-                <p>Capacity: {section.capacity}</p>
-                <p>Current: {section.currentPopulation}</p>
-                <p>Status: {section.status}</p>
-                <p className="section-card-hint">
-                  {activeDetailSectionId === section._id ? 'Showing student details' : 'Click to view students'}
-                </p>
-              </button>
-            ))}
-          </div>
-          {activeDetailSectionId && (
-            <div className="section-students-panel">
-              <h4>
-                Students in {sections.find((s) => s._id === activeDetailSectionId)?.sectionCode || 'Section'}
-              </h4>
-              <p className="section-students-summary">
-                Total Students: {sectionStudents.length}
-              </p>
-              {sectionStudentsLoading ? (
-                <p className="section-students-empty">Loading students...</p>
-              ) : sectionStudents.length === 0 ? (
-                <p className="section-students-empty">No assigned students in this block yet.</p>
-              ) : (
-                <div className="section-students-list">
-                  <div className="section-students-header">
-                    <span>Name</span>
-                    <span>Student No.</span>
-                    <span>Year Level</span>
-                    <span>Status</span>
-                    <span className="section-students-action-header">Action</span>
-                  </div>
-                  <div className="section-students-body">
-                    {sectionStudents.map((student) => {
-                      const isUnassigning = unassigningStudentId === student._id
-                      return (
-                        <div key={student._id} className="section-students-row">
-                          <span>{formatStudentName(student)}</span>
-                          <span>{formatStudentNumber(student)}</span>
-                          <span>YL {student.yearLevel || 'N/A'}</span>
-                          <span>{student.studentStatus || 'N/A'}</span>
-                          <span className="section-students-action-cell">
-                            <button
-                              type="button"
-                              className="section-unassign-btn"
-                              onClick={() => void handleUnassignSectionStudent(student)}
-                              disabled={Boolean(unassigningStudentId)}
-                            >
-                              {isUnassigning ? 'Unassigning...' : 'Unassign'}
-                            </button>
-                          </span>
+        <div className="assignment-section">
+          <h3>Step 4: Block Details</h3>
+          <p className="assignment-help-text">Assigned students are shown directly below each section.</p>
+          {sortedSections.length === 0 ? (
+            <p className="block-student-empty">No sections found for this block yet.</p>
+          ) : (
+            <div className="block-workspace-sections">
+              {sortedSections.map((section) => {
+                const studentsInSection = sectionStudentsById[section._id] || []
+                const sectionLoading = Boolean(sectionLoadingById[section._id])
+                return (
+                  <div key={section._id} className="section-students-panel">
+                    <h4>{formatBlockColumnLabel(section.sectionCode)}</h4>
+                    <p className="section-students-summary">
+                      Capacity: {section.currentPopulation}/{section.capacity} | Status: {section.status}
+                    </p>
+
+                    {sectionLoading ? (
+                      <p className="section-students-empty">Loading students...</p>
+                    ) : studentsInSection.length === 0 ? (
+                      <p className="section-students-empty">No assigned students in this section yet.</p>
+                    ) : (
+                      <div className="block-student-detail-table">
+                        <div className="block-student-detail-header">
+                          <span>Name</span>
+                          <span>Student No.</span>
+                          <span>Course</span>
+                          <span>Year</span>
+                          <span>Status</span>
+                          <span>Assigned At</span>
+                          <span className="block-student-detail-action-head">Action</span>
                         </div>
-                      )
-                    })}
+                        <div className="block-student-detail-body">
+                          {studentsInSection.map((student) => {
+                            const unassignKey = `${section._id}:${student._id}`
+                            const isUnassigning = unassigningStudentKey === unassignKey
+                            return (
+                              <div key={student._id} className="block-student-detail-row">
+                                <span className="block-student-detail-name">{formatStudentName(student)}</span>
+                                <span>{formatStudentNumber(student)}</span>
+                                <span>{formatCourseLabel(student.course)}</span>
+                                <span>{student.yearLevel || 'N/A'}</span>
+                                <span>{student.studentStatus || 'N/A'}</span>
+                                <span>{formatAssignedAt(student.assignedAt)}</span>
+                                <span className="block-student-detail-action-cell">
+                                  <button
+                                    type="button"
+                                    className="section-unassign-btn"
+                                    onClick={() => void handleUnassignStudent(section._id, student)}
+                                    disabled={Boolean(unassigningStudentKey)}
+                                  >
+                                    {isUnassigning ? 'Unassigning...' : 'Unassign'}
+                                  </button>
+                                </span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
+                )
+              })}
             </div>
           )}
         </div>
-      )}
-    </div><OvercapacityControllerModal
-        isOpen={isModalOpen}
-        data={overcapacityData}
-        onClose={() => setIsModalOpen(false)}
-        onDecision={handleOvercapacityDecision} /></>
+      </div>
+    </div>
   )
 }
 
