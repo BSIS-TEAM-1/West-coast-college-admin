@@ -996,10 +996,11 @@
 
 .landing-value-summary {
   margin: 0.65rem 0 0;
-  color: rgba(226, 232, 240, 0.9);
+  color: rgba(226, 232, 240, 0.82);
   line-height: 1.62;
   font-size: 1.05rem;
-  font-weight: 700;
+  font-weight: 400;
+  text-align: justify;
 }
 
 .landing-value-points {
@@ -1224,7 +1225,7 @@
 }
 
 [data-theme="light"] .landing-value-summary {
-  color: #1f2937;
+  color: #475569;
 }
 
 [data-theme="light"] .landing-service-card h3 {
