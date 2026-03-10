@@ -3037,7 +3037,7 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
                           <div key={`timetable-${day}`} className={`professor-timetable-day-col ${day === todayName ? 'is-today' : ''}`}>
                             <div className="professor-timetable-day-header">{day}</div>
                             <div className="professor-timetable-day-body" style={{ height: `${timeSlots.length * SLOT_HEIGHT}px` }}>
-                              {timeSlots.map((slot, idx) => (
+                              {timeSlots.map((_, idx) => (
                                 <div key={`${day}-line-${idx}`} className={`professor-timetable-line ${idx % 2 === 0 ? 'is-strong' : ''}`} />
                               ))}
 

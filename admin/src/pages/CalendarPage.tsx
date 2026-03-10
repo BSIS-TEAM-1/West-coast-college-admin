@@ -1,4 +1,5 @@
-﻿import { FormEvent, useMemo, useState } from 'react'
+﻿import { useMemo, useState } from 'react'
+import type { FormEvent, ReactElement } from 'react'
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, Edit3, Plus, Save, Trash2, X } from 'lucide-react'
 import './CalendarPage.css'
 
@@ -138,7 +139,7 @@ export default function CalendarPage({ onBack }: CalendarPageProps) {
   const getDaysForMonth = () => {
     const daysInMonth = getDaysInMonth(currentDate)
     const firstDay = getFirstDayOfMonth(currentDate)
-    const dayCells: JSX.Element[] = []
+    const dayCells: ReactElement[] = []
 
     for (let i = 0; i < firstDay; i += 1) {
       dayCells.push(<div key={`empty-${i}`} className="calendar-page-day empty" />)
