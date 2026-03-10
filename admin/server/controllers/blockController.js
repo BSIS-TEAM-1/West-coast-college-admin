@@ -726,7 +726,7 @@ class BlockController {
     }
   }
 
-  // GET /api/blocks/sections/:sectionId/students - list students assigned to a section
+  // GET /api/blocks/sections/:sectionId/students - list students assigned (including legacy waitlist records) to a section
   async getSectionStudents(req, res) {
     try {
       const { sectionId } = req.params;
@@ -739,11 +739,12 @@ class BlockController {
         return res.status(404).json({ error: 'Section not found' });
       }
 
+      const assignmentStatuses = ['ASSIGNED', 'WAITLISTED'];
       const assignments = await StudentBlockAssignment.find({
         sectionId: section._id,
-        status: 'ASSIGNED'
+        status: { $in: assignmentStatuses }
       })
-        .select('_id studentId assignedAt')
+        .select('_id studentId status assignedAt')
         .sort({ assignedAt: 1 });
 
       const studentIds = assignments
@@ -786,11 +787,14 @@ class BlockController {
           course: student.course,
           assignedProfessor: student.assignedProfessor || '',
           corStatus: student.corStatus || 'Pending',
+          status: assignment?.status || 'ASSIGNED',
           assignedAt: assignment?.assignedAt || null
         };
       });
 
-      const normalizedPopulation = payload.length;
+      const normalizedPopulation = assignments.filter(
+        (assignment) => assignment.status === 'ASSIGNED'
+      ).length;
       let sectionPayload = section.toObject();
 
       if (Number(section.currentPopulation) !== normalizedPopulation) {

@@ -9,6 +9,7 @@
 /* CSS Variables for Theming */
 :root {
   --color-bg: #f8fafc;
+  --bg-primary: #f8fafc;
   --bg-secondary: #ffffff;
   --border-color: #e2e8f0;
   --text-primary: #1e293b;
@@ -18,11 +19,12 @@
 
 /* Dark mode variables - only apply when root has data-theme="dark" */
 [data-theme="dark"] {
-  --color-bg: #0f172a;
-  --bg-secondary: #1e293b;
-  --border-color: #334155;
-  --text-primary: #f1f5f9;
-  --text-secondary: #cbd5e1;
+  --color-bg: #121212;
+  --bg-primary: rgba(255, 255, 255, 0.05);
+  --bg-secondary: rgba(20, 20, 20, 0.62);
+  --border-color: rgba(255, 255, 255, 0.2);
+  --text-primary: #f8fafc;
+  --text-secondary: #e2e8f0;
   --text-muted: #94a3b8;
 }
 
@@ -36,7 +38,7 @@
 .dashboard-main {
   flex: 1;
   padding: 2rem 1.5rem;
-  background: #f8fafc;
+  background: var(--color-bg);
 }
 
 .dashboard-welcome {
@@ -164,7 +166,7 @@
 }
 
 .announcement-card {
-  background: white;
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 0.75rem;
   padding: 1.5rem;
@@ -689,7 +691,7 @@
 }
 
 .announcement-modal {
-  background: white;
+  background: var(--color-surface);
   border-radius: 16px;
   max-width: 800px;
   width: 95%;
@@ -709,7 +711,7 @@
 .modal-header {
   padding: 1.5rem 2rem;
   border-bottom: 1px solid #f1f5f9;
-  background: white;
+  background: var(--color-surface);
   flex-shrink: 0;
 }
 
@@ -799,7 +801,7 @@
 .modal-media-caption {
   padding: 0.75rem 1.5rem;
   width: 100%;
-  background: white;
+  background: var(--color-surface);
   color: #475569;
   font-size: 0.875rem;
   border-top: 1px solid #f1f5f9;
@@ -977,5 +979,6 @@
 
 /* Dark theme overrides for dashboard */
 [data-theme="dark"] .dashboard-main {
-  background: #334155;
+  background: linear-gradient(155deg, rgba(18, 18, 18, 0.88), rgba(38, 38, 38, 0.82));
 }
+

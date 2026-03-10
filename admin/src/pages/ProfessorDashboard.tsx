@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
-import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Video, Calendar, Award, Search, ChevronRight } from 'lucide-react'
+﻿import { useState, useEffect, useRef, useMemo } from 'react'
+import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Video, Calendar, Award, Search, ChevronRight, Download, Send, Eye, CalendarDays, List, Grid3X3, MapPin } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
@@ -9,6 +9,7 @@ import { API_URL } from '../lib/authApi'
 import Announcements from './Announcements'
 import AnnouncementDetail from './AnnouncementDetail'
 import PersonalDetails from './PersonalDetails'
+import Maintenance from './Maintenance'
 import './ProfessorDashboard.css'
 
 interface Announcement {
@@ -92,6 +93,38 @@ interface ProfessorAssignedStudent {
   corStatus?: string
   assignedAt?: string | null
 }
+
+interface ProfessorRosterClassOption {
+  key: string
+  courseCode: string
+  blockCode: string
+  sectionId: string
+  sectionCode: string
+  semester: string
+  schoolYear: string
+  yearLevel: number | null
+  subjectCode: string
+  subjectTitle: string
+  schedule: string
+  room: string
+}
+
+interface ProfessorRosterStudent extends Omit<ProfessorAssignedStudent, 'studentNumber'> {
+  studentNumber: string
+  email?: string
+  contactNumber?: string
+  program?: string
+  status?: string
+  attendancePercentage?: number
+  currentGrade?: number | string
+  latestGrade?: number | string
+  quizScores?: Array<{ name: string; score: number | string }>
+  assignmentScores?: Array<{ name: string; score: number | string }>
+  attendanceRecord?: Array<{ date: string; status: string }>
+  remarks?: string
+}
+
+type RosterSortBy = 'name-asc' | 'name-desc' | 'id-asc' | 'id-desc'
 
 type ProfessorView = 'dashboard' | 'courses' | 'students' | 'grades' | 'schedule' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'subject-detail'
 
@@ -187,7 +220,7 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
   }, [view])
 
   useEffect(() => {
-    if (view === 'courses') {
+    if (view === 'courses' || view === 'students' || view === 'schedule') {
       void fetchAssignedCourses()
     }
   }, [view])
@@ -286,11 +319,25 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
           />
         )
       case 'students':
-        return <StudentManagement />
+        return (
+          <StudentManagement
+            courses={assignedCourses}
+            loading={coursesLoading}
+            error={coursesError}
+            onRefresh={fetchAssignedCourses}
+          />
+        )
       case 'grades':
         return <GradesManagement />
       case 'schedule':
-        return <ScheduleManagement />
+        return (
+          <ScheduleManagement
+            courses={assignedCourses}
+            loading={coursesLoading}
+            error={coursesError}
+            onRefresh={fetchAssignedCourses}
+          />
+        )
       case 'profile':
         return <Profile onProfileUpdated={handleProfileUpdated} onNavigate={(viewName) => {
           if (viewName === 'personal-details') {
@@ -1237,83 +1284,2015 @@ function ProfessorSubjectDetail({ detail, onBack }: ProfessorSubjectDetailProps)
   )
 }
 
-function StudentManagement() {
-  return (
-    <div className="professor-section">
-      <h2 className="professor-section-title">Students</h2>
-      <p className="professor-section-desc">View student lists, track progress, and manage academic records.</p>
-      
-      <div className="placeholder-content">
+interface StudentManagementProps {
+  courses: ProfessorAssignedCourse[]
+  loading: boolean
+  error: string
+  onRefresh: () => Promise<void>
+}
+
+function StudentManagement({ courses, loading, error, onRefresh }: StudentManagementProps) {
+  const [selectedClassKey, setSelectedClassKey] = useState('')
+  const [students, setStudents] = useState<ProfessorRosterStudent[]>([])
+  const [studentsLoading, setStudentsLoading] = useState(false)
+  const [studentsError, setStudentsError] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'dropped'>('all')
+  const [sortBy, setSortBy] = useState<RosterSortBy>('name-asc')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [selectedStudent, setSelectedStudent] = useState<ProfessorRosterStudent | null>(null)
+
+  const formatCourseLabel = (value: string | number) => {
+    const text = String(value || '').trim()
+    if (!text) return ''
+    if (/^\d{3,6}$/.test(text)) return text
+    const normal = text.replace(/\s+/g, ' ').toUpperCase()
+    if (normal.includes('BACHELOR OF INFORMATION SYSTEMS')) return 'BSIS'
+    if (normal.includes('ELEMENTARY EDUCATION')) return 'BEED'
+    if (normal.includes('SECONDARY EDUCATION')) return 'BSED'
+    if (normal.includes('BA') || normal.includes('EDUCATION')) return 'BSE'
+    return text
+  }
+
+  const formatBlockCode = (courseCode: string, sectionCode: string) => {
+    return `${formatCourseLabel(courseCode)} ${sectionCode}`.trim()
+  }
+
+  const classOptions = useMemo<ProfessorRosterClassOption[]>(() => {
+    return courses.flatMap((course) => {
+      return course.blocks
+        .filter((block) => Boolean(block.sectionId))
+        .flatMap((block) => {
+          return block.subjects.map((subject) => {
+            const blockCode = formatBlockCode(course.courseCode, block.sectionCode)
+            return {
+              key: `${course.courseCode}|${block.sectionId}|${subject.subjectId}`,
+              courseCode: course.courseCode,
+              blockCode,
+              sectionId: block.sectionId as string,
+              sectionCode: block.sectionCode,
+              semester: block.semester,
+              schoolYear: block.schoolYear,
+              yearLevel: block.yearLevel,
+              subjectCode: subject.code,
+              subjectTitle: subject.title,
+              schedule: subject.schedule || 'TBA',
+              room: subject.room || 'TBA'
+            }
+          })
+        })
+    })
+  }, [courses])
+
+  const selectedClass = useMemo(
+    () => classOptions.find((item) => item.key === selectedClassKey) || null,
+    [classOptions, selectedClassKey]
+  )
+
+  useEffect(() => {
+    const active = classOptions.some((item) => item.key === selectedClassKey)
+    if (!active) {
+      setSelectedClassKey('')
+    }
+  }, [classOptions, selectedClassKey])
+
+  const getName = (student: ProfessorRosterStudent) => {
+    return [student.lastName, student.firstName, student.middleName, student.suffix]
+      .map((part) => String(part || '').trim())
+      .filter(Boolean)
+      .join(', ')
+  }
+
+  const normalizeCourseCode = (courseCode: string) => {
+    const normalized = String(courseCode || '').trim().toUpperCase().replace(/\s+/g, '')
+    if (!normalized) return ''
+    if (/^\d{3,5}$/.test(normalized)) return normalized
+    if (normalized.includes('BEED')) return '101'
+    if (normalized.includes('BSIS') || normalized.includes('BSEI')) return '102'
+    if (normalized.includes('BSIT')) return '103'
+    if (normalized.includes('BSBA')) return '201'
+    return normalized.slice(0, 3) || 'COURSE'
+  }
+
+  const formatStudentNumber = (rawValue: string | number, fallbackCourseCode: string) => {
+    const raw = String(rawValue || '').trim()
+    if (!raw) return ''
+    const cleaned = raw.replace(/\s+/g, '')
+    if (!/[A-Za-z]/.test(cleaned) && /^\d{4,}/.test(cleaned)) {
+      const compact = cleaned.replace(/\D+/g, '')
+      if (compact.length >= 9) {
+        const year = compact.slice(0, 4)
+        const seq = compact.slice(-5).padStart(5, '0')
+        return `${year}-${normalizeCourseCode(fallbackCourseCode)}-${seq}`
+      }
+    }
+
+    const parts = cleaned.split('-').filter(Boolean)
+    if (parts.length >= 3) {
+      const year = parts[0] || '0000'
+      const seq = parts[parts.length - 1] || '00000'
+      const sourceCode = parts.find((part) => /[A-Za-z]/.test(part)) || fallbackCourseCode
+      return `${year}-${normalizeCourseCode(sourceCode)}-${String(seq).slice(-5).padStart(5, '0')}`
+    }
+
+    const firstDigits = cleaned.replace(/\D+/g, '')
+    const year = firstDigits.slice(0, 4) || '0000'
+    const seq = firstDigits.slice(-5).padStart(5, '0')
+    return `${year}-${normalizeCourseCode(fallbackCourseCode)}-${seq}`
+  }
+
+  useEffect(() => {
+    let cancelled = false
+
+    const fetchStudents = async () => {
+      if (!selectedClass?.sectionId) {
+        setStudents([])
+        setStudentsError('')
+        return
+      }
+
+      try {
+        setStudentsLoading(true)
+        setStudentsError('')
+
+        const token = await getStoredToken()
+        if (!token) {
+          setStudents([])
+          setStudentsError('You are not logged in.')
+          return
+        }
+
+        const response = await fetch(`${API_URL}/api/blocks/sections/${selectedClass.sectionId}/students`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        })
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch students: ${response.status}`)
+        }
+
+        const payload = await response.json().catch(() => ({}))
+        const rosterRows = Array.isArray(payload?.students) ? payload.students : []
+        const normalized = rosterRows.map((raw: any) => {
+          const yearLevel = typeof raw?.yearLevel === 'number' ? raw.yearLevel : Number(raw?.yearLevel)
+          return {
+            _id: String(raw?._id || raw?.id || ''),
+            studentNumber: formatStudentNumber(
+              raw?.studentNumber || raw?.studentId || '',
+              selectedClass.courseCode
+            ),
+            firstName: String(raw?.firstName || ''),
+            middleName: raw?.middleName ? String(raw.middleName) : '',
+            lastName: String(raw?.lastName || ''),
+            suffix: raw?.suffix ? String(raw.suffix) : '',
+            yearLevel: Number.isFinite(yearLevel) ? yearLevel : undefined,
+            studentStatus: raw?.studentStatus || raw?.status || 'Active',
+            course: raw?.course || selectedClass.courseCode || '',
+            email: raw?.email || 'Not provided',
+            contactNumber: raw?.contactNumber || 'Not provided',
+            assignedAt: raw?.assignedAt,
+            attendancePercentage: raw?.attendancePercentage,
+            latestGrade: raw?.latestGrade,
+            currentGrade: raw?.currentGrade ?? raw?.grade ?? '',
+            remarks: raw?.remarks || '',
+            attendanceRecord: Array.isArray(raw?.attendanceRecord) ? raw.attendanceRecord : undefined,
+            quizScores: Array.isArray(raw?.quizScores) ? raw.quizScores : undefined,
+            assignmentScores: Array.isArray(raw?.assignmentScores) ? raw.assignmentScores : undefined
+          } as ProfessorRosterStudent
+        })
+        if (!cancelled) {
+          setStudents(normalized)
+          setCurrentPage(1)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setStudents([])
+          setStudentsError(error instanceof Error ? error.message : 'Failed to load students for selected class.')
+        }
+      } finally {
+        if (!cancelled) {
+          setStudentsLoading(false)
+        }
+      }
+    }
+
+    void fetchStudents()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedClass?.sectionId, selectedClass?.courseCode])
+
+  const filteredStudents = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+    let result = [...students]
+
+    if (query) {
+      result = result.filter((student) => {
+        const studentName = getName(student).toLowerCase()
+        return (
+          studentName.includes(query) ||
+          String(student.studentNumber).toLowerCase().includes(query)
+        )
+      })
+    }
+
+    if (statusFilter !== 'all') {
+      result = result.filter((student) => {
+        const status = String(student.studentStatus || student.status || '').toLowerCase()
+        if (statusFilter === 'active') {
+          return status.includes('active')
+        }
+        return status.includes('drop') || status.includes('dropped')
+      })
+    }
+
+    switch (sortBy) {
+      case 'name-desc':
+        result.sort((a, b) => getName(b).localeCompare(getName(a), undefined, { sensitivity: 'base' }))
+        break
+      case 'id-asc':
+        result.sort((a, b) => String(a.studentNumber).localeCompare(String(b.studentNumber), undefined, { numeric: true }))
+        break
+      case 'id-desc':
+        result.sort((a, b) => String(b.studentNumber).localeCompare(String(a.studentNumber), undefined, { numeric: true }))
+        break
+      case 'name-asc':
+      default:
+        result.sort((a, b) => getName(a).localeCompare(getName(b), undefined, { sensitivity: 'base' }))
+        break
+    }
+    return result
+  }, [students, searchQuery, statusFilter, sortBy])
+
+  const totalPages = Math.max(1, Math.ceil(filteredStudents.length / 10))
+  const currentPageStudents = filteredStudents.slice((currentPage - 1) * 10, currentPage * 10)
+  const canGoPrev = currentPage > 1
+  const canGoNext = currentPage < totalPages
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages)
+    }
+  }, [currentPage, totalPages])
+
+  const totalStudents = students.length
+  const hasGrades = students.some((student) => student.currentGrade || student.latestGrade)
+
+  const gradeTotals = students
+    .map((student) => Number(student.currentGrade ?? student.latestGrade))
+    .filter((value) => Number.isFinite(value))
+
+  const classAverageGrade = gradeTotals.length > 0
+    ? `${(gradeTotals.reduce((sum, value) => sum + value, 0) / gradeTotals.length).toFixed(1)}%`
+    : 'â€”'
+
+  const exportRoster = () => {
+    if (!selectedClass) {
+      return
+    }
+    const rows = students.map((student) => [
+      formatStudentNumber(student.studentNumber, selectedClass.courseCode),
+      getName(student),
+      String(student.course || selectedClass.courseCode),
+      String(student.yearLevel ?? ''),
+      student.email || '',
+      String(student.currentGrade ?? student.latestGrade ?? ''),
+      student.studentStatus || 'Active'
+    ])
+    const header = ['Student ID', 'Full Name', 'Program/Course', 'Year Level', 'Email', 'Current Grade', 'Status']
+    const csv = [header, ...rows].map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\r\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${selectedClass.subjectCode}-${selectedClass.sectionCode}-roster.csv`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  const sendAnnouncement = () => {
+    if (!selectedClass) return
+    alert(`Announcement form for ${selectedClass.subjectCode} ${selectedClass.sectionCode} will be available in the class communication module.`)
+  }
+
+  if (loading) {
+    return (
+      <div className="professor-section">
+        <h2 className="professor-section-title">Student Roster</h2>
+        <p className="professor-section-desc">View enrolled students for your assigned courses.</p>
+        <p>Loading your assigned classes...</p>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="professor-section">
+        <h2 className="professor-section-title">Student Roster</h2>
+        <p className="professor-section-desc">View enrolled students for your assigned courses.</p>
+        <p className="professor-data-error">{error}</p>
+        <button className="professor-btn professor-btn-secondary" onClick={() => void onRefresh()}>Retry</button>
+      </div>
+    )
+  }
+
+  if (classOptions.length === 0) {
+    return (
+      <div className="professor-section">
+        <h2 className="professor-section-title">Student Roster</h2>
+        <p className="professor-section-desc">View enrolled students for your assigned courses.</p>
         <div className="placeholder-card">
-          <h3>Student Roster</h3>
-          <p>View enrolled students for your courses</p>
-          <button className="professor-btn" disabled>Coming Soon</button>
-        </div>
-        <div className="placeholder-card">
-          <h3>Academic Progress</h3>
-          <p>Track student performance and engagement</p>
-          <button className="professor-btn" disabled>Coming Soon</button>
-        </div>
-        <div className="placeholder-card">
-          <h3>Communication</h3>
-          <p>Send announcements and messages to students</p>
-          <button className="professor-btn" disabled>Coming Soon</button>
+          <h3>No assigned class found</h3>
+          <p>No classes are currently assigned to your account.</p>
+          <button className="professor-btn professor-btn-secondary" onClick={() => void onRefresh()}>Refresh Assignments</button>
         </div>
       </div>
+    )
+  }
+
+  return (
+    <div className="professor-section">
+      <h2 className="professor-section-title">Student Roster</h2>
+      <p className="professor-section-desc">View enrolled students for your assigned courses.</p>
+
+      <div className="professor-roster-controls">
+        <div className="professor-roster-class-select">
+          <label htmlFor="professor-class-select">Assigned Class</label>
+          <select
+            id="professor-class-select"
+            value={selectedClassKey}
+            onChange={(event) => {
+              setSelectedClassKey(event.target.value)
+              setSearchQuery('')
+              setStatusFilter('all')
+              setSortBy('name-asc')
+              setCurrentPage(1)
+            }}
+          >
+            <option value="">Select a course or section</option>
+            {classOptions.map((option) => (
+              <option key={option.key} value={option.key}>
+                {option.subjectCode} - {formatCourseLabel(option.courseCode)} {option.sectionCode}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="professor-tool-actions">
+          <button
+            type="button"
+            className="professor-btn"
+            onClick={exportRoster}
+            disabled={!selectedClass || students.length === 0}
+          >
+            <Download size={14} />
+            Export Roster
+          </button>
+          <button
+            type="button"
+            className="professor-btn professor-btn-secondary"
+            onClick={sendAnnouncement}
+            disabled={!selectedClass}
+          >
+            <Send size={14} />
+            Send Announcement to Class
+          </button>
+        </div>
+      </div>
+
+      {!selectedClass ? (
+        <div className="professor-empty-state">
+          <h3>No class selected</h3>
+          <p>Select a course or section to view the student roster.</p>
+        </div>
+      ) : (
+        <>
+          <div className="professor-class-overview">
+            <div className="professor-overview-row"><span>Subject Code</span><strong>{selectedClass.subjectCode}</strong></div>
+            <div className="professor-overview-row"><span>Subject Title</span><strong>{selectedClass.subjectTitle}</strong></div>
+            <div className="professor-overview-row"><span>Section / Block</span><strong>{selectedClass.blockCode}</strong></div>
+            <div className="professor-overview-row"><span>Schedule</span><strong>{selectedClass.schedule}</strong></div>
+            <div className="professor-overview-row"><span>Semester / School Year</span><strong>{selectedClass.semester} / {selectedClass.schoolYear}</strong></div>
+            <div className="professor-overview-row"><span>Total Students</span><strong>{totalStudents}</strong></div>
+          </div>
+
+          <div className="professor-summary-grid">
+            <div className="professor-summary-card">
+              <span>Total Students</span>
+              <strong>{totalStudents}</strong>
+            </div>
+            <div className="professor-summary-card">
+              <span>Class Average Grade</span>
+              <strong>{classAverageGrade}</strong>
+              {!hasGrades && <small>not available</small>}
+            </div>
+          </div>
+
+          <div className="professor-roster-toolbar">
+            <div className="professor-roster-search">
+              <Search size={16} />
+              <input
+                type="text"
+                placeholder="Search name or student ID"
+                value={searchQuery}
+                onChange={(event) => {
+                  setSearchQuery(event.target.value)
+                  setCurrentPage(1)
+                }}
+              />
+            </div>
+            <label>
+              <span>Status</span>
+              <select
+                value={statusFilter}
+                onChange={(event) => {
+                  setStatusFilter(event.target.value as 'all' | 'active' | 'dropped')
+                  setCurrentPage(1)
+                }}
+              >
+                <option value="all">All</option>
+                <option value="active">Active</option>
+                <option value="dropped">Dropped</option>
+              </select>
+            </label>
+            <label>
+              <span>Sort</span>
+              <select
+                value={sortBy}
+                onChange={(event) => {
+                  setSortBy(event.target.value as RosterSortBy)
+                  setCurrentPage(1)
+                }}
+              >
+                <option value="name-asc">Name A-Z</option>
+                <option value="name-desc">Name Z-A</option>
+                <option value="id-asc">Student ID</option>
+                <option value="id-desc">Student ID (desc)</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="professor-table-wrap">
+            <table className="professor-table">
+              <thead>
+                <tr>
+                  <th>Student ID</th>
+                  <th>Full Name</th>
+                  <th>Program / Course</th>
+                  <th>Year Level</th>
+                  <th>Email</th>
+                  <th>Current Grade</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {studentsLoading ? (
+                  <tr>
+                    <td colSpan={7}>Loading students...</td>
+                  </tr>
+                ) : studentsError ? (
+                  <tr>
+                    <td colSpan={7} className="professor-data-error">{studentsError}</td>
+                  </tr>
+                ) : currentPageStudents.length === 0 ? (
+                  <tr>
+                    <td colSpan={7}>No students are currently enrolled in this class.</td>
+                  </tr>
+                ) : (
+                  currentPageStudents.map((student) => (
+                    <tr key={student._id}>
+                      <td>{student.studentNumber}</td>
+                      <td>{getName(student)}</td>
+                      <td>{student.course || selectedClass.courseCode}</td>
+                      <td>{student.yearLevel ?? 'N/A'}</td>
+                      <td>{student.email || 'Not provided'}</td>
+                      <td>{student.currentGrade ?? student.latestGrade ?? 'â€”'}</td>
+                      <td>{student.studentStatus || student.status || 'Active'}</td>
+                      <td className="professor-table-actions">
+                        <button type="button" className="professor-btn-xs" onClick={() => setSelectedStudent(student)}>
+                          <Eye size={12} />
+                          View Profile
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {currentPageStudents.length > 0 && (
+            <div className="professor-pagination">
+              <button type="button" onClick={() => setCurrentPage((prev) => prev - 1)} disabled={!canGoPrev}>
+                Prev
+              </button>
+              <span>{`Page ${currentPage} of ${totalPages}`}</span>
+              <button type="button" onClick={() => setCurrentPage((prev) => prev + 1)} disabled={!canGoNext}>
+                Next
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {selectedStudent && (
+        <div className="professor-student-modal-backdrop" onClick={() => setSelectedStudent(null)}>
+          <div className="professor-student-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="professor-student-modal-header">
+              <h3>Student Profile</h3>
+              <button type="button" className="professor-btn-xs" onClick={() => setSelectedStudent(null)}>
+                Close
+              </button>
+            </div>
+            <div className="professor-student-modal-content">
+              <div className="professor-student-modal-grid">
+                <div><strong>Full Name:</strong> {getName(selectedStudent)}</div>
+                <div><strong>Student ID:</strong> {selectedStudent.studentNumber}</div>
+                <div><strong>Program / Course:</strong> {selectedStudent.course || selectedClass?.courseCode}</div>
+                <div><strong>Year Level:</strong> {selectedStudent.yearLevel ?? 'N/A'}</div>
+                <div><strong>Block / Section:</strong> {selectedClass?.blockCode}</div>
+                <div><strong>Email:</strong> {selectedStudent.email || 'Not provided'}</div>
+                <div><strong>Contact Number:</strong> {selectedStudent.contactNumber || 'Not provided'}</div>
+                <div><strong>Enrollment Status:</strong> {selectedStudent.studentStatus || selectedStudent.status || 'Active'}</div>
+              </div>
+
+              <div className="professor-student-academic">
+                <h4>Academic information</h4>
+                <div>
+                  <strong>Quiz scores:</strong>
+                  <ul>
+                    {selectedStudent.quizScores && selectedStudent.quizScores.length > 0 ? (
+                      selectedStudent.quizScores.map((entry, index) => (
+                        <li key={`${selectedStudent._id}-quiz-${index}`}>{entry.name}: {entry.score}</li>
+                      ))
+                    ) : (
+                      <li>Quiz scores not available.</li>
+                    )}
+                  </ul>
+                </div>
+                <div>
+                  <strong>Assignment scores:</strong>
+                  <ul>
+                    {selectedStudent.assignmentScores && selectedStudent.assignmentScores.length > 0 ? (
+                      selectedStudent.assignmentScores.map((entry, index) => (
+                        <li key={`${selectedStudent._id}-assign-${index}`}>{entry.name}: {entry.score}</li>
+                      ))
+                    ) : (
+                      <li>Assignment scores not available.</li>
+                    )}
+                  </ul>
+                </div>
+                <div><strong>Current grade:</strong> {selectedStudent.currentGrade ?? selectedStudent.latestGrade ?? 'Not available'}</div>
+                <div><strong>Remarks:</strong> {selectedStudent.remarks || 'No remarks available.'}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
+}
+
+
+interface ScheduleManagementProps {
+  courses: ProfessorAssignedCourse[]
+  loading: boolean
+  error: string
+  onRefresh: () => Promise<void>
 }
 
 function GradesManagement() {
   return (
-    <div className="professor-section">
-      <h2 className="professor-section-title">Grades</h2>
-      <p className="professor-section-desc">Submit grades, manage assessments, and track academic performance.</p>
-      
-      <div className="placeholder-content">
-        <div className="placeholder-card">
-          <h3>Grade Submission</h3>
-          <p>Submit midterm and final grades</p>
-          <button className="professor-btn" disabled>Coming Soon</button>
-        </div>
-        <div className="placeholder-card">
-          <h3>Assessments</h3>
-          <p>Manage quizzes, exams, and assignments</p>
-          <button className="professor-btn" disabled>Coming Soon</button>
-        </div>
-        <div className="placeholder-card">
-          <h3>Grade Analytics</h3>
-          <p>View grade distributions and class performance</p>
-          <button className="professor-btn" disabled>Coming Soon</button>
-        </div>
-      </div>
-    </div>
+    <Maintenance
+      featureName="Grades"
+      description="The Grades module is currently under scheduled maintenance. Grade submission, assessments, and grade analytics are temporarily unavailable."
+    />
   )
 }
 
-function ScheduleManagement() {
+function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleManagementProps) {
+  type ScheduleMode = 'list' | 'timetable'
+  type SchoolDay = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday'
+  type ScopeFilter = 'classes' | 'events' | 'both'
+  type ItemDay = SchoolDay | 'Unscheduled'
+
+  interface ScheduleItem {
+    id: string
+    courseCode: string
+    courseDisplayCode: string
+    sectionCode: string
+    blockCode: string
+    subjectCode: string
+    subjectTitle: string
+    scheduleText: string
+    days: SchoolDay[]
+    startMinutes: number | null
+    endMinutes: number | null
+    startTime: string
+    endTime: string
+    room: string
+    building: string
+    classType: 'Lecture' | 'Laboratory' | 'Other'
+    semester: string
+    schoolYear: string
+    yearLevel: number | null
+    enrolledStudents: number
+  }
+
+  interface TimetableOccurrence extends ScheduleItem {
+    day: SchoolDay
+    lane: number
+    laneCount: number
+  }
+
+  interface SchoolEvent {
+    id: string
+    title: string
+    date: string
+    time: string
+    category: 'Academic' | 'Exam' | 'Holiday' | 'Meeting' | 'Deadline' | 'General'
+    statusTag: string
+    statusTagClass: 'academic' | 'exam' | 'holiday' | 'meeting' | 'deadline' | 'general'
+    description: string
+    location?: string
+  }
+
+  interface CalendarEventPreview {
+    id: string
+    title: string
+    label: string
+    widthPercent: number
+    offsetPercent: number
+    tagClass: SchoolEvent['statusTagClass']
+  }
+
+  const SCHOOL_DAYS: SchoolDay[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+  const DAY_SHORT: Record<SchoolDay, string> = {
+    Monday: 'Mon',
+    Tuesday: 'Tue',
+    Wednesday: 'Wed',
+    Thursday: 'Thu',
+    Friday: 'Fri',
+    Saturday: 'Sat',
+    Sunday: 'Sun'
+  }
+  const SCHOOL_DAYS_BY_JS: SchoolDay[] = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+  const TIMETABLE_START = 7 * 60
+  const TIMETABLE_END = 21 * 60
+  const SLOT_MINUTES = 30
+  const SLOT_HEIGHT = 38
+
+  const toDateKey = (date: Date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+
+  const parseDateKey = (value: string) => {
+    const [y, m, d] = String(value).split('-').map((part) => Number(part))
+    if (!y || !m || !d) return null
+    const parsed = new Date(y, m - 1, d)
+    return Number.isNaN(parsed.getTime()) ? null : parsed
+  }
+
+  const getSchoolDayFromJs = (value: Date) => SCHOOL_DAYS_BY_JS[value.getDay()]
+
+  const formatClock = (minutes: number) => {
+    const normalized = ((minutes % 1440) + 1440) % 1440
+    const h24 = Math.floor(normalized / 60)
+    const minute = String(normalized % 60).padStart(2, '0')
+    const amPm = h24 >= 12 ? 'PM' : 'AM'
+    const hour = ((h24 + 11) % 12) + 1
+    return `${hour}:${minute} ${amPm}`
+  }
+
+  const getTimelinePreview = (event: SchoolEvent): CalendarEventPreview => {
+    const range = parseTimeRange(event.time)
+    const timelineStart = TIMETABLE_START
+    const timelineSpan = TIMETABLE_END - TIMETABLE_START
+
+    if (range.startMinutes !== null && range.endMinutes !== null) {
+      const start = Math.max(range.startMinutes, timelineStart)
+      const end = Math.min(range.endMinutes, TIMETABLE_END)
+      const safeEnd = Math.max(end, start + 30)
+      const offsetPercent = Math.max(0, Math.min(84, ((start - timelineStart) / timelineSpan) * 100))
+      const widthPercent = Math.max(14, Math.min(100 - offsetPercent, ((safeEnd - start) / timelineSpan) * 100))
+
+      return {
+        id: event.id,
+        title: event.title,
+        label: `${range.startTime} - ${range.endTime}`,
+        widthPercent,
+        offsetPercent,
+        tagClass: event.statusTagClass
+      }
+    }
+
+    const firstMatch = String(event.time || '').toUpperCase().match(/(\d{1,2}(?::\d{2})?\s*(AM|PM)?)/)
+    const firstTime = firstMatch ? parseTime(firstMatch[1]) : null
+
+    if (firstTime) {
+      const offsetPercent = Math.max(0, Math.min(84, ((firstTime.minutes - timelineStart) / timelineSpan) * 100))
+      return {
+        id: event.id,
+        title: event.title,
+        label: firstTime.label,
+        widthPercent: 18,
+        offsetPercent,
+        tagClass: event.statusTagClass
+      }
+    }
+
+    return {
+      id: event.id,
+      title: event.title,
+      label: event.time || 'See details',
+      widthPercent: 42,
+      offsetPercent: 0,
+      tagClass: event.statusTagClass
+    }
+  }
+
+  const parseTime = (value: string, fallback?: string) => {
+    const match = String(value || '').trim().toUpperCase().match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/)
+    if (!match) return null
+    const hour = Number(match[1])
+    const minute = Number(match[2] || '0')
+    if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour < 1 || hour > 12 || minute < 0 || minute > 59) {
+      return null
+    }
+
+    const period = (match[3] || fallback || (hour <= 6 ? 'PM' : 'AM')).toUpperCase()
+    const h24 = period === 'AM' ? (hour === 12 ? 0 : hour) : (hour === 12 ? 12 : hour + 12)
+    return {
+      minutes: h24 * 60 + minute,
+      label: `${hour}:${String(minute).padStart(2, '0')} ${period}`
+    }
+  }
+
+  const parseTimeRange = (value: string) => {
+    const matches = [...String(value || '').toUpperCase().matchAll(/(\d{1,2}(?::\d{2})?\s*(AM|PM)?)/g)]
+    if (matches.length < 2) {
+      return { startMinutes: null, endMinutes: null, startTime: 'TBA', endTime: 'TBA' }
+    }
+
+    const first = parseTime(matches[0][1])
+    const second = parseTime(matches[1][1], first?.label.includes('AM') ? 'AM' : 'PM')
+    if (!first || !second) {
+      return { startMinutes: null, endMinutes: null, startTime: 'TBA', endTime: 'TBA' }
+    }
+
+    let start = first.minutes
+    let end = second.minutes
+    if (end <= start) end += 720
+
+    return {
+      startMinutes: start,
+      endMinutes: end,
+      startTime: first.label,
+      endTime: second.label
+    }
+  }
+
+  const parseDays = (value: string) => {
+    const heading = String(value || '').toUpperCase().split(/\d{1,2}:\d{2}/)[0]
+    const normalized = heading
+      .replace(/TTH/g, 'TUE THU')
+      .replace(/MWF/g, 'MON WED FRI')
+      .replace(/,/g, ' ')
+      .replace(/;/g, ' ')
+      .replace(/\//g, ' ')
+      .replace(/\b-\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    const list: SchoolDay[] = []
+    const token = new Set(normalized.split(' ').filter(Boolean))
+
+    const hasMonday = /\bMONDAY\b/.test(normalized) || token.has('MON') || token.has('M')
+    const hasTuesday = /\bTUESDAY\b/.test(normalized) || token.has('TUE') || token.has('TU') || token.has('T')
+    const hasWednesday = /\bWEDNESDAY\b/.test(normalized) || token.has('WED') || token.has('W')
+    const hasThursday = /\bTHURSDAY\b/.test(normalized) || token.has('THU') || token.has('TH') || token.has('R')
+    const hasFriday = /\bFRIDAY\b/.test(normalized) || token.has('FRI') || token.has('F')
+    const hasSaturday = /\bSATURDAY\b/.test(normalized) || token.has('SAT') || token.has('SA')
+    const hasSunday = /\bSUNDAY\b/.test(normalized) || token.has('SUN') || token.has('SU')
+
+    if (hasMonday) list.push('Monday')
+    if (hasTuesday) list.push('Tuesday')
+    if (hasWednesday) list.push('Wednesday')
+    if (hasThursday) list.push('Thursday')
+    if (hasFriday) list.push('Friday')
+    if (hasSaturday) list.push('Saturday')
+    if (hasSunday) list.push('Sunday')
+
+    return list.filter((day, index, arr) => arr.indexOf(day) === index)
+  }
+
+  const normalizeCourseCode = (value: string | number) => {
+    const raw = String(value || '').trim().toUpperCase()
+    if (!raw) return 'COURSE'
+    if (/^\d+$/.test(raw)) return raw
+    if (raw.includes('BEED') || raw.includes('ELEMENTARY EDUCATION')) return 'BEED'
+    if (raw.includes('BSIS') || raw.includes('INFORMATION SYSTEMS')) return 'BSIS'
+    if (raw.includes('BSIT') || raw.includes('INFORMATION TECHNOLOGY')) return 'BSIT'
+    if (raw.includes('BSED') || raw.includes('SECONDARY EDUCATION') || raw.includes('ENGLISH EDUCATION')) return 'BSED'
+    return raw
+  }
+
+  const formatSectionCode = (courseCode: string, sectionCode: string) => {
+    const course = normalizeCourseCode(courseCode)
+    const section = String(sectionCode || '').trim().replace(/\s+/g, '')
+    if (!section) return `${course}-UNASSIGNED`
+    if (/^[A-Za-z]/.test(section)) return section
+    return `${course}-${section}`
+  }
+
+  const getRoomParts = (value: string) => {
+    const parts = String(value || 'TBA').split(',').map((part) => part.trim()).filter(Boolean)
+    return {
+      room: parts[0] || 'TBA',
+      building: parts.length > 1 ? parts.slice(1).join(', ') : 'Main Building'
+    }
+  }
+
+  const classItems = useMemo<ScheduleItem[]>(() =>
+    courses.flatMap((course) =>
+      course.blocks
+        .flatMap((block) =>
+          block.subjects.map((subject) => {
+            const days = parseDays(subject.schedule || '')
+            const parsedTime = parseTimeRange(subject.schedule || '')
+            const courseCode = normalizeCourseCode(course.courseCode)
+            const room = getRoomParts(subject.room || 'TBA')
+            const sectionCode = String(block.sectionCode || 'UNASSIGNED')
+            const sectionId = block.sectionId || `unassigned-${sectionCode}`
+
+            return {
+              id: `${course.courseCode}-${sectionId}-${subject.subjectId}`,
+              courseCode: String(course.courseCode || ''),
+              courseDisplayCode: courseCode,
+              sectionCode,
+              blockCode: formatSectionCode(course.courseCode, sectionCode),
+              subjectCode: String(subject.code || 'N/A'),
+              subjectTitle: String(subject.title || 'N/A'),
+              scheduleText: String(subject.schedule || ''),
+              days,
+              startMinutes: parsedTime.startMinutes,
+              endMinutes: parsedTime.endMinutes,
+              startTime: parsedTime.startTime,
+              endTime: parsedTime.endTime,
+              room: room.room,
+              building: room.building,
+              classType: /lab|laboratory/i.test(`${subject.code} ${subject.title}`) ? 'Laboratory' : 'Lecture',
+              semester: String(block.semester || 'N/A'),
+              schoolYear: String(block.schoolYear || 'N/A'),
+              yearLevel: block.yearLevel ?? null,
+              enrolledStudents: Number.isFinite(subject.enrolledStudents) ? subject.enrolledStudents : 0
+            }
+          })
+        )
+    )
+  , [courses])
+
+  const defaultEvents = useMemo<SchoolEvent[]>(() => {
+    const now = new Date()
+    const offset = (days: number) => {
+      const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days)
+      return toDateKey(date)
+    }
+
+    return [
+      {
+        id: 'default-events-1',
+        title: 'Faculty Meeting',
+        date: offset(7),
+        time: '2:00 PM - 3:00 PM',
+        category: 'Meeting',
+        statusTag: 'Campus',
+        statusTagClass: 'meeting',
+        description: 'Orientation on updates and notices for faculty.'
+      },
+      {
+        id: 'default-events-2',
+        title: 'Midterm Examination Week',
+        date: offset(12),
+        time: '8:00 AM - 5:00 PM',
+        category: 'Exam',
+        statusTag: 'Exam',
+        statusTagClass: 'exam',
+        description: 'Review your class schedule for affected periods.'
+      },
+      {
+        id: 'default-events-3',
+        title: 'Final Examination Week',
+        date: offset(54),
+        time: '8:00 AM - 5:00 PM',
+        category: 'Exam',
+        statusTag: 'Exam',
+        statusTagClass: 'exam',
+        description: 'Final teaching week with adjusted timelines.'
+      },
+      {
+        id: 'default-events-4',
+        title: 'Grade Submission Deadline',
+        date: offset(60),
+        time: '11:59 PM',
+        category: 'Deadline',
+        statusTag: 'Grades Due',
+        statusTagClass: 'deadline',
+        description: 'Upload and verify all final grades before deadline.'
+      }
+    ]
+  }, [])
+
+  const philippineHolidayEvents = useMemo<SchoolEvent[]>(() => [
+    {
+      id: 'ph-holiday-2026-01-01',
+      title: "New Year's Day",
+      date: '2026-01-01',
+      time: 'All day',
+      category: 'Holiday',
+      statusTag: 'Regular Holiday',
+      statusTagClass: 'holiday',
+      description: 'Philippine regular holiday. No regular classes or office transactions.'
+    },
+    {
+      id: 'ph-holiday-2026-02-17',
+      title: 'Chinese New Year',
+      date: '2026-02-17',
+      time: 'All day',
+      category: 'Holiday',
+      statusTag: 'Special Holiday',
+      statusTagClass: 'holiday',
+      description: 'Philippine special non-working holiday.'
+    },
+    {
+      id: 'ph-holiday-2026-02-25',
+      title: 'EDSA People Power Revolution Anniversary',
+      date: '2026-02-25',
+      time: 'All day',
+      category: 'Holiday',
+      statusTag: 'Special Working Day',
+      statusTagClass: 'holiday',
+      description: 'Philippine special working day. Regular classes and office operations continue unless the school announces otherwise.'
+    },
+    {
+      id: 'ph-holiday-2026-04-02',
+      title: 'Maundy Thursday',
+      date: '2026-04-02',
+      time: 'All day',
+      category: 'Holiday',
+      statusTag: 'Regular Holiday',
+      statusTagClass: 'holiday',
+      description: 'Philippine regular holiday during Holy Week.'
+    },
+    {
+      id: 'ph-holiday-2026-04-03',
+      title: 'Good Friday',
+      date: '2026-04-03',
+      time: 'All day',
+      category: 'Holiday',
+      statusTag: 'Regular Holiday',
+      statusTagClass: 'holiday',
+      description: 'Philippine regular holiday during Holy Week.'
+    },
+    {
+      id: 'ph-holiday-2026-04-09',
+      title: 'Araw ng Kagitingan',
+      date: '2026-04-09',
+      time: 'All day',
+      category: 'Holiday',
+      statusTag: 'Regular Holiday',
+      statusTagClass: 'holiday',
+      description: 'Philippine regular holiday honoring valor.'
+    },
+    {
+      id: 'ph-holiday-2026-04-04',
+      title: 'Black Saturday',
+      date: '2026-04-04',
+      time: 'All day',
+      category: 'Holiday',
+      statusTag: 'Special Holiday',
+      statusTagClass: 'holiday',
+      description: 'Philippine special non-working holiday during Holy Week.'
+    },
+    {
+      id: 'ph-holiday-2026-05-01',
+      title: 'Labor Day',
+      date: '2026-05-01',
+      time: 'All day',
+      category: 'Holiday',
+      statusTag: 'Regular Holiday',
+      statusTagClass: 'holiday',
+      description: 'Philippine regular holiday celebrating workers.'
+    },
+    {
+      id: 'ph-holiday-2026-06-12',
+      title: 'Independence Day',
+      date: '2026-06-12',
+      time: 'All day',
+      category: 'Holiday',
+      statusTag: 'Regular Holiday',
+      statusTagClass: 'holiday',
+      description: 'Philippine regular holiday celebrating independence.'
+    },
+    {
+      id: 'ph-holiday-2026-08-21',
+      title: 'Ninoy Aquino Day',
+      date: '2026-08-21',
+      time: 'All day',
+      category: 'Holiday',
+      statusTag: 'Special Holiday',
+      statusTagClass: 'holiday',
+      description: 'Philippine special non-working holiday.'
+    },
+    {
+      id: 'ph-holiday-2026-08-31',
+      title: "National Heroes' Day",
+      date: '2026-08-31',
+      time: 'All day',
+      category: 'Holiday',
+      statusTag: 'Regular Holiday',
+      statusTagClass: 'holiday',
+      description: 'Philippine regular holiday honoring national heroes.'
+    },
+    {
+      id: 'ph-holiday-2026-11-01',
+      title: "All Saints' Day",
+      date: '2026-11-01',
+      time: 'All day',
+      category: 'Holiday',
+      statusTag: 'Special Holiday',
+      statusTagClass: 'holiday',
+      description: 'Philippine special non-working holiday.'
+    },
+    {
+      id: 'ph-holiday-2026-11-02',
+      title: "All Souls' Day",
+      date: '2026-11-02',
+      time: 'All day',
+      category: 'Holiday',
+      statusTag: 'Special Holiday',
+      statusTagClass: 'holiday',
+      description: 'Philippine additional special non-working holiday.'
+    },
+    {
+      id: 'ph-holiday-2026-11-30',
+      title: 'Bonifacio Day',
+      date: '2026-11-30',
+      time: 'All day',
+      category: 'Holiday',
+      statusTag: 'Regular Holiday',
+      statusTagClass: 'holiday',
+      description: 'Philippine regular holiday honoring Andres Bonifacio.'
+    },
+    {
+      id: 'ph-holiday-2026-12-08',
+      title: 'Feast of the Immaculate Conception of Mary',
+      date: '2026-12-08',
+      time: 'All day',
+      category: 'Holiday',
+      statusTag: 'Special Holiday',
+      statusTagClass: 'holiday',
+      description: 'Philippine special non-working holiday.'
+    },
+    {
+      id: 'ph-holiday-2026-12-24',
+      title: 'Christmas Eve',
+      date: '2026-12-24',
+      time: 'All day',
+      category: 'Holiday',
+      statusTag: 'Special Holiday',
+      statusTagClass: 'holiday',
+      description: 'Philippine special non-working holiday.'
+    },
+    {
+      id: 'ph-holiday-2026-12-25',
+      title: 'Christmas Day',
+      date: '2026-12-25',
+      time: 'All day',
+      category: 'Holiday',
+      statusTag: 'Regular Holiday',
+      statusTagClass: 'holiday',
+      description: 'Philippine regular holiday.'
+    },
+    {
+      id: 'ph-holiday-2026-12-30',
+      title: 'Rizal Day',
+      date: '2026-12-30',
+      time: 'All day',
+      category: 'Holiday',
+      statusTag: 'Regular Holiday',
+      statusTagClass: 'holiday',
+      description: 'Philippine regular holiday honoring Jose Rizal.'
+    },
+    {
+      id: 'ph-holiday-2026-12-31',
+      title: 'Last Day of the Year',
+      date: '2026-12-31',
+      time: 'All day',
+      category: 'Holiday',
+      statusTag: 'Special Holiday',
+      statusTagClass: 'holiday',
+      description: 'Philippine special non-working holiday.'
+    }
+  ], [])
+  const getEventCategory = (announcement: any) => {
+    const type = String(announcement?.type || 'info').toLowerCase()
+    const title = String(announcement?.title || '').toLowerCase()
+    if (/holiday/.test(title)) return 'Holiday'
+    if (/midterm|final|exam/.test(title)) return 'Exam'
+    if (/grading|grade/.test(title)) return 'Deadline'
+    if (type === 'urgent') return 'Deadline'
+    if (type === 'warning') return 'Academic'
+    return 'Meeting'
+  }
+
+  const getEventTag = (announcement: any) => {
+    if (announcement?.isPinned) return 'Pinned'
+    const type = String(announcement?.type || 'info').toLowerCase()
+    if (type === 'maintenance') return 'Maintenance'
+    if (type === 'warning') return 'Academic Alert'
+    return 'Announcement'
+  }
+
+  const getEventTagClass = (statusTag: string, category: SchoolEvent['category']) => {
+    const normalized = String(statusTag || '').toLowerCase()
+    if (normalized.includes('exam')) return 'exam'
+    if (normalized.includes('holiday')) return 'holiday'
+    if (normalized.includes('meeting')) return 'meeting'
+    if (normalized.includes('pinned') || normalized.includes('maintenance') || normalized.includes('academic')) return 'academic'
+    if (normalized.includes('grade') || normalized.includes('due') || category === 'Deadline') return 'deadline'
+    if (normalized.includes('announcement')) return 'general'
+    return category.toLowerCase() as SchoolEvent['statusTagClass']
+  }
+
+  const mergeEventSources = (items: SchoolEvent[]) => {
+    const seen = new Set<string>()
+    return items.filter((event) => {
+      const key = `${event.date}|${event.title}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }
+
+  const [events, setEvents] = useState<SchoolEvent[]>([])
+  const [eventLoading, setEventLoading] = useState(false)
+  const [scope, setScope] = useState<ScopeFilter>('both')
+  const [mode, setMode] = useState<ScheduleMode>('list')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [semesterFilter, setSemesterFilter] = useState('all')
+  const [yearFilter, setYearFilter] = useState('all')
+  const [dayFilter, setDayFilter] = useState<'all' | SchoolDay>('all')
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date()
+    return new Date(now.getFullYear(), now.getMonth(), 1)
+  })
+  const [calendarDate, setCalendarDate] = useState<string | null>(null)
+  const [selectedClass, setSelectedClass] = useState<ScheduleItem | null>(null)
+  const [selectedEvent, setSelectedEvent] = useState<SchoolEvent | null>(null)
+
+  const semesterOptions = useMemo(() => {
+    const list = new Set<string>()
+    classItems.forEach((item) => list.add(item.semester))
+    return ['all', ...Array.from(list).sort()]
+  }, [classItems])
+
+  const yearOptions = useMemo(() => {
+    const list = new Set<string>()
+    classItems.forEach((item) => list.add(item.schoolYear))
+    return ['all', ...Array.from(list).sort().reverse()]
+  }, [classItems])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadEvents = async () => {
+      try {
+        setEventLoading(true)
+        const token = await getStoredToken()
+        if (!token) {
+          setEvents(mergeEventSources([...philippineHolidayEvents, ...defaultEvents]))
+          return
+        }
+
+        const response = await fetch(`${API_URL}/api/admin/announcements`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        })
+
+        if (!response.ok) {
+          setEvents(mergeEventSources([...philippineHolidayEvents, ...defaultEvents]))
+          return
+        }
+
+        const payload = await response.json().catch(() => ({}))
+        const records = Array.isArray(payload?.announcements) ? payload.announcements : []
+
+        const mapped = records
+          .map((announcement: any) => {
+            const sourceDate = announcement.scheduledFor || announcement.expiresAt || announcement.createdAt
+            const date = new Date(sourceDate)
+            if (Number.isNaN(date.getTime())) {
+              return null
+            }
+            const statusTag = getEventTag(announcement)
+            const category = getEventCategory(announcement)
+
+            return {
+              id: announcement._id || `${announcement.title}-${sourceDate}`,
+              title: announcement.title || 'School Event',
+              date: toDateKey(date),
+              time: announcement.scheduledFor ? date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'See details',
+              category,
+              statusTag,
+              statusTagClass: getEventTagClass(statusTag, category),
+              description: announcement.message || 'No details yet.',
+              location: announcement.type === 'maintenance' ? 'System Notification' : ''
+            }
+          })
+          .filter((entry: SchoolEvent | null): entry is SchoolEvent => Boolean(entry))
+
+        if (!cancelled) {
+          setEvents(mergeEventSources([...philippineHolidayEvents, ...defaultEvents, ...mapped]))
+        }
+      } finally {
+        if (!cancelled) {
+          setEventLoading(false)
+        }
+      }
+    }
+
+    void loadEvents()
+
+    return () => {
+      cancelled = true
+    }
+  }, [defaultEvents, philippineHolidayEvents])
+
+  const filteredClasses = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+
+    return classItems.filter((entry) => {
+      if (scope === 'events') return false
+      if (semesterFilter !== 'all' && entry.semester !== semesterFilter) return false
+      if (yearFilter !== 'all' && entry.schoolYear !== yearFilter) return false
+      if (dayFilter !== 'all' && !entry.days.includes(dayFilter)) return false
+      if (!query) return true
+      return `${entry.subjectCode} ${entry.subjectTitle} ${entry.blockCode} ${entry.scheduleText}`.toLowerCase().includes(query)
+    })
+  }, [classItems, dayFilter, semesterFilter, scope, yearFilter, searchQuery])
+
+  const filteredEvents = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+
+    return events
+      .filter((event) => {
+        if (scope === 'classes') return false
+        const eventDay = getSchoolDayFromJs(new Date(`${event.date}T00:00:00`))
+        if (dayFilter !== 'all' && eventDay !== dayFilter) return false
+        if (!query) return true
+        return `${event.title} ${event.description} ${event.statusTag} ${event.category}`.toLowerCase().includes(query)
+      })
+      .sort((a, b) => {
+        const left = parseDateKey(a.date)?.getTime() ?? 0
+        const right = parseDateKey(b.date)?.getTime() ?? 0
+        if (left === right) {
+          if (a.time === 'See details' && b.time !== 'See details') return 1
+          if (b.time === 'See details' && a.time !== 'See details') return -1
+          return a.time.localeCompare(b.time)
+        }
+        return left - right
+      })
+  }, [events, scope, dayFilter, searchQuery])
+
+  const upcomingFilteredEvents = useMemo(() => {
+    const today = toDateKey(new Date())
+    return filteredEvents.filter((event) => event.date >= today)
+  }, [filteredEvents])
+
+  const groupedClassDays = useMemo(() => {
+    const grouped: Record<ItemDay, ScheduleItem[]> = {
+      Monday: [],
+      Tuesday: [],
+      Wednesday: [],
+      Thursday: [],
+      Friday: [],
+      Saturday: [],
+      Sunday: [],
+      Unscheduled: []
+    }
+
+    filteredClasses.forEach((entry) => {
+      if (entry.days.length === 0) {
+        grouped.Unscheduled.push(entry)
+      } else {
+        entry.days.forEach((day) => {
+          grouped[day].push(entry)
+        })
+      }
+    })
+
+    ;(Object.keys(grouped) as ItemDay[]).forEach((day) => {
+      grouped[day].sort((a, b) => {
+        const aStart = a.startMinutes ?? Number.MAX_SAFE_INTEGER
+        const bStart = b.startMinutes ?? Number.MAX_SAFE_INTEGER
+        return aStart - bStart
+      })
+    })
+
+    return grouped
+  }, [filteredClasses])
+
+  const nextClass = useMemo(() => {
+    const now = new Date()
+    const nowDay = now.getDay()
+    const nowMinutes = now.getHours() * 60 + now.getMinutes()
+
+    const candidates = filteredClasses
+      .flatMap((entry) => {
+        if (!entry.days.length || entry.startMinutes === null) return []
+        return entry.days.map((day) => {
+          const dayIndex = SCHOOL_DAYS_BY_JS.indexOf(day)
+          const delta = (dayIndex - nowDay + 7) % 7
+          const date = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
+          date.setDate(date.getDate() + delta)
+          date.setMinutes(entry.startMinutes as number)
+          if (delta === 0 && (entry.startMinutes as number) <= nowMinutes) {
+            date.setDate(date.getDate() + 7)
+          }
+          return { item: entry, time: date.getTime() }
+        })
+      })
+      .sort((a, b) => a.time - b.time)
+
+    return candidates[0]?.item ?? null
+  }, [filteredClasses])
+
+  const nowForSchedule = new Date()
+  const todayName = getSchoolDayFromJs(nowForSchedule)
+  const classesTodayCount = filteredClasses.filter((entry) => entry.days.includes(todayName)).length
+  const currentTimeMinute = nowForSchedule.getHours() * 60 + nowForSchedule.getMinutes()
+  const currentTimeTop = currentTimeMinute >= TIMETABLE_START && currentTimeMinute <= TIMETABLE_END
+    ? ((currentTimeMinute - TIMETABLE_START) / SLOT_MINUTES) * SLOT_HEIGHT
+    : null
+
+  const timeSlots = useMemo(() => {
+    const list: string[] = []
+    for (let minute = TIMETABLE_START; minute <= TIMETABLE_END; minute += SLOT_MINUTES) {
+      list.push(formatClock(minute))
+    }
+    return list
+  }, [])
+
+  const timetableOccurrences = useMemo<Record<SchoolDay, TimetableOccurrence[]>>(() => {
+    const buckets: Record<SchoolDay, TimetableOccurrence[]> = {
+      Monday: [],
+      Tuesday: [],
+      Wednesday: [],
+      Thursday: [],
+      Friday: [],
+      Saturday: [],
+      Sunday: []
+    }
+
+    filteredClasses
+      .filter((entry) => entry.startMinutes !== null && entry.endMinutes !== null && entry.days.length > 0)
+      .forEach((entry) => {
+        entry.days.forEach((day) => {
+          buckets[day].push({ ...entry, day, lane: 0, laneCount: 1 })
+        })
+      })
+
+    Object.keys(buckets).forEach((key) => {
+      const day = key as SchoolDay
+      const items = buckets[day]
+      items.sort((a, b) => {
+        return (a.startMinutes ?? 0) - (b.startMinutes ?? 0)
+      })
+
+      const lanes: number[] = []
+      buckets[day] = items.map((item) => {
+        const start = item.startMinutes ?? TIMETABLE_START
+        const end = item.endMinutes ?? start + 60
+        let lane = 0
+
+        while (lane < lanes.length && start < lanes[lane]) {
+          lane += 1
+        }
+
+        if (lane === lanes.length) lanes.push(end)
+        else lanes[lane] = end
+
+        return {
+          ...item,
+          lane,
+          laneCount: Math.max(lanes.length, 1)
+        }
+      })
+    })
+
+    return buckets
+  }, [filteredClasses])
+
+  const hasTimetableClasses = Object.values(timetableOccurrences).some((items) => items.length > 0)
+
+  const monthGrid = useMemo(() => {
+    const year = calendarMonth.getFullYear()
+    const month = calendarMonth.getMonth()
+    const firstDate = new Date(year, month, 1)
+    const daysInMonth = new Date(year, month + 1, 0).getDate()
+    const offset = (firstDate.getDay() + 6) % 7
+
+    const eventMap = filteredEvents.reduce<Record<string, CalendarEventPreview[]>>((acc, event) => {
+      if (!acc[event.date]) acc[event.date] = []
+      acc[event.date].push(getTimelinePreview(event))
+      return acc
+    }, {})
+
+    const cells: Array<{
+      key: string
+      day: number
+      date: string
+      isToday: boolean
+      hasEvent: boolean
+      previews: CalendarEventPreview[]
+      extraCount: number
+    } | null> = []
+
+    for (let i = 0; i < offset; i += 1) cells.push(null)
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const date = new Date(year, month, day)
+      const key = toDateKey(date)
+      const previews = eventMap[key] || []
+      cells.push({
+        key: `calendar-${key}`,
+        day,
+        date: key,
+        isToday: key === toDateKey(new Date()),
+        hasEvent: previews.length > 0,
+        previews: previews.slice(0, 2),
+        extraCount: Math.max(previews.length - 2, 0)
+      })
+    }
+
+    return cells
+  }, [calendarMonth, filteredEvents])
+
+  const eventsForActiveDate = useMemo(() => {
+    return calendarDate
+      ? filteredEvents.filter((event) => event.date === calendarDate)
+      : upcomingFilteredEvents
+  }, [calendarDate, filteredEvents, upcomingFilteredEvents])
+
+  const upcomingEvent = upcomingFilteredEvents[0] ?? null
+  const eventModeEnabled = scope === 'events' || scope === 'both'
+  const classModeEnabled = scope === 'classes' || scope === 'both'
+  const noAssignedSchedules = classModeEnabled && classItems.length === 0
+  const noClassMatches = filteredClasses.length === 0
+  const noFilterMatches =
+    (scope === 'classes' && filteredClasses.length === 0) ||
+    (scope === 'events' && filteredEvents.length === 0) ||
+    (scope === 'both' && filteredClasses.length === 0 && filteredEvents.length === 0)
+
+  const selectedEventDay = useMemo(() => {
+    const sourceDate = selectedEvent?.date || calendarDate
+    if (!sourceDate) return null
+    const date = parseDateKey(sourceDate)
+    if (!date) return null
+    return getSchoolDayFromJs(date)
+  }, [calendarDate, selectedEvent?.date])
+
+  const handlePrevMonth = () => {
+    setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))
+  }
+
+  const handleNextMonth = () => {
+    setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))
+  }
+
+  const formatDaysLabel = (days: SchoolDay[]) => {
+    if (!days.length) return 'Unscheduled'
+    return days.join(', ')
+  }
+
+  const formatDuration = (entry: ScheduleItem) => {
+    if (entry.startTime === 'TBA' || entry.endTime === 'TBA') return 'Time not set'
+    return `${entry.startTime} - ${entry.endTime}`
+  }
+
+  if (loading) {
+    return (
+      <div className="professor-section">
+        <h2 className="professor-section-title">Schedule</h2>
+        <p className="professor-section-desc">Loading assigned teaching schedules...</p>
+      </div>
+    )
+  }
+
   return (
-    <div className="professor-section">
-      <h2 className="professor-section-title">Schedule</h2>
-      <p className="professor-section-desc">View your teaching schedule, office hours, and academic calendar.</p>
-      
-      <div className="placeholder-content">
-        <div className="placeholder-card">
-          <h3>Class Schedule</h3>
-          <p>View your weekly teaching schedule</p>
-          <button className="professor-btn" disabled>Coming Soon</button>
+    <div className="professor-section professor-schedule-page">
+      <div className="professor-schedule-head">
+        <div>
+          <h2 className="professor-section-title">Schedule</h2>
+          <p className="professor-section-desc">View your teaching schedule and upcoming academic events.</p>
         </div>
-        <div className="placeholder-card">
-          <h3>Office Hours</h3>
-          <p>Manage student consultation hours</p>
-          <button className="professor-btn" disabled>Coming Soon</button>
+        <button className="professor-btn" onClick={() => void onRefresh()}>
+          Refresh
+        </button>
+      </div>
+
+      {error && (
+        <p className="professor-data-error">{error}</p>
+      )}
+
+      <div className="professor-summary-grid">
+        <div className="professor-summary-card">
+          <span>Total Assigned Classes</span>
+          <strong>{classItems.length}</strong>
+          <small>Across your assigned blocks</small>
         </div>
-        <div className="placeholder-card">
-          <h3>Academic Calendar</h3>
-          <p>View important dates and deadlines</p>
-          <button className="professor-btn" disabled>Coming Soon</button>
+        <div className="professor-summary-card">
+          <span>Classes Today</span>
+          <strong>{classesTodayCount}</strong>
+          <small>{todayName} schedule</small>
+        </div>
+        <div className="professor-summary-card">
+          <span>Next Class</span>
+          <strong>{nextClass ? nextClass.subjectCode : 'N/A'}</strong>
+          <small>{nextClass ? `${nextClass.blockCode} • ${formatDuration(nextClass)}` : 'No upcoming class'}</small>
+        </div>
+        <div className="professor-summary-card">
+          <span>Upcoming School Event</span>
+          <strong>{upcomingEvent ? upcomingEvent.title : 'N/A'}</strong>
+          <small>{upcomingEvent ? `${upcomingEvent.date} • ${upcomingEvent.time}` : 'No upcoming school event'}</small>
         </div>
       </div>
+
+      <div className="professor-schedule-toolbar">
+        <div className="professor-course-toolbar-start">
+          <div className="professor-roster-search">
+            <Search size={16} />
+            <input
+              type="text"
+              value={searchQuery}
+              placeholder="Search subject code, title, section"
+              onChange={(event) => setSearchQuery(event.target.value)}
+            />
+          </div>
+
+          <label>
+            <span>Scope</span>
+            <select value={scope} onChange={(event) => setScope(event.target.value as ScopeFilter)}>
+              <option value="both">Classes and events</option>
+              <option value="classes">Classes only</option>
+              <option value="events">School events only</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Semester</span>
+            <select
+              value={semesterFilter}
+              onChange={(event) => setSemesterFilter(event.target.value)}
+            >
+              {semesterOptions.map((semester) => (
+                <option key={semester} value={semester}>
+                  {semester === 'all' ? 'All semesters' : semester}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>School Year</span>
+            <select value={yearFilter} onChange={(event) => setYearFilter(event.target.value)}>
+              {yearOptions.map((year) => (
+                <option key={year} value={year}>
+                  {year === 'all' ? 'All years' : year}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>Day</span>
+            <select
+              value={dayFilter}
+              onChange={(event) => {
+                const value = event.target.value
+                setDayFilter(value === 'all' ? 'all' : (value as SchoolDay))
+              }}
+            >
+              <option value="all">All days</option>
+              {SCHOOL_DAYS.map((day) => (
+                <option key={day} value={day}>{day}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="professor-schedule-view-toggle">
+          <button
+            type="button"
+            className={`professor-layout-btn ${mode === 'list' ? 'is-active' : ''}`}
+            onClick={() => setMode('list')}
+          >
+            <List size={14} />
+            <span>List View</span>
+          </button>
+          <button
+            type="button"
+            className={`professor-layout-btn ${mode === 'timetable' ? 'is-active' : ''}`}
+            onClick={() => setMode('timetable')}
+          >
+            <Grid3X3 size={14} />
+            <span>Timetable View</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="professor-schedule-layout">
+        <div className="professor-schedule-main">
+          {(() => {
+            if (!classModeEnabled) {
+              return (
+                <div className="professor-empty-state">
+                  <h3>Class schedules hidden</h3>
+                  <p>Switch scope to both / classes to view class schedules.</p>
+                </div>
+              )
+            }
+
+            if (noAssignedSchedules) {
+              return (
+                <div className="professor-empty-state">
+                  <h3>No assigned schedules found.</h3>
+                  <p>Make sure your assigned subjects are updated by the registrar.</p>
+                </div>
+              )
+            }
+
+            if (mode === 'list') {
+              return (
+                <>
+                  {nextClass ? (
+                    <div className="professor-schedule-next">
+                      <strong>Next upcoming class</strong>
+                      <div>{nextClass.subjectCode} - {nextClass.subjectTitle}</div>
+                      <span>{nextClass.blockCode} • {formatDuration(nextClass)}</span>
+                    </div>
+                  ) : (
+                    <div className="professor-schedule-empty">No upcoming class found.</div>
+                  )}
+
+                  <div className="professor-schedule-card-list">
+                    {SCHOOL_DAYS.map((day) => {
+                      const items = groupedClassDays[day]
+                      if (items.length === 0) return null
+
+                      return items.map((entry) => (
+                        <button
+                          key={`${entry.id}-${day}`}
+                          type="button"
+                          className="professor-schedule-item professor-schedule-card"
+                          onClick={() => setSelectedClass(entry)}
+                        >
+                          <div className="professor-schedule-card-head">
+                            <span className="professor-schedule-card-day">{day}</span>
+                            <span className="professor-schedule-card-badge">{entry.classType}</span>
+                          </div>
+                          <div className="professor-schedule-item-title">
+                            <strong>{entry.subjectCode}</strong>
+                            <span>{entry.subjectTitle}</span>
+                          </div>
+                          <div className="professor-schedule-item-meta">
+                            <span><CalendarDays size={13} /> Section: {entry.blockCode}</span>
+                            <span><Clock size={13} /> {formatDuration(entry)}</span>
+                            <span><MapPin size={13} /> {entry.room}, {entry.building}</span>
+                            <span>{entry.enrolledStudents} students</span>
+                          </div>
+                          <div className="professor-schedule-item-meta">
+                            <span>Semester: {entry.semester}</span>
+                            <span>School Year: {entry.schoolYear}</span>
+                          </div>
+                        </button>
+                      ))
+                    })}
+
+                    {groupedClassDays.Unscheduled.map((entry) => (
+                      <button
+                        key={`${entry.id}-unscheduled`}
+                        type="button"
+                        className="professor-schedule-item professor-schedule-card"
+                        onClick={() => setSelectedClass(entry)}
+                      >
+                        <div className="professor-schedule-card-head">
+                          <span className="professor-schedule-card-day">Unscheduled</span>
+                          <span className="professor-schedule-card-badge">{entry.classType}</span>
+                        </div>
+                        <div className="professor-schedule-item-title">
+                          <strong>{entry.subjectCode}</strong>
+                          <span>{entry.subjectTitle}</span>
+                        </div>
+                        <div className="professor-schedule-item-meta">
+                          <span><CalendarDays size={13} /> Section: {entry.blockCode}</span>
+                          <span><Clock size={13} /> {entry.scheduleText}</span>
+                        </div>
+                      </button>
+                    ))}
+
+                    {noClassMatches ? (
+                      <div className="professor-empty-state">
+                        <h3>No classes match your selected filters.</h3>
+                        <p>Try adjusting the filters or choose a different search query.</p>
+                      </div>
+                    ) : null}
+                  </div>
+                </>
+              )
+            }
+
+            if (hasTimetableClasses) {
+              return (
+                <div className="professor-schedule-timetable-wrap">
+                  <div className="professor-timetable-scroll">
+                    <div className="professor-timetable-grid">
+                      <div className="professor-timetable-time-col">
+                        <div className="professor-timetable-day-header">Time</div>
+                        {timeSlots.map((slot) => (
+                          <div key={`time-${slot}`} className="professor-timetable-time-row">{slot}</div>
+                        ))}
+                      </div>
+
+                      {SCHOOL_DAYS.map((day) => {
+                        const occurrences = timetableOccurrences[day]
+                        return (
+                          <div key={`timetable-${day}`} className={`professor-timetable-day-col ${day === todayName ? 'is-today' : ''}`}>
+                            <div className="professor-timetable-day-header">{day}</div>
+                            <div className="professor-timetable-day-body" style={{ height: `${timeSlots.length * SLOT_HEIGHT}px` }}>
+                              {timeSlots.map((slot, idx) => (
+                                <div key={`${day}-line-${idx}`} className={`professor-timetable-line ${idx % 2 === 0 ? 'is-strong' : ''}`} />
+                              ))}
+
+                              {day === todayName && currentTimeTop !== null && (
+                                <div className="professor-timetable-now-line" style={{ top: `${currentTimeTop}px` }} />
+                              )}
+
+                              {occurrences.map((occurrence) => {
+                                const start = occurrence.startMinutes ?? TIMETABLE_START
+                                const end = occurrence.endMinutes ?? (start + 60)
+                                const top = ((start - TIMETABLE_START) / SLOT_MINUTES) * SLOT_HEIGHT
+                                const height = Math.max(((end - start) / SLOT_MINUTES) * SLOT_HEIGHT, 32)
+                                const width = 100 / occurrence.laneCount
+                                const left = occurrence.lane * width
+
+                                return (
+                                  <button
+                                    key={`${occurrence.id}-${occurrence.day}`}
+                                    type="button"
+                                    className="professor-timetable-item"
+                                    style={{
+                                      top: `${top}px`,
+                                      height: `${height}px`,
+                                      left: `${left}%`,
+                                      width: `calc(${width}% - 6px)`
+                                    }}
+                                    onClick={() => setSelectedClass(occurrence)}
+                                  >
+                                    <strong>{occurrence.subjectCode}</strong>
+                                    <span>{occurrence.blockCode}</span>
+                                    <small>{occurrence.startTime} - {occurrence.endTime}</small>
+                                    <small>{occurrence.room}</small>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )
+            }
+
+            if (noFilterMatches) {
+              return (
+                <div className="professor-empty-state">
+                  <h3>No schedule or event matches your selected filters.</h3>
+                  <p>Try adjusting the filters or a different search query.</p>
+                </div>
+              )
+            }
+
+            return (
+              <div className="professor-empty-state">
+                <h3>No timetable entries</h3>
+                <p>Assign meeting times are not available in your current schedule list.</p>
+              </div>
+            )
+          })()}
+        </div>
+
+        <section className="professor-schedule-event-panel professor-schedule-event-panel-horizontal">
+          <div className="professor-schedule-event-head">
+            <h3>School Calendar of Events</h3>
+            <p>Academic notices affecting teaching schedules.</p>
+          </div>
+
+          {eventModeEnabled ? (
+            <div className="professor-schedule-event-body">
+              <div className="professor-mini-calendar">
+                <div className="professor-mini-calendar-head">
+                  <button type="button" onClick={handlePrevMonth} aria-label="Previous month">◀</button>
+                  <strong>
+                    {calendarMonth.toLocaleString(undefined, { month: 'long' })} {calendarMonth.getFullYear()}
+                  </strong>
+                  <button type="button" onClick={handleNextMonth} aria-label="Next month">▶</button>
+                </div>
+
+                <div className="professor-mini-calendar-row">
+                  {SCHOOL_DAYS.map((day) => (
+                    <span key={`cal-head-${day}`}>{DAY_SHORT[day]}</span>
+                  ))}
+                </div>
+
+                <div className="professor-mini-calendar-grid">
+                  {monthGrid.map((cell, index) => {
+                    if (!cell) {
+                      return <span key={`empty-${index}`} className="professor-mini-calendar-empty" />
+                    }
+
+                    const isActive = calendarDate === cell.date
+                    const classes = [
+                      'professor-mini-calendar-day',
+                      cell.isToday ? 'is-today' : '',
+                      cell.hasEvent ? 'has-event' : '',
+                      isActive ? 'is-active' : ''
+                    ].filter(Boolean).join(' ')
+
+                    return (
+                      <button
+                        type="button"
+                        key={cell.key}
+                        className={classes}
+                        onClick={() => setCalendarDate((prev) => (prev === cell.date ? null : cell.date))}
+                      >
+                        <span className="professor-mini-calendar-date">{cell.day}</span>
+                        {cell.previews.length > 0 && (
+                          <span className="professor-mini-calendar-timeline">
+                            {cell.previews.map((preview) => (
+                              <span
+                                key={preview.id}
+                                className={`professor-mini-calendar-event-line tag-${preview.tagClass}`}
+                                title={`${preview.title} • ${preview.label}`}
+                              >
+                                <span className="professor-mini-calendar-event-label">
+                                  {preview.title}
+                                </span>
+                                <span
+                                  className="professor-mini-calendar-event-fill"
+                                  style={{
+                                    marginLeft: `${preview.offsetPercent}%`,
+                                    width: `${preview.widthPercent}%`
+                                  }}
+                                />
+                              </span>
+                            ))}
+                            {cell.extraCount > 0 && (
+                              <span className="professor-mini-calendar-more">+{cell.extraCount}</span>
+                            )}
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="professor-schedule-event-list">
+                <h4>{calendarDate ? `Events on ${calendarDate}` : 'Upcoming events'}</h4>
+
+                {eventLoading ? (
+                  <p>Loading school events...</p>
+                ) : eventsForActiveDate.length === 0 ? (
+                  <p>No upcoming school events available.</p>
+                ) : (
+                  eventsForActiveDate
+                    .slice(0, 8)
+                    .map((event) => {
+                      const eventTag = event.statusTagClass || 'general'
+                      return (
+                        <button
+                          type="button"
+                          key={event.id}
+                          className="professor-schedule-event-item"
+                          onClick={() => setSelectedEvent(event)}
+                        >
+                          <div className="professor-schedule-event-header">
+                            <strong>{event.title}</strong>
+                            <span className={`professor-schedule-event-tag tag-${eventTag}`}>{event.statusTag}</span>
+                          </div>
+                          <div className="professor-schedule-event-meta">
+                            {event.date} • {event.time} • {event.category}
+                          </div>
+                        </button>
+                      )
+                    })
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="professor-empty-state">
+              <h3>School events hidden</h3>
+              <p>Switch scope to both / events to view calendar events.</p>
+            </div>
+          )}
+        </section>
+      </div>
+
+      {selectedClass && (
+        <div className="professor-student-modal-backdrop" onClick={() => setSelectedClass(null)}>
+          <div className="professor-student-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <div className="professor-student-modal-header">
+              <h3>Class Details</h3>
+              <button className="professor-btn professor-btn-secondary" type="button" onClick={() => setSelectedClass(null)}>Close</button>
+            </div>
+            <div className="professor-student-modal-content">
+              <div className="professor-student-modal-grid">
+                <div><strong>Subject Code:</strong> {selectedClass.subjectCode}</div>
+                <div><strong>Subject Title:</strong> {selectedClass.subjectTitle}</div>
+                <div><strong>Section / Block:</strong> {selectedClass.blockCode}</div>
+                <div><strong>Schedule:</strong> {formatDaysLabel(selectedClass.days)} • {formatDuration(selectedClass)}</div>
+                <div><strong>Room:</strong> {selectedClass.room}</div>
+                <div><strong>Building / Location:</strong> {selectedClass.building}</div>
+                <div><strong>Class Type:</strong> {selectedClass.classType}</div>
+                <div><strong>Semester:</strong> {selectedClass.semester}</div>
+                <div><strong>School Year:</strong> {selectedClass.schoolYear}</div>
+                <div><strong>Enrolled Students:</strong> {selectedClass.enrolledStudents}</div>
+              </div>
+
+              <div className="professor-schedule-modal-actions">
+                <button className="professor-btn" type="button">View Student Roster</button>
+                <button className="professor-btn professor-btn-secondary" type="button">View Attendance</button>
+                <button className="professor-btn professor-btn-secondary" type="button">View Grades</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedEvent && (
+        <div className="professor-student-modal-backdrop" onClick={() => setSelectedEvent(null)}>
+          <div className="professor-student-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <div className="professor-student-modal-header">
+              <h3>School Event</h3>
+              <button className="professor-btn professor-btn-secondary" type="button" onClick={() => setSelectedEvent(null)}>Close</button>
+            </div>
+            <div className="professor-student-modal-content">
+              <div className="professor-student-modal-grid">
+                <div><strong>Title:</strong> {selectedEvent.title}</div>
+                <div><strong>Date:</strong> {selectedEvent.date}</div>
+                <div><strong>Time:</strong> {selectedEvent.time}</div>
+                <div><strong>Type:</strong> {selectedEvent.category}</div>
+                <div><strong>Status:</strong> {selectedEvent.statusTag}</div>
+                <div><strong>Day:</strong> {selectedEventDay || 'N/A'}</div>
+              </div>
+              <p><strong>Description:</strong> {selectedEvent.description}</p>
+
+              <div className="professor-student-academic">
+                <h4>Affected classes</h4>
+                <ul>
+                  {(filteredClasses.filter((entry) => {
+                    if (!selectedEventDay) return false
+                    if (entry.days.length === 0) return false
+                    return entry.days.includes(selectedEventDay)
+                  })).length === 0 ? (
+                    <li>No directly affected classes identified.</li>
+                  ) : (
+                    filteredClasses
+                      .filter((entry) => {
+                        if (!selectedEventDay) return false
+                        if (entry.days.length === 0) return false
+                        return entry.days.includes(selectedEventDay)
+                      })
+                      .map((entry) => (
+                        <li key={`${entry.id}-${selectedEventDay}`}>{entry.subjectCode} • {entry.blockCode}</li>
+                      ))
+                  )}
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

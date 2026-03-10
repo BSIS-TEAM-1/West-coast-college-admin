@@ -230,7 +230,8 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       const responseData = await response.json().catch(() => ({}))
       if (!response.ok) {
         const details = Array.isArray(responseData?.details) ? responseData.details.join(', ') : ''
-        throw new Error(responseData?.error || responseData?.message || details || `Failed to update announcement (${response.status})`)
+        const suffix = details ? ` Details: ${details}` : ''
+        throw new Error(responseData?.error || responseData?.message || `Failed to update announcement (${response.status})` + suffix)
       }
       
       // Refresh announcements list
@@ -281,33 +282,29 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       // Upload media files first
       const newMedia = await uploadMediaFiles(mediaFiles)
 
-      const allMedia = newMedia.map((m) => ({
-        ...m,
-        fileSize: (m as any).fileSize ?? 0,
-      })) as NonNullable<Announcement['media']>
-      
-      const finalIsActive = saveAsDraft ? false : (newAnnouncement.isActive ?? true)
-      
-      const token = await getStoredToken()
-      const response = await fetch(`${API_URL}/api/admin/announcements`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
+    const allMedia = newMedia.map((m) => ({
+      ...m,
+      fileSize: (m as any).fileSize ?? 0,
+    })) as NonNullable<Announcement['media']>
+
+    const token = await getStoredToken()
+    const response = await fetch(`${API_URL}/api/admin/announcements`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
-        body: JSON.stringify({
-          title: trimmedTitle,
-          message: trimmedMessage,
-          type: newAnnouncement.type || 'info',
-          // If saving as draft, force isActive to false
-          isActive: finalIsActive,
-          isPinned: Boolean(newAnnouncement.isPinned),
-          // Normalize targetAudience to allowed enum values
-          targetAudience:
-            newAnnouncement.targetAudience && audienceOptions.some(a => a.value === newAnnouncement.targetAudience)
-              ? newAnnouncement.targetAudience
-              : 'all',
+      body: JSON.stringify({
+        title: trimmedTitle,
+        message: trimmedMessage,
+        type: newAnnouncement.type || 'info',
+        isPinned: Boolean(newAnnouncement.isPinned),
+        // Normalize targetAudience to allowed enum values
+        targetAudience:
+          newAnnouncement.targetAudience && audienceOptions.some(a => a.value === newAnnouncement.targetAudience)
+            ? newAnnouncement.targetAudience
+            : 'all',
           media: allMedia
         })
       })
@@ -315,7 +312,8 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       const responseData = await response.json().catch(() => ({}))
       if (!response.ok) {
         const details = Array.isArray(responseData?.details) ? responseData.details.join(', ') : ''
-        throw new Error(responseData?.error || responseData?.message || details || `Failed to create announcement (${response.status})`)
+        const suffix = details ? ` Details: ${details}` : ''
+        throw new Error(responseData?.error || responseData?.message || `Failed to create announcement (${response.status})` + suffix)
       }
       
       // Backend workaround: If we saved as draft but backend returned isActive: true, fix it

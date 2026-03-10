@@ -13,6 +13,7 @@ import PersonalDetails from './PersonalDetails'
 import SystemHealth from './SystemHealth'
 import Security from './Security'
 import CorGeneration from './CorGeneration'
+import CalendarPage from './CalendarPage'
 import StatisticsCard from '../components/StatisticsCard'
 import MiniEventCalendar from '../components/MiniEventCalendar'
 import { User, Users, FileText, Wrench } from 'lucide-react'
@@ -26,7 +27,7 @@ type DashboardProps = {
   onProfileUpdated?: (profile: ProfileResponse) => void
 }
 
-type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'documents' | 'announcement-detail' | 'personal-details' | 'system-health' | 'security' | 'cor-docs'
+type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'documents' | 'announcement-detail' | 'personal-details' | 'system-health' | 'security' | 'cor-docs' | 'calendar'
 
 export default function Dashboard({ username, onLogout, onProfileUpdated }: DashboardProps) {
   const [view, setView] = useState<View>('dashboard')
@@ -245,6 +246,8 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
             }} />
           ) : view === 'security' ? (
             <Security onBack={() => setView('system-health')} />
+          ) : view === 'calendar' ? (
+            <CalendarPage onBack={() => setView('dashboard')} />
           ) : (
             <div className="dashboard-content">
               <div className="dashboard-header-content">
@@ -476,7 +479,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
 
                 <div className="dashboard-stats-section">
                   <h2 className="section-title" style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--text-primary)' }}>Calendar</h2>
-                  <MiniEventCalendar />
+                  <MiniEventCalendar onOpenCalendar={() => setView('calendar')} />
                 </div>
               </div>
 

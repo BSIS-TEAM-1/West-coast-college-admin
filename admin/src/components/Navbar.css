@@ -8,6 +8,25 @@
   height: 60px;
 }
 
+.navbar-center {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  line-height: 1.15;
+  margin: 0 1rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.navbar-center-top {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .navbar-menu-btn {
   display: none;
   align-items: center;
@@ -36,9 +55,13 @@
   gap: 1rem;
 }
 
-.navbar-username {
-  font-weight: 500;
-  color: var(--color-text);
+.navbar-date {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 22rem;
 }
 
 .navbar-logout {
@@ -68,16 +91,16 @@
     height: 56px;
   }
 
+  .navbar-center {
+    margin: 0 0.5rem;
+  }
+
   .navbar-menu-btn {
     display: inline-flex;
   }
 
-  .navbar-username {
-    font-size: 0.875rem;
-    max-width: 44vw;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .navbar-date {
+    max-width: 35vw;
   }
 }
 
@@ -86,7 +109,25 @@
     padding: 0.75rem;
   }
 
-  .navbar-username {
+  .navbar-center-top {
+    font-size: 0.875rem;
+  }
+
+  .navbar-date {
     display: none;
+  }
+}
+
+@media (max-width: 420px) {
+  .navbar {
+    height: 52px;
+  }
+
+  .navbar-spacer {
+    display: none;
+  }
+
+  .navbar-center {
+    margin: 0;
   }
 }

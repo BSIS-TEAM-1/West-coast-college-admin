@@ -36,26 +36,27 @@
 
 /* Dark theme colors */
 [data-theme="dark"] {
-  --color-primary: #6366f1;
-  --color-primary-hover: #7c3aed;
-  --color-primary-subtle: rgba(99, 102, 241, 0.15);
+  --color-primary: #60a5fa;
+  --color-primary-hover: #818cf8;
+  --color-primary-subtle: rgba(96, 165, 250, 0.16);
   --color-accent: #fbbf24;
   --color-accent-hover: #f59e0b;
-  --color-bg: #1e293b;
-  --color-bg-soft: #334155;
-  --color-surface: #334155;
-  --color-surface-hover: rgba(255, 255, 255, 0.05);
-  --color-border: #475569;
-  --color-sidebar-border: #4b5563;
-  --color-text: #f1f5f9;
+  --color-bg: #121212;
+  --color-bg-soft: #262626;
+  --color-surface: #141414;
+  --color-surface-hover: rgba(255, 255, 255, 0.06);
+  --color-border: rgba(255, 255, 255, 0.18);
+  --color-sidebar-border: rgba(255, 255, 255, 0.18);
+  --color-text: #f8fafc;
   --color-text-muted: #94a3b8;
   --color-text-bold: #ffffff;
-  --color-text-secondary: #cbd5e1;
+  --color-text-secondary: #e2e8f0;
   --color-error: #f87171;
   --color-success: #34d399;
-  --color-warning: #fbbf24;
+  --color-warning: #f59e0b;
   --color-maintenance: #a78bfa;
   --color-info: #60a5fa;
+  background: radial-gradient(155deg, rgba(18, 18, 18, 0.88), rgba(38, 38, 38, 0.78)) fixed;
 }
 
 :root.theme-transitioning,

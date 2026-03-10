@@ -1,0 +1,420 @@
+.calendar-page {
+  padding: 0;
+  --calendar-surface: var(--color-surface, #ffffff);
+  --calendar-surface-soft: var(--color-bg-soft, var(--color-bg, #ffffff));
+  --calendar-border: var(--color-border, #e5e7eb);
+  --calendar-text: var(--color-text, #1f2937);
+  --calendar-text-muted: var(--color-text-muted, #6b7280);
+  --calendar-text-secondary: var(--color-text-secondary, #4b5563);
+  --calendar-primary: var(--color-primary, #2563eb);
+  --calendar-primary-hover: var(--color-primary-hover, #1d4ed8);
+  --calendar-error: var(--color-error, #dc2626);
+  color: var(--calendar-text);
+}
+
+.calendar-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.25rem;
+  gap: 1rem;
+}
+
+.calendar-page-title {
+  margin: 0 0 0.35rem 0;
+  font-size: 1.75rem;
+  color: var(--calendar-text);
+}
+
+.calendar-page-subtitle {
+  margin: 0;
+  color: var(--calendar-text-secondary);
+}
+
+.calendar-page-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--border-color);
+  background: var(--calendar-surface-soft);
+  color: var(--calendar-text);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.calendar-page-back-btn:hover {
+  background: var(--calendar-border);
+}
+
+.calendar-page-grid {
+  display: grid;
+  grid-template-columns: 2fr 1.2fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.calendar-page-card {
+  border: 1px solid var(--calendar-border);
+  border-radius: 12px;
+  background: var(--calendar-surface);
+  padding: 1rem;
+}
+
+.calendar-page-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.calendar-page-card-header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--calendar-text);
+}
+
+.calendar-page-card-header .calendar-page-selected-date {
+  color: var(--calendar-text-secondary);
+  font-size: 0.85rem;
+}
+
+.calendar-page-month-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.calendar-page-month-nav h2 {
+  margin: 0;
+  min-width: 11rem;
+  text-align: left;
+  color: var(--calendar-text);
+}
+
+.calendar-page-nav-btn {
+  border: 1px solid var(--border-color);
+  background: var(--calendar-surface-soft);
+  color: var(--calendar-text);
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.calendar-page-nav-btn:hover {
+  background: var(--calendar-border);
+}
+
+.calendar-page-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: flex-end;
+}
+
+.calendar-page-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--calendar-text-secondary);
+}
+
+.calendar-page-legend-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.calendar-page-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.25rem;
+  margin-bottom: 0.35rem;
+}
+
+.calendar-page-weekday {
+  font-size: 0.75rem;
+  color: var(--calendar-text-muted);
+  text-align: center;
+}
+
+.calendar-page-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.25rem;
+}
+
+.calendar-page-day {
+  aspect-ratio: 1;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0.35rem;
+  background: var(--calendar-surface-soft);
+  cursor: pointer;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  transition: all 0.2s;
+}
+
+.calendar-page-day:hover {
+  border-color: var(--calendar-border);
+  background: rgba(96, 165, 250, 0.1);
+}
+
+.calendar-page-day.empty {
+  cursor: default;
+  background: transparent;
+}
+
+.calendar-page-day.empty:hover {
+  background: transparent;
+  border-color: transparent;
+}
+
+.calendar-page-day.today {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.calendar-page-day.selected {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.calendar-page-day-number {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--calendar-text);
+}
+
+.calendar-page-indicators {
+  margin-top: 0.35rem;
+  display: flex;
+  gap: 0.2rem;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.calendar-page-indicator {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+
+.calendar-page-more-indicator {
+  width: 100%;
+  height: 2px;
+  border-radius: 999px;
+  margin-top: 2px;
+}
+
+.calendar-page-form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.calendar-page-field {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+  color: var(--calendar-text-secondary);
+}
+
+.calendar-page-field span {
+  font-weight: 600;
+}
+
+.calendar-page-field input,
+.calendar-page-field select,
+.calendar-page-field textarea {
+  width: 100%;
+  border: 1px solid var(--calendar-border);
+  background: var(--calendar-surface-soft);
+  color: var(--calendar-text);
+  border-radius: 7px;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+}
+
+.calendar-page-field input:focus,
+.calendar-page-field select:focus,
+.calendar-page-field textarea:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.35);
+  outline-offset: 0;
+}
+
+.calendar-page-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.calendar-page-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.calendar-page-btn {
+  border: 1px solid var(--calendar-border);
+  border-radius: 8px;
+  padding: 0.55rem 1rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  background: var(--calendar-surface-soft);
+  color: var(--calendar-text);
+}
+
+.calendar-page-btn.primary {
+  background: var(--calendar-primary);
+  color: #fff;
+  border-color: var(--calendar-primary);
+}
+
+.calendar-page-btn.primary:hover {
+  background: var(--calendar-primary-hover);
+}
+
+.calendar-page-btn.secondary {
+  color: var(--calendar-text-secondary);
+}
+
+.calendar-page-btn.secondary:hover {
+  background: var(--calendar-border);
+}
+
+.calendar-page-form-error {
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--calendar-error);
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.82rem;
+}
+
+.calendar-page-events {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.calendar-page-event-item {
+  border: 1px solid var(--calendar-border);
+  background: var(--calendar-surface-soft);
+  border-radius: 8px;
+  padding: 0.75rem;
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+}
+
+.calendar-page-event-type {
+  width: 7px;
+  height: 7px;
+  margin-top: 3px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.calendar-page-event-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.calendar-page-event-content h3 {
+  margin: 0 0 0.35rem 0;
+  color: var(--calendar-text);
+  font-size: 0.95rem;
+}
+
+.calendar-page-event-content p {
+  margin: 0;
+  color: var(--calendar-text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.calendar-page-event-content p + p {
+  margin-top: 0.3rem;
+}
+
+.calendar-page-event-meta {
+  margin: 0;
+  color: var(--calendar-text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.calendar-page-event-actions {
+  display: inline-flex;
+  gap: 0.4rem;
+}
+
+.calendar-page-icon-btn {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--calendar-text-secondary);
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.calendar-page-icon-btn:hover {
+  background: var(--calendar-border);
+  color: var(--calendar-text);
+}
+
+.calendar-page-empty {
+  margin: 0;
+  color: var(--calendar-text-secondary);
+  font-size: 0.875rem;
+}
+
+.calendar-page-daily-list,
+.calendar-page-upcoming {
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 1100px) {
+  .calendar-page-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .calendar-page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .calendar-page-field-row {
+    grid-template-columns: 1fr;
+  }
+}

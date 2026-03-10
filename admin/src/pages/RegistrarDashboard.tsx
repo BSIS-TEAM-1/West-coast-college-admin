@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Video, Users, Blocks, Pencil, Trash2, Check, X } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Profile from './Profile'
@@ -10,6 +10,7 @@ import Announcements from './Announcements'
 import AnnouncementDetail from './AnnouncementDetail'
 import PersonalDetails from './PersonalDetails'
 import StudentManagement from '../components/StudentManagement'
+import RegistrarReportsPanel from './RegistrarReportsPanel'
 import './RegistrarDashboard.css'
 
 interface Announcement {
@@ -909,6 +910,28 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
     { value: 103, label: 'BSEd-Math' },
     { value: 201, label: 'BSBA-HRM' }
   ]
+  const blockNumberOptions = [
+    '1-A',
+    '1-B',
+    '1-C',
+    '1-D',
+    '2-A',
+    '2-B',
+    '2-C',
+    '2-D',
+    '3-A',
+    '3-B',
+    '3-C',
+    '3-D',
+    '4-A',
+    '4-B',
+    '4-C',
+    '4-D',
+    '5-A',
+    '5-B',
+    '5-C',
+    '5-D'
+  ]
   const [blockGroups, setBlockGroups] = useState<BlockGroup[]>([])
   const [selectedGroup, setSelectedGroup] = useState<BlockGroup | null>(null)
   const [sections, setSections] = useState<BlockSection[]>([])
@@ -920,6 +943,8 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
   const [success, setSuccess] = useState('')
   const [newGroupCourse, setNewGroupCourse] = useState<number>(103)
   const [newGroupBlockNumber, setNewGroupBlockNumber] = useState('1-A')
+  const [isBlockNumberOpen, setIsBlockNumberOpen] = useState(false)
+  const blockNumberDropdownRef = useRef<HTMLDivElement>(null)
   const [newGroupSemester, setNewGroupSemester] = useState<Semester>('1st')
   const [newGroupYear, setNewGroupYear] = useState<number>(new Date().getFullYear())
   const openBlocks = sections.filter((s) => (s.status || 'OPEN').toUpperCase() === 'OPEN')
@@ -1098,6 +1123,20 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
       setSelectedSection(openBlocks[0]._id)
     }
   }, [selectedGroup, openBlocks, selectedSection])
+  
+  useEffect(() => {
+    if (!isBlockNumberOpen) return
+
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!blockNumberDropdownRef.current) return
+      if (!blockNumberDropdownRef.current.contains(event.target as Node)) {
+        setIsBlockNumberOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleOutsideClick)
+    return () => document.removeEventListener('mousedown', handleOutsideClick)
+  }, [isBlockNumberOpen])
 
   const authorizedFetch = async (path: string, init: RequestInit = {}) => {
     const token = await getStoredToken()
@@ -1299,28 +1338,37 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
             </label>
             <label>
               Block Number:
-              <select value={newGroupBlockNumber} onChange={(e) => setNewGroupBlockNumber(e.target.value)}>
-                <option value="1-A">1-A</option>
-                <option value="1-B">1-B</option>
-                <option value="1-C">1-C</option>
-                <option value="1-D">1-D</option>
-                <option value="2-A">2-A</option>
-                <option value="2-B">2-B</option>
-                <option value="2-C">2-C</option>
-                <option value="2-D">2-D</option>
-                <option value="3-A">3-A</option>
-                <option value="3-B">3-B</option>
-                <option value="3-C">3-C</option>
-                <option value="3-D">3-D</option>
-                <option value="4-A">4-A</option>
-                <option value="4-B">4-B</option>
-                <option value="4-C">4-C</option>
-                <option value="4-D">4-D</option>
-                <option value="5-A">5-A</option>
-                <option value="5-B">5-B</option>
-                <option value="5-C">5-C</option>
-                <option value="5-D">5-D</option>
-              </select>
+              <div className="block-number-select-wrapper" ref={blockNumberDropdownRef}>
+                <button
+                  type="button"
+                  className="block-number-select-trigger"
+                  onClick={() => setIsBlockNumberOpen((prev) => !prev)}
+                  aria-expanded={isBlockNumberOpen}
+                  aria-haspopup="listbox"
+                >
+                  <span>{newGroupBlockNumber}</span>
+                  <span aria-hidden="true" className="block-number-select-caret">▾</span>
+                </button>
+                {isBlockNumberOpen && (
+                  <div className="block-number-select-list" role="listbox" aria-label="Block number options">
+                    {blockNumberOptions.map((value) => (
+                      <button
+                        key={value}
+                        type="button"
+                        className="block-number-select-option"
+                        role="option"
+                        aria-selected={newGroupBlockNumber === value}
+                        onClick={() => {
+                          setNewGroupBlockNumber(value)
+                          setIsBlockNumberOpen(false)
+                        }}
+                      >
+                        {value}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </label>
             <label>
               Semester:
@@ -2680,28 +2728,5 @@ function AssignSubjectPage() {
 }
 
 function ReportsDashboard() {
-  return (
-    <div className="registrar-section">
-      <h2 className="registrar-section-title">Reports Dashboard</h2>
-      <p className="registrar-section-desc">Generate and view reports on enrollment, academics, and more.</p>
-      
-      <div className="placeholder-content">
-        <div className="placeholder-card">
-          <h3>Enrollment Reports</h3>
-          <p>View enrollment statistics by program and semester</p>
-          <button className="registrar-btn" disabled>Coming Soon</button>
-        </div>
-        <div className="placeholder-card">
-          <h3>Academic Reports</h3>
-          <p>Generate grade distributions and academic standing reports</p>
-          <button className="registrar-btn" disabled>Coming Soon</button>
-        </div>
-        <div className="placeholder-card">
-          <h3>Financial Reports</h3>
-          <p>Tuition and fee collection reports</p>
-          <button className="registrar-btn" disabled>Coming Soon</button>
-        </div>
-      </div>
-    </div>
-  )
+  return <RegistrarReportsPanel />
 }

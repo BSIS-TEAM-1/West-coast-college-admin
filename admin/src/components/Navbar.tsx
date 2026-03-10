@@ -1,13 +1,20 @@
-import { Menu } from 'lucide-react';
-import './Navbar.css';
+import { Menu } from 'lucide-react'
+import './Navbar.css'
 
 type NavbarProps = {
-  username: string;
-  onLogout: () => void;
-  onMenuToggle?: () => void;
-};
+  username: string
+  onLogout: () => void
+  onMenuToggle?: () => void
+}
 
 export default function Navbar({ username, onMenuToggle }: NavbarProps) {
+  const dateLabel = new Date().toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  })
+
   return (
     <header className="navbar">
       {onMenuToggle && (
@@ -20,10 +27,13 @@ export default function Navbar({ username, onMenuToggle }: NavbarProps) {
           <Menu size={20} />
         </button>
       )}
+      <div className="navbar-center">
+        <div className="navbar-center-top">Welcome back, {username}</div>
+      </div>
       <div className="navbar-spacer" />
       <div className="navbar-user">
-        <span className="navbar-username">{username}</span>
+        <span className="navbar-date">{dateLabel}</span>
       </div>
     </header>
-  );
+  )
 }
