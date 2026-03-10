@@ -151,7 +151,137 @@ class StudentController {
     if (params.studentStatus) query.studentStatus = params.studentStatus;
     if (params.enrollmentStatus) query.enrollmentStatus = params.enrollmentStatus;
 
-    return Student.find(query).sort({ createdAt: -1 });
+    const students = await Student.find(query).sort({ createdAt: -1 }).lean();
+    if (!students.length) return [];
+
+    const studentIds = students
+      .map((student) => String(student._id || '').trim())
+      .filter(Boolean);
+
+    const assignments = await StudentBlockAssignment.find({ studentId: { $in: studentIds } })
+      .select('studentId sectionId semester year assignedAt')
+      .lean();
+    const waitlistEntries = await SectionWaitlist.find({ studentId: { $in: studentIds } })
+      .select('studentId sectionId addedAt')
+      .lean();
+
+    const assignmentsByStudentId = new Map();
+    assignments.forEach((assignment) => {
+      const studentId = String(assignment.studentId || '').trim();
+      if (!studentId) return;
+      const list = assignmentsByStudentId.get(studentId) || [];
+      list.push(assignment);
+      assignmentsByStudentId.set(studentId, list);
+    });
+
+    assignmentsByStudentId.forEach((list) => {
+      list.sort((left, right) => new Date(right.assignedAt).getTime() - new Date(left.assignedAt).getTime());
+    });
+
+    const waitlistByStudentId = new Map();
+    waitlistEntries.forEach((entry) => {
+      const studentId = String(entry.studentId || '').trim();
+      if (!studentId) return;
+      const list = waitlistByStudentId.get(studentId) || [];
+      list.push(entry);
+      waitlistByStudentId.set(studentId, list);
+    });
+    waitlistByStudentId.forEach((list) => {
+      list.sort((left, right) => new Date(right.addedAt).getTime() - new Date(left.addedAt).getTime());
+    });
+
+    const sectionIds = Array.from(
+      new Set(
+        assignments
+          .map((assignment) => String(assignment.sectionId || '').trim())
+          .concat(waitlistEntries.map((waitlist) => String(waitlist.sectionId || '').trim()))
+          .filter((sectionId) => mongoose.Types.ObjectId.isValid(sectionId))
+      )
+    ).map((sectionId) => new mongoose.Types.ObjectId(sectionId));
+
+    const sections = sectionIds.length > 0
+      ? await BlockSection.find({ _id: { $in: sectionIds } }).select('_id sectionCode').lean()
+      : [];
+
+    const sectionCodeById = new Map(
+      sections.map((section) => [String(section._id), String(section.sectionCode || '').trim()])
+    );
+
+    const parseSchoolYearStart = (schoolYearValue) => {
+      const match = String(schoolYearValue || '').trim().match(/^(\d{4})\s*-\s*\d{4}$/);
+      return match ? Number(match[1]) : 0;
+    };
+
+    const normalizeText = (value) => String(value || '').trim().toLowerCase();
+    const normalizeAssignmentStatus = (value) => String(value || 'ASSIGNED').trim().toUpperCase();
+    const isAssignedStatus = (value) => normalizeAssignmentStatus(value) === 'ASSIGNED';
+    const pickLatestAssignment = (studentAssignments, shouldMatch) => {
+      const candidates = studentAssignments.filter(shouldMatch).filter((assignment) => assignment.sectionId);
+      if (!candidates.length) return null;
+
+      candidates.sort((left, right) => {
+        const leftIsAssigned = isAssignedStatus(left.status);
+        const rightIsAssigned = isAssignedStatus(right.status);
+        if (leftIsAssigned !== rightIsAssigned) return leftIsAssigned ? -1 : 1;
+        return new Date(right.assignedAt).getTime() - new Date(left.assignedAt).getTime();
+      });
+
+      return candidates[0];
+    };
+
+    const findMatchingAssignment = (studentAssignments, studentSemester, studentSchoolYear) => {
+      if (!studentAssignments.length) return null;
+
+      const semester = normalizeText(studentSemester);
+      const year = parseSchoolYearStart(studentSchoolYear);
+      const strictMatch = pickLatestAssignment(
+        studentAssignments,
+        (assignment) => normalizeText(assignment.semester) === semester && Number(assignment.year || 0) === year
+      );
+      if (strictMatch) return strictMatch;
+
+      const semesterMatch = pickLatestAssignment(
+        studentAssignments,
+        (assignment) => normalizeText(assignment.semester) === semester
+      );
+      if (semesterMatch) return semesterMatch;
+
+      const yearMatch = pickLatestAssignment(
+        studentAssignments,
+        (assignment) => Number(assignment.year || 0) === year
+      );
+      if (yearMatch) return yearMatch;
+
+      return pickLatestAssignment(studentAssignments, () => true);
+    };
+
+    return students.map((student) => {
+      const studentId = String(student._id || '').trim();
+      const studentAssignments = studentId ? assignmentsByStudentId.get(studentId) || [] : [];
+      const matchedAssignment = findMatchingAssignment(studentAssignments, student.semester, student.schoolYear);
+      const matchedWaitlist = studentId ? waitlistByStudentId.get(studentId)?.[0] : null;
+      const resolvedAssignment = matchedAssignment || matchedWaitlist;
+
+      if (!resolvedAssignment?.sectionId) {
+        return {
+          ...student,
+          section: ''
+        };
+      }
+
+      const sectionCode = sectionCodeById.get(String(resolvedAssignment.sectionId));
+      if (!sectionCode) {
+        return {
+          ...student,
+          section: ''
+        };
+      }
+
+      return {
+        ...student,
+        section: sectionCode
+      };
+    });
   }
 
   static async getStudentByIdRecord(id) {

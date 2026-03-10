@@ -125,8 +125,12 @@ class StudentService {
   }
 
   static async getCurrentEnrollment(token, id, schoolYear, semester) {
+    const query = new URLSearchParams({
+      schoolYear: String(schoolYear || ''),
+      semester: String(semester || '')
+    })
     const response = await fetch(
-      `${API_URL}/registrar/students/${id}/current-enrollment?schoolYear=${schoolYear}&semester=${semester}`,
+      `${API_URL}/registrar/students/${id}/current-enrollment?${query.toString()}`,
       {
         method: 'GET',
         headers: {
@@ -134,13 +138,21 @@ class StudentService {
           'Content-Type': 'application/json'
         }
       }
-    );
+    )
 
-    if (!response.ok) {
-      throw new Error('Failed to fetch current enrollment');
+    if (response.status === 404) {
+      const payload = await response.json().catch(() => ({}))
+      if (String(payload?.message || '').toLowerCase().includes('no active enrollment')) {
+        return null
+      }
+      throw new Error(payload?.message || 'Failed to fetch current enrollment')
     }
 
-    return response.json();
+    if (!response.ok) {
+      throw new Error('Failed to fetch current enrollment')
+    }
+
+    return response.json()
   }
 
   static async getEnrollmentHistory(token, id) {
