@@ -1,4 +1,4 @@
-const { sanitizeInput, inputValidationMiddleware, buildSafeQuery, safeObjectId } = require('./securityMiddleware');
+const { sanitizeInput, inputValidationMiddleware, buildSafeQuery, safeObjectId, schemas } = require('./securityMiddleware');
 const mongoose = require('mongoose');
 
 // Test sanitizeInput
@@ -160,5 +160,35 @@ describe('inputValidationMiddleware with schemas', () => {
     middleware(mockReq, mockRes, next);
     expect(mockRes.status).toHaveBeenCalledWith(400);
     expect(next).not.toHaveBeenCalled();
+  });
+});
+
+describe('schema coverage', () => {
+  test('document update schema rejects legacy INACTIVE status', () => {
+    const result = schemas.documents.update.body.validate({ status: 'INACTIVE' });
+    expect(result.error).toBeDefined();
+  });
+
+  test('document update schema accepts model-backed statuses', () => {
+    const result = schemas.documents.update.body.validate({ status: 'DRAFT' });
+    expect(result.error).toBeUndefined();
+  });
+
+  test('student update schema accepts extended edit-form fields', () => {
+    const result = schemas.student.update.body.validate({
+      scholarship: 'N/A',
+      assignedProfessor: 'Professor Sample',
+      schedule: 'MWF 08:00-09:00',
+      permanentAddress: '123 Main Street',
+      birthDate: '2024-01-15',
+      emergencyContact: {
+        name: 'Parent Sample',
+        relationship: 'Parent',
+        contactNumber: '09171234567',
+        address: '123 Main Street'
+      }
+    });
+
+    expect(result.error).toBeUndefined();
   });
 });

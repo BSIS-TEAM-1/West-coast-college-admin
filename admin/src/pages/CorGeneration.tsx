@@ -340,7 +340,7 @@ export default function CorGeneration() {
     <div className="cor-generation-page">
       <div className="cor-generation-header">
         <div>
-          <h2>COR Generation</h2>
+          <h2>Certificate of registration Authorization</h2>
           <p>Filter by course, choose a block card, view each COR, then approve it for registrar workflow.</p>
         </div>
         <button className="cor-refresh-btn" onClick={() => void fetchBlocks()} disabled={loading}>

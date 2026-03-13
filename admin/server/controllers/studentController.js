@@ -11,6 +11,99 @@ const path = require('path');
 const fs = require('fs');
 const securityMiddleware = require('../securityMiddleware');
 
+const STUDENT_MUTABLE_FIELDS = [
+  'firstName',
+  'middleName',
+  'lastName',
+  'suffix',
+  'course',
+  'major',
+  'yearLevel',
+  'semester',
+  'schoolYear',
+  'studentStatus',
+  'enrollmentStatus',
+  'corStatus',
+  'scholarship',
+  'email',
+  'contactNumber',
+  'address',
+  'permanentAddress',
+  'birthDate',
+  'birthPlace',
+  'gender',
+  'civilStatus',
+  'nationality',
+  'religion',
+  'emergencyContact',
+  'assignedProfessor',
+  'schedule',
+  'latestGrade',
+  'gradeProfessor',
+  'gradeDate',
+  'isActive'
+];
+const TRIMMED_STUDENT_STRING_FIELDS = new Set([
+  'firstName',
+  'middleName',
+  'lastName',
+  'suffix',
+  'major',
+  'semester',
+  'schoolYear',
+  'studentStatus',
+  'enrollmentStatus',
+  'corStatus',
+  'scholarship',
+  'email',
+  'contactNumber',
+  'address',
+  'permanentAddress',
+  'birthPlace',
+  'gender',
+  'civilStatus',
+  'nationality',
+  'religion',
+  'assignedProfessor',
+  'schedule',
+  'gradeProfessor'
+]);
+const CLEARABLE_STUDENT_FIELDS = new Set([
+  'middleName',
+  'suffix',
+  'major',
+  'email',
+  'permanentAddress',
+  'birthDate',
+  'birthPlace',
+  'gender',
+  'civilStatus',
+  'nationality',
+  'religion',
+  'emergencyContact',
+  'assignedProfessor',
+  'schedule',
+  'latestGrade',
+  'gradeProfessor',
+  'gradeDate'
+]);
+
+function normalizeEmergencyContact(emergencyContact) {
+  if (!emergencyContact || typeof emergencyContact !== 'object' || Array.isArray(emergencyContact)) {
+    return null;
+  }
+
+  const normalized = {
+    name: String(emergencyContact.name || '').trim(),
+    relationship: String(emergencyContact.relationship || '').trim(),
+    contactNumber: String(emergencyContact.contactNumber || '').trim(),
+    address: String(emergencyContact.address || '').trim()
+  };
+
+  const hasValue = Object.values(normalized).some(Boolean);
+  return hasValue ? normalized : null;
+}
+
 class StudentController {
   static async getProfessorAccounts(req, res) {
     try {
@@ -105,8 +198,10 @@ class StudentController {
   }
 
   static async createStudentRecord(studentData) {
-    if (studentData.email) {
-      const existingStudent = await Student.findOne({ email: studentData.email });
+    const { set } = this.normalizeStudentMutationData(studentData);
+
+    if (set.email) {
+      const existingStudent = await Student.findOne({ email: set.email });
       if (existingStudent) {
         const err = new Error('A student with this email already exists');
         err.statusCode = 409;
@@ -114,29 +209,11 @@ class StudentController {
       }
     }
 
-    // Normalize optional enums and strip empty strings
-    const cleanData = { ...studentData };
-    if (!cleanData.civilStatus) delete cleanData.civilStatus;
-    if (!cleanData.gender) delete cleanData.gender;
-    if (!cleanData.religion) delete cleanData.religion;
-    if (!cleanData.nationality) delete cleanData.nationality;
-    if (!cleanData.permanentAddress) delete cleanData.permanentAddress;
-    if (!cleanData.birthDate) delete cleanData.birthDate;
-    if (!cleanData.assignedProfessor) delete cleanData.assignedProfessor;
-    if (!cleanData.schedule) delete cleanData.schedule;
-    if (!cleanData.gradeProfessor) delete cleanData.gradeProfessor;
-    if (!cleanData.gradeDate) delete cleanData.gradeDate;
-    if (cleanData.latestGrade === '' || cleanData.latestGrade === null) delete cleanData.latestGrade;
-    const allowedStatuses = ['Regular', 'Dropped', 'Returnee', 'Transferee'];
-    cleanData.studentStatus = allowedStatuses.includes(cleanData.studentStatus)
-      ? cleanData.studentStatus
-      : 'Regular';
-    if (!cleanData.corStatus) cleanData.corStatus = 'Pending';
-    if (String(cleanData.corStatus).trim() === 'Verified') {
-      cleanData.enrollmentStatus = 'Enrolled';
+    if (studentData?.createdBy) {
+      set.createdBy = studentData.createdBy;
     }
 
-    const student = new Student(cleanData);
+    const student = new Student(set);
     await student.save();
     return student;
   }
@@ -293,39 +370,94 @@ class StudentController {
   }
 
   static async updateStudentRecord(id, updateData) {
-    const source = updateData || {};
-    const normalizedUpdate = {};
+    const { set, unset } = this.normalizeStudentMutationData(updateData, { forUpdate: true });
 
-    // Only allow specific fields to be updated from user input
-    const allowedFields = [
-      'firstName',
-      'lastName',
-      'middleName',
-      'course',
-      'yearLevel',
-      'semester',
-      'schoolYear',
-      'studentStatus',
-      'corStatus',
-      'email',
-      'contactNumber',
-      'address'
-    ];
-
-    for (const field of allowedFields) {
-      if (Object.prototype.hasOwnProperty.call(source, field)) {
-        normalizedUpdate[field] = source[field];
+    if (set.email) {
+      const existingStudent = await Student.findOne({
+        email: set.email,
+        _id: { $ne: id }
+      }).select('_id');
+      if (existingStudent) {
+        const err = new Error('A student with this email already exists');
+        err.statusCode = 409;
+        throw err;
       }
     }
 
-    if (String(normalizedUpdate.corStatus || '').trim() === 'Verified') {
-      normalizedUpdate.enrollmentStatus = 'Enrolled';
+    if (updateData?.updatedBy) {
+      set.updatedBy = updateData.updatedBy;
+    }
+    set.lastUpdated = new Date();
+
+    const updateOperations = {};
+    if (Object.keys(set).length > 0) {
+      updateOperations.$set = set;
+    }
+    if (unset.length > 0) {
+      updateOperations.$unset = Object.fromEntries(unset.map((field) => [field, '']));
     }
 
-    return Student.findByIdAndUpdate(id, normalizedUpdate, {
+    return Student.findByIdAndUpdate(id, updateOperations, {
       new: true,
       runValidators: true
     });
+  }
+
+  static normalizeStudentMutationData(studentData, options = {}) {
+    const { forUpdate = false } = options;
+    const source = studentData || {};
+    const set = {};
+    const unset = [];
+
+    for (const field of STUDENT_MUTABLE_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(source, field)) continue;
+
+      let value = source[field];
+      if (value === undefined) continue;
+
+      if (field === 'emergencyContact') {
+        const normalizedEmergencyContact = normalizeEmergencyContact(value);
+        if (!normalizedEmergencyContact) {
+          if (forUpdate) unset.push(field);
+          continue;
+        }
+        set[field] = normalizedEmergencyContact;
+        continue;
+      }
+
+      if (TRIMMED_STUDENT_STRING_FIELDS.has(field) && typeof value === 'string') {
+        value = value.trim();
+      }
+
+      if (
+        CLEARABLE_STUDENT_FIELDS.has(field) &&
+        (value === '' || value === null)
+      ) {
+        if (forUpdate) unset.push(field);
+        continue;
+      }
+
+      if (field === 'latestGrade' && value !== '') {
+        value = Number(value);
+      }
+
+      set[field] = value;
+    }
+
+    if (!set.studentStatus) {
+      delete set.studentStatus;
+    }
+    if (!set.corStatus && !forUpdate) {
+      set.corStatus = 'Pending';
+    }
+    if (!set.studentStatus && !forUpdate) {
+      set.studentStatus = 'Regular';
+    }
+    if (String(set.corStatus || '').trim() === 'Verified') {
+      set.enrollmentStatus = 'Enrolled';
+    }
+
+    return { set, unset: Array.from(new Set(unset)) };
   }
 
   static async deleteStudentRecord(id) {
@@ -451,7 +583,10 @@ class StudentController {
 
   static async createStudent(req, res) {
     try {
-      const student = await StudentController.createStudentRecord(req.body);
+      const student = await StudentController.createStudentRecord({
+        ...req.body,
+        createdBy: req.adminId
+      });
       res.status(201).json({
         success: true,
         data: student,
@@ -548,7 +683,10 @@ class StudentController {
         (req.body?.yearLevel !== undefined && Number(req.body.yearLevel) !== Number(previous.yearLevel)) ||
         (req.body?.studentStatus !== undefined && String(req.body.studentStatus) !== String(previous.studentStatus));
 
-      const student = await StudentController.updateStudentRecord(id, req.body);
+      const student = await StudentController.updateStudentRecord(id, {
+        ...req.body,
+        updatedBy: req.adminId
+      });
 
       if (!student) {
         return res.status(404).json({
@@ -570,7 +708,7 @@ class StudentController {
       });
     } catch (error) {
       console.error('Error updating student:', error);
-      res.status(500).json({
+      res.status(error.statusCode || 500).json({
         success: false,
         message: error.message || 'Failed to update student information'
       });
@@ -885,6 +1023,10 @@ class StudentController {
       };
 
       const courseCode = courseCodeFromValue(student.course) || '000';
+      const courseAbbreviation =
+        StudentController.courseCodeMap[Number(courseCode)] ||
+        StudentController.courseCodeMap[student.course] ||
+        String(student.course || '').trim();
       const courseLabel =
         StudentController.courseLabelMap[Number(courseCode)] ||
         StudentController.courseLabelMap[student.course] ||
@@ -987,10 +1129,15 @@ class StudentController {
       const corSchoolYear = enrollment?.schoolYear || student.schoolYear || 'N/A';
       const corYearLevel = enrollment?.yearLevel || student.yearLevel || 'N/A';
       const formatClassBlockLabel = (rawSectionCode, courseAbbreviation) => {
-        const sectionCode = String(rawSectionCode || '').trim();
+        const sectionCode = String(rawSectionCode || '').trim().replace(/\u2013/g, '-').toUpperCase();
         const course = String(courseAbbreviation || '').trim().toUpperCase();
         if (!sectionCode) return '';
         if (!course) return sectionCode;
+
+        const blockSlotMatch = sectionCode.match(/(?:^|[-\s])(\d+)-?([A-Z])$/);
+        if (blockSlotMatch) {
+          return `${course}-${blockSlotMatch[1]}${blockSlotMatch[2]}`;
+        }
 
         const parts = sectionCode.split('-').filter(Boolean);
         const firstPart = parts[0] || '';
@@ -1015,7 +1162,7 @@ class StudentController {
           .select('sectionCode blockCode name')
           .lean();
         classBlockLabel =
-          formatClassBlockLabel(assignedSection?.sectionCode, courseCode) ||
+          formatClassBlockLabel(assignedSection?.sectionCode, courseAbbreviation) ||
           assignedSection?.blockCode ||
           assignedSection?.name ||
           'N/A';

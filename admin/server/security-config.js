@@ -13,13 +13,16 @@ function buildContentSecurityPolicyValue() {
     "'self'",
     'https://cdnjs.cloudflare.com',
     'https://cdn.jsdelivr.net',
+    'https://accounts.google.com',
     'https://www.google.com',
     'https://www.gstatic.com'
   ]
   const connectSrc = [
     "'self'",
+    'https://accounts.google.com',
     'https://www.google.com',
-    'https://www.gstatic.com'
+    'https://www.gstatic.com',
+    'https://oauth2.googleapis.com'
   ]
 
   if (!isProduction) {
@@ -34,10 +37,10 @@ function buildContentSecurityPolicyValue() {
     "object-src 'none'",
     `script-src ${scriptSrc.join(' ')}`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "img-src 'self' data: blob: https://www.google.com https://www.gstatic.com",
+    "img-src 'self' data: blob: https://accounts.google.com https://www.google.com https://www.gstatic.com",
     "font-src 'self' data: https://fonts.gstatic.com",
     `connect-src ${connectSrc.join(' ')}`,
-    "frame-src 'self' https://www.google.com https://recaptcha.google.com",
+    "frame-src 'self' https://accounts.google.com https://www.google.com https://recaptcha.google.com",
     "frame-ancestors 'none'"
   ].join('; ') + ';'
 }
@@ -94,12 +97,12 @@ const securityConfig = {
       'base-uri': "'self' - Restrict the document base URL to same-origin",
       'form-action': "'self' - Restrict form submissions to same-origin only",
       'object-src': "'none' - Disable legacy plugin content",
-      'script-src': "'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://www.google.com https://www.gstatic.com (plus unsafe-eval in development only) - Allow same-origin scripts and approved CDN/reCAPTCHA scripts",
+      'script-src': "'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://accounts.google.com https://www.google.com https://www.gstatic.com (plus unsafe-eval in development only) - Allow same-origin scripts and approved CDN/reCAPTCHA/Google identity scripts",
       'style-src': "'self' 'unsafe-inline' - Allow same-origin styles with inline for CSS-in-JS",
-      'img-src': "'self' data: blob: https://www.google.com https://www.gstatic.com - Allow images from same origin, data URLs, and reCAPTCHA assets",
+      'img-src': "'self' data: blob: https://accounts.google.com https://www.google.com https://www.gstatic.com - Allow images from same origin, data URLs, and Google identity/reCAPTCHA assets",
       'font-src': "'self' data: - Allow fonts from same origin and data URLs",
-      'connect-src': "'self' https://www.google.com https://www.gstatic.com (plus ws/wss localhost in development only) - Allow API calls and reCAPTCHA API calls",
-      'frame-src': "'self' https://www.google.com https://recaptcha.google.com - Allow embedded reCAPTCHA frames",
+      'connect-src': "'self' https://accounts.google.com https://www.google.com https://www.gstatic.com https://oauth2.googleapis.com (plus ws/wss localhost in development only) - Allow API calls and Google identity/reCAPTCHA API calls",
+      'frame-src': "'self' https://accounts.google.com https://www.google.com https://recaptcha.google.com - Allow embedded Google identity and reCAPTCHA frames",
       'frame-ancestors': "'none' - Prevent site from being embedded in any frame"
     }
   },

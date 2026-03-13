@@ -87,7 +87,7 @@ export default function RegistrarLogin({ onLogin, error, loading }: LoginProps) 
               className="login-input"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Enter Registrar Username"
+              placeholder="Enter registrar username"
               autoComplete="username"
               required
             />

@@ -1,6 +1,8 @@
 import { useState, useCallback, useEffect } from 'react'
 import {
   login as apiLogin,
+  googleLogin as apiGoogleLogin,
+  verifyLoginEmailCode as apiVerifyLoginEmailCode,
   setStoredToken,
   getStoredToken,
   clearStoredToken,
@@ -19,7 +21,7 @@ import RegistrarDashboard from './pages/RegistrarDashboard'
 import ProfessorDashboard from './pages/ProfessorDashboard.tsx'
 import Maintenance from './pages/Maintenance'
 import './App.css'
-import type { ProfileResponse } from './lib/authApi'
+import type { LoginFlowResponse, LoginResponse, ProfileResponse } from './lib/authApi'
 
 const isAuthSessionError = (message: string): boolean => {
   const normalized = String(message || '').toLowerCase()
@@ -44,6 +46,18 @@ function App() {
   const [loginError, setLoginError] = useState<string | undefined>(undefined)
   const [loginLoading, setLoginLoading] = useState(false)
   const [sessionBootstrapping, setSessionBootstrapping] = useState(true)
+
+  const finalizeLogin = useCallback(async (token: string, username: string) => {
+    setStoredToken(token)
+
+    const profile = await getProfile()
+
+    setActiveThemeScope(profile.username)
+    applyThemePreference(getStoredTheme(profile.username), { persist: false })
+    setUser({ username, accountType: profile.accountType })
+    setShowApplicantMaintenance(false)
+    setShowSignIn(false)
+  }, [])
 
   useEffect(() => {
     let mounted = true
@@ -90,27 +104,56 @@ function App() {
     }
   }, [])
 
-  const handleLogin = useCallback(async (username: string, password: string, captchaToken?: string) => {
+  const handleLogin = useCallback(async (username: string, password: string, captchaToken?: string): Promise<LoginFlowResponse | null> => {
     setLoginError(undefined)
     setLoginLoading(true)
 
     try {
       const data = await apiLogin(username, password, captchaToken)
-      setStoredToken(data.token)
-
-      const profile = await getProfile()
-
-      setActiveThemeScope(profile.username)
-      applyThemePreference(getStoredTheme(profile.username), { persist: false })
-      setUser({ username: data.username, accountType: profile.accountType })
-      setShowApplicantMaintenance(false)
-      setShowSignIn(false)
+      if ('requiresEmailVerification' in data && data.requiresEmailVerification) {
+        return data
+      }
+      await finalizeLogin(data.token, data.username)
+      return data
     } catch (err) {
       setLoginError(err instanceof Error ? err.message : 'Invalid username or password.')
+      return null
     } finally {
       setLoginLoading(false)
     }
-  }, [])
+  }, [finalizeLogin])
+
+  const handleGoogleLogin = useCallback(async (credential: string): Promise<LoginFlowResponse | null> => {
+    setLoginError(undefined)
+    setLoginLoading(true)
+
+    try {
+      const data = await apiGoogleLogin(credential)
+      if ('requiresEmailVerification' in data && data.requiresEmailVerification) {
+        return data
+      }
+      await finalizeLogin(data.token, data.username)
+      return data
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : 'Google sign-in failed.')
+      return null
+    } finally {
+      setLoginLoading(false)
+    }
+  }, [finalizeLogin])
+
+  const handleVerifyLoginEmailCode = useCallback(async (challengeToken: string, code: string): Promise<LoginResponse> => {
+    setLoginError(undefined)
+    setLoginLoading(true)
+
+    try {
+      const data = await apiVerifyLoginEmailCode(challengeToken, code)
+      await finalizeLogin(data.token, data.username)
+      return data
+    } finally {
+      setLoginLoading(false)
+    }
+  }, [finalizeLogin])
 
   const handleLogout = useCallback(async () => {
     try {
@@ -208,6 +251,8 @@ function App() {
     return (
       <Login
         onLogin={handleLogin}
+        onGoogleLogin={handleGoogleLogin}
+        onVerifyLoginEmailCode={handleVerifyLoginEmailCode}
         error={loginError}
         loading={loginLoading}
         onBack={() => {

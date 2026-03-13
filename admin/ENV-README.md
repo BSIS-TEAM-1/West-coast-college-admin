@@ -12,6 +12,8 @@
 - `.env` file is currently set to development
 - Copy appropriate file to `.env` when switching environments
 - Keep API keys only in local `.env` files and never hardcode them in source code
+- The React app reads `.env.development` / `.env.production` automatically through Vite
+- The Express server reads `admin/.env`, so copy the matching file into `.env` for local server runs
 
 ## Semaphore SMS
 - Add these variables in `admin/.env` (or your deployment environment):
@@ -43,6 +45,18 @@
 - `SENDGRID_REPLY_TO=...` (optional)
 - `SENDGRID_API_URL=https://api.sendgrid.com/v3/mail/send` (optional)
 - `SENDGRID_TIMEOUT_MS=10000` (optional)
+
+## Gmail API Email Verification
+- Used by the admin profile email verification flow.
+- Add these variables in `admin/.env.development`, `admin/.env.production`, or your deployment environment:
+- `GMAIL_CLIENT_ID=...` (required)
+- `GMAIL_CLIENT_SECRET=...` (required)
+- `GMAIL_REFRESH_TOKEN=...` (required)
+- `GMAIL_SENDER_EMAIL=yourgmail@gmail.com` (required; should match the Google account that granted the refresh token)
+- `GMAIL_SENDER_NAME=West Coast College` (optional)
+- `VERIFICATION_EMAIL_PROVIDER_PRIORITY=gmail-api` (optional; Gmail only)
+- `EMAIL_VERIFICATION_CODE_TTL_MS=600000` (optional; 10 minutes)
+- OAuth Playground redirect URI for token generation: `https://developers.google.com/oauthplayground`
 
 ## Switching Environments
 ```bash

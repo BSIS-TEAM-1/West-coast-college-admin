@@ -904,11 +904,11 @@ type BlockManagementProps = {
 }
 
 function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
-  const blockCourseOptions: Array<{ value: number; label: string }> = [
-    { value: 101, label: 'BEED' },
-    { value: 102, label: 'BSEd-English' },
-    { value: 103, label: 'BSEd-Math' },
-    { value: 201, label: 'BSBA-HRM' }
+  const blockCourseOptions: Array<{ value: number; label: string; fullLabel: string }> = [
+    { value: 101, label: 'BEED', fullLabel: 'Bachelor of Elementary Education (BEED)' },
+    { value: 102, label: 'BSEd-English', fullLabel: 'Bachelor of Secondary Education - Major in English' },
+    { value: 103, label: 'BSEd-Math', fullLabel: 'Bachelor of Secondary Education - Major in Mathematics' },
+    { value: 201, label: 'BSBA-HRM', fullLabel: 'Bachelor of Science in Business Administration - Major in HRM' }
   ]
   const blockNumberOptions = [
     '1-A',
@@ -1270,6 +1270,62 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
     ? `${formatBlockLabel(selectedGroup.name)} (${selectedGroup.semester} ${selectedGroup.year})`
     : 'No block selected yet'
   const selectedTargetSection = sections.find((section) => section._id === selectedSection) || null
+  const selectedCourseOption = blockCourseOptions.find((course) => course.value === Number(newGroupCourse)) || null
+  const newGroupPreviewCode = `${selectedCourseOption?.fullLabel || 'Course'}`
+  const newGroupPreviewShortCode = `${selectedCourseOption?.label || 'Course'}`
+  const newGroupPreviewInlineCode = `${selectedCourseOption?.label || 'Course'} - ${newGroupBlockNumber}`
+  const newGroupPreviewCourseCode = `${selectedCourseOption?.value || '000'}`
+  const newGroupPreviewLabel = `${selectedCourseOption?.fullLabel || 'Course'}`
+  const totalSectionCapacity = sections.reduce((sum, section) => sum + (Number(section.capacity) || 0), 0)
+  const totalSectionPopulation = sections.reduce((sum, section) => sum + (Number(section.currentPopulation) || 0), 0)
+  const utilizationPercent = totalSectionCapacity > 0
+    ? Math.min(100, Math.round((totalSectionPopulation / totalSectionCapacity) * 100))
+    : 0
+  const selectedYearLevel = selectedGroup ? parseBlockSlot(selectedGroup.name)?.yearLevel : null
+  const selectedBlockBadge = selectedGroup
+    ? `Block-${formatBlockColumnLabel(selectedGroup.name).replace('-', '')}`
+    : 'No block selected'
+  const tutorialTarget = !blockGroups.length
+    ? 'create-action'
+    : !selectedCourseFilter
+      ? 'filter-course'
+      : !selectedYearFilter
+        ? 'filter-year'
+        : !selectedGroup
+          ? 'filter-block'
+          : sections.length === 0 && !loading
+            ? 'refresh-blocks'
+            : 'workspace'
+  const guidePanelTitle = tutorialTarget === 'create-action'
+    ? 'Press Create Block'
+    : tutorialTarget === 'filter-course'
+      ? 'Press Course'
+      : tutorialTarget === 'filter-year'
+        ? 'Press Year Level'
+        : tutorialTarget === 'filter-block'
+          ? 'Press Block'
+          : tutorialTarget === 'refresh-blocks'
+            ? 'Press Refresh Blocks'
+            : 'Press Open Workspace'
+  const guidePanelText = tutorialTarget === 'create-action'
+    ? `The form is prefilled. Change anything you want, then press Create Block for ${newGroupPreviewCode}.`
+    : tutorialTarget === 'filter-course'
+      ? 'Start Step 2 by pressing the Course dropdown.'
+      : tutorialTarget === 'filter-year'
+        ? 'The course is selected. Press Year Level next.'
+        : tutorialTarget === 'filter-block'
+          ? `Press Block and choose from ${filteredBlockGroups.length} matching option(s).`
+          : tutorialTarget === 'refresh-blocks'
+            ? 'The block is selected but sections are still empty. Press Refresh Blocks to sync them.'
+            : `Your block is ready. Press the workspace card for ${selectedBlockBadge}.`
+  const tutorialFocus = {
+    createAction: tutorialTarget === 'create-action',
+    filterCourse: tutorialTarget === 'filter-course',
+    filterYear: tutorialTarget === 'filter-year',
+    filterBlock: tutorialTarget === 'filter-block',
+    refreshBlocks: tutorialTarget === 'refresh-blocks',
+    workspace: tutorialTarget === 'workspace'
+  }
   const handleOpenWorkspace = () => {
     if (!selectedGroup) return
     onOpenWorkspace({
@@ -1290,13 +1346,21 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
       {success && <p className="registrar-feedback registrar-feedback-success">{success}</p>}
 
       <div className="block-management-content">
-        <div className="assignment-section block-first-time-card">
-          <h3>Quick Start (First Time Guide)</h3>
-          <ol className="block-first-time-list">
-            <li>Create a block group or pick one using Course, Year Level, then Block.</li>
-            <li>Use Refresh Blocks if you recently added or changed block data.</li>
-            <li>Delete Block is available once a specific block is selected.</li>
-          </ol>
+        <div className="block-management-hero">
+          <div className="block-management-hero-copy">
+            <span className="block-hero-kicker">Registrar Workflow</span>
+            <h3>Build blocks faster, then open the assignment workspace with the right target already loaded.</h3>
+            <p>Start with a clean block preview, narrow the selection by course and year level, then move into assignment once the block is confirmed.</p>
+          </div>
+          <div className="block-management-hero-status">
+            <span className="block-hero-status-label">Setup Summary</span>
+            <strong>{guidePanelTitle}</strong>
+            <p>{guidePanelText}</p>
+            <div className="block-hero-status-meta">
+              <span>{selectedGroup ? `${openBlocks.length} open section(s)` : `${blockGroups.length} total block group(s)`}</span>
+              <span>{selectedGroup ? `${totalSectionPopulation}/${totalSectionCapacity || 0} seats used` : 'Guided setup mode'}</span>
+            </div>
+          </div>
         </div>
 
         <div className="block-summary-grid">
@@ -1322,12 +1386,35 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
           </div>
         </div>
 
-        <div className="assignment-section">
-          <h3>Step 1: Create Block</h3>
-          <p className="assignment-help-text">Set course, block number, semester, and year to create a new block group.</p>
+        <div className="assignment-section block-create-card">
+          <div className="block-panel-head">
+            <div>
+              <span className="block-step-badge">Step 1</span>
+              <h3>Create Block</h3>
+            </div>
+            <p>Choose the course, slot, and term before you create the block group.</p>
+          </div>
+          <div className="block-selection-helper-list">
+            <span className="block-selection-pill">Default capacity: 30 seats</span>
+            <span className="block-selection-pill">{newGroupSemester} {newGroupYear}</span>
+            <span className="block-selection-pill">{selectedCourseOption?.label || 'Course not set'}</span>
+          </div>
+          <div className="block-preview-card">
+            <span className="block-preview-label">Preview</span>
+            <strong>{newGroupPreviewLabel}</strong>
+            <p>Code: {newGroupPreviewCourseCode}</p>
+            <div className="block-preview-meta">
+              <span>Block-{newGroupBlockNumber.replace('-', '')}</span>
+              <span>{newGroupSemester}</span>
+              <span>{newGroupYear}</span>
+            </div>
+          </div>
+          <p className="assignment-help-text">This creates the block group first, then auto-generates its initial section.</p>
           <div className="assignment-form">
             <label>
-              Course:
+              <span className="block-field-head">
+                <span>Course</span>
+              </span>
               <select value={newGroupCourse} onChange={(e) => setNewGroupCourse(parseInt(e.target.value, 10))}>
                 {blockCourseOptions.map((course) => (
                   <option key={course.value} value={course.value}>
@@ -1337,11 +1424,13 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
               </select>
             </label>
             <label>
-              Block Number:
+              <span className="block-field-head">
+                <span>Block Number</span>
+              </span>
               <div className="block-number-select-wrapper" ref={blockNumberDropdownRef}>
                 <button
                   type="button"
-                  className="block-number-select-trigger"
+                  className={`block-number-select-trigger ${tutorialFocus.createAction ? 'tutorial-focus' : ''}`}
                   onClick={() => setIsBlockNumberOpen((prev) => !prev)}
                   aria-expanded={isBlockNumberOpen}
                   aria-haspopup="listbox"
@@ -1371,7 +1460,9 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
               </div>
             </label>
             <label>
-              Semester:
+              <span className="block-field-head">
+                <span>Semester</span>
+              </span>
               <select value={newGroupSemester} onChange={(e) => setNewGroupSemester(e.target.value as Semester)}>
                 <option value="1st">1st</option>
                 <option value="2nd">2nd</option>
@@ -1379,7 +1470,9 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
               </select>
             </label>
             <label>
-              Year:
+              <span className="block-field-head">
+                <span>Year</span>
+              </span>
               <input
                 type="number"
                 min={2000}
@@ -1387,32 +1480,57 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
                 value={newGroupYear}
                 onChange={(e) => setNewGroupYear(parseInt(e.target.value || `${new Date().getFullYear()}`, 10))} />
             </label>
-            <p className="assignment-inline-note">
-              Block name preview:{' '}
-              <strong>
-                {`${blockCourseOptions.find((course) => course.value === Number(newGroupCourse))?.value || '000'}-${newGroupBlockNumber}`}
-              </strong>
-            </p>
+            <p className="assignment-inline-note">Block name preview: <strong>{newGroupPreviewInlineCode}</strong></p>
             <p className="assignment-inline-note assignment-inline-note-small">
-              Uses student course code format (e.g., 103-1-A).
+              Preview uses the abbreviated course label, for example <strong>{`${selectedCourseOption?.label || 'BSEd-Math'} - 1-A`}</strong>.
             </p>
-            <button className="registrar-btn" onClick={handleCreateGroup} disabled={loading}>
-              {loading ? 'Saving...' : 'Create Block'}
-            </button>
+            <div className="block-action-stack">
+              {tutorialFocus.createAction && (
+                <span className="block-control-callout">Press this button to create your first block.</span>
+              )}
+              <button
+                type="button"
+                className={`registrar-btn ${tutorialFocus.createAction ? 'tutorial-focus' : ''}`}
+                onClick={handleCreateGroup}
+                disabled={loading}
+              >
+                {loading ? 'Saving...' : 'Create Block'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="block-selection">
+      <div className="block-selection block-selection-card">
         <div className="block-selection-head">
-          <p className="block-selection-title">Step 2: Select Block Group</p>
+          <div>
+            <span className="block-step-badge">Step 2</span>
+            <p className="block-selection-title">Select Block Group</p>
+          </div>
           <p className="block-selection-subtitle">{blockGroups.length} available</p>
         </div>
         <p className="block-selection-helper">Current selection: {selectedGroupLabel}</p>
+        <div className="block-selection-helper-list">
+          <span className="block-selection-pill">
+            {selectedCourseFilter ? `Course: ${selectedCourseFilter}` : 'Choose course'}
+          </span>
+          <span className="block-selection-pill">
+            {selectedYearFilter ? `Year ${selectedYearFilter}` : 'Choose year level'}
+          </span>
+          <span className="block-selection-pill">
+            {selectedGroup ? selectedBlockBadge : 'Choose block'}
+          </span>
+        </div>
         <div className="block-picker-grid">
           <label className="block-picker-field">
-            <span>Course</span>
+            <span className="block-field-head">
+              <span>Course</span>
+              {tutorialFocus.filterCourse && (
+                <span className="block-control-callout compact">Press here first</span>
+              )}
+            </span>
             <select
+              className={tutorialFocus.filterCourse ? 'tutorial-focus' : ''}
               value={selectedCourseFilter}
               onChange={(event) => handleCourseFilterChange(event.target.value)}
             >
@@ -1424,8 +1542,14 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
           </label>
 
           <label className="block-picker-field">
-            <span>Year Level</span>
+            <span className="block-field-head">
+              <span>Year Level</span>
+              {tutorialFocus.filterYear && (
+                <span className="block-control-callout compact">Press here next</span>
+              )}
+            </span>
             <select
+              className={tutorialFocus.filterYear ? 'tutorial-focus' : ''}
               value={selectedYearFilter}
               onChange={(event) => handleYearFilterChange(event.target.value)}
               disabled={!selectedCourseFilter || !hasYearOptions}
@@ -1438,8 +1562,14 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
           </label>
 
           <label className="block-picker-field">
-            <span>Block</span>
+            <span className="block-field-head">
+              <span>Block</span>
+              {tutorialFocus.filterBlock && (
+                <span className="block-control-callout compact">Press here next</span>
+              )}
+            </span>
             <select
+              className={tutorialFocus.filterBlock ? 'tutorial-focus' : ''}
               value={selectedGroup?._id || ''}
               onChange={(event) => handleBlockGroupChange(event.target.value)}
               disabled={!selectedCourseFilter || !selectedYearFilter || !hasBlockOptions}
@@ -1454,19 +1584,36 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
           </label>
         </div>
         <p className="block-selection-helper">{blockPickerStatusText}</p>
+        <div className="block-current-card">
+          <span className="block-current-label">Selected Block Snapshot</span>
+          <strong>{selectedBlockBadge}</strong>
+          <p>{selectedGroup ? `${formatBlockLabel(selectedGroup.name)} is ready for section review and student assignment.` : 'Choose a course, year level, and block to load a working target.'}</p>
+          <div className="block-current-meta">
+            <span>{selectedGroup ? `${selectedGroup.semester} ${selectedGroup.year}` : 'No term selected'}</span>
+            <span>{selectedGroup && selectedYearLevel ? `Year ${selectedYearLevel}` : 'No year selected'}</span>
+            <span>{selectedGroup ? `${utilizationPercent}% utilized` : 'Workspace locked'}</span>
+          </div>
+        </div>
         <div className="block-selection-actions">
-          <button
-            className="registrar-btn"
-            onClick={() => {
-              void fetchBlockGroups()
-              if (selectedGroup) void fetchSections(selectedGroup._id)
-            } }
-            disabled={loading}
-          >
-            Refresh Blocks
-          </button>
+          <div className="block-action-stack">
+            {tutorialFocus.refreshBlocks && (
+              <span className="block-control-callout">Press this if the selected block has not loaded sections yet.</span>
+            )}
+            <button
+              type="button"
+              className={`registrar-btn ${tutorialFocus.refreshBlocks ? 'tutorial-focus' : ''}`}
+              onClick={() => {
+                void fetchBlockGroups()
+                if (selectedGroup) void fetchSections(selectedGroup._id)
+              } }
+              disabled={loading}
+            >
+              Refresh Blocks
+            </button>
+          </div>
           {selectedGroup && (
             <button
+              type="button"
               className="section-delete-btn"
               onClick={() => void handleDeleteGroup()}
               disabled={loading}
@@ -1476,16 +1623,25 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
           )}
         </div>
         {selectedGroup && (
-          <button type="button" className="block-workspace-launch-card" onClick={handleOpenWorkspace}>
-            <div className="block-workspace-launch-badge">Workspace Ready</div>
-            <h3>Open Block Assignment Workspace</h3>
-            <p>Assign students and review block details for this selected block.</p>
-            <div className="block-workspace-launch-meta">
-              <span>{formatBlockLabel(selectedGroup.name)}</span>
-              <span>{selectedGroup.semester} {selectedGroup.year}</span>
-              <span>{openBlocks.length} open section(s)</span>
-            </div>
-          </button>
+          <div className="block-action-stack">
+            {tutorialFocus.workspace && (
+              <span className="block-control-callout">Press this card to continue to the assignment workspace.</span>
+            )}
+            <button
+              type="button"
+              className={`block-workspace-launch-card ${tutorialFocus.workspace ? 'tutorial-focus' : ''}`}
+              onClick={handleOpenWorkspace}
+            >
+              <div className="block-workspace-launch-badge">Workspace Ready</div>
+              <h3>Open Block Assignment Workspace</h3>
+              <p>Assign students and review block details for this selected block.</p>
+              <div className="block-workspace-launch-meta">
+                <span>{formatBlockLabel(selectedGroup.name)}</span>
+                <span>{selectedGroup.semester} {selectedGroup.year}</span>
+                <span>{openBlocks.length} open section(s)</span>
+              </div>
+            </button>
+          </div>
         )}
       </div>
     </div>

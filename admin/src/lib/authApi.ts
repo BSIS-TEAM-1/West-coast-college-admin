@@ -102,6 +102,19 @@ export async function logout(): Promise<{ message: string }> {
 
 export type SignUpResponse = { message: string; username: string }
 export type LoginResponse = { message: string; username: string; token: string; accountType?: 'admin' | 'registrar' | 'professor' }
+export type LoginEmailVerificationChallengeResponse = {
+  requiresEmailVerification: true
+  challengeToken: string
+  email: string
+  expiresAt: string
+  channel?: 'email'
+  emailProvider?: 'gmail-api' | 'semaphore' | 'sendgrid' | 'sms-api-ph' | null
+  destination?: string
+  deliveryStatus?: string
+  messageId?: string | null
+  providerMessage?: string | null
+}
+export type LoginFlowResponse = LoginResponse | LoginEmailVerificationChallengeResponse
 export type AdditionalInfo = {
   bio: string
   secondPhone: string
@@ -118,6 +131,9 @@ export type ProfileResponse = {
   username: string
   displayName: string
   email: string
+  emailVerified?: boolean
+  primaryLoginMethod?: 'username' | 'email'
+  loginEmailVerificationEnabled?: boolean
   phone?: string
   phoneVerified?: boolean
   avatar: string
@@ -128,6 +144,8 @@ export type UpdateProfileRequest = {
   displayName?: string
   email?: string
   phone?: string
+  primaryLoginMethod?: 'username' | 'email'
+  loginEmailVerificationEnabled?: boolean
   newUsername?: string
   currentPassword?: string
   newPassword?: string
@@ -168,7 +186,7 @@ export async function signUp(username: string, password: string): Promise<SignUp
   return data as SignUpResponse
 }
 
-export async function login(username: string, password: string, captchaToken?: string): Promise<LoginResponse> {
+export async function login(username: string, password: string, captchaToken?: string): Promise<LoginFlowResponse> {
   const payload: Record<string, string> = { username: username.trim(), password }
   if (captchaToken) payload.captchaToken = captchaToken
   const deviceId = getOrCreateDeviceId()
@@ -184,6 +202,42 @@ export async function login(username: string, password: string, captchaToken?: s
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
     throw new Error((data?.error as string) || 'Invalid username or password.')
+  }
+  return data as LoginFlowResponse
+}
+
+export async function googleLogin(credential: string): Promise<LoginFlowResponse> {
+  const deviceId = getOrCreateDeviceId()
+
+  const res = await fetch(`${API_URL}/api/admin/google-login`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Device-Id': deviceId
+    },
+    body: JSON.stringify({ credential }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error((data?.error as string) || 'Google sign-in failed.')
+  }
+  return data as LoginFlowResponse
+}
+
+export async function verifyLoginEmailCode(challengeToken: string, code: string): Promise<LoginResponse> {
+  const deviceId = getOrCreateDeviceId()
+
+  const res = await fetch(`${API_URL}/api/admin/login/verify-email`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Device-Id': deviceId
+    },
+    body: JSON.stringify({ challengeToken, code }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error((data?.error as string) || 'Failed to verify the login email code.')
   }
   return data as LoginResponse
 }
@@ -223,7 +277,7 @@ export async function sendPhoneVerificationCode(phone: string): Promise<{
   phone: string
   expiresAt: string
   channel?: 'sms' | 'email'
-  emailProvider?: 'semaphore' | 'sendgrid' | 'sms-api-ph' | null
+  emailProvider?: 'gmail-api' | 'semaphore' | 'sendgrid' | 'sms-api-ph' | null
   destination?: string
   fallbackUsed?: boolean
   fallbackReason?: string | null
@@ -245,7 +299,7 @@ export async function sendPhoneVerificationCode(phone: string): Promise<{
     phone: string
     expiresAt: string
     channel?: 'sms' | 'email'
-    emailProvider?: 'semaphore' | 'sendgrid' | 'sms-api-ph' | null
+    emailProvider?: 'gmail-api' | 'semaphore' | 'sendgrid' | 'sms-api-ph' | null
     destination?: string
     fallbackUsed?: boolean
     fallbackReason?: string | null
@@ -253,6 +307,98 @@ export async function sendPhoneVerificationCode(phone: string): Promise<{
     messageId?: string | null
     providerMessage?: string | null
   }
+}
+
+export async function sendEmailVerificationCode(email: string): Promise<{
+  message: string
+  email: string
+  expiresAt: string
+  channel?: 'email'
+  emailProvider?: 'gmail-api' | 'semaphore' | 'sendgrid' | 'sms-api-ph' | null
+  destination?: string
+  deliveryStatus?: string
+  messageId?: string | null
+  providerMessage?: string | null
+}> {
+  const res = await fetch(`${API_URL}/api/admin/profile/email/send-code`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify({ email }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error((data?.error as string) || 'Failed to send email verification code.')
+  }
+  return data as {
+    message: string
+    email: string
+    expiresAt: string
+    channel?: 'email'
+    emailProvider?: 'gmail-api' | 'semaphore' | 'sendgrid' | 'sms-api-ph' | null
+    destination?: string
+    deliveryStatus?: string
+    messageId?: string | null
+    providerMessage?: string | null
+  }
+}
+
+export async function requestEmailChangeVerification(email: string): Promise<{
+  message: string
+  email: string
+  expiresAt: string
+  channel?: 'email'
+  emailProvider?: 'gmail-api' | 'semaphore' | 'sendgrid' | 'sms-api-ph' | null
+  destination?: string
+  deliveryStatus?: string
+  messageId?: string | null
+  providerMessage?: string | null
+}> {
+  const res = await fetch(`${API_URL}/api/admin/profile/email/change/request`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify({ email }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error((data?.error as string) || 'Failed to start the email change verification.')
+  }
+  return data as {
+    message: string
+    email: string
+    expiresAt: string
+    channel?: 'email'
+    emailProvider?: 'gmail-api' | 'semaphore' | 'sendgrid' | 'sms-api-ph' | null
+    destination?: string
+    deliveryStatus?: string
+    messageId?: string | null
+    providerMessage?: string | null
+  }
+}
+
+export async function verifyEmailAddress(code: string): Promise<ProfileResponse> {
+  const res = await fetch(`${API_URL}/api/admin/profile/email/verify`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify({ code }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error((data?.error as string) || 'Failed to verify email address.')
+  }
+  return data as ProfileResponse
+}
+
+export async function verifyChangedEmailAddress(code: string): Promise<ProfileResponse> {
+  const res = await fetch(`${API_URL}/api/admin/profile/email/change/verify`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: JSON.stringify({ code }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error((data?.error as string) || 'Failed to verify the new email address.')
+  }
+  return data as ProfileResponse
 }
 
 export async function verifyPhoneNumber(code: string): Promise<ProfileResponse> {

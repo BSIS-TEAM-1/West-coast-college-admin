@@ -29,6 +29,28 @@ const adminSchema = new mongoose.Schema({
   },
   displayName: { type: String, trim: true, default: '' },
   email: { type: String, trim: true, lowercase: true, default: '' },
+  emailVerified: { type: Boolean, default: false },
+  emailVerificationCodeHash: { type: String, default: '', select: false },
+  emailVerificationExpiresAt: { type: Date, default: null, select: false },
+  primaryLoginMethod: {
+    type: String,
+    enum: ['username', 'email'],
+    default: 'username'
+  },
+  loginEmailVerificationEnabled: { type: Boolean, default: false },
+  loginEmailVerificationCodeHash: { type: String, default: '', select: false },
+  loginEmailVerificationExpiresAt: { type: Date, default: null, select: false },
+  loginEmailVerificationChallengeHash: { type: String, default: '', select: false },
+  loginEmailVerificationDeviceId: { type: String, default: '', select: false },
+  loginEmailVerificationAuthProvider: {
+    type: String,
+    enum: ['', 'password', 'google'],
+    default: '',
+    select: false
+  },
+  pendingEmailChange: { type: String, trim: true, lowercase: true, default: '', select: false },
+  pendingEmailChangeCodeHash: { type: String, default: '', select: false },
+  pendingEmailChangeExpiresAt: { type: Date, default: null, select: false },
   phone: { type: String, trim: true, default: '' },
   phoneVerified: { type: Boolean, default: false },
   phoneVerificationCodeHash: { type: String, default: '', select: false },
