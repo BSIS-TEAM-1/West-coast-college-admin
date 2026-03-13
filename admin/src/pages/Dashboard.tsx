@@ -146,9 +146,11 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
   }
 
   const getAccountTypeColor = (accountType: string, opacity: number = 1) => {
+    const accentMix = `color-mix(in srgb, var(--color-primary) ${opacity * 100}%, transparent)`
+
     switch (accountType) {
       case 'admin':
-        return `rgba(59, 130, 246, ${opacity})` // Blue
+        return accentMix
       case 'registrar':
         return `rgba(16, 185, 129, ${opacity})` // Green
       case 'professor':
@@ -188,6 +190,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
   return (
     <div className="dashboard">
       <Sidebar
+        id="admin-sidebar-navigation"
         activeLink={view}
         onNavigate={handleNavigate}
         isOpen={isSidebarOpen}
@@ -203,6 +206,8 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
         <Navbar
           username={username}
           onLogout={onLogout}
+          isMenuOpen={isSidebarOpen}
+          menuId="admin-sidebar-navigation"
           onMenuToggle={() => setIsSidebarOpen((prev) => !prev)}
         />
         <main className="dashboard-main">

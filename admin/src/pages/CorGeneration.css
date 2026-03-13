@@ -89,7 +89,7 @@
 
 .cor-chip.active {
   background: var(--color-primary, #4f46e5);
-  color: #fff;
+  color: var(--color-on-primary);
   border-color: var(--color-primary, #4f46e5);
 }
 
@@ -101,9 +101,9 @@
 }
 
 .cor-status.info {
-  background: rgba(59, 130, 246, 0.1);
-  color: #1d4ed8;
-  border: 1px solid rgba(59, 130, 246, 0.25);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary-dark);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 25%, transparent);
 }
 
 .cor-status.error {
@@ -192,7 +192,7 @@
 
 .cor-block-card.active {
   border-color: var(--color-primary, #4f46e5);
-  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 15%, transparent);
 }
 
 .cor-block-card-head {
@@ -333,8 +333,8 @@
 }
 
 .cor-pill.received {
-  color: #1d4ed8;
-  border-color: rgba(59, 130, 246, 0.4);
+  color: var(--color-primary-dark);
+  border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
 }
 
 .cor-pill.verified {
@@ -367,8 +367,8 @@
 }
 
 .cor-action-btn.view {
-  border-color: rgba(59, 130, 246, 0.4);
-  color: #1d4ed8;
+  border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
+  color: var(--color-primary-dark);
 }
 
 .cor-action-btn.approve {

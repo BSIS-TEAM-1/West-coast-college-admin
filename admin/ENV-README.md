@@ -58,6 +58,19 @@
 - `EMAIL_VERIFICATION_CODE_TTL_MS=600000` (optional; 10 minutes)
 - OAuth Playground redirect URI for token generation: `https://developers.google.com/oauthplayground`
 
+## Google Sign-In
+- The login page uses Google Identity Services from `admin/src/pages/Login.tsx`, so `VITE_GOOGLE_SIGNIN_CLIENT_ID` must be a `Web application` OAuth client ID.
+- Keep `VITE_GOOGLE_SIGNIN_CLIENT_ID` and `GOOGLE_SIGNIN_CLIENT_IDS` aligned to the same web client unless you intentionally allow multiple client IDs on the server.
+- In Google Cloud Console, open `APIs & Services` -> `Credentials` -> your OAuth 2.0 Client ID -> `Authorized JavaScript origins` and add every frontend origin that will render the Google button.
+- Use exact origins only: scheme + hostname + port, with no path and no trailing slash.
+- Typical origins for this project:
+- `http://localhost:5173`
+- `http://127.0.0.1:5173`
+- `https://localhost:5173` if you run the frontend over HTTPS locally
+- `https://west-coast-college-admin.onrender.com` for the production frontend
+- If Vite starts on another dev port such as `5174`, add that exact origin too or force the app back to `5173`.
+- `Error 400: origin_mismatch` is raised by Google before the credential reaches your API, so fixing the Google Console origin list is required.
+
 ## Switching Environments
 ```bash
 # For development

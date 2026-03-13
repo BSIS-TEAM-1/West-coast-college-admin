@@ -4,6 +4,7 @@
   display: flex;
   flex-direction: row;
   background: var(--color-bg);
+  position: relative;
 }
 
 /* Sidebar Styles - Exact match with RegistrarDashboard */
@@ -105,12 +106,12 @@
 
 .professor-sidebar-link-active {
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
 }
 
 .professor-sidebar-link-active:hover {
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
 }
 
 .professor-sidebar-icon {
@@ -149,7 +150,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
+  color: var(--color-on-primary);
 }
 
 .profile-info {
@@ -185,6 +186,22 @@
   flex: 1;
   padding: 2rem;
   background: var(--color-bg-soft);
+}
+
+.professor-sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  border: 0;
+  background: rgba(15, 23, 42, 0.45);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 1100;
+}
+
+.professor-sidebar-backdrop.visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* Professor Home Styles - Matching RegistrarDashboard */
@@ -306,7 +323,7 @@
 }
 
 .quick-action-icon {
-  color: var(--color-primary);
+  color: var(--color-primary-on-surface);
   margin-bottom: 1rem;
 }
 
@@ -349,7 +366,7 @@
 }
 
 .news-icon {
-  color: var(--color-primary);
+  color: var(--color-primary-on-surface);
 }
 
 .section-action-btn {
@@ -359,7 +376,7 @@
   margin-left: auto;
   padding: 0.5rem 1rem;
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
   border: none;
   border-radius: 0.375rem;
   font-size: 0.875rem;
@@ -883,7 +900,7 @@
 
 .professor-layout-btn.is-active {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
 }
 
 .professor-course-results {
@@ -1115,7 +1132,7 @@
   font-weight: 500;
   cursor: pointer;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
 }
 
 .professor-btn-xs.professor-btn-secondary {
@@ -1603,7 +1620,7 @@
 .professor-btn {
   padding: 0.625rem 1rem;
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
   border: none;
   border-radius: 6px;
   font-size: 0.875rem;
@@ -1898,6 +1915,65 @@
   background: var(--color-surface);
 }
 
+.professor-timetable-window-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.75rem 0.75rem 0;
+}
+
+.professor-timetable-window-btn,
+.professor-timetable-day-pill {
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-soft);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.professor-timetable-window-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.professor-timetable-window-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.professor-timetable-day-pills {
+  flex: 1;
+  display: flex;
+  gap: 0.4rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.professor-timetable-day-pills::-webkit-scrollbar {
+  display: none;
+}
+
+.professor-timetable-day-pill {
+  border-radius: 999px;
+  padding: 0.38rem 0.72rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.professor-timetable-day-pill.is-active,
+.professor-timetable-window-btn:hover:not(:disabled),
+.professor-timetable-day-pill:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
+  color: var(--color-primary);
+}
+
 .professor-timetable-scroll {
   width: 100%;
   overflow: auto;
@@ -1905,12 +1981,14 @@
 
 .professor-timetable-grid {
   display: grid;
-  grid-template-columns: 84px repeat(7, minmax(170px, 1fr));
-  min-width: 1250px;
 }
 
 .professor-timetable-time-col,
 .professor-timetable-day-col {
+  position: relative;
+}
+
+.professor-timetable-time-body {
   position: relative;
 }
 
@@ -1939,15 +2017,27 @@
   height: 38px;
   border-bottom: 1px solid color-mix(in srgb, var(--color-border) 65%, transparent);
   position: relative;
+  box-sizing: border-box;
 }
 
 .professor-timetable-time-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: flex-end;
+  padding-top: 0.28rem;
   padding-right: 0.4rem;
   font-size: 0.74rem;
   color: var(--color-text-muted);
+}
+
+.professor-timetable-time-end {
+  position: absolute;
+  right: 0.4rem;
+  bottom: 0.18rem;
+  font-size: 0.74rem;
+  line-height: 1;
+  color: var(--color-text-muted);
+  pointer-events: none;
 }
 
 .professor-timetable-line {
@@ -1978,6 +2068,7 @@
   background: color-mix(in srgb, var(--color-bg-soft) 55%, var(--color-primary) 28%);
   border-radius: 0.4rem;
   padding: 0.35rem 0.4rem;
+  box-sizing: border-box;
   text-align: left;
   cursor: pointer;
   color: var(--color-text);
@@ -2001,6 +2092,14 @@
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
+}
+
+.professor-timetable-grid.is-single-day .professor-timetable-item {
+  padding: 0.42rem 0.5rem;
+}
+
+.professor-timetable-grid.is-single-day .professor-timetable-item strong {
+  font-size: 0.8rem;
 }
 
 .professor-schedule-event-panel {
@@ -2070,7 +2169,7 @@
 
 .professor-mini-calendar-day,
 .professor-mini-calendar-empty {
-  min-height: 92px;
+  min-height: 108px;
   border: 1px solid var(--color-border);
   border-radius: 0.4rem;
   display: flex;
@@ -2114,42 +2213,52 @@
 
 .professor-mini-calendar-day.is-active {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   border-color: var(--color-primary);
 }
 
 .professor-mini-calendar-day.is-active .professor-mini-calendar-date {
-  color: #fff;
+  color: var(--color-on-primary);
 }
 
 .professor-mini-calendar-timeline {
   width: 100%;
   display: grid;
-  gap: 0.28rem;
-  margin-top: 0.45rem;
+  gap: 0.38rem;
+  margin-top: 0.5rem;
 }
 
 .professor-mini-calendar-event-line {
+  --mini-event-fill: color-mix(in srgb, var(--color-primary) 82%, white);
+  --mini-event-track: color-mix(in srgb, var(--mini-event-fill) 12%, var(--color-surface));
+  --mini-event-border: color-mix(in srgb, var(--mini-event-fill) 26%, var(--color-border));
   width: 100%;
-  min-height: 1.05rem;
-  border-radius: 0.55rem;
-  background: color-mix(in srgb, var(--color-border) 72%, transparent);
+  min-height: 1.72rem;
+  border-radius: 0.65rem;
+  background: var(--mini-event-track);
+  border: 1px solid var(--mini-event-border);
   overflow: hidden;
   position: relative;
-  display: flex;
-  align-items: center;
-  padding: 0.12rem 0.35rem;
+  display: grid;
+  align-content: start;
+  gap: 0.2rem;
+  padding: 0.18rem 0.4rem 0.58rem;
+  box-sizing: border-box;
 }
 
 .professor-mini-calendar-event-fill {
   display: block;
-  height: 100%;
+  height: 0.34rem;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-primary) 82%, white);
-  min-width: 12px;
+  background: var(--mini-event-fill);
+  min-width: 16px;
   position: absolute;
-  inset: 0;
-  opacity: 0.92;
+  bottom: 0.18rem;
+  left: 0;
+  top: auto;
+  right: auto;
+  opacity: 1;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--mini-event-fill) 35%, rgba(15, 23, 42, 0.12));
 }
 
 .professor-mini-calendar-event-label {
@@ -2160,49 +2269,58 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.6rem;
+  font-size: 0.63rem;
   font-weight: 700;
+  line-height: 1.1;
   letter-spacing: 0.01em;
-  color: var(--color-text);
+  color: var(--color-text-bold);
 }
 
 .professor-mini-calendar-event-line.tag-exam .professor-mini-calendar-event-fill {
-  background: #f59e0b;
+  --mini-event-fill: #f59e0b;
 }
 
 .professor-mini-calendar-event-line.tag-holiday .professor-mini-calendar-event-fill {
-  background: #16a34a;
+  --mini-event-fill: #16a34a;
 }
 
 .professor-mini-calendar-event-line.tag-meeting .professor-mini-calendar-event-fill {
-  background: #0ea5e9;
+  --mini-event-fill: #0ea5e9;
 }
 
 .professor-mini-calendar-event-line.tag-deadline .professor-mini-calendar-event-fill {
-  background: #ef4444;
+  --mini-event-fill: #ef4444;
 }
 
 .professor-mini-calendar-event-line.tag-general .professor-mini-calendar-event-fill,
 .professor-mini-calendar-event-line.tag-academic .professor-mini-calendar-event-fill {
-  background: color-mix(in srgb, var(--color-primary) 82%, white);
+  --mini-event-fill: color-mix(in srgb, var(--color-primary) 82%, white);
 }
 
 .professor-mini-calendar-more {
-  font-size: 0.68rem;
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  font-size: 0.66rem;
   font-weight: 700;
   color: var(--color-text-muted);
 }
 
 .professor-mini-calendar-day.is-active .professor-mini-calendar-event-line {
-  background: rgba(255, 255, 255, 0.18);
+  background: color-mix(in srgb, var(--color-on-primary) 18%, transparent);
+  border-color: color-mix(in srgb, var(--color-on-primary) 26%, transparent);
 }
 
 .professor-mini-calendar-day.is-active .professor-mini-calendar-event-fill {
-  background: rgba(255, 255, 255, 0.95);
+  background: color-mix(in srgb, var(--color-on-primary) 94%, transparent);
+  box-shadow: none;
 }
 
 .professor-mini-calendar-day.is-active .professor-mini-calendar-event-label {
-  color: #0f172a;
+  color: var(--color-on-primary);
 }
 
 .professor-mini-calendar-day.is-active .professor-mini-calendar-more {
@@ -2225,6 +2343,7 @@
   border: 1px solid var(--color-border);
   border-radius: 0.55rem;
   background: var(--color-surface);
+  color: var(--color-text);
   width: 100%;
   text-align: left;
   padding: 0.75rem 0.65rem 0.6rem;
@@ -2250,6 +2369,10 @@
   align-items: center;
   gap: 0.4rem;
   font-size: 0.8rem;
+}
+
+.professor-schedule-event-header strong {
+  color: inherit;
 }
 
 .professor-schedule-event-meta {
@@ -2462,7 +2585,8 @@
 }
 
 .professor-mini-calendar-event-line {
-  background: rgba(148, 163, 184, 0.18);
+  background: var(--mini-event-track);
+  border-color: var(--mini-event-border);
 }
 
 [data-theme='dark'] .professor-dashboard {
@@ -2543,6 +2667,11 @@
   color: rgba(241, 245, 249, 0.94);
 }
 
+[data-theme='dark'] .professor-schedule-event-item,
+[data-theme='dark'] .professor-schedule-event-header strong {
+  color: rgba(241, 245, 249, 0.94);
+}
+
 [data-theme='dark'] .professor-schedule-card-day,
 [data-theme='dark'] .professor-schedule-card-badge,
 [data-theme='dark'] .professor-subject-badge,
@@ -2582,25 +2711,72 @@
 }
 
 /* Responsive Design - Matching RegistrarDashboard */
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
   .professor-dashboard {
     flex-direction: column;
   }
 
   .professor-sidebar {
-    width: 100%;
+    width: min(420px, calc(100vw - 1.5rem));
+    max-height: min(78dvh, calc(100dvh - 5.5rem));
+    min-height: 0;
     height: auto;
-    position: relative;
-    border-right: none;
-    border-bottom: 1px solid var(--color-border);
+    position: fixed;
+    top: max(calc(env(safe-area-inset-top) + 4.5rem), 4.75rem);
+    left: 0.75rem;
+    bottom: auto;
+    border-right: 1px solid var(--color-border);
+    border-radius: 22px;
+    box-shadow: 0 26px 48px rgba(15, 23, 42, 0.24);
+    overflow: hidden auto;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(-0.85rem) scale(0.98);
+    transform-origin: top left;
+    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0s linear 0.2s;
+    z-index: 1200;
+  }
+
+  .professor-sidebar.professor-sidebar-open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateY(0) scale(1);
+    transition-delay: 0s;
   }
 
   .professor-dashboard-body {
     margin-left: 0;
   }
 
+  .professor-sidebar-nav {
+    flex: initial;
+  }
+}
+
+@media (max-width: 768px) {
+  .professor-dashboard {
+    flex-direction: column;
+  }
+
   .professor-dashboard-main {
     padding: 1rem;
+  }
+
+  .professor-timetable-window-controls {
+    padding: 0.65rem 0.65rem 0;
+    gap: 0.42rem;
+  }
+
+  .professor-timetable-day-pill {
+    padding: 0.34rem 0.62rem;
+    font-size: 0.69rem;
+  }
+
+  .professor-timetable-window-btn {
+    width: 30px;
+    height: 30px;
   }
 
   .professor-quick-actions {
@@ -2722,6 +2898,21 @@
     flex-direction: column;
     gap: 0.5rem;
     align-items: flex-start;
+  }
+
+  .professor-timetable-time-row,
+  .professor-timetable-line {
+    height: 34px;
+  }
+
+  .professor-timetable-time-row,
+  .professor-timetable-time-end {
+    font-size: 0.68rem;
+  }
+
+  .professor-timetable-item {
+    font-size: 0.68rem;
+    gap: 0.14rem;
   }
 
 }

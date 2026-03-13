@@ -1,4 +1,8 @@
 .event-calendar {
+  --event-calendar-primary-soft: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  --event-calendar-primary-soft-strong: color-mix(in srgb, var(--color-primary) 20%, transparent);
+  --event-calendar-primary-border: color-mix(in srgb, var(--color-primary) 30%, transparent);
+  --event-calendar-primary-border-strong: color-mix(in srgb, var(--color-primary) 50%, transparent);
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 12px;
@@ -121,13 +125,13 @@
 }
 
 .calendar-day.today {
-  background: rgba(59, 130, 246, 0.1);
-  border-color: rgba(59, 130, 246, 0.3);
+  background: var(--event-calendar-primary-soft);
+  border-color: var(--event-calendar-primary-border);
 }
 
 .calendar-day.selected {
-  background: rgba(59, 130, 246, 0.2);
-  border-color: rgba(59, 130, 246, 0.5);
+  background: var(--event-calendar-primary-soft-strong);
+  border-color: var(--event-calendar-primary-border-strong);
 }
 
 .day-number {

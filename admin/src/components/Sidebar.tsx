@@ -7,6 +7,7 @@ import './Sidebar.css';
 type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'documents' | 'announcement-detail' | 'personal-details' | 'system-health' | 'security' | 'cor-docs' | 'calendar';
 
 type SidebarProps = {
+  id?: string;
   activeLink?: View;
   onNavigate?: (view: View) => void;
   profileUpdateTrigger?: number; // Add this to trigger re-fetch
@@ -27,7 +28,7 @@ const NAV_ITEMS: { id: View; label: string; icon: any }[] = [
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
-export default function Sidebar({ activeLink = 'dashboard', onNavigate, profileUpdateTrigger, isOpen = false, onClose }: SidebarProps) {
+export default function Sidebar({ id, activeLink = 'dashboard', onNavigate, profileUpdateTrigger, isOpen = false, onClose }: SidebarProps) {
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -53,7 +54,11 @@ export default function Sidebar({ activeLink = 'dashboard', onNavigate, profileU
   }, []);
 
   return (
-    <aside className={`sidebar ${isOpen ? 'sidebar-open' : ''}`}>
+    <aside
+      id={id}
+      className={`sidebar ${isOpen ? 'sidebar-open' : ''}`}
+      aria-label="Admin navigation menu"
+    >
       <div className="sidebar-brand">
         <div className="brand-content">
           <div className="logo-container">
@@ -118,34 +123,14 @@ export default function Sidebar({ activeLink = 'dashboard', onNavigate, profileU
       </nav>
 
       {/* Time Display */}
-      <div className="sidebar-time" style={{
-        padding: '1rem',
-        margin: '0 1rem',
-        background: 'rgba(59, 130, 246, 0.1)',
-        borderRadius: '8px',
-        textAlign: 'center',
-        border: '1px solid rgba(59, 130, 246, 0.2)'
-      }}>
-        <div style={{
-          fontSize: '0.75rem',
-          color: 'var(--text-secondary)',
-          fontWeight: '500',
-          marginBottom: '0.25rem'
-        }}>
+      <div className="sidebar-time">
+        <div className="sidebar-time-label">
           Current Time
         </div>
-        <div style={{
-          fontSize: '1rem',
-          fontWeight: '600',
-          color: 'var(--text-primary)'
-        }}>
+        <div className="sidebar-time-value">
           {currentTime.toLocaleTimeString()}
         </div>
-        <div style={{
-          fontSize: '0.75rem',
-          color: 'var(--text-secondary)',
-          marginTop: '0.25rem'
-        }}>
+        <div className="sidebar-time-date">
           {currentTime.toLocaleDateString()}
         </div>
       </div>

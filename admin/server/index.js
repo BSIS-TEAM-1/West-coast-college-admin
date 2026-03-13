@@ -109,6 +109,23 @@ const ADMIN_IP_WHITELIST = process.env.ADMIN_IP_WHITELIST ?
 app.use(express.json({ limit: '25mb' }))
 
 const normalizeOrigin = (value) => String(value || '').trim().replace(/\/$/, '').toLowerCase()
+const isLoopbackOrigin = (value) => {
+  try {
+    const parsedOrigin = new URL(String(value || '').trim())
+    const normalizedHostname = String(parsedOrigin.hostname || '')
+      .trim()
+      .toLowerCase()
+      .replace(/^\[|\]$/g, '')
+
+    if (!['http:', 'https:'].includes(parsedOrigin.protocol)) {
+      return false
+    }
+
+    return ['localhost', '127.0.0.1', '::1'].includes(normalizedHostname)
+  } catch {
+    return false
+  }
+}
 const defaultAllowedOrigins = [
   'http://localhost:3000',
   'https://localhost:3000',
@@ -140,7 +157,8 @@ app.use(cors({
     // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true)
     const normalizedOrigin = normalizeOrigin(origin)
-    if (allowedOrigins.has(normalizedOrigin)) {
+    const allowLoopbackOrigin = !strictCorsMode && isLoopbackOrigin(origin)
+    if (allowedOrigins.has(normalizedOrigin) || allowLoopbackOrigin) {
       return callback(null, true)
     }
 
@@ -1348,6 +1366,19 @@ function clearPendingEmailChangeState(admin) {
   admin.pendingEmailChangeExpiresAt = null
 }
 
+async function findAdminEmailConflictOwner(adminId, email) {
+  const normalizedEmail = String(email || '').trim().toLowerCase()
+  if (!normalizedEmail) return null
+
+  return Admin.findOne({
+    _id: { $ne: adminId },
+    $or: [
+      { email: normalizedEmail },
+      { username: normalizedEmail }
+    ]
+  }).select('_id')
+}
+
 async function beginLoginEmailVerification({ admin, deviceId, authProvider }) {
   const normalizedEmail = String(admin.email || '').trim().toLowerCase()
   if (!admin.loginEmailVerificationEnabled) {
@@ -2113,6 +2144,11 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
     if (typeof email === 'string') {
       const normalizedEmail = email.trim().toLowerCase()
       if (normalizedEmail !== String(admin.email || '').trim().toLowerCase()) {
+        const conflictingEmailOwner = await findAdminEmailConflictOwner(admin._id, normalizedEmail)
+        if (conflictingEmailOwner) {
+          return res.status(409).json({ error: 'That email is already used by another account.' })
+        }
+
         admin.email = normalizedEmail
         admin.emailVerified = false
         admin.emailVerificationCodeHash = ''
@@ -2150,14 +2186,7 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
           return res.status(400).json({ error: 'Verify your email address before making it primary.' })
         }
 
-        const conflictingEmailOwner = await Admin.findOne({
-          _id: { $ne: admin._id },
-          $or: [
-            { email: normalizedEmail },
-            { username: normalizedEmail }
-          ]
-        }).select('_id')
-
+        const conflictingEmailOwner = await findAdminEmailConflictOwner(admin._id, normalizedEmail)
         if (conflictingEmailOwner) {
           return res.status(409).json({ error: 'That email is already used by another account.' })
         }
@@ -2236,6 +2265,11 @@ app.post('/api/admin/profile/email/send-code', authMiddleware, securityMiddlewar
     const requestedEmail = String(req.body.email || '').trim().toLowerCase()
     if (!isValidEmailAddress(requestedEmail)) {
       return res.status(400).json({ error: 'Enter a valid email address before verification.' })
+    }
+
+    const conflictingEmailOwner = await findAdminEmailConflictOwner(admin._id, requestedEmail)
+    if (conflictingEmailOwner) {
+      return res.status(409).json({ error: 'That email is already used by another account.' })
     }
 
     const verificationCode = generatePhoneVerificationCode()
@@ -2328,6 +2362,19 @@ app.post('/api/admin/profile/email/verify', authMiddleware, securityMiddleware.i
       return res.status(400).json({ error: 'Invalid verification code.' })
     }
 
+    const conflictingEmailOwner = await findAdminEmailConflictOwner(admin._id, normalizedEmail)
+    if (conflictingEmailOwner) {
+      admin.emailVerified = false
+      admin.emailVerificationCodeHash = ''
+      admin.emailVerificationExpiresAt = null
+      admin.primaryLoginMethod = 'username'
+      admin.loginEmailVerificationEnabled = false
+      clearLoginEmailVerificationState(admin)
+      clearPendingEmailChangeState(admin)
+      await admin.save()
+      return res.status(409).json({ error: 'That email is already used by another account.' })
+    }
+
     admin.email = normalizedEmail
     admin.emailVerified = true
     admin.emailVerificationCodeHash = ''
@@ -2371,14 +2418,7 @@ app.post('/api/admin/profile/email/change/request', authMiddleware, securityMidd
       return res.status(400).json({ error: 'Enter a different email address to continue.' })
     }
 
-    const conflictingEmailOwner = await Admin.findOne({
-      _id: { $ne: admin._id },
-      $or: [
-        { email: requestedEmail },
-        { username: requestedEmail }
-      ]
-    }).select('_id')
-
+    const conflictingEmailOwner = await findAdminEmailConflictOwner(admin._id, requestedEmail)
     if (conflictingEmailOwner) {
       return res.status(409).json({ error: 'That email is already used by another account.' })
     }
@@ -2454,14 +2494,7 @@ app.post('/api/admin/profile/email/change/verify', authMiddleware, securityMiddl
       return res.status(400).json({ error: 'Invalid verification code.' })
     }
 
-    const conflictingEmailOwner = await Admin.findOne({
-      _id: { $ne: admin._id },
-      $or: [
-        { email: pendingEmailChange },
-        { username: pendingEmailChange }
-      ]
-    }).select('_id')
-
+    const conflictingEmailOwner = await findAdminEmailConflictOwner(admin._id, pendingEmailChange)
     if (conflictingEmailOwner) {
       clearPendingEmailChangeState(admin)
       await admin.save()

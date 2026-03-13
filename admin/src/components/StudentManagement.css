@@ -3,12 +3,20 @@
   padding: 2rem;
   max-width: 100%;
   font-family: inherit;
-  --student-action-gradient: linear-gradient(135deg, #5f7f96, #476579);
-  --student-action-hover-bg: linear-gradient(135deg, #eef4f8, #dce7ef);
-  --student-action-border: #8ca6b8;
-  --student-action-shadow: 0 10px 22px rgba(71, 101, 121, 0.16);
+  --student-action-gradient: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-primary) 82%, white),
+    var(--color-primary-hover)
+  );
+  --student-action-hover-bg: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)),
+    color-mix(in srgb, var(--color-primary-hover) 14%, var(--color-bg-soft))
+  );
+  --student-action-border: color-mix(in srgb, var(--color-primary) 34%, var(--color-border));
+  --student-action-shadow: 0 10px 22px color-mix(in srgb, var(--color-primary) 18%, transparent);
   --student-action-text: #ffffff;
-  --student-action-hover-text: #355166;
+  --student-action-hover-text: color-mix(in srgb, var(--color-primary-dark, var(--color-primary-hover)) 68%, black);
 }
 
 .student-management button,
@@ -108,8 +116,8 @@
 
 .search-box input:focus {
   outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-subtle);
 }
 
 .filter-selects {
@@ -130,8 +138,8 @@
 
 .filter-selects select:focus {
   outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-subtle);
 }
 
 /* Student Table */
@@ -214,8 +222,8 @@
 }
 
 .student-management .status-badge.on-leave {
-  background: #e0e7ff;
-  color: #3730a3;
+  background: color-mix(in srgb, var(--color-primary) 14%, white);
+  color: var(--color-primary-dark);
 }
 
 .student-management .status-badge.cor-pending {
@@ -224,8 +232,8 @@
 }
 
 .student-management .status-badge.cor-received {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: color-mix(in srgb, var(--color-primary) 16%, white);
+  color: var(--color-primary-dark);
 }
 
 .student-management .status-badge.cor-verified {
@@ -321,7 +329,7 @@
 }
 
 .action-dropdown-item.cor {
-  color: #4338ca;
+  color: var(--color-primary);
 }
 
 .action-dropdown-item.view-cor {
@@ -379,7 +387,7 @@
   width: 2rem;
   height: 2rem;
   border: 2px solid #e2e8f0;
-  border-top: 2px solid #3b82f6;
+  border-top: 2px solid var(--color-primary);
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin-bottom: 1rem;
@@ -542,8 +550,8 @@
 .form-group input:focus,
 .form-group select:focus {
   outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-subtle);
 }
 
 .form-actions {
@@ -615,12 +623,12 @@
 .student-avatar {
   width: 4rem;
   height: 4rem;
-  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
+  color: var(--color-on-primary);
 }
 
 .student-basic-info {
@@ -837,8 +845,8 @@
 }
 
 [data-theme="dark"] .student-management .status-badge.on-leave {
-  background: rgba(96, 165, 250, 0.2);
-  color: #93c5fd;
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  color: color-mix(in srgb, var(--color-primary) 82%, white);
 }
 
 [data-theme="dark"] .student-management .status-badge.cor-pending {
@@ -847,8 +855,8 @@
 }
 
 [data-theme="dark"] .student-management .status-badge.cor-received {
-  background: rgba(96, 165, 250, 0.2);
-  color: #93c5fd;
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  color: color-mix(in srgb, var(--color-primary) 82%, white);
 }
 
 [data-theme="dark"] .student-management .status-badge.cor-verified {
@@ -875,7 +883,7 @@
 }
 
 [data-theme="dark"] .action-dropdown-item.cor {
-  color: #a5b4fc;
+  color: color-mix(in srgb, var(--color-primary) 82%, white);
 }
 
 [data-theme="dark"] .action-dropdown-item.view-cor {

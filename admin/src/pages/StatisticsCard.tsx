@@ -185,7 +185,7 @@ export default function StatisticsCard({ title, statistics, graphData = [], time
                   <span className="graph-title">Active Users</span>
                   <span className="graph-value">{userGraphData[userGraphData.length - 1].value}</span>
                 </div>
-                {renderMiniChart(userGraphData, '#3b82f6')}
+                {renderMiniChart(userGraphData, 'var(--color-primary)')}
               </div>
 
               <div className="graph-item">

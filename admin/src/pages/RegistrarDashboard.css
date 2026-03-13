@@ -111,12 +111,12 @@
 
 .registrar-sidebar-link-active {
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
 }
 
 .registrar-sidebar-link-active:hover {
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
 }
 
 .registrar-sidebar-icon {
@@ -184,7 +184,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
+  color: var(--color-on-primary);
 }
 
 .profile-info {
@@ -259,7 +259,7 @@
 }
 
 .quick-action-icon {
-  color: var(--color-primary);
+  color: var(--color-primary-on-surface);
   margin-bottom: 1rem;
 }
 
@@ -323,7 +323,7 @@
 .registrar-btn {
   padding: 0.625rem 1rem;
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
   border: none;
   border-radius: 6px;
   font-size: 0.875rem;
@@ -403,7 +403,7 @@
 }
 
 .news-icon {
-  color: var(--color-primary);
+  color: var(--color-primary-on-surface);
 }
 
 .news-header h3 {
@@ -443,7 +443,7 @@
 }
 
 .pinned-icon {
-  color: var(--color-primary);
+  color: var(--color-primary-on-surface);
   flex-shrink: 0;
 }
 
@@ -572,7 +572,7 @@
   margin-left: auto;
   padding: 0.5rem 1rem;
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
   border: none;
   border-radius: 0.375rem;
   font-size: 0.875rem;
@@ -1048,13 +1048,62 @@
 
 .block-management-content,
 .block-selection-card {
-  --block-landing-accent: #facc15;
-  --block-landing-accent-strong: #f59e0b;
+  --block-landing-accent-base: var(--color-primary);
+  --block-landing-accent-strong-base: var(--color-primary-dark, var(--color-primary-hover));
+  --block-landing-accent: var(--color-primary-on-dark-surface);
+  --block-landing-accent-strong: color-mix(in srgb, var(--color-primary-on-dark-surface) 82%, white);
+  --block-landing-icon: var(--block-landing-accent);
   --block-landing-ink: #f8fafc;
   --block-landing-muted: rgba(226, 232, 240, 0.78);
   --block-landing-border: rgba(255, 255, 255, 0.15);
   --block-landing-panel: linear-gradient(155deg, rgba(18, 18, 18, 0.92), rgba(38, 38, 38, 0.82));
   --block-landing-panel-soft: rgba(15, 23, 42, 0.38);
+}
+
+.block-management-content :is(
+  .block-management-hero-status,
+  .block-summary-card,
+  .block-preview-card,
+  .block-current-card,
+  .block-workspace-launch-card,
+  .block-hero-kicker,
+  .block-hero-status-meta span,
+  .block-selection-pill,
+  .block-control-callout,
+  .block-step-badge,
+  .block-workspace-launch-badge
+) svg,
+.block-selection-card :is(
+  .block-management-hero-status,
+  .block-summary-card,
+  .block-preview-card,
+  .block-current-card,
+  .block-workspace-launch-card,
+  .block-hero-kicker,
+  .block-hero-status-meta span,
+  .block-selection-pill,
+  .block-control-callout,
+  .block-step-badge,
+  .block-workspace-launch-badge
+) svg {
+  color: var(--block-landing-icon);
+  stroke: currentColor;
+}
+
+.block-management-content :is(
+  .registrar-btn,
+  .section-delete-btn,
+  .subject-action-btn,
+  .action-buttons button
+) svg,
+.block-selection-card :is(
+  .registrar-btn,
+  .section-delete-btn,
+  .subject-action-btn,
+  .action-buttons button
+) svg {
+  color: inherit;
+  stroke: currentColor;
 }
 
 .block-management-hero {
@@ -1077,8 +1126,8 @@
   position: absolute;
   inset: -20%;
   background:
-    radial-gradient(circle at 18% 24%, rgba(250, 204, 21, 0.18), transparent 34%),
-    radial-gradient(circle at 82% 68%, rgba(59, 130, 246, 0.16), transparent 32%);
+    radial-gradient(circle at 18% 24%, color-mix(in srgb, var(--block-landing-accent) 18%, transparent), transparent 34%),
+    radial-gradient(circle at 82% 68%, color-mix(in srgb, var(--block-landing-accent-strong) 16%, transparent), transparent 32%);
   pointer-events: none;
 }
 
@@ -1091,7 +1140,7 @@
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  border: 1px solid rgba(250, 204, 21, 0.35);
+  border: 1px solid color-mix(in srgb, var(--block-landing-accent) 35%, transparent);
   padding: 0.16rem 0.55rem;
   color: var(--block-landing-accent);
   font-size: 0.74rem;
@@ -1223,8 +1272,8 @@
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  border: 1px solid rgba(250, 204, 21, 0.35);
-  background: rgba(250, 204, 21, 0.12);
+  border: 1px solid color-mix(in srgb, var(--block-landing-accent) 35%, transparent);
+  background: color-mix(in srgb, var(--block-landing-accent) 12%, transparent);
   color: var(--block-landing-accent);
   padding: 0.18rem 0.58rem;
   font-size: 0.75rem;
@@ -1244,22 +1293,24 @@
 }
 
 .tutorial-focus {
-  border-color: rgba(250, 204, 21, 0.65) !important;
-  box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.22), 0 0 22px rgba(250, 204, 21, 0.14) !important;
+  border-color: color-mix(in srgb, var(--block-landing-accent) 65%, transparent) !important;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--block-landing-accent) 22%, transparent),
+    0 0 22px color-mix(in srgb, var(--block-landing-accent) 14%, transparent) !important;
 }
 
 .block-step-badge {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  border: 1px solid rgba(250, 204, 21, 0.35);
+  border: 1px solid color-mix(in srgb, var(--block-landing-accent) 35%, transparent);
   padding: 0.16rem 0.56rem;
   font-size: 0.74rem;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--block-landing-accent);
-  background: rgba(250, 204, 21, 0.08);
+  background: color-mix(in srgb, var(--block-landing-accent) 8%, transparent);
 }
 
 .block-panel-head h3,
@@ -1296,8 +1347,8 @@
 }
 
 .block-preview-card {
-  border-color: rgba(250, 204, 21, 0.38);
-  box-shadow: inset 0 0 0 1px rgba(250, 204, 21, 0.08);
+  border-color: color-mix(in srgb, var(--block-landing-accent) 38%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--block-landing-accent) 8%, transparent);
 }
 
 .block-preview-label,
@@ -1345,8 +1396,8 @@
 .block-create-card .assignment-form select:focus,
 .block-selection-card .block-picker-field select:focus,
 .block-create-card .block-number-select-trigger:focus {
-  border-color: rgba(250, 204, 21, 0.62);
-  box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.16);
+  border-color: color-mix(in srgb, var(--block-landing-accent) 62%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--block-landing-accent) 16%, transparent);
 }
 
 .block-create-card .block-number-select-list {
@@ -1360,7 +1411,7 @@
 
 .block-create-card .block-number-select-option:hover,
 .block-create-card .block-number-select-option:focus-visible {
-  background: rgba(250, 204, 21, 0.14);
+  background: color-mix(in srgb, var(--block-landing-accent) 14%, transparent);
 }
 
 .block-create-card .block-number-select-caret {
@@ -1371,17 +1422,21 @@
 .block-selection-card .registrar-btn {
   border-radius: 10px;
   border: 1px solid transparent;
-  background: linear-gradient(130deg, #f7ba06, #f99705);
-  color: #fff;
+  background: linear-gradient(130deg, var(--block-landing-accent), var(--block-landing-accent-strong));
+  color: var(--color-on-primary);
   font-weight: 700;
-  box-shadow: 0 10px 22px rgba(249, 151, 5, 0.18);
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--block-landing-accent-strong) 18%, transparent);
 }
 
 .block-management-content .registrar-btn:hover:not(:disabled),
 .block-selection-card .registrar-btn:hover:not(:disabled) {
-  background: linear-gradient(130deg, #fff4d4, #fde68a);
-  color: #7c2d12;
-  border-color: rgba(250, 204, 21, 0.75);
+  background: linear-gradient(
+    130deg,
+    color-mix(in srgb, var(--block-landing-accent) 12%, white),
+    color-mix(in srgb, var(--block-landing-accent-strong) 18%, white)
+  );
+  color: color-mix(in srgb, var(--block-landing-accent-strong) 68%, black);
+  border-color: color-mix(in srgb, var(--block-landing-accent) 75%, white);
 }
 
 .block-selection-card .section-delete-btn {
@@ -1400,14 +1455,18 @@
 }
 
 .block-workspace-launch-card {
-  border: 1px solid rgba(250, 204, 21, 0.28);
+  border: 1px solid color-mix(in srgb, var(--block-landing-accent) 28%, transparent);
   background:
-    linear-gradient(135deg, rgba(250, 204, 21, 0.12), rgba(15, 23, 42, 0.32)),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--block-landing-accent) 12%, transparent),
+      rgba(15, 23, 42, 0.32)
+    ),
     rgba(15, 23, 42, 0.22);
 }
 
 .block-workspace-launch-card:hover {
-  border-color: rgba(250, 204, 21, 0.48);
+  border-color: color-mix(in srgb, var(--block-landing-accent) 48%, transparent);
   box-shadow: 0 18px 34px rgba(15, 23, 42, 0.22);
 }
 
@@ -1422,14 +1481,15 @@
 
 .block-workspace-launch-badge {
   color: var(--block-landing-accent);
-  border-color: rgba(250, 204, 21, 0.3);
-  background: rgba(250, 204, 21, 0.08);
+  border-color: color-mix(in srgb, var(--block-landing-accent) 30%, transparent);
+  background: color-mix(in srgb, var(--block-landing-accent) 8%, transparent);
 }
 
 [data-theme="light"] .block-management-content,
 [data-theme="light"] .block-selection-card {
-  --block-landing-accent: #ca8a04;
-  --block-landing-accent-strong: #b45309;
+  --block-landing-accent: var(--block-landing-accent-base);
+  --block-landing-accent-strong: var(--block-landing-accent-strong-base);
+  --block-landing-icon: var(--block-landing-accent-strong);
   --block-landing-ink: #0f172a;
   --block-landing-muted: #475569;
   --block-landing-border: rgba(15, 23, 42, 0.12);
@@ -1447,8 +1507,8 @@
 
 [data-theme="light"] .block-management-hero::before {
   background:
-    radial-gradient(circle at 18% 24%, rgba(202, 138, 4, 0.12), transparent 34%),
-    radial-gradient(circle at 82% 68%, rgba(59, 130, 246, 0.1), transparent 32%);
+    radial-gradient(circle at 18% 24%, color-mix(in srgb, var(--block-landing-accent) 12%, transparent), transparent 34%),
+    radial-gradient(circle at 82% 68%, color-mix(in srgb, var(--block-landing-accent-strong) 10%, transparent), transparent 32%);
 }
 
 [data-theme="light"] .block-management-hero-status {
@@ -1477,14 +1537,16 @@
 }
 
 [data-theme="light"] .block-control-callout {
-  border-color: rgba(202, 138, 4, 0.28);
-  background: rgba(202, 138, 4, 0.1);
-  color: #b45309;
+  border-color: color-mix(in srgb, var(--block-landing-accent) 28%, transparent);
+  background: color-mix(in srgb, var(--block-landing-accent) 10%, transparent);
+  color: var(--block-landing-accent-strong);
 }
 
 [data-theme="light"] .tutorial-focus {
-  border-color: rgba(202, 138, 4, 0.45) !important;
-  box-shadow: 0 0 0 2px rgba(202, 138, 4, 0.14), 0 0 18px rgba(202, 138, 4, 0.1) !important;
+  border-color: color-mix(in srgb, var(--block-landing-accent) 45%, transparent) !important;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--block-landing-accent) 14%, transparent),
+    0 0 18px color-mix(in srgb, var(--block-landing-accent) 10%, transparent) !important;
 }
 
 [data-theme="light"] .block-create-card .assignment-form label,
@@ -1505,8 +1567,8 @@
 [data-theme="light"] .block-create-card .assignment-form select:focus,
 [data-theme="light"] .block-selection-card .block-picker-field select:focus,
 [data-theme="light"] .block-create-card .block-number-select-trigger:focus {
-  border-color: rgba(202, 138, 4, 0.45);
-  box-shadow: 0 0 0 2px rgba(202, 138, 4, 0.12);
+  border-color: color-mix(in srgb, var(--block-landing-accent) 45%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--block-landing-accent) 12%, transparent);
 }
 
 [data-theme="light"] .block-create-card .block-number-select-list {
@@ -1521,7 +1583,7 @@
 
 [data-theme="light"] .block-create-card .block-number-select-option:hover,
 [data-theme="light"] .block-create-card .block-number-select-option:focus-visible {
-  background: rgba(202, 138, 4, 0.08);
+  background: color-mix(in srgb, var(--block-landing-accent) 8%, transparent);
 }
 
 [data-theme="light"] .block-create-card .block-number-select-caret {
@@ -1539,20 +1601,24 @@
 }
 
 [data-theme="light"] .block-workspace-launch-card {
-  border-color: rgba(202, 138, 4, 0.2);
+  border-color: color-mix(in srgb, var(--block-landing-accent) 20%, transparent);
   background:
-    linear-gradient(135deg, rgba(202, 138, 4, 0.08), rgba(255, 255, 255, 0.88)),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--block-landing-accent) 8%, transparent),
+      rgba(255, 255, 255, 0.88)
+    ),
     rgba(255, 255, 255, 0.92);
   box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
 }
 
 [data-theme="light"] .block-preview-card {
-  border-color: rgba(202, 138, 4, 0.34);
-  box-shadow: inset 0 0 0 1px rgba(202, 138, 4, 0.08);
+  border-color: color-mix(in srgb, var(--block-landing-accent) 34%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--block-landing-accent) 8%, transparent);
 }
 
 [data-theme="light"] .block-workspace-launch-card:hover {
-  border-color: rgba(202, 138, 4, 0.34);
+  border-color: color-mix(in srgb, var(--block-landing-accent) 34%, transparent);
   box-shadow: 0 18px 34px rgba(15, 23, 42, 0.1);
 }
 
@@ -2175,7 +2241,7 @@
 .student-add-btn.selected {
   background: var(--color-primary);
   border-color: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
 }
 
 .block-student-name-list-wrap {
@@ -2435,7 +2501,7 @@
 
 .action-buttons button.selected {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   border-color: var(--color-primary);
 }
 
@@ -2997,6 +3063,7 @@
   justify-content: center;
   background: var(--color-bg);
   border: 1px solid var(--color-border);
+  color: var(--color-primary-on-surface);
   font-size: 0.78rem;
   flex-shrink: 0;
 }

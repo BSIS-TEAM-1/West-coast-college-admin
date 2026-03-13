@@ -54,7 +54,7 @@
 
 .expand-toggle:hover {
   background: #f1f5f9;
-  color: #3b82f6;
+  color: var(--color-primary);
 }
 
 .time-range-selector {
@@ -75,13 +75,13 @@
 
 .time-range-btn:hover {
   background: #f8fafc;
-  border-color: #3b82f6;
+  border-color: var(--color-primary);
 }
 
 .time-range-btn.active {
-  background: #3b82f6;
-  color: white;
-  border-color: #3b82f6;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border-color: var(--color-primary);
 }
 
 .card-content {
@@ -105,7 +105,7 @@
 
 .statistic-item:hover {
   background: #f1f5f9;
-  border-color: #3b82f6;
+  border-color: var(--color-primary);
   transform: translateY(-1px);
 }
 
@@ -222,7 +222,7 @@
 }
 
 .graph-item:hover {
-  border-color: #3b82f6;
+  border-color: var(--color-primary);
   transform: translateY(-1px);
 }
 
@@ -326,7 +326,7 @@
 
   .expand-toggle:hover {
     background: #1e293b;
-    color: #3b82f6;
+    color: var(--color-primary);
   }
 
   .time-range-btn {
@@ -337,13 +337,13 @@
 
   .time-range-btn:hover {
     background: #334155;
-    border-color: #3b82f6;
+    border-color: var(--color-primary);
   }
 
   .time-range-btn.active {
-    background: #3b82f6;
-    color: white;
-    border-color: #3b82f6;
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+    border-color: var(--color-primary);
   }
 
   .statistic-item {
@@ -353,12 +353,12 @@
 
   .statistic-item:hover {
     background: #1e293b;
-    border-color: #3b82f6;
+    border-color: var(--color-primary);
   }
 
   .stat-icon {
-    background: #1e3a8a;
-    color: #60a5fa;
+    background: color-mix(in srgb, var(--color-primary) 32%, black);
+    color: var(--color-on-primary);
   }
 
   .stat-label {
@@ -379,12 +379,12 @@
   }
 
   .graph-item:hover {
-    border-color: #3b82f6;
+    border-color: var(--color-primary);
   }
 
   .graph-icon {
-    background: #1e3a8a;
-    color: #60a5fa;
+    background: color-mix(in srgb, var(--color-primary) 32%, black);
+    color: var(--color-on-primary);
   }
 
   .graph-title {
@@ -426,7 +426,7 @@
 
 .statistics-card.dark-mode .expand-toggle:hover {
   background: #1e293b !important;
-  color: #3b82f6 !important;
+  color: var(--color-primary) !important;
 }
 
 .statistics-card.dark-mode .time-range-btn {
@@ -437,13 +437,13 @@
 
 .statistics-card.dark-mode .time-range-btn:hover {
   background: #334155 !important;
-  border-color: #3b82f6 !important;
+  border-color: var(--color-primary) !important;
 }
 
 .statistics-card.dark-mode .time-range-btn.active {
-  background: #3b82f6 !important;
-  color: white !important;
-  border-color: #3b82f6 !important;
+  background: var(--color-primary) !important;
+  color: var(--color-on-primary) !important;
+  border-color: var(--color-primary) !important;
 }
 
 .statistics-card.dark-mode .statistic-item {
@@ -453,12 +453,12 @@
 
 .statistics-card.dark-mode .statistic-item:hover {
   background: #1e293b !important;
-  border-color: #3b82f6 !important;
+  border-color: var(--color-primary) !important;
 }
 
 .statistics-card.dark-mode .stat-icon {
-  background: #1e3a8a !important;
-  color: #60a5fa !important;
+  background: color-mix(in srgb, var(--color-primary) 32%, black) !important;
+  color: var(--color-on-primary) !important;
 }
 
 .statistics-card.dark-mode .stat-label {
@@ -479,12 +479,12 @@
 }
 
 .statistics-card.dark-mode .graph-item:hover {
-  border-color: #3b82f6 !important;
+  border-color: var(--color-primary) !important;
 }
 
 .statistics-card.dark-mode .graph-icon {
-  background: #1e3a8a !important;
-  color: #60a5fa !important;
+  background: color-mix(in srgb, var(--color-primary) 32%, black) !important;
+  color: var(--color-on-primary) !important;
 }
 
 .statistics-card.dark-mode .graph-title {

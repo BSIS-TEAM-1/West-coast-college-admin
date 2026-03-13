@@ -9,7 +9,7 @@ import {
   getProfile,
   logout
 } from './lib/authApi'
-import { applyThemePreference, getStoredTheme, setActiveThemeScope } from './lib/theme'
+import { applyThemePreference, getStoredTheme, moveThemePreferencesToScope, setActiveThemeScope } from './lib/theme'
 import Login from './pages/Login'
 import LandingPage from './pages/LandingPage'
 import AboutPage from './pages/AboutPage'
@@ -53,7 +53,7 @@ function App() {
     const profile = await getProfile()
 
     setActiveThemeScope(profile.username)
-    applyThemePreference(getStoredTheme(profile.username), { persist: false })
+    applyThemePreference(getStoredTheme(profile.username), { persist: false, scope: profile.username })
     setUser({ username, accountType: profile.accountType })
     setShowApplicantMaintenance(false)
     setShowSignIn(false)
@@ -74,14 +74,14 @@ function App() {
         if (!mounted) return
 
         setActiveThemeScope(profile.username)
-        applyThemePreference(getStoredTheme(profile.username), { persist: false })
+        applyThemePreference(getStoredTheme(profile.username), { persist: false, scope: profile.username })
         setUser({ username: profile.username, accountType: profile.accountType })
       } catch (error) {
         await clearStoredToken()
         if (!mounted) return
 
         setActiveThemeScope(null)
-        applyThemePreference(getStoredTheme(null), { persist: false })
+        applyThemePreference(getStoredTheme(null), { persist: false, scope: null })
         const message = error instanceof Error ? error.message : 'Your session has ended. Please sign in again.'
         if (isAuthSessionError(message)) {
           setLoginError(message)
@@ -162,7 +162,7 @@ function App() {
       console.error('Logout error:', error)
     } finally {
       setActiveThemeScope(null)
-      applyThemePreference(getStoredTheme(null), { persist: false })
+      applyThemePreference(getStoredTheme(null), { persist: false, scope: null })
       setUser(null)
       setShowSignIn(false)
       setShowAboutPage(false)
@@ -176,9 +176,14 @@ function App() {
   }, [])
 
   const handleProfileUpdated = useCallback((profile: ProfileResponse) => {
-    setActiveThemeScope(profile.username)
+    if (user && user.username !== profile.username) {
+      moveThemePreferencesToScope(user.username, profile.username)
+    }
+
     setUser(prev => prev ? { ...prev, username: profile.username, accountType: profile.accountType } : null)
-  }, [])
+    setActiveThemeScope(profile.username)
+    applyThemePreference(getStoredTheme(profile.username), { persist: false, scope: profile.username })
+  }, [user])
 
   useEffect(() => {
     if (!user) return
@@ -196,7 +201,7 @@ function App() {
           if (cancelled) return
 
           setActiveThemeScope(null)
-          applyThemePreference(getStoredTheme(null), { persist: false })
+          applyThemePreference(getStoredTheme(null), { persist: false, scope: null })
           setUser(null)
           setLoginError(message)
           setShowSignIn(true)
