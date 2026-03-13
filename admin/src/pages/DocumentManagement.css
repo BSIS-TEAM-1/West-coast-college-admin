@@ -20,12 +20,12 @@
 }
 
 .icon {
-  color: #3b82f6;
+  color: var(--color-primary);
 }
 
 .btn-primary {
-  background: #3b82f6;
-  color: white;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
   border: none;
   padding: 0.75rem 1.5rem;
   border-radius: 0.5rem;
@@ -38,7 +38,7 @@
 }
 
 .btn-primary:hover {
-  background: #2563eb;
+  background: var(--color-primary-hover);
 }
 
 .filters-section {
@@ -83,8 +83,8 @@
 .filters-grid select:focus,
 .filters-grid input:focus {
   outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-subtle);
 }
 
 .search-input {
@@ -148,8 +148,8 @@
 }
 
 .category-badge {
-  background: #e0e7ff;
-  color: #3730a3;
+  background: var(--color-primary-subtle);
+  color: var(--color-primary-dark);
   padding: 0.25rem 0.5rem;
   border-radius: 0.25rem;
   font-size: 0.75rem;
@@ -362,8 +362,8 @@
 .form-group textarea:focus,
 .form-group select:focus {
   outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-subtle);
 }
 
 .form-row {

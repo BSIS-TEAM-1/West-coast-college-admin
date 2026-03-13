@@ -8,6 +8,12 @@
   --calendar-text-secondary: var(--color-text-secondary, #4b5563);
   --calendar-primary: var(--color-primary, #2563eb);
   --calendar-primary-hover: var(--color-primary-hover, #1d4ed8);
+  --calendar-primary-soft: color-mix(in srgb, var(--calendar-primary) 10%, transparent);
+  --calendar-primary-soft-strong: color-mix(in srgb, var(--calendar-primary) 12%, transparent);
+  --calendar-primary-soft-selected: color-mix(in srgb, var(--calendar-primary) 20%, transparent);
+  --calendar-primary-border: color-mix(in srgb, var(--calendar-primary) 30%, transparent);
+  --calendar-primary-border-strong: color-mix(in srgb, var(--calendar-primary) 50%, transparent);
+  --calendar-primary-outline: color-mix(in srgb, var(--calendar-primary) 35%, transparent);
   --calendar-error: var(--color-error, #dc2626);
   color: var(--calendar-text);
 }
@@ -173,7 +179,7 @@
 
 .calendar-page-day:hover {
   border-color: var(--calendar-border);
-  background: rgba(96, 165, 250, 0.1);
+  background: var(--calendar-primary-soft);
 }
 
 .calendar-page-day.empty {
@@ -187,13 +193,13 @@
 }
 
 .calendar-page-day.today {
-  background: rgba(59, 130, 246, 0.12);
-  border-color: rgba(59, 130, 246, 0.3);
+  background: var(--calendar-primary-soft-strong);
+  border-color: var(--calendar-primary-border);
 }
 
 .calendar-page-day.selected {
-  background: rgba(59, 130, 246, 0.2);
-  border-color: rgba(59, 130, 246, 0.5);
+  background: var(--calendar-primary-soft-selected);
+  border-color: var(--calendar-primary-border-strong);
 }
 
 .calendar-page-day-number {
@@ -255,7 +261,7 @@
 .calendar-page-field input:focus,
 .calendar-page-field select:focus,
 .calendar-page-field textarea:focus {
-  outline: 2px solid rgba(59, 130, 246, 0.35);
+  outline: 2px solid var(--calendar-primary-outline);
   outline-offset: 0;
 }
 

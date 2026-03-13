@@ -1,4 +1,7 @@
 .mini-event-calendar {
+  --mini-calendar-primary-soft: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  --mini-calendar-primary-border: color-mix(in srgb, var(--color-primary) 30%, transparent);
+  --mini-calendar-primary-hover: color-mix(in srgb, var(--color-primary) 12%, transparent);
   background: var(--bg-secondary, var(--color-surface, #ffffff));
   border: 1px solid var(--border-color, var(--color-border, #e5e7eb));
   border-radius: 12px;
@@ -117,7 +120,7 @@
 }
 
 .mini-calendar-day:hover {
-  background: rgba(96, 165, 250, 0.12);
+  background: var(--mini-calendar-primary-hover);
 }
 
 .mini-calendar-day.empty {
@@ -130,8 +133,8 @@
 }
 
 .mini-calendar-day.today {
-  background: rgba(59, 130, 246, 0.1);
-  border-color: rgba(59, 130, 246, 0.3);
+  background: var(--mini-calendar-primary-soft);
+  border-color: var(--mini-calendar-primary-border);
 }
 
 .mini-day-number {

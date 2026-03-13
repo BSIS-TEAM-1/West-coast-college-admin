@@ -29,7 +29,7 @@
   align-items: center;
   gap: 8px;
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
   border: none;
   padding: 12px 20px;
   border-radius: 8px;
@@ -403,6 +403,7 @@
 
 .table-type .type-badge.type-info {
   background: var(--color-info);
+  color: var(--color-on-primary);
 }
 
 .table-audience {
@@ -830,7 +831,7 @@
 .announcements-edit-save:hover {
   background: var(--color-primary-hover);
   border-color: var(--color-primary-hover);
-  color: white;
+  color: var(--color-on-primary);
 }
 
 .announcements-edit-save.draft {
@@ -841,6 +842,7 @@
 .announcements-edit-save.draft:hover {
   background: #5a6268;
   border-color: #5a6268;
+  color: #fff;
 }
 
 .announcements-edit-save.publish {
@@ -851,6 +853,7 @@
 .announcements-edit-save.publish:hover {
   background: #218838;
   border-color: #218838;
+  color: #fff;
 }
 
 /* Media Upload Styles */

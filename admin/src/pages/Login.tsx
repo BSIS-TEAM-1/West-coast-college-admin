@@ -4,6 +4,7 @@ import './Login.css'
 import type { LoginEmailVerificationChallengeResponse, LoginFlowResponse, LoginResponse } from '../lib/authApi'
 import { applyThemePreference, getStoredTheme, setActiveThemeScope, type ThemePreference } from '../lib/theme'
 import { ensureRecaptchaLoaded, executeRecaptchaAction, getRecaptchaSiteKey } from '../lib/recaptcha'
+import { formatVerificationCountdown, getVerificationSecondsRemaining } from '../lib/verificationTimer'
 
 declare global {
   interface Window {
@@ -33,6 +34,7 @@ const THEME_OPTIONS: Array<{ value: ThemePreference; label: string }> = [
   { value: 'dark', label: 'Dark' },
   { value: 'auto', label: 'Auto' }
 ]
+const LOGIN_VERIFICATION_CODE_LENGTH = 6
 
 const GoogleIcon = () => (
   <svg viewBox="0 0 18 18" aria-hidden="true">
@@ -86,8 +88,11 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
   const [googleButtonReady, setGoogleButtonReady] = useState(false)
   const [googleAuthPending, setGoogleAuthPending] = useState(false)
   const [loginVerificationChallenge, setLoginVerificationChallenge] = useState<LoginEmailVerificationChallengeResponse | null>(null)
-  const [loginVerificationCode, setLoginVerificationCode] = useState('')
+  const [loginVerificationDigits, setLoginVerificationDigits] = useState<string[]>(
+    () => Array(LOGIN_VERIFICATION_CODE_LENGTH).fill('')
+  )
   const [loginVerificationError, setLoginVerificationError] = useState('')
+  const [loginVerificationSecondsRemaining, setLoginVerificationSecondsRemaining] = useState<number | null>(null)
   const captchaEnabled = import.meta.env.PROD
   const googleClientId = import.meta.env.VITE_GOOGLE_SIGNIN_CLIENT_ID?.trim() || ''
   const [captchaReady, setCaptchaReady] = useState(!captchaEnabled)
@@ -96,15 +101,39 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
   const hasInitializedTheme = useRef(false)
   const themeMenuRef = useRef<HTMLDivElement | null>(null)
   const googleButtonHostRef = useRef<HTMLDivElement | null>(null)
+  const loginVerificationInputRefs = useRef<(HTMLInputElement | null)[]>([])
 
   const handleLoginFlowResponse = (result: LoginFlowResponse | null | void) => {
     if (result && 'requiresEmailVerification' in result && result.requiresEmailVerification) {
       setLoginVerificationChallenge(result)
-      setLoginVerificationCode('')
+      setLoginVerificationDigits(Array(LOGIN_VERIFICATION_CODE_LENGTH).fill(''))
       setLoginVerificationError('')
       setPassword('')
     }
   }
+
+  useEffect(() => {
+    if (loginVerificationChallenge) {
+      loginVerificationInputRefs.current[0]?.focus()
+    }
+  }, [loginVerificationChallenge])
+
+  useEffect(() => {
+    if (!loginVerificationChallenge?.expiresAt) {
+      setLoginVerificationSecondsRemaining(null)
+      return
+    }
+
+    const updateCountdown = () => {
+      setLoginVerificationSecondsRemaining(
+        getVerificationSecondsRemaining(loginVerificationChallenge.expiresAt)
+      )
+    }
+
+    updateCountdown()
+    const intervalId = window.setInterval(updateCountdown, 1000)
+    return () => window.clearInterval(intervalId)
+  }, [loginVerificationChallenge])
 
   useEffect(() => {
     setActiveThemeScope(null)
@@ -220,17 +249,14 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
           }
         })
 
-        const hostWidth = Math.max(
-          240,
-          Math.min(
-            320,
-            Math.round(
-              googleButtonHostRef.current.parentElement?.clientWidth
-              || googleButtonHostRef.current.clientWidth
-              || 320
-            )
-          )
+        const availableWidth = Math.round(
+          googleButtonHostRef.current.parentElement?.clientWidth
+          || googleButtonHostRef.current.clientWidth
+          || 320
         )
+        const hostWidth = Math.max(180, Math.min(320, availableWidth - 4))
+
+        googleButtonHostRef.current.style.width = `${hostWidth}px`
         
         window.google.accounts.id.renderButton(googleButtonHostRef.current, {
           type: 'standard',
@@ -320,8 +346,8 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
       return
     }
 
-    const normalizedCode = loginVerificationCode.replace(/\D/g, '').slice(0, 6)
-    if (!/^\d{6}$/.test(normalizedCode)) {
+    const normalizedCode = loginVerificationDigits.join('')
+    if (!new RegExp(`^\\d{${LOGIN_VERIFICATION_CODE_LENGTH}}$`).test(normalizedCode)) {
       setLoginVerificationError('Enter the 6-digit code sent to your email.')
       return
     }
@@ -339,10 +365,94 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
     }
   }
 
+  const handleLoginVerificationDigitChange = (index: number, event: React.ChangeEvent<HTMLInputElement>) => {
+    const digitsOnly = event.target.value.replace(/\D/g, '')
+    const nextDigit = digitsOnly ? digitsOnly.slice(-1) : ''
+
+    setLoginVerificationDigits((previous) => {
+      const next = [...previous]
+      next[index] = nextDigit
+      return next
+    })
+
+    if (loginVerificationError) {
+      setLoginVerificationError('')
+    }
+
+    if (nextDigit && index < LOGIN_VERIFICATION_CODE_LENGTH - 1) {
+      loginVerificationInputRefs.current[index + 1]?.focus()
+      loginVerificationInputRefs.current[index + 1]?.select()
+    }
+  }
+
+  const handleLoginVerificationDigitKeyDown = (index: number, event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Backspace') {
+      if (loginVerificationDigits[index]) {
+        setLoginVerificationDigits((previous) => {
+          const next = [...previous]
+          next[index] = ''
+          return next
+        })
+        if (loginVerificationError) {
+          setLoginVerificationError('')
+        }
+        return
+      }
+
+      if (index > 0) {
+        loginVerificationInputRefs.current[index - 1]?.focus()
+        setLoginVerificationDigits((previous) => {
+          const next = [...previous]
+          next[index - 1] = ''
+          return next
+        })
+        if (loginVerificationError) {
+          setLoginVerificationError('')
+        }
+      }
+      return
+    }
+
+    if (event.key === 'ArrowLeft' && index > 0) {
+      event.preventDefault()
+      loginVerificationInputRefs.current[index - 1]?.focus()
+      return
+    }
+
+    if (event.key === 'ArrowRight' && index < LOGIN_VERIFICATION_CODE_LENGTH - 1) {
+      event.preventDefault()
+      loginVerificationInputRefs.current[index + 1]?.focus()
+      return
+    }
+
+    if (event.key.length === 1 && !/\d/.test(event.key)) {
+      event.preventDefault()
+    }
+  }
+
+  const handleLoginVerificationCodePaste = (event: React.ClipboardEvent<HTMLInputElement>) => {
+    const pastedDigits = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, LOGIN_VERIFICATION_CODE_LENGTH)
+    if (!pastedDigits) return
+
+    event.preventDefault()
+    const nextDigits = Array(LOGIN_VERIFICATION_CODE_LENGTH).fill('')
+    for (let index = 0; index < pastedDigits.length; index += 1) {
+      nextDigits[index] = pastedDigits[index]
+    }
+    setLoginVerificationDigits(nextDigits)
+
+    if (loginVerificationError) {
+      setLoginVerificationError('')
+    }
+
+    const nextFocusIndex = Math.min(pastedDigits.length, LOGIN_VERIFICATION_CODE_LENGTH - 1)
+    loginVerificationInputRefs.current[nextFocusIndex]?.focus()
+  }
+
   const closeLoginVerificationModal = () => {
     if (loading) return
     setLoginVerificationChallenge(null)
-    setLoginVerificationCode('')
+    setLoginVerificationDigits(Array(LOGIN_VERIFICATION_CODE_LENGTH).fill(''))
     setLoginVerificationError('')
   }
 
@@ -350,6 +460,7 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
   const submitDisabled = submitting || (captchaEnabled && (!recaptchaSiteKey || !captchaReady))
   const googleSignInAvailable = Boolean(onGoogleLogin && googleClientId)
   const activeThemeOption = THEME_OPTIONS.find(option => option.value === theme) ?? THEME_OPTIONS[2]
+  const loginVerificationCodeExpired = loginVerificationSecondsRemaining === 0
 
   const handleThemeChange = (nextTheme: ThemePreference) => {
     setTheme(nextTheme)
@@ -463,20 +574,22 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
                 </div>
 
                 <div className="login-google-section">
-                  {googleSignInAvailable ? (
-                    <div
-                      ref={googleButtonHostRef}
-                      className={`login-google-button-host ${(loading && googleAuthPending) ? 'is-busy' : ''}`}
-                      aria-live="polite"
-                    />
-                  ) : (
-                    <button type="button" className="login-google-fallback" disabled>
-                      <span className="login-google-fallback-icon">
-                        <GoogleIcon />
-                      </span>
-                      <span className="login-google-fallback-text">Sign in with Google</span>
-                    </button>
-                  )}
+                  <div className="login-google-button-frame">
+                    {googleSignInAvailable ? (
+                      <div
+                        ref={googleButtonHostRef}
+                        className={`login-google-button-host ${(loading && googleAuthPending) ? 'is-busy' : ''}`}
+                        aria-live="polite"
+                      />
+                    ) : (
+                      <button type="button" className="login-google-fallback" disabled>
+                        <span className="login-google-fallback-icon">
+                          <GoogleIcon />
+                        </span>
+                        <span className="login-google-fallback-text">Sign in with Google</span>
+                      </button>
+                    )}
+                  </div>
                   {googleSignInAvailable && !googleButtonReady && (
                     <p className="login-google-status">Preparing Google sign-in...</p>
                   )}
@@ -499,37 +612,37 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
             <p className="login-verify-modal-desc">
               Enter the 6-digit code sent to <strong>{loginVerificationChallenge.destination || loginVerificationChallenge.email}</strong>.
             </p>
-            <p className="login-verify-modal-meta">
-              Status: {loginVerificationChallenge.deliveryStatus || 'accepted'}
-              {loginVerificationChallenge.messageId ? ` | Message ID: ${loginVerificationChallenge.messageId}` : ''}
-            </p>
-            {loginVerificationChallenge.emailProvider ? (
-              <p className="login-verify-modal-provider">Email provider: {loginVerificationChallenge.emailProvider}</p>
-            ) : null}
-            {loginVerificationChallenge.providerMessage ? (
-              <p className="login-verify-modal-provider">Gateway: {loginVerificationChallenge.providerMessage}</p>
-            ) : null}
+            {loginVerificationSecondsRemaining !== null && (
+              <p className={`login-verify-modal-timer ${loginVerificationCodeExpired ? 'expired' : ''}`}>
+                {loginVerificationCodeExpired
+                  ? 'Code expired. Sign in again to request a new one.'
+                  : `Code expires in ${formatVerificationCountdown(loginVerificationSecondsRemaining)}`}
+              </p>
+            )}
 
             <form className="login-verify-modal-form" onSubmit={handleLoginVerificationSubmit}>
               {loginVerificationError && (
                 <p className="login-verify-modal-error" role="alert">{loginVerificationError}</p>
               )}
-              <input
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                autoComplete="one-time-code"
-                maxLength={6}
-                className="login-verify-code-input"
-                value={loginVerificationCode}
-                onChange={(event) => {
-                  setLoginVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))
-                  if (loginVerificationError) {
-                    setLoginVerificationError('')
-                  }
-                }}
-                placeholder="Enter 6-digit code"
-              />
+              <div className="login-verify-otp-group">
+                {loginVerificationDigits.map((digit, index) => (
+                  <input
+                    key={`login-otp-digit-${index}`}
+                    ref={(element) => { loginVerificationInputRefs.current[index] = element }}
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    autoComplete={index === 0 ? 'one-time-code' : 'off'}
+                    maxLength={1}
+                    className="login-verify-otp-input"
+                    value={digit}
+                    onChange={(event) => handleLoginVerificationDigitChange(index, event)}
+                    onKeyDown={(event) => handleLoginVerificationDigitKeyDown(index, event)}
+                    onPaste={handleLoginVerificationCodePaste}
+                    aria-label={`Login verification digit ${index + 1}`}
+                  />
+                ))}
+              </div>
               <div className="login-verify-modal-actions">
                 <button
                   type="button"

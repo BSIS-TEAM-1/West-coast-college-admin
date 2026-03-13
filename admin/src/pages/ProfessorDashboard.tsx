@@ -147,6 +147,7 @@ const PROFESSOR_NAV_ITEMS: { id: ProfessorView; label: string; icon: any }[] = [
 
 export default function ProfessorDashboard({ username, onLogout, onProfileUpdated }: ProfessorDashboardProps) {
   const [view, setView] = useState<ProfessorView>('dashboard')
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [profile, setProfile] = useState<ProfileResponse | null>(null)
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string | null>(null)
@@ -224,6 +225,45 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
       void fetchAssignedCourses()
     }
   }, [view])
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(min-width: 1025px)')
+    const handleViewportChange = (event: MediaQueryListEvent) => {
+      if (event.matches) {
+        setIsSidebarOpen(false)
+      }
+    }
+
+    mediaQuery.addEventListener('change', handleViewportChange)
+    return () => mediaQuery.removeEventListener('change', handleViewportChange)
+  }, [])
+
+  useEffect(() => {
+    if (!isSidebarOpen) {
+      return
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsSidebarOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [isSidebarOpen])
+
+  useEffect(() => {
+    if (!isSidebarOpen) {
+      return
+    }
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [isSidebarOpen])
 
   const handleProfileUpdated = (profile: ProfileResponse) => {
     setProfile(profile)
@@ -374,7 +414,11 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
 
   return (
     <div className="professor-dashboard">
-      <aside className="professor-sidebar">
+      <aside
+        id="professor-sidebar-navigation"
+        className={`professor-sidebar ${isSidebarOpen ? 'professor-sidebar-open' : ''}`}
+        aria-label="Professor navigation menu"
+      >
         <div className="professor-sidebar-brand">
           <div className="brand-content">
             <div className="logo-container">
@@ -406,7 +450,10 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
               key={id}
               type="button"
               className={`professor-sidebar-link ${(view === id || (view === 'subject-detail' && id === 'courses')) ? 'professor-sidebar-link-active' : ''}`}
-              onClick={() => setView(id)}
+              onClick={() => {
+                setView(id)
+                setIsSidebarOpen(false)
+              }}
               aria-current={(view === id || (view === 'subject-detail' && id === 'courses')) ? 'page' : undefined}
             >
               <Icon size={18} className="professor-sidebar-icon" />
@@ -445,9 +492,21 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
           </div>
         </div>
       </aside>
+      <button
+        type="button"
+        className={`professor-sidebar-backdrop ${isSidebarOpen ? 'visible' : ''}`}
+        onClick={() => setIsSidebarOpen(false)}
+        aria-label="Close professor navigation menu"
+      />
 
       <div className="professor-dashboard-body" ref={dashboardRef}>
-        <Navbar username={username} onLogout={onLogout} />
+        <Navbar
+          username={username}
+          onLogout={onLogout}
+          isMenuOpen={isSidebarOpen}
+          menuId="professor-sidebar-navigation"
+          onMenuToggle={() => setIsSidebarOpen((prev) => !prev)}
+        />
         <main className="professor-dashboard-main">
           {renderContent()}
         </main>
@@ -2157,57 +2216,6 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
     )
   , [courses])
 
-  const defaultEvents = useMemo<SchoolEvent[]>(() => {
-    const now = new Date()
-    const offset = (days: number) => {
-      const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days)
-      return toDateKey(date)
-    }
-
-    return [
-      {
-        id: 'default-events-1',
-        title: 'Faculty Meeting',
-        date: offset(7),
-        time: '2:00 PM - 3:00 PM',
-        category: 'Meeting',
-        statusTag: 'Campus',
-        statusTagClass: 'meeting',
-        description: 'Orientation on updates and notices for faculty.'
-      },
-      {
-        id: 'default-events-2',
-        title: 'Midterm Examination Week',
-        date: offset(12),
-        time: '8:00 AM - 5:00 PM',
-        category: 'Exam',
-        statusTag: 'Exam',
-        statusTagClass: 'exam',
-        description: 'Review your class schedule for affected periods.'
-      },
-      {
-        id: 'default-events-3',
-        title: 'Final Examination Week',
-        date: offset(54),
-        time: '8:00 AM - 5:00 PM',
-        category: 'Exam',
-        statusTag: 'Exam',
-        statusTagClass: 'exam',
-        description: 'Final teaching week with adjusted timelines.'
-      },
-      {
-        id: 'default-events-4',
-        title: 'Grade Submission Deadline',
-        date: offset(60),
-        time: '11:59 PM',
-        category: 'Deadline',
-        statusTag: 'Grades Due',
-        statusTagClass: 'deadline',
-        description: 'Upload and verify all final grades before deadline.'
-      }
-    ]
-  }, [])
-
   const philippineHolidayEvents = useMemo<SchoolEvent[]>(() => [
     {
       id: 'ph-holiday-2026-01-01',
@@ -2400,7 +2408,7 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
       description: 'Philippine special non-working holiday.'
     }
   ], [])
-  const getEventCategory = (announcement: any) => {
+  const getEventCategory = (announcement: any): SchoolEvent['category'] => {
     const type = String(announcement?.type || 'info').toLowerCase()
     const title = String(announcement?.title || '').toLowerCase()
     if (/holiday/.test(title)) return 'Holiday'
@@ -2455,6 +2463,11 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
   const [calendarDate, setCalendarDate] = useState<string | null>(null)
   const [selectedClass, setSelectedClass] = useState<ScheduleItem | null>(null)
   const [selectedEvent, setSelectedEvent] = useState<SchoolEvent | null>(null)
+  const [timetableContainerWidth, setTimetableContainerWidth] = useState<number>(() => (
+    typeof window !== 'undefined' ? window.innerWidth : 1280
+  ))
+  const [timetableDayOffset, setTimetableDayOffset] = useState(0)
+  const timetableWrapRef = useRef<HTMLDivElement | null>(null)
 
   const semesterOptions = useMemo(() => {
     const list = new Set<string>()
@@ -2474,29 +2487,18 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
     const loadEvents = async () => {
       try {
         setEventLoading(true)
-        const token = await getStoredToken()
-        if (!token) {
-          setEvents(mergeEventSources([...philippineHolidayEvents, ...defaultEvents]))
-          return
-        }
-
-        const response = await fetch(`${API_URL}/api/admin/announcements`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        })
+        const response = await fetch(`${API_URL}/api/announcements?targetAudience=professor`)
 
         if (!response.ok) {
-          setEvents(mergeEventSources([...philippineHolidayEvents, ...defaultEvents]))
+          setEvents(mergeEventSources([...philippineHolidayEvents]))
           return
         }
 
-        const payload = await response.json().catch(() => ({}))
-        const records = Array.isArray(payload?.announcements) ? payload.announcements : []
+        const payload = await response.json().catch(() => [])
+        const records = Array.isArray(payload) ? payload : []
 
         const mapped = records
-          .map((announcement: any) => {
+          .map((announcement: any): SchoolEvent | null => {
             const sourceDate = announcement.scheduledFor || announcement.expiresAt || announcement.createdAt
             const date = new Date(sourceDate)
             if (Number.isNaN(date.getTime())) {
@@ -2520,7 +2522,7 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
           .filter((entry: SchoolEvent | null): entry is SchoolEvent => Boolean(entry))
 
         if (!cancelled) {
-          setEvents(mergeEventSources([...philippineHolidayEvents, ...defaultEvents, ...mapped]))
+          setEvents(mergeEventSources([...philippineHolidayEvents, ...mapped]))
         }
       } finally {
         if (!cancelled) {
@@ -2534,7 +2536,7 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
     return () => {
       cancelled = true
     }
-  }, [defaultEvents, philippineHolidayEvents])
+  }, [philippineHolidayEvents])
 
   const filteredClasses = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
@@ -2576,6 +2578,20 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
     const today = toDateKey(new Date())
     return filteredEvents.filter((event) => event.date >= today)
   }, [filteredEvents])
+
+  const upcomingCalendarMonthEvents = useMemo(() => {
+    const activeYear = calendarMonth.getFullYear()
+    const activeMonth = calendarMonth.getMonth()
+
+    return upcomingFilteredEvents.filter((event) => {
+      const eventDate = parseDateKey(event.date)
+      return Boolean(
+        eventDate &&
+        eventDate.getFullYear() === activeYear &&
+        eventDate.getMonth() === activeMonth
+      )
+    })
+  }, [calendarMonth, upcomingFilteredEvents])
 
   const groupedClassDays = useMemo(() => {
     const grouped: Record<ItemDay, ScheduleItem[]> = {
@@ -2651,6 +2667,9 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
     return list
   }, [])
 
+  const timetableIntervals = useMemo(() => timeSlots.slice(0, -1), [timeSlots])
+  const timetableBodyHeight = timetableIntervals.length * SLOT_HEIGHT
+
   const timetableOccurrences = useMemo<Record<SchoolDay, TimetableOccurrence[]>>(() => {
     const buckets: Record<SchoolDay, TimetableOccurrence[]> = {
       Monday: [],
@@ -2702,6 +2721,89 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
   }, [filteredClasses])
 
   const hasTimetableClasses = Object.values(timetableOccurrences).some((items) => items.length > 0)
+  const timetableDays = useMemo<SchoolDay[]>(() => (
+    dayFilter === 'all' ? SCHOOL_DAYS : [dayFilter]
+  ), [dayFilter])
+  const timetableTimeColumnWidth = timetableContainerWidth < 540 ? 68 : 78
+  const timetableDayColumnMinWidth = timetableContainerWidth < 720 ? 148 : 160
+  const visibleTimetableDayCount = useMemo(() => {
+    const maxColumns =
+      timetableContainerWidth < 560 ? 1 :
+      timetableContainerWidth < 900 ? 2 :
+      timetableContainerWidth < 1180 ? 4 :
+      timetableDays.length
+
+    return Math.max(1, Math.min(timetableDays.length, maxColumns))
+  }, [timetableContainerWidth, timetableDays.length])
+  const maxTimetableDayOffset = Math.max(timetableDays.length - visibleTimetableDayCount, 0)
+  const visibleTimetableDays = useMemo(() => (
+    timetableDays.slice(timetableDayOffset, timetableDayOffset + visibleTimetableDayCount)
+  ), [timetableDayOffset, timetableDays, visibleTimetableDayCount])
+  const timetableGridStyle = useMemo(() => {
+    if (visibleTimetableDays.length <= 1) {
+      return {
+        gridTemplateColumns: `${timetableTimeColumnWidth}px minmax(0, 1fr)`,
+        minWidth: '100%'
+      }
+    }
+
+    const minWidth = timetableTimeColumnWidth + (visibleTimetableDays.length * timetableDayColumnMinWidth)
+    return {
+      gridTemplateColumns: `${timetableTimeColumnWidth}px repeat(${visibleTimetableDays.length}, minmax(${timetableDayColumnMinWidth}px, 1fr))`,
+      minWidth: `${minWidth}px`
+    }
+  }, [timetableDayColumnMinWidth, timetableTimeColumnWidth, visibleTimetableDays.length])
+
+  useEffect(() => {
+    setTimetableDayOffset((previous) => Math.min(previous, maxTimetableDayOffset))
+  }, [maxTimetableDayOffset])
+
+  useEffect(() => {
+    if (dayFilter !== 'all' || visibleTimetableDayCount !== 1 || maxTimetableDayOffset <= 0 || timetableDayOffset !== 0) {
+      return
+    }
+
+    setTimetableDayOffset(Math.min(SCHOOL_DAYS.indexOf(todayName), maxTimetableDayOffset))
+  }, [dayFilter, maxTimetableDayOffset, timetableDayOffset, todayName, visibleTimetableDayCount])
+
+  const shiftTimetableDays = (direction: -1 | 1) => {
+    setTimetableDayOffset((previous) => {
+      if (direction < 0) {
+        return Math.max(previous - 1, 0)
+      }
+      return Math.min(previous + 1, maxTimetableDayOffset)
+    })
+  }
+
+  const jumpToTimetableDay = (index: number) => {
+    setTimetableDayOffset(Math.min(Math.max(index, 0), maxTimetableDayOffset))
+  }
+
+  useEffect(() => {
+    if (mode !== 'timetable' || !hasTimetableClasses || !timetableWrapRef.current) {
+      return
+    }
+
+    const node = timetableWrapRef.current
+    const updateWidth = () => {
+      setTimetableContainerWidth(node.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 1280))
+    }
+
+    updateWidth()
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateWidth)
+      return () => window.removeEventListener('resize', updateWidth)
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      const nextWidth = entries[0]?.contentRect.width || node.clientWidth
+      setTimetableContainerWidth(nextWidth || (typeof window !== 'undefined' ? window.innerWidth : 1280))
+    })
+
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [hasTimetableClasses, mode])
 
   const monthGrid = useMemo(() => {
     const year = calendarMonth.getFullYear()
@@ -2748,8 +2850,16 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
   const eventsForActiveDate = useMemo(() => {
     return calendarDate
       ? filteredEvents.filter((event) => event.date === calendarDate)
-      : upcomingFilteredEvents
-  }, [calendarDate, filteredEvents, upcomingFilteredEvents])
+      : upcomingCalendarMonthEvents
+  }, [calendarDate, filteredEvents, upcomingCalendarMonthEvents])
+
+  const eventListTitle = calendarDate
+    ? `Events on ${calendarDate}`
+    : `Upcoming events in ${calendarMonth.toLocaleString(undefined, { month: 'long', year: 'numeric' })}`
+
+  const emptyEventListText = calendarDate
+    ? 'No school events scheduled for this date.'
+    : `No upcoming school events in ${calendarMonth.toLocaleString(undefined, { month: 'long', year: 'numeric' })}.`
 
   const upcomingEvent = upcomingFilteredEvents[0] ?? null
   const eventModeEnabled = scope === 'events' || scope === 'both'
@@ -2770,10 +2880,12 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
   }, [calendarDate, selectedEvent?.date])
 
   const handlePrevMonth = () => {
+    setCalendarDate(null)
     setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))
   }
 
   const handleNextMonth = () => {
+    setCalendarDate(null)
     setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))
   }
 
@@ -3021,23 +3133,65 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
 
             if (hasTimetableClasses) {
               return (
-                <div className="professor-schedule-timetable-wrap">
-                  <div className="professor-timetable-scroll">
-                    <div className="professor-timetable-grid">
-                      <div className="professor-timetable-time-col">
-                        <div className="professor-timetable-day-header">Time</div>
-                        {timeSlots.map((slot) => (
-                          <div key={`time-${slot}`} className="professor-timetable-time-row">{slot}</div>
+                <div className="professor-schedule-timetable-wrap" ref={timetableWrapRef}>
+                  {timetableDays.length > visibleTimetableDayCount && (
+                    <div className="professor-timetable-window-controls">
+                      <button
+                        type="button"
+                        className="professor-timetable-window-btn"
+                        onClick={() => shiftTimetableDays(-1)}
+                        disabled={timetableDayOffset === 0}
+                        aria-label="Show earlier timetable days"
+                      >
+                        ◀
+                      </button>
+                      <div className="professor-timetable-day-pills" aria-label="Visible timetable days">
+                        {timetableDays.map((day, index) => (
+                          <button
+                            key={`timetable-day-pill-${day}`}
+                            type="button"
+                            className={`professor-timetable-day-pill ${visibleTimetableDays.includes(day) ? 'is-active' : ''}`}
+                            onClick={() => jumpToTimetableDay(index)}
+                            aria-pressed={visibleTimetableDays.includes(day)}
+                            title={day}
+                          >
+                            {DAY_SHORT[day]}
+                          </button>
                         ))}
                       </div>
+                      <button
+                        type="button"
+                        className="professor-timetable-window-btn"
+                        onClick={() => shiftTimetableDays(1)}
+                        disabled={timetableDayOffset >= maxTimetableDayOffset}
+                        aria-label="Show later timetable days"
+                      >
+                        ▶
+                      </button>
+                    </div>
+                  )}
+                  <div className="professor-timetable-scroll">
+                    <div
+                      className={`professor-timetable-grid ${visibleTimetableDays.length === 1 ? 'is-single-day' : ''}`}
+                      style={timetableGridStyle}
+                    >
+                      <div className="professor-timetable-time-col">
+                        <div className="professor-timetable-day-header">Time</div>
+                        <div className="professor-timetable-time-body" style={{ height: `${timetableBodyHeight}px` }}>
+                          {timetableIntervals.map((slot) => (
+                            <div key={`time-${slot}`} className="professor-timetable-time-row">{slot}</div>
+                          ))}
+                          <div className="professor-timetable-time-end">{timeSlots[timeSlots.length - 1]}</div>
+                        </div>
+                      </div>
 
-                      {SCHOOL_DAYS.map((day) => {
+                      {visibleTimetableDays.map((day) => {
                         const occurrences = timetableOccurrences[day]
                         return (
                           <div key={`timetable-${day}`} className={`professor-timetable-day-col ${day === todayName ? 'is-today' : ''}`}>
                             <div className="professor-timetable-day-header">{day}</div>
-                            <div className="professor-timetable-day-body" style={{ height: `${timeSlots.length * SLOT_HEIGHT}px` }}>
-                              {timeSlots.map((_, idx) => (
+                            <div className="professor-timetable-day-body" style={{ height: `${timetableBodyHeight}px` }}>
+                              {timetableIntervals.map((_, idx) => (
                                 <div key={`${day}-line-${idx}`} className={`professor-timetable-line ${idx % 2 === 0 ? 'is-strong' : ''}`} />
                               ))}
 
@@ -3160,7 +3314,7 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
                                 <span
                                   className="professor-mini-calendar-event-fill"
                                   style={{
-                                    marginLeft: `${preview.offsetPercent}%`,
+                                    left: `${preview.offsetPercent}%`,
                                     width: `${preview.widthPercent}%`
                                   }}
                                 />
@@ -3178,12 +3332,12 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
               </div>
 
               <div className="professor-schedule-event-list">
-                <h4>{calendarDate ? `Events on ${calendarDate}` : 'Upcoming events'}</h4>
+                <h4>{eventListTitle}</h4>
 
                 {eventLoading ? (
                   <p>Loading school events...</p>
                 ) : eventsForActiveDate.length === 0 ? (
-                  <p>No upcoming school events available.</p>
+                  <p>{emptyEventListText}</p>
                 ) : (
                   eventsForActiveDate
                     .slice(0, 8)

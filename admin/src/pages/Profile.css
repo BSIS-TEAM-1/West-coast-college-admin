@@ -2,6 +2,13 @@
   max-width: 70rem;
   margin: 0 auto;
   padding: 2rem;
+  --profile-accent-surface: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+  --profile-accent-surface-strong: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface));
+  --profile-accent-border: color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
+  --profile-accent-border-strong: color-mix(in srgb, var(--color-primary) 42%, var(--color-border));
+  --profile-accent-text: color-mix(in srgb, var(--color-primary) 58%, var(--color-text-bold));
+  --profile-accent-text-strong: color-mix(in srgb, var(--color-primary-hover) 62%, var(--color-text-bold));
+  --profile-accent-shadow: 0 8px 16px color-mix(in srgb, var(--color-primary) 25%, transparent);
 }
 
 .profile-header {
@@ -52,8 +59,8 @@
   flex-direction: column;
   align-items: center;
   background:
-    linear-gradient(135deg, rgba(245, 158, 11, 0.18), rgba(255, 255, 255, 0) 40%),
-    linear-gradient(180deg, var(--color-surface) 0%, var(--color-bg-soft) 100%);
+    linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 18%, transparent), transparent 40%),
+    linear-gradient(180deg, var(--profile-accent-surface) 0%, var(--color-bg-soft) 100%);
 }
 
 .profile-panel-avatar::before {
@@ -62,9 +69,9 @@
   inset: -35%;
   z-index: 0;
   background:
-    radial-gradient(circle at 20% 20%, rgba(245, 158, 11, 0.28), transparent 32%),
-    radial-gradient(circle at 80% 25%, rgba(251, 191, 36, 0.24), transparent 28%),
-    radial-gradient(circle at 50% 85%, rgba(217, 119, 6, 0.18), transparent 34%);
+    radial-gradient(circle at 20% 20%, color-mix(in srgb, var(--color-primary) 28%, transparent), transparent 32%),
+    radial-gradient(circle at 80% 25%, color-mix(in srgb, var(--color-primary-hover) 24%, transparent), transparent 28%),
+    radial-gradient(circle at 50% 85%, color-mix(in srgb, var(--color-primary-dark) 18%, transparent), transparent 34%);
   background-size: 140% 140%;
   animation: profileAvatarGradientFlow 12s ease-in-out infinite alternate;
   pointer-events: none;
@@ -121,9 +128,9 @@
   justify-content: center;
   padding: 0.2rem 0.55rem;
   border-radius: 999px;
-  border: 1px solid rgba(245, 158, 11, 0.24);
-  background: rgba(245, 158, 11, 0.12);
-  color: #b45309;
+  border: 1px solid var(--profile-accent-border);
+  background: var(--profile-accent-surface-strong);
+  color: var(--profile-accent-text);
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.03em;
@@ -132,10 +139,10 @@
 }
 
 .profile-secondary-action-btn {
-  border: 1px solid rgba(245, 158, 11, 0.24);
+  border: 1px solid var(--profile-accent-border);
   border-radius: 999px;
-  background: rgba(245, 158, 11, 0.08);
-  color: #b45309;
+  background: var(--profile-accent-surface);
+  color: var(--profile-accent-text);
   padding: 0.28rem 0.72rem;
   font-size: 0.72rem;
   font-weight: 700;
@@ -145,9 +152,9 @@
 }
 
 .profile-secondary-action-btn:hover:not(:disabled) {
-  border-color: rgba(217, 119, 6, 0.4);
-  background: rgba(245, 158, 11, 0.14);
-  color: #92400e;
+  border-color: var(--profile-accent-border-strong);
+  background: var(--profile-accent-surface-strong);
+  color: var(--profile-accent-text-strong);
   transform: translateY(-1px);
 }
 
@@ -369,7 +376,7 @@
 .profile-account-login-mode {
   font-size: 0.78rem;
   font-weight: 600;
-  color: #b45309;
+  color: var(--profile-accent-text);
 }
 
 .profile-account-username {
@@ -415,7 +422,7 @@
   border-radius: 8px;
   font-size: 0.9rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--color-on-primary);
   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-hover));
   cursor: pointer;
   transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
@@ -423,7 +430,7 @@
 
 .profile-submit:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 8px 16px rgba(79, 70, 229, 0.25);
+  box-shadow: var(--profile-accent-shadow);
 }
 
 .profile-submit:disabled {
@@ -438,15 +445,15 @@
 
 .profile-toast {
   position: fixed;
-  top: 1.5rem;
-  right: 1.5rem;
+  top: max(1rem, env(safe-area-inset-top));
+  right: max(1rem, env(safe-area-inset-right));
   max-width: min(90vw, 22rem);
   padding: 0.85rem 1rem;
   border-radius: 10px;
   font-size: 0.85rem;
   font-weight: 600;
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
-  z-index: 1000;
+  z-index: 1400;
   transform: translateX(130%);
   transition: transform 0.25s ease-out;
 }
@@ -501,6 +508,26 @@
   line-height: 1.45;
 }
 
+.profile-verify-modal-timer,
+.profile-email-change-timer {
+  margin: 0.55rem 0 0;
+  padding: 0.68rem 0.8rem;
+  border: 1px solid var(--color-primary-subtle);
+  border-radius: 10px;
+  background: var(--color-primary-subtle);
+  color: var(--profile-accent-text);
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.profile-verify-modal-timer.expired,
+.profile-email-change-timer.expired {
+  border-color: rgba(248, 113, 113, 0.28);
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
 .profile-verify-modal-provider {
   margin: 0.4rem 0 0;
   font-size: 0.78rem;
@@ -517,7 +544,7 @@
   margin: -0.3rem 0 0.85rem;
   font-size: 0.76rem;
   line-height: 1.35;
-  color: #b45309;
+  color: var(--profile-accent-text);
 }
 
 .profile-verify-modal-form {
@@ -580,7 +607,7 @@
   border: none;
   border-radius: 8px;
   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-hover));
-  color: #fff;
+  color: var(--color-on-primary);
   font-size: 0.83rem;
   font-weight: 700;
   cursor: pointer;
@@ -691,7 +718,7 @@
   border: none;
   border-radius: 8px;
   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-hover));
-  color: #fff;
+  color: var(--color-on-primary);
   font-size: 0.83rem;
   font-weight: 700;
   cursor: pointer;
@@ -701,6 +728,13 @@
 .profile-email-change-cancel-btn:disabled {
   opacity: 0.65;
   cursor: not-allowed;
+}
+
+[data-theme='dark'] .profile-verify-modal-timer.expired,
+[data-theme='dark'] .profile-email-change-timer.expired {
+  border-color: rgba(248, 113, 113, 0.26);
+  background: rgba(127, 29, 29, 0.3);
+  color: #fecaca;
 }
 
 @keyframes profileAvatarGradientFlow {

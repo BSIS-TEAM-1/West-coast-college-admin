@@ -24,8 +24,8 @@ const StatisticsCard: React.FC<StatisticsCardProps> = ({ statistics }) => {
           key={index} 
           className="statistics-card" 
           style={{
-            background: 'var(--bg-secondary)',
-            border: '1px solid var(--border-color)',
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
             borderRadius: '12px',
             padding: '1.25rem',
             boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
@@ -40,8 +40,8 @@ const StatisticsCard: React.FC<StatisticsCardProps> = ({ statistics }) => {
               width: '48px',
               height: '48px',
               borderRadius: '12px',
-              background: 'rgba(59, 130, 246, 0.1)',
-              color: '#3b82f6',
+              background: 'var(--color-primary-subtle)',
+              color: 'var(--color-primary-on-surface)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -56,7 +56,7 @@ const StatisticsCard: React.FC<StatisticsCardProps> = ({ statistics }) => {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ 
               fontSize: '0.875rem', 
-              color: 'var(--text-secondary)', 
+              color: 'var(--color-text-secondary)', 
               marginBottom: '0.25rem',
               fontWeight: '500'
             }}>
@@ -66,7 +66,7 @@ const StatisticsCard: React.FC<StatisticsCardProps> = ({ statistics }) => {
               <span style={{
                 fontSize: '1.75rem',
                 fontWeight: '700',
-                color: 'var(--text-primary)',
+                color: 'var(--color-text)',
                 lineHeight: 1
               }}>
                 {stat.value}

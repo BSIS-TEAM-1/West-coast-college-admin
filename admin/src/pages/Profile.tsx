@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   getProfile,
   updateProfile,
@@ -12,6 +13,7 @@ import {
 } from '../lib/authApi';
 import { Edit, Info } from 'lucide-react';
 import type { ProfileResponse, UpdateProfileRequest } from '../lib/authApi';
+import { formatVerificationCountdown, getVerificationSecondsRemaining } from '../lib/verificationTimer';
 import './Profile.css';
 
 type ProfileProps = {
@@ -63,11 +65,9 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
   const [requestingEmailChange, setRequestingEmailChange] = useState(false);
   const [confirmingEmailChange, setConfirmingEmailChange] = useState(false);
   const [emailChangeError, setEmailChangeError] = useState('');
-  const [emailChangeDeliveryStatus, setEmailChangeDeliveryStatus] = useState('');
   const [emailChangeDestination, setEmailChangeDestination] = useState('');
-  const [emailChangeMessageId, setEmailChangeMessageId] = useState('');
-  const [emailChangeProvider, setEmailChangeProvider] = useState('');
-  const [emailChangeProviderMessage, setEmailChangeProviderMessage] = useState('');
+  const [emailChangeExpiresAt, setEmailChangeExpiresAt] = useState('');
+  const [emailChangeSecondsRemaining, setEmailChangeSecondsRemaining] = useState<number | null>(null);
   const [phoneEditMode, setPhoneEditMode] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [verificationTarget, setVerificationTarget] = useState<VerificationTarget>('phone');
@@ -79,6 +79,8 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
   const [verificationMessageId, setVerificationMessageId] = useState('');
   const [verificationProviderMessage, setVerificationProviderMessage] = useState('');
   const [verificationFallbackReason, setVerificationFallbackReason] = useState('');
+  const [verificationExpiresAt, setVerificationExpiresAt] = useState('');
+  const [verificationSecondsRemaining, setVerificationSecondsRemaining] = useState<number | null>(null);
   const [status, setStatus] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
   const [showToast, setShowToast] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -130,6 +132,36 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
       verificationCodeInputRefs.current[0]?.focus();
     }
   }, [showVerificationModal]);
+
+  useEffect(() => {
+    if (!showVerificationModal || !verificationExpiresAt) {
+      setVerificationSecondsRemaining(null);
+      return;
+    }
+
+    const updateCountdown = () => {
+      setVerificationSecondsRemaining(getVerificationSecondsRemaining(verificationExpiresAt));
+    };
+
+    updateCountdown();
+    const intervalId = window.setInterval(updateCountdown, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [showVerificationModal, verificationExpiresAt]);
+
+  useEffect(() => {
+    if (!showEmailChangeModal || emailChangeStep !== 'verify' || !emailChangeExpiresAt) {
+      setEmailChangeSecondsRemaining(null);
+      return;
+    }
+
+    const updateCountdown = () => {
+      setEmailChangeSecondsRemaining(getVerificationSecondsRemaining(emailChangeExpiresAt));
+    };
+
+    updateCountdown();
+    const intervalId = window.setInterval(updateCountdown, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [showEmailChangeModal, emailChangeStep, emailChangeExpiresAt]);
 
   const showToastNotification = (type: 'error' | 'success', message: string) => {
     setStatus({ type, message });
@@ -283,6 +315,7 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
       setVerificationMessageId(sendResult.messageId || '');
       setVerificationProviderMessage(String(sendResult.providerMessage || '').trim());
       setVerificationFallbackReason('');
+      setVerificationExpiresAt(sendResult.expiresAt || '');
       setVerificationDigits(Array(VERIFICATION_CODE_LENGTH).fill(''));
       setShowVerificationModal(true);
       showToastNotification('success', 'Verification code sent. Enter it to verify this email and make it primary.');
@@ -300,11 +333,8 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
     setEmailChangeCode('');
     setEmailChangeStep('email');
     setEmailChangeError('');
-    setEmailChangeDeliveryStatus('');
     setEmailChangeDestination('');
-    setEmailChangeMessageId('');
-    setEmailChangeProvider('');
-    setEmailChangeProviderMessage('');
+    setEmailChangeExpiresAt('');
   };
 
   const resetEmailChangeModal = () => {
@@ -313,11 +343,8 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
     setEmailChangeCode('');
     setEmailChangeStep('email');
     setEmailChangeError('');
-    setEmailChangeDeliveryStatus('');
     setEmailChangeDestination('');
-    setEmailChangeMessageId('');
-    setEmailChangeProvider('');
-    setEmailChangeProviderMessage('');
+    setEmailChangeExpiresAt('');
   };
 
   const closeEmailChangeModal = () => {
@@ -347,11 +374,8 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
       setEmailChangeDraft(result.email || normalizedDraft);
       setEmailChangeStep('verify');
       setEmailChangeCode('');
-      setEmailChangeDeliveryStatus(result.deliveryStatus || 'accepted');
       setEmailChangeDestination(result.destination || result.email || normalizedDraft);
-      setEmailChangeMessageId(result.messageId || '');
-      setEmailChangeProvider(result.emailProvider || '');
-      setEmailChangeProviderMessage(String(result.providerMessage || '').trim());
+      setEmailChangeExpiresAt(result.expiresAt || '');
       showToastNotification('success', 'Verification code sent to your new email address.');
     } catch (err) {
       setEmailChangeError(err instanceof Error ? err.message : 'Failed to start the email change verification.');
@@ -420,6 +444,7 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
       setVerificationMessageId(sendResult.messageId || '');
       setVerificationProviderMessage(String(sendResult.providerMessage || '').trim());
       setVerificationFallbackReason(sendResult.fallbackUsed ? String(sendResult.fallbackReason || '').trim() : '');
+      setVerificationExpiresAt(sendResult.expiresAt || '');
       setVerificationDigits(Array(VERIFICATION_CODE_LENGTH).fill(''));
       setShowVerificationModal(true);
       if (sendResult.channel === 'email') {
@@ -439,6 +464,7 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
     if (confirmingVerificationCode) return;
     setShowVerificationModal(false);
     setVerificationDigits(Array(VERIFICATION_CODE_LENGTH).fill(''));
+    setVerificationExpiresAt('');
     setPendingEmailPrimaryActivation(false);
   };
 
@@ -512,6 +538,17 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
     verificationCodeInputRefs.current[nextFocusIndex]?.focus();
   };
 
+  const handleEmailChangeCodePaste = (event: React.ClipboardEvent<HTMLInputElement>) => {
+    const pastedDigits = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, VERIFICATION_CODE_LENGTH);
+    if (!pastedDigits) return;
+
+    event.preventDefault();
+    setEmailChangeCode(pastedDigits);
+    if (emailChangeError) {
+      setEmailChangeError('');
+    }
+  };
+
   const submitVerificationCode = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
@@ -574,6 +611,7 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
       setPhoneEditMode(false);
       setShowVerificationModal(false);
       setVerificationDigits(Array(VERIFICATION_CODE_LENGTH).fill(''));
+      setVerificationExpiresAt('');
       setPendingEmailPrimaryActivation(false);
       showToastNotification('success', successMessage);
       onProfileUpdated?.(nextProfile);
@@ -836,19 +874,28 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
               Enter the 6-digit code sent via <strong>{verificationChannel === 'email' ? 'Email' : 'SMS'}</strong>
               {verificationDestination ? <> to <strong>{verificationDestination}</strong></> : null}.
             </p>
-            {verificationChannel === 'email' && verificationEmailProvider ? (
+            {verificationSecondsRemaining !== null ? (
+              <p className={`profile-verify-modal-timer ${verificationSecondsRemaining === 0 ? 'expired' : ''}`}>
+                {verificationSecondsRemaining === 0
+                  ? 'Code expired. Close this card and request a new one.'
+                  : `Code expires in ${formatVerificationCountdown(verificationSecondsRemaining)}`}
+              </p>
+            ) : null}
+            {verificationTarget === 'phone' && verificationChannel === 'email' && verificationEmailProvider ? (
               <p className="profile-verify-modal-provider">
                 Email provider: {verificationEmailProvider}
               </p>
             ) : null}
-            <p className="profile-verify-modal-meta">
-              Status: {verificationDeliveryStatus || 'accepted'}
-              {verificationMessageId ? ` | Message ID: ${verificationMessageId}` : ''}
-            </p>
-            {verificationProviderMessage ? (
+            {verificationTarget === 'phone' ? (
+              <p className="profile-verify-modal-meta">
+                Status: {verificationDeliveryStatus || 'accepted'}
+                {verificationMessageId ? ` | Message ID: ${verificationMessageId}` : ''}
+              </p>
+            ) : null}
+            {verificationTarget === 'phone' && verificationProviderMessage ? (
               <p className="profile-verify-modal-provider">Gateway: {verificationProviderMessage}</p>
             ) : null}
-            {verificationFallbackReason ? (
+            {verificationTarget === 'phone' && verificationFallbackReason ? (
               <p className="profile-verify-modal-fallback">Fallback reason: {verificationFallbackReason}</p>
             ) : null}
 
@@ -947,15 +994,12 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
                 <p className="profile-email-change-meta">
                   Code sent to <strong>{emailChangeDestination || emailChangeDraft}</strong>.
                 </p>
-                <p className="profile-email-change-meta">
-                  Status: {emailChangeDeliveryStatus || 'accepted'}
-                  {emailChangeMessageId ? ` | Message ID: ${emailChangeMessageId}` : ''}
-                </p>
-                {emailChangeProvider ? (
-                  <p className="profile-email-change-meta">Email provider: {emailChangeProvider}</p>
-                ) : null}
-                {emailChangeProviderMessage ? (
-                  <p className="profile-email-change-meta">Gateway: {emailChangeProviderMessage}</p>
+                {emailChangeSecondsRemaining !== null ? (
+                  <p className={`profile-email-change-timer ${emailChangeSecondsRemaining === 0 ? 'expired' : ''}`}>
+                    {emailChangeSecondsRemaining === 0
+                      ? 'Code expired. Close this card and send a new verification code.'
+                      : `Code expires in ${formatVerificationCountdown(emailChangeSecondsRemaining)}`}
+                  </p>
                 ) : null}
                 <label className="profile-label" htmlFor="profile-email-change-code">Verification Code</label>
                 <input
@@ -973,6 +1017,7 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
                       setEmailChangeError('');
                     }
                   }}
+                  onPaste={handleEmailChangeCodePaste}
                   placeholder="Enter 6-digit code"
                 />
                 <div className="profile-email-change-actions">
@@ -998,11 +1043,14 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
         </div>
       )}
 
-      {status && (
-        <div className={`profile-toast ${status.type} ${showToast ? 'show' : ''}`} role="alert">
-          {status.message}
-        </div>
-      )}
+      {status && typeof document !== 'undefined'
+        ? createPortal(
+          <div className={`profile-toast ${status.type} ${showToast ? 'show' : ''}`} role="alert">
+            {status.message}
+          </div>,
+          document.body
+        )
+        : null}
     </div>
   );
 }

@@ -259,7 +259,7 @@
 .add-account-submit {
   padding: 0.875rem 2rem;
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
   border: none;
   border-radius: 8px;
   font-size: 0.875rem;

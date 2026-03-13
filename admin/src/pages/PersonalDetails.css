@@ -1,20 +1,43 @@
 .personal-details-page {
-  --personal-gold-strong: #b45309;
-  --personal-gold: #d97706;
-  --personal-gold-soft: #f59e0b;
-  --personal-gold-pale: #fef3c7;
-  --personal-gold-cream: #fffbeb;
-  --personal-ink: #422006;
-  --personal-muted: #92400e;
-  --personal-border: rgba(217, 119, 6, 0.12);
-  --personal-shadow: rgba(146, 64, 14, 0.08);
+  --personal-gold-strong: color-mix(in srgb, var(--color-primary-dark) 74%, var(--color-text-bold));
+  --personal-gold: color-mix(in srgb, var(--color-primary) 82%, black);
+  --personal-gold-soft: color-mix(in srgb, var(--color-primary) 68%, white);
+  --personal-gold-pale: color-mix(in srgb, var(--color-primary) 16%, var(--color-surface));
+  --personal-gold-cream: color-mix(in srgb, var(--color-primary) 8%, var(--color-bg));
+  --personal-ink: color-mix(in srgb, var(--color-primary-dark) 22%, var(--color-text-bold));
+  --personal-muted: color-mix(in srgb, var(--color-primary-dark) 18%, var(--color-text-secondary));
+  --personal-border: color-mix(in srgb, var(--color-primary) 18%, var(--color-border));
+  --personal-border-strong: color-mix(in srgb, var(--color-primary) 34%, var(--color-border));
+  --personal-shadow: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  --personal-card-surface: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-primary) 4%, var(--color-surface)),
+    var(--color-surface)
+  );
+  --personal-card-surface-soft: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-primary) 7%, var(--color-surface)),
+    color-mix(in srgb, var(--color-primary) 4%, var(--color-bg-soft))
+  );
+  --personal-hero-start: color-mix(in srgb, var(--color-primary-dark) 82%, black);
+  --personal-hero-end: color-mix(in srgb, var(--color-primary) 72%, black);
+  --personal-hero-text: #fffbeb;
+  --personal-hero-text-muted: rgba(255, 247, 237, 0.82);
+  --personal-hero-pill-bg: rgba(255, 247, 237, 0.14);
+  --personal-hero-pill-border: rgba(255, 247, 237, 0.18);
+  --personal-verified-bg: color-mix(in srgb, var(--color-success) 16%, var(--color-surface));
+  --personal-verified-border: color-mix(in srgb, var(--color-success) 34%, var(--color-border));
+  --personal-verified-text: color-mix(in srgb, var(--color-success) 78%, var(--color-text-bold));
+  --personal-unverified-bg: color-mix(in srgb, var(--color-warning) 16%, var(--color-surface));
+  --personal-unverified-border: color-mix(in srgb, var(--color-warning) 34%, var(--color-border));
+  --personal-unverified-text: color-mix(in srgb, var(--color-warning) 82%, var(--color-text-bold));
   min-height: 100vh;
   max-width: 1400px;
   margin: 0 auto;
   padding: 2rem;
   background:
-    radial-gradient(circle at top right, rgba(245, 158, 11, 0.08), transparent 22rem),
-    linear-gradient(180deg, #ffffff 0%, #fffdfa 100%);
+    radial-gradient(circle at top right, color-mix(in srgb, var(--color-primary) 10%, transparent), transparent 22rem),
+    linear-gradient(180deg, var(--color-bg) 0%, var(--personal-gold-cream) 100%);
 }
 
 .personal-details-page,
@@ -29,7 +52,7 @@
   align-items: center;
   justify-content: center;
   height: 220px;
-  color: #64748b;
+  color: var(--personal-muted);
 }
 
 .personal-details-header {
@@ -37,10 +60,10 @@
   gap: 0.85rem;
   margin-bottom: 1.5rem;
   padding: 1.6rem 1.75rem;
-  border: 1px solid rgba(217, 119, 6, 0.18);
+  border: 1px solid var(--personal-border);
   border-radius: 1.25rem;
-  background: #ffffff;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.06);
+  background: var(--personal-card-surface-soft);
+  box-shadow: 0 18px 40px color-mix(in srgb, var(--color-primary) 10%, transparent);
 }
 
 .back-btn {
@@ -49,9 +72,9 @@
   justify-self: start;
   gap: 0.55rem;
   padding: 0.72rem 1.1rem;
-  border: 1px solid rgba(217, 119, 6, 0.18);
+  border: 1px solid var(--personal-border);
   border-radius: 999px;
-  background: #ffffff;
+  background: var(--personal-card-surface);
   color: var(--personal-ink);
   font-size: 0.85rem;
   font-weight: 700;
@@ -61,8 +84,8 @@
 
 .back-btn:hover {
   transform: translateY(-1px);
-  border-color: rgba(245, 158, 11, 0.4);
-  box-shadow: 0 10px 22px rgba(180, 83, 9, 0.14);
+  border-color: var(--personal-border-strong);
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 
 .personal-details-title {
@@ -92,7 +115,7 @@
   min-width: 0;
   border: 1px solid var(--personal-border);
   border-radius: 1.25rem;
-  background: #ffffff;
+  background: var(--personal-card-surface);
   box-shadow: 0 18px 36px var(--personal-shadow);
   padding: 1.5rem;
   overflow: hidden;
@@ -108,6 +131,62 @@
   grid-template-columns: minmax(260px, 300px) minmax(0, 1.35fr) minmax(240px, 0.85fr);
   gap: 1.25rem;
   align-items: stretch;
+  position: relative;
+  isolation: isolate;
+  border-color: var(--personal-border-strong);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)) 0%,
+      var(--color-surface) 36%,
+      color-mix(in srgb, var(--color-primary) 8%, var(--color-bg-soft)) 100%
+    );
+  background-size: 180% 180%;
+  animation: personalOverviewCardShift 18s ease-in-out infinite alternate;
+  box-shadow:
+    0 24px 48px color-mix(in srgb, var(--color-primary) 12%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
+.personal-overview-card::before,
+.personal-overview-card::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+
+.personal-overview-card::before {
+  inset: -24%;
+  z-index: 0;
+  background:
+    radial-gradient(circle at 16% 20%, color-mix(in srgb, var(--color-primary) 22%, transparent), transparent 30%),
+    radial-gradient(circle at 84% 18%, color-mix(in srgb, var(--color-primary-hover) 20%, transparent), transparent 28%),
+    radial-gradient(circle at 50% 88%, color-mix(in srgb, var(--color-primary-dark) 18%, transparent), transparent 34%);
+  filter: blur(18px);
+  opacity: 0.9;
+  animation: personalOverviewAuraDrift 16s ease-in-out infinite alternate;
+}
+
+.personal-overview-card::after {
+  inset: 0;
+  z-index: 0;
+  background:
+    linear-gradient(
+      120deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.14) 16%,
+      transparent 32%,
+      color-mix(in srgb, var(--color-primary) 8%, transparent) 58%,
+      transparent 78%
+    );
+  opacity: 0.7;
+  transform: translateX(-18%);
+  animation: personalOverviewSheen 12s linear infinite;
+}
+
+.personal-overview-card > * {
+  position: relative;
+  z-index: 1;
 }
 
 .personal-overview-identity,
@@ -121,11 +200,38 @@
   align-content: start;
   padding: 1.15rem;
   border-radius: 1rem;
-  background:
-    linear-gradient(145deg, rgba(120, 53, 15, 0.96), rgba(180, 83, 9, 0.92)),
-    #78350f;
-  color: #fffbeb;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: linear-gradient(
+    145deg,
+    var(--personal-hero-start),
+    var(--personal-hero-end),
+    color-mix(in srgb, var(--color-primary) 40%, black)
+  );
+  background-size: 180% 180%;
+  color: var(--personal-hero-text);
   box-shadow: inset 0 0 0 1px rgba(255, 247, 237, 0.16);
+  animation: personalOverviewIdentityShift 14s ease-in-out infinite alternate;
+}
+
+.personal-overview-identity::before {
+  content: "";
+  position: absolute;
+  inset: -28%;
+  z-index: 0;
+  background:
+    radial-gradient(circle at 18% 24%, rgba(255, 255, 255, 0.18), transparent 28%),
+    radial-gradient(circle at 78% 22%, color-mix(in srgb, var(--color-primary) 28%, white), transparent 24%),
+    radial-gradient(circle at 56% 82%, rgba(255, 247, 237, 0.16), transparent 30%);
+  filter: blur(14px);
+  opacity: 0.82;
+  animation: personalOverviewAuraDrift 15s ease-in-out infinite alternate;
+}
+
+.personal-overview-identity > * {
+  position: relative;
+  z-index: 1;
 }
 
 .personal-overview-avatar {
@@ -156,8 +262,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #fbbf24, #d97706);
-  color: #fff7ed;
+  background: linear-gradient(135deg, var(--personal-gold-soft), var(--personal-gold));
+  color: var(--personal-hero-text);
   font-size: 2.8rem;
   font-weight: 800;
   border: 4px solid rgba(255, 247, 237, 0.14);
@@ -178,7 +284,7 @@
 
 .personal-overview-identity-copy p {
   margin: 0;
-  color: rgba(255, 247, 237, 0.8);
+  color: var(--personal-hero-text-muted);
   font-size: 0.92rem;
 }
 
@@ -205,22 +311,22 @@
 }
 
 .personal-overview-pill {
-  background: rgba(255, 247, 237, 0.14);
-  border-color: rgba(255, 247, 237, 0.18);
-  color: #fffbeb;
+  background: var(--personal-hero-pill-bg);
+  border-color: var(--personal-hero-pill-border);
+  color: var(--personal-hero-text);
   text-transform: uppercase;
 }
 
 .verification-badge.verified {
-  color: #92400e;
-  background: #fef3c7;
-  border-color: #fbbf24;
+  color: var(--personal-verified-text);
+  background: var(--personal-verified-bg);
+  border-color: var(--personal-verified-border);
 }
 
 .verification-badge.unverified {
-  color: #7c2d12;
-  background: #ffedd5;
-  border-color: #fdba74;
+  color: var(--personal-unverified-text);
+  background: var(--personal-unverified-bg);
+  border-color: var(--personal-unverified-border);
 }
 
 .personal-overview-section {
@@ -276,9 +382,9 @@
   gap: 0.45rem;
   min-width: 0;
   padding: 1rem 1.05rem;
-  border: 1px solid rgba(217, 119, 6, 0.14);
+  border: 1px solid var(--personal-border);
   border-radius: 1rem;
-  background: #ffffff;
+  background: var(--personal-card-surface);
 }
 
 .personal-info-tile.wide {
@@ -349,9 +455,9 @@
 .personal-form-group textarea {
   width: 100%;
   padding: 0.8rem 0.95rem;
-  border: 1px solid rgba(217, 119, 6, 0.22);
+  border: 1px solid var(--personal-border-strong);
   border-radius: 0.9rem;
-  background: rgba(255, 255, 255, 0.96);
+  background: color-mix(in srgb, var(--color-surface) 96%, var(--personal-gold-cream));
   color: var(--personal-ink);
   font-size: 0.94rem;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
@@ -360,8 +466,8 @@
 .personal-form-group input:focus,
 .personal-form-group textarea:focus {
   outline: none;
-  border-color: rgba(245, 158, 11, 0.6);
-  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.12);
+  border-color: var(--personal-border-strong);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 14%, transparent);
   transform: translateY(-1px);
 }
 
@@ -389,21 +495,21 @@
 }
 
 .info-btn {
-  background: linear-gradient(135deg, #b45309, #d97706);
-  color: #fff7ed;
-  box-shadow: 0 12px 24px rgba(180, 83, 9, 0.2);
+  background: linear-gradient(135deg, var(--personal-gold-strong), var(--personal-gold));
+  color: var(--personal-hero-text);
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--color-primary) 22%, transparent);
 }
 
 .save-btn {
-  background: linear-gradient(135deg, #f59e0b, #b45309);
-  color: #fff7ed;
-  box-shadow: 0 12px 24px rgba(180, 83, 9, 0.24);
+  background: linear-gradient(135deg, var(--personal-gold), var(--personal-gold-strong));
+  color: var(--personal-hero-text);
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--color-primary) 24%, transparent);
 }
 
 .cancel-btn {
-  background: linear-gradient(135deg, #fef3c7, #fed7aa);
+  background: linear-gradient(135deg, var(--personal-gold-cream), var(--personal-gold-pale));
   color: var(--personal-ink);
-  box-shadow: 0 12px 24px rgba(217, 119, 6, 0.16);
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--color-primary) 16%, transparent);
 }
 
 .info-btn:hover,
@@ -415,9 +521,9 @@
 .personal-empty-state {
   grid-column: 1 / -1;
   padding: 1.2rem;
-  border: 1px dashed rgba(217, 119, 6, 0.32);
+  border: 1px dashed var(--personal-border-strong);
   border-radius: 1rem;
-  background: #ffffff;
+  background: var(--personal-card-surface);
   color: var(--personal-muted);
   font-style: italic;
   text-align: center;
@@ -427,8 +533,8 @@
   width: 2rem;
   height: 2rem;
   margin-bottom: 1rem;
-  border: 2px solid rgba(217, 119, 6, 0.22);
-  border-top-color: #f59e0b;
+  border: 2px solid var(--personal-border);
+  border-top-color: var(--color-primary);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -436,6 +542,61 @@
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
+}
+
+@keyframes personalOverviewCardShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 38%;
+  }
+  100% {
+    background-position: 16% 72%;
+  }
+}
+
+@keyframes personalOverviewIdentityShift {
+  0% {
+    background-position: 0% 45%;
+  }
+  50% {
+    background-position: 100% 56%;
+  }
+  100% {
+    background-position: 20% 80%;
+  }
+}
+
+@keyframes personalOverviewAuraDrift {
+  0% {
+    transform: translate3d(-4%, -3%, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(5%, 2%, 0) scale(1.06);
+  }
+  100% {
+    transform: translate3d(2%, -5%, 0) scale(1.02);
+  }
+}
+
+@keyframes personalOverviewSheen {
+  0% {
+    transform: translateX(-18%);
+  }
+  100% {
+    transform: translateX(18%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .personal-overview-card,
+  .personal-overview-card::before,
+  .personal-overview-card::after,
+  .personal-overview-identity,
+  .personal-overview-identity::before {
+    animation: none;
+  }
 }
 
 @media (max-width: 1180px) {
@@ -502,35 +663,74 @@
 }
 
 [data-theme="dark"] .personal-details-page {
-  --personal-ink: #fffbeb;
-  --personal-muted: #fcd34d;
-  --personal-border: rgba(245, 158, 11, 0.24);
-  --personal-shadow: rgba(0, 0, 0, 0.32);
+  --personal-gold-strong: color-mix(in srgb, var(--color-primary) 72%, white);
+  --personal-gold: color-mix(in srgb, var(--color-primary) 60%, white);
+  --personal-gold-soft: color-mix(in srgb, var(--color-primary) 44%, white);
+  --personal-gold-pale: color-mix(in srgb, var(--color-primary) 16%, rgba(15, 23, 42, 0.92));
+  --personal-gold-cream: color-mix(in srgb, var(--color-primary) 10%, rgba(15, 23, 42, 0.96));
+  --personal-ink: var(--color-text-bold);
+  --personal-muted: color-mix(in srgb, var(--color-primary) 32%, var(--color-text-muted));
+  --personal-border: color-mix(in srgb, var(--color-primary) 22%, var(--color-border));
+  --personal-border-strong: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
+  --personal-shadow: rgba(2, 6, 23, 0.34);
+  --personal-card-surface: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-primary) 10%, rgba(15, 23, 42, 0.96)),
+    rgba(15, 23, 42, 0.94)
+  );
+  --personal-card-surface-soft: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-primary) 14%, rgba(15, 23, 42, 0.96)),
+    rgba(15, 23, 42, 0.88)
+  );
+  --personal-hero-start: color-mix(in srgb, var(--color-primary-dark) 68%, black);
+  --personal-hero-end: color-mix(in srgb, var(--color-primary) 56%, black);
+  --personal-verified-bg: color-mix(in srgb, var(--color-success) 18%, rgba(15, 23, 42, 0.9));
+  --personal-verified-border: color-mix(in srgb, var(--color-success) 36%, rgba(148, 163, 184, 0.28));
+  --personal-verified-text: color-mix(in srgb, var(--color-success) 62%, white);
+  --personal-unverified-bg: color-mix(in srgb, var(--color-warning) 18%, rgba(15, 23, 42, 0.9));
+  --personal-unverified-border: color-mix(in srgb, var(--color-warning) 34%, rgba(148, 163, 184, 0.28));
+  --personal-unverified-text: color-mix(in srgb, var(--color-warning) 68%, white);
   background:
-    radial-gradient(circle at top right, rgba(245, 158, 11, 0.2), transparent 20rem),
-    radial-gradient(circle at bottom left, rgba(180, 83, 9, 0.18), transparent 18rem),
-    linear-gradient(180deg, #2b1605 0%, #120d08 100%);
+    radial-gradient(circle at top right, color-mix(in srgb, var(--color-primary) 24%, transparent), transparent 20rem),
+    radial-gradient(circle at bottom left, color-mix(in srgb, var(--color-primary-dark) 18%, transparent), transparent 18rem),
+    linear-gradient(180deg, color-mix(in srgb, var(--color-primary-dark) 18%, #0f172a) 0%, #0b1120 100%);
 }
 
 [data-theme="dark"] .personal-details-header,
 [data-theme="dark"] .personal-details-card {
-  background:
-    linear-gradient(180deg, rgba(69, 26, 3, 0.96), rgba(30, 20, 8, 0.94)),
-    #1c1107;
-  border-color: rgba(245, 158, 11, 0.24);
+  background: var(--personal-card-surface-soft);
+  border-color: var(--personal-border);
   box-shadow: 0 22px 44px rgba(2, 6, 23, 0.34);
 }
 
+[data-theme="dark"] .personal-overview-card {
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--color-primary) 14%, rgba(15, 23, 42, 0.96)) 0%,
+      rgba(15, 23, 42, 0.9) 38%,
+      color-mix(in srgb, var(--color-primary) 10%, rgba(15, 23, 42, 0.84)) 100%
+    );
+  box-shadow:
+    0 28px 54px color-mix(in srgb, var(--color-primary) 15%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .personal-overview-card::after {
+  opacity: 0.42;
+}
+
 [data-theme="dark"] .back-btn {
-  background: rgba(69, 26, 3, 0.62);
-  border-color: rgba(245, 158, 11, 0.24);
-  color: #fffbeb;
+  background: color-mix(in srgb, var(--color-primary) 10%, rgba(15, 23, 42, 0.82));
+  border-color: var(--personal-border);
+  color: var(--personal-ink);
 }
 
 [data-theme="dark"] .personal-details-title,
 [data-theme="dark"] .personal-card-header h3,
 [data-theme="dark"] .detail-value {
-  color: #fffbeb;
+  color: var(--personal-ink);
 }
 
 [data-theme="dark"] .personal-details-desc,
@@ -538,51 +738,55 @@
 [data-theme="dark"] .detail-label,
 [data-theme="dark"] .personal-details-loading,
 [data-theme="dark"] .personal-details-error {
-  color: #fcd34d;
+  color: var(--personal-muted);
 }
 
 [data-theme="dark"] .personal-info-tile,
 [data-theme="dark"] .personal-status-card {
-  background: rgba(69, 26, 3, 0.42);
-  border-color: rgba(245, 158, 11, 0.2);
+  background: color-mix(in srgb, var(--color-primary) 8%, rgba(15, 23, 42, 0.72));
+  border-color: var(--personal-border);
 }
 
 [data-theme="dark"] .personal-form-group label {
-  color: #fde68a;
+  color: color-mix(in srgb, var(--color-primary) 44%, white);
 }
 
 [data-theme="dark"] .personal-form-group input,
 [data-theme="dark"] .personal-form-group textarea {
-  background: rgba(31, 20, 8, 0.82);
-  border-color: rgba(245, 158, 11, 0.28);
-  color: #fffbeb;
+  background: rgba(15, 23, 42, 0.82);
+  border-color: var(--personal-border-strong);
+  color: var(--personal-ink);
 }
 
 [data-theme="dark"] .personal-form-group input:focus,
 [data-theme="dark"] .personal-form-group textarea:focus {
-  border-color: rgba(245, 158, 11, 0.72);
-  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.18);
+  border-color: var(--personal-border-strong);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 20%, transparent);
 }
 
 [data-theme="dark"] .cancel-btn {
-  background: linear-gradient(135deg, #78350f, #451a03);
-  color: #fffbeb;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-primary-dark) 82%, black),
+    color-mix(in srgb, var(--color-primary) 18%, rgba(15, 23, 42, 0.92))
+  );
+  color: var(--personal-hero-text);
 }
 
 [data-theme="dark"] .personal-empty-state {
-  background: rgba(69, 26, 3, 0.38);
-  border-color: rgba(245, 158, 11, 0.28);
-  color: #fcd34d;
+  background: color-mix(in srgb, var(--color-primary) 8%, rgba(15, 23, 42, 0.72));
+  border-color: var(--personal-border-strong);
+  color: var(--personal-muted);
 }
 
 [data-theme="dark"] .verification-badge.verified {
-  color: #fde68a;
-  background: rgba(180, 83, 9, 0.38);
-  border-color: rgba(251, 191, 36, 0.42);
+  color: var(--personal-verified-text);
+  background: var(--personal-verified-bg);
+  border-color: var(--personal-verified-border);
 }
 
 [data-theme="dark"] .verification-badge.unverified {
-  color: #fed7aa;
-  background: rgba(124, 45, 18, 0.42);
-  border-color: rgba(251, 146, 60, 0.4);
+  color: var(--personal-unverified-text);
+  background: var(--personal-unverified-bg);
+  border-color: var(--personal-unverified-border);
 }

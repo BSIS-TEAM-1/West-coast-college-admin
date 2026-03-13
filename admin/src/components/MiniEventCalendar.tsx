@@ -71,11 +71,11 @@ const MiniEventCalendar = ({ onOpenCalendar }: MiniEventCalendarProps) => {
 
   const getEventTypeColor = (type: Event['type']) => {
     switch (type) {
-      case 'academic': return '#3b82f6'
-      case 'meeting': return '#10b981'
-      case 'holiday': return '#f59e0b'
-      case 'deadline': return '#ef4444'
-      default: return '#6b7280'
+      case 'academic': return 'var(--color-primary)'
+      case 'meeting': return 'var(--color-success)'
+      case 'holiday': return 'var(--color-warning)'
+      case 'deadline': return 'var(--color-error)'
+      default: return 'var(--color-text-muted)'
     }
   }
 

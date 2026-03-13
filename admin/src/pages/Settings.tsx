@@ -1,8 +1,17 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { getProfile, updateProfile, clearStoredToken } from '../lib/authApi';
 import type { ProfileResponse, UpdateProfileRequest } from '../lib/authApi';
 import { LogOut } from 'lucide-react';
-import { applyThemePreference, getStoredTheme, type ThemePreference } from '../lib/theme';
+import {
+  applyAccentColorPreference,
+  applyThemePreference,
+  DEFAULT_THEME_ACCENT_COLOR,
+  getStoredAccentColor,
+  getStoredTheme,
+  THEME_ACCENT_PRESETS,
+  type ThemeAccentColor,
+  type ThemePreference,
+} from '../lib/theme';
 import './Settings.css';
 
 type Theme = ThemePreference;
@@ -19,6 +28,7 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
 
   // Theme state
   const [theme, setTheme] = useState<Theme>('auto');
+  const [accentColor, setAccentColor] = useState<ThemeAccentColor>(DEFAULT_THEME_ACCENT_COLOR);
 
   // Form state for security settings
   const [formData, setFormData] = useState({
@@ -27,11 +37,14 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
     newPassword: '',
     loginEmailVerificationEnabled: false,
   });
+  const customAccentPickerRef = useRef<HTMLInputElement | null>(null);
 
   // Load theme preference from localStorage on mount
   useEffect(() => {
     const initialTheme = getStoredTheme();
+    const initialAccentColor = getStoredAccentColor();
     setTheme(initialTheme);
+    setAccentColor(initialAccentColor);
     applyThemePreference(initialTheme, { persist: false });
 
     getProfile()
@@ -67,6 +80,32 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
   const handleThemeChange = (newTheme: Theme) => {
     setTheme(newTheme);
     applyThemePreference(newTheme, { animate: true });
+  };
+
+  const activeAccentPreset = useMemo(
+    () => THEME_ACCENT_PRESETS.find((preset) => preset.color === accentColor) ?? null,
+    [accentColor]
+  );
+  const isCustomAccentActive = activeAccentPreset === null;
+
+  const handleAccentColorChange = (newAccentColor: string) => {
+    const normalizedAccentColor = applyAccentColorPreference(newAccentColor, { animate: true });
+    setAccentColor(normalizedAccentColor);
+  };
+
+  const handleCustomAccentPresetClick = () => {
+    const picker = customAccentPickerRef.current;
+    if (!picker) return;
+
+    picker.focus();
+
+    const pickerWithShowPicker = picker as HTMLInputElement & { showPicker?: () => void };
+    if (typeof pickerWithShowPicker.showPicker === 'function') {
+      pickerWithShowPicker.showPicker();
+      return;
+    }
+
+    picker.click();
   };
 
   // Helper to detect if the user has actually changed anything
@@ -237,6 +276,102 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
                   <div className="theme-description">Follows your system preference</div>
                 </div>
               </label>
+            </div>
+          </div>
+
+          <div className="theme-accent-section">
+            <div className="theme-accent-header">
+              <div>
+                <h4 className="theme-accent-title">Color Theme</h4>
+                <p className="theme-accent-desc">
+                  Customize the accent used for buttons, active navigation, focus states, and highlights.
+                </p>
+              </div>
+
+              <div className="theme-accent-current">
+                <span
+                  className="theme-accent-current-swatch"
+                  style={{ '--theme-accent-swatch': accentColor } as React.CSSProperties}
+                  aria-hidden="true"
+                />
+                <div className="theme-accent-current-copy">
+                  <span className="theme-accent-current-name">{activeAccentPreset?.label ?? 'Custom'}</span>
+                  <span className="theme-accent-current-value">{accentColor.toUpperCase()}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="theme-palette-grid" role="radiogroup" aria-label="Color theme presets">
+              {THEME_ACCENT_PRESETS.map((preset) => {
+                const isActive = preset.color === accentColor;
+
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={isActive}
+                    className={`theme-palette-card ${isActive ? 'active' : ''}`}
+                    style={{ '--theme-accent-swatch': preset.color } as React.CSSProperties}
+                    onClick={() => handleAccentColorChange(preset.color)}
+                  >
+                    <span
+                      className="theme-palette-swatch"
+                      style={{ '--theme-accent-swatch': preset.color } as React.CSSProperties}
+                      aria-hidden="true"
+                    />
+                    <span className="theme-palette-name">{preset.label}</span>
+                    <span className="theme-palette-description">{preset.description}</span>
+                  </button>
+                );
+              })}
+
+              <button
+                type="button"
+                role="radio"
+                aria-checked={isCustomAccentActive}
+                className={`theme-palette-card theme-palette-custom ${isCustomAccentActive ? 'active' : ''}`}
+                style={{ '--theme-accent-swatch': accentColor } as React.CSSProperties}
+                onClick={handleCustomAccentPresetClick}
+              >
+                <span
+                  className="theme-palette-swatch theme-palette-custom-swatch"
+                  style={{ '--theme-accent-swatch': accentColor } as React.CSSProperties}
+                  aria-hidden="true"
+                />
+                <span className="theme-palette-name">Custom</span>
+                <span className="theme-palette-description">Open the picker and create your own accent color.</span>
+              </button>
+            </div>
+
+            <div className={`theme-custom-row ${isCustomAccentActive ? 'is-active' : ''}`}>
+              <div className="theme-custom-copy">
+                <span className="theme-custom-title">Custom Accent</span>
+                <span className="theme-custom-description">Pick any hex color if you want something outside the presets.</span>
+              </div>
+
+              <div className="theme-custom-controls">
+                <label className="theme-custom-picker-label" htmlFor="theme-custom-color">
+                  <input
+                    id="theme-custom-color"
+                    type="color"
+                    className="theme-custom-picker"
+                    ref={customAccentPickerRef}
+                    value={accentColor}
+                    onChange={(event) => handleAccentColorChange(event.target.value)}
+                    aria-label="Choose a custom color theme"
+                  />
+                </label>
+                <span className="theme-custom-hex" aria-live="polite">{accentColor.toUpperCase()}</span>
+                <button
+                  type="button"
+                  className="theme-reset-btn"
+                  onClick={() => handleAccentColorChange(DEFAULT_THEME_ACCENT_COLOR)}
+                  disabled={accentColor === DEFAULT_THEME_ACCENT_COLOR}
+                >
+                  Reset
+                </button>
+              </div>
             </div>
           </div>
         </section>

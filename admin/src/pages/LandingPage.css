@@ -840,6 +840,7 @@
 .landing-video-interactive {
   position: relative;
   cursor: pointer;
+  touch-action: pan-y;
 }
 
 .landing-video-interactive:focus-visible {
@@ -893,6 +894,15 @@
   border-bottom: 14px solid transparent;
   border-left: 22px solid #fff;
   margin-left: 5px;
+}
+
+.landing-carousel-swipe-hint {
+  display: none;
+  margin: -0.1rem auto 0;
+  color: rgba(226, 232, 240, 0.78);
+  font-size: 0.77rem;
+  line-height: 1.4;
+  text-align: center;
 }
 
 .landing-carousel-dots {
@@ -1713,6 +1723,10 @@
 
   .landing-video-frame {
     border-radius: 20px;
+  }
+
+  .landing-carousel-swipe-hint {
+    display: block;
   }
 
   .landing-video-overlay-btn {

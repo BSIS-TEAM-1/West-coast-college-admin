@@ -44,6 +44,7 @@ const LANDING_VIDEOS: LandingVideoItem[] = [
 ]
 
 const TITLE_FADE_MS = 220
+const VIDEO_SWIPE_THRESHOLD_PX = 56
 
 function LandingVideoCarousel() {
   const useOptimizedSourceByDefault = import.meta.env.PROD
@@ -55,6 +56,8 @@ function LandingVideoCarousel() {
   )
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const fadeTimeoutRef = useRef<number | null>(null)
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null)
+  const suppressPlaybackToggleRef = useRef(false)
 
   const activeVideo = LANDING_VIDEOS[activeVideoIndex]
   const expectedDefaultSrc = useOptimizedSourceByDefault
@@ -99,6 +102,11 @@ function LandingVideoCarousel() {
   }
 
   const togglePlayback = () => {
+    if (suppressPlaybackToggleRef.current) {
+      suppressPlaybackToggleRef.current = false
+      return
+    }
+
     const video = videoRef.current
     if (!video) return
 
@@ -108,6 +116,29 @@ function LandingVideoCarousel() {
     }
 
     video.pause()
+  }
+
+  const handleVideoTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    const touch = event.changedTouches[0]
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY }
+    suppressPlaybackToggleRef.current = false
+  }
+
+  const handleVideoTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
+    const touchStart = touchStartRef.current
+    touchStartRef.current = null
+    if (!touchStart || isTitleFading) return
+
+    const touch = event.changedTouches[0]
+    const deltaX = touch.clientX - touchStart.x
+    const deltaY = touch.clientY - touchStart.y
+
+    if (Math.abs(deltaX) < VIDEO_SWIPE_THRESHOLD_PX || Math.abs(deltaX) <= Math.abs(deltaY)) {
+      return
+    }
+
+    suppressPlaybackToggleRef.current = true
+    goToSlide(deltaX < 0 ? activeVideoIndex + 1 : activeVideoIndex - 1)
   }
 
   return (
@@ -152,6 +183,8 @@ function LandingVideoCarousel() {
         tabIndex={0}
         aria-label={isVideoPlaying ? `Pause ${activeVideo.title}` : `Play ${activeVideo.title}`}
         onClick={togglePlayback}
+        onTouchStart={handleVideoTouchStart}
+        onTouchEnd={handleVideoTouchEnd}
         onKeyDown={event => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault()
@@ -190,6 +223,8 @@ function LandingVideoCarousel() {
           <span className="landing-video-play-icon" />
         </button>
       </div>
+
+        <p className="landing-carousel-swipe-hint">Swipe left or right on the video to switch clips.</p>
 
         <div className="landing-carousel-dots" aria-label="Video carousel navigation">
           {LANDING_VIDEOS.map((videoItem, index) => (

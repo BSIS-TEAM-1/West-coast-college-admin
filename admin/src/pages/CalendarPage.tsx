@@ -81,15 +81,15 @@ const parseEventDate = (value: string): Date => {
 const getEventTypeColor = (type: EventType) => {
   switch (type) {
     case 'academic':
-      return '#3b82f6'
+      return 'var(--calendar-primary)'
     case 'meeting':
-      return '#10b981'
+      return 'var(--color-success)'
     case 'holiday':
-      return '#f59e0b'
+      return 'var(--color-warning)'
     case 'deadline':
-      return '#ef4444'
+      return 'var(--color-error)'
     default:
-      return '#6b7280'
+      return 'var(--calendar-text-muted)'
   }
 }
 
