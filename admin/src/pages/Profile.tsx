@@ -1,5 +1,15 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { getProfile, updateProfile, uploadAvatar, sendPhoneVerificationCode, verifyPhoneNumber } from '../lib/authApi';
+import {
+  getProfile,
+  updateProfile,
+  uploadAvatar,
+  sendEmailVerificationCode,
+  sendPhoneVerificationCode,
+  verifyEmailAddress,
+  verifyPhoneNumber,
+  requestEmailChangeVerification,
+  verifyChangedEmailAddress
+} from '../lib/authApi';
 import { Edit, Info } from 'lucide-react';
 import type { ProfileResponse, UpdateProfileRequest } from '../lib/authApi';
 import './Profile.css';
@@ -8,6 +18,8 @@ type ProfileProps = {
   onProfileUpdated?: (profile: ProfileResponse) => void;
   onNavigate?: (view: string) => void;
 };
+
+type VerificationTarget = 'phone' | 'email';
 
 const MAX_AVATAR_SIZE = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
@@ -30,6 +42,8 @@ const normalizePhoneNumber = (rawPhone: string): string => {
   return compactNumber;
 };
 
+const normalizeEmailAddress = (rawEmail: string): string => String(rawEmail || '').trim().toLowerCase();
+const isValidEmailAddress = (email: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 const isCompletePhoneNumber = (normalizedPhone: string): boolean => /^09\d{9}$/.test(normalizedPhone);
 const VERIFICATION_CODE_LENGTH = 6;
 
@@ -37,13 +51,29 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [updatingPrimaryLogin, setUpdatingPrimaryLogin] = useState(false);
+  const [pendingEmailPrimaryActivation, setPendingEmailPrimaryActivation] = useState(false);
+  const [sendingEmailCode, setSendingEmailCode] = useState(false);
   const [sendingPhoneCode, setSendingPhoneCode] = useState(false);
-  const [confirmingPhoneCode, setConfirmingPhoneCode] = useState(false);
+  const [confirmingVerificationCode, setConfirmingVerificationCode] = useState(false);
+  const [showEmailChangeModal, setShowEmailChangeModal] = useState(false);
+  const [emailChangeDraft, setEmailChangeDraft] = useState('');
+  const [emailChangeCode, setEmailChangeCode] = useState('');
+  const [emailChangeStep, setEmailChangeStep] = useState<'email' | 'verify'>('email');
+  const [requestingEmailChange, setRequestingEmailChange] = useState(false);
+  const [confirmingEmailChange, setConfirmingEmailChange] = useState(false);
+  const [emailChangeError, setEmailChangeError] = useState('');
+  const [emailChangeDeliveryStatus, setEmailChangeDeliveryStatus] = useState('');
+  const [emailChangeDestination, setEmailChangeDestination] = useState('');
+  const [emailChangeMessageId, setEmailChangeMessageId] = useState('');
+  const [emailChangeProvider, setEmailChangeProvider] = useState('');
+  const [emailChangeProviderMessage, setEmailChangeProviderMessage] = useState('');
   const [phoneEditMode, setPhoneEditMode] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [verificationTarget, setVerificationTarget] = useState<VerificationTarget>('phone');
   const [verificationDigits, setVerificationDigits] = useState<string[]>(() => Array(VERIFICATION_CODE_LENGTH).fill(''));
   const [verificationChannel, setVerificationChannel] = useState<'sms' | 'email'>('sms');
-  const [verificationEmailProvider, setVerificationEmailProvider] = useState<'semaphore' | 'sendgrid' | 'sms-api-ph' | ''>('');
+  const [verificationEmailProvider, setVerificationEmailProvider] = useState<'gmail-api' | 'semaphore' | 'sendgrid' | 'sms-api-ph' | ''>('');
   const [verificationDestination, setVerificationDestination] = useState('');
   const [verificationDeliveryStatus, setVerificationDeliveryStatus] = useState('');
   const [verificationMessageId, setVerificationMessageId] = useState('');
@@ -128,6 +158,31 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
     return `${profile.accountType.charAt(0).toUpperCase()}${profile.accountType.slice(1)}`;
   }, [profile]);
 
+  const normalizedEmailInput = useMemo(() => normalizeEmailAddress(formData.email), [formData.email]);
+  const normalizedProfileEmail = useMemo(() => normalizeEmailAddress(profile?.email || ''), [profile?.email]);
+  const hasEmailInput = Boolean(normalizedEmailInput);
+  const isEmailComplete = isValidEmailAddress(normalizedEmailInput);
+  const isStoredEmailVerified = Boolean(profile?.emailVerified) && Boolean(normalizedProfileEmail);
+  const isCurrentEmailStored = Boolean(normalizedEmailInput) && normalizedEmailInput === normalizedProfileEmail;
+  const activeEmailIsVerified = isStoredEmailVerified && isCurrentEmailStored;
+  const primaryLoginMethod = profile?.primaryLoginMethod === 'email' ? 'email' : 'username';
+  const isEmailPrimaryLogin = primaryLoginMethod === 'email';
+  const usingEmailForGoogleSignIn = activeEmailIsVerified && isEmailPrimaryLogin;
+  const accountIsVerified = activeEmailIsVerified;
+  const showEmailPrimaryActionButton = isEmailComplete && !isEmailPrimaryLogin;
+  const showChangeEmailButton = usingEmailForGoogleSignIn;
+  const showEmailActionButton = showEmailPrimaryActionButton || showChangeEmailButton;
+  const emailVerificationHint = isEmailPrimaryLogin
+    ? 'Email address is verified and enabled for Google sign-in. Click Change Email to replace it safely.'
+    : isEmailComplete
+      ? (activeEmailIsVerified
+        ? 'Click Make Primary to enable Google sign-in with this verified email.'
+        : 'Click Make Primary to verify this email and enable Google sign-in.')
+      : hasEmailInput
+        ? 'Enter a valid email address to enable Google sign-in.'
+        : 'Add an email address to enable Google sign-in.';
+  const usernameLoginHint = 'Username remains available for manual sign-in.';
+
   const normalizedPhoneInput = useMemo(() => normalizePhoneNumber(formData.phone), [formData.phone]);
   const normalizedProfilePhone = useMemo(() => normalizePhoneNumber(profile?.phone || ''), [profile?.phone]);
   const hasPhoneInput = Boolean(formData.phone.trim());
@@ -146,6 +201,45 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
         ? 'Enter a complete 11-digit mobile number to enable verification.'
         : 'Add a mobile number, then verify it through SMS.';
 
+  const handleSetPrimaryLoginMethod = async (nextMethod: 'username' | 'email') => {
+    if (!profile) return;
+
+    if (nextMethod === primaryLoginMethod) {
+      return;
+    }
+
+    if (nextMethod === 'email' && !activeEmailIsVerified) {
+      showToastNotification('error', 'Verify your email address before making it primary.');
+      return;
+    }
+
+    setUpdatingPrimaryLogin(true);
+    setStatus(null);
+
+    try {
+      const updatedProfile = await updateProfile({ primaryLoginMethod: nextMethod });
+      setProfile(updatedProfile);
+      setFormData((prev) => ({
+        ...prev,
+        username: updatedProfile.username,
+        displayName: updatedProfile.displayName,
+        email: updatedProfile.email,
+        phone: updatedProfile.phone || '',
+      }));
+      showToastNotification(
+        'success',
+        nextMethod === 'email'
+          ? 'Email is now enabled for Google sign-in.'
+          : 'Google sign-in primary email was cleared.'
+      );
+      onProfileUpdated?.(updatedProfile);
+    } catch (err) {
+      showToastNotification('error', err instanceof Error ? err.message : 'Failed to update the Google sign-in email.');
+    } finally {
+      setUpdatingPrimaryLogin(false);
+    }
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     if (name === 'phone') {
@@ -160,6 +254,142 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
       return;
     }
     setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleEmailPrimaryAction = async () => {
+    if (!profile) return;
+
+    if (!isEmailComplete) {
+      showToastNotification('error', 'Enter a valid email address before making it primary.');
+      return;
+    }
+
+    if (activeEmailIsVerified && isCurrentEmailStored) {
+      await handleSetPrimaryLoginMethod('email');
+      return;
+    }
+
+    setPendingEmailPrimaryActivation(true);
+    setSendingEmailCode(true);
+    setStatus(null);
+
+    try {
+      const sendResult = await sendEmailVerificationCode(normalizedEmailInput);
+      setVerificationTarget('email');
+      setVerificationChannel('email');
+      setVerificationEmailProvider(sendResult.emailProvider || '');
+      setVerificationDestination(sendResult.destination || sendResult.email || normalizedEmailInput);
+      setVerificationDeliveryStatus(sendResult.deliveryStatus || 'accepted');
+      setVerificationMessageId(sendResult.messageId || '');
+      setVerificationProviderMessage(String(sendResult.providerMessage || '').trim());
+      setVerificationFallbackReason('');
+      setVerificationDigits(Array(VERIFICATION_CODE_LENGTH).fill(''));
+      setShowVerificationModal(true);
+      showToastNotification('success', 'Verification code sent. Enter it to verify this email and make it primary.');
+    } catch (err) {
+      setPendingEmailPrimaryActivation(false);
+      showToastNotification('error', err instanceof Error ? err.message : 'Failed to verify email address.');
+    } finally {
+      setSendingEmailCode(false);
+    }
+  };
+
+  const openEmailChangeModal = () => {
+    setShowEmailChangeModal(true);
+    setEmailChangeDraft('');
+    setEmailChangeCode('');
+    setEmailChangeStep('email');
+    setEmailChangeError('');
+    setEmailChangeDeliveryStatus('');
+    setEmailChangeDestination('');
+    setEmailChangeMessageId('');
+    setEmailChangeProvider('');
+    setEmailChangeProviderMessage('');
+  };
+
+  const resetEmailChangeModal = () => {
+    setShowEmailChangeModal(false);
+    setEmailChangeDraft('');
+    setEmailChangeCode('');
+    setEmailChangeStep('email');
+    setEmailChangeError('');
+    setEmailChangeDeliveryStatus('');
+    setEmailChangeDestination('');
+    setEmailChangeMessageId('');
+    setEmailChangeProvider('');
+    setEmailChangeProviderMessage('');
+  };
+
+  const closeEmailChangeModal = () => {
+    if (requestingEmailChange || confirmingEmailChange) return;
+    resetEmailChangeModal();
+  };
+
+  const submitEmailChangeRequest = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    const normalizedDraft = normalizeEmailAddress(emailChangeDraft);
+    if (!isValidEmailAddress(normalizedDraft)) {
+      setEmailChangeError('Enter a valid replacement email address.');
+      return;
+    }
+
+    if (normalizedDraft === normalizedProfileEmail) {
+      setEmailChangeError('Enter a different email address to continue.');
+      return;
+    }
+
+    setRequestingEmailChange(true);
+    setEmailChangeError('');
+
+    try {
+      const result = await requestEmailChangeVerification(normalizedDraft);
+      setEmailChangeDraft(result.email || normalizedDraft);
+      setEmailChangeStep('verify');
+      setEmailChangeCode('');
+      setEmailChangeDeliveryStatus(result.deliveryStatus || 'accepted');
+      setEmailChangeDestination(result.destination || result.email || normalizedDraft);
+      setEmailChangeMessageId(result.messageId || '');
+      setEmailChangeProvider(result.emailProvider || '');
+      setEmailChangeProviderMessage(String(result.providerMessage || '').trim());
+      showToastNotification('success', 'Verification code sent to your new email address.');
+    } catch (err) {
+      setEmailChangeError(err instanceof Error ? err.message : 'Failed to start the email change verification.');
+    } finally {
+      setRequestingEmailChange(false);
+    }
+  };
+
+  const submitEmailChangeVerification = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    const normalizedCode = emailChangeCode.replace(/\D/g, '').slice(0, VERIFICATION_CODE_LENGTH);
+    if (!new RegExp(`^\\d{${VERIFICATION_CODE_LENGTH}}$`).test(normalizedCode)) {
+      setEmailChangeError('Enter the 6-digit verification code sent to your new email.');
+      return;
+    }
+
+    setConfirmingEmailChange(true);
+    setEmailChangeError('');
+
+    try {
+      const updatedProfile = await verifyChangedEmailAddress(normalizedCode);
+      setProfile(updatedProfile);
+      setFormData((prev) => ({
+        ...prev,
+        username: updatedProfile.username,
+        displayName: updatedProfile.displayName,
+        email: updatedProfile.email,
+        phone: updatedProfile.phone || '',
+      }));
+      resetEmailChangeModal();
+      showToastNotification('success', 'Email address changed and verified successfully.');
+      onProfileUpdated?.(updatedProfile);
+    } catch (err) {
+      setEmailChangeError(err instanceof Error ? err.message : 'Failed to verify the new email address.');
+    } finally {
+      setConfirmingEmailChange(false);
+    }
   };
 
   const handlePhoneAction = async () => {
@@ -182,6 +412,7 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
 
     try {
       const sendResult = await sendPhoneVerificationCode(normalizedPhoneInput);
+      setVerificationTarget('phone');
       setVerificationChannel(sendResult.channel || 'sms');
       setVerificationEmailProvider(sendResult.emailProvider || '');
       setVerificationDestination(sendResult.destination || sendResult.phone || normalizedPhoneInput);
@@ -205,9 +436,10 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
   };
 
   const closeVerificationModal = () => {
-    if (confirmingPhoneCode) return;
+    if (confirmingVerificationCode) return;
     setShowVerificationModal(false);
     setVerificationDigits(Array(VERIFICATION_CODE_LENGTH).fill(''));
+    setPendingEmailPrimaryActivation(false);
   };
 
   const handleVerificationDigitChange = (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
@@ -289,28 +521,69 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
       return;
     }
 
-    setConfirmingPhoneCode(true);
+    setConfirmingVerificationCode(true);
     setStatus(null);
 
     try {
-      const verifiedProfile = await verifyPhoneNumber(code);
-      setProfile(verifiedProfile);
+      const shouldMakeEmailPrimary = verificationTarget === 'email' && pendingEmailPrimaryActivation;
+      const verifiedProfile = verificationTarget === 'email'
+        ? await verifyEmailAddress(code)
+        : await verifyPhoneNumber(code);
+
+      let nextProfile = verifiedProfile;
+      let successMessage = verificationTarget === 'email'
+        ? 'Email address verified successfully.'
+        : 'Phone number verified successfully.';
+
+      if (shouldMakeEmailPrimary) {
+        try {
+          nextProfile = await updateProfile({ primaryLoginMethod: 'email' });
+          successMessage = 'Email address verified and enabled for Google sign-in.';
+        } catch (primaryError) {
+          setProfile(verifiedProfile);
+          setFormData((prev) => ({
+            ...prev,
+            username: verifiedProfile.username,
+            displayName: verifiedProfile.displayName,
+            email: verifiedProfile.email,
+            phone: verifiedProfile.phone || '',
+          }));
+          setPhoneEditMode(false);
+          setShowVerificationModal(false);
+          setVerificationDigits(Array(VERIFICATION_CODE_LENGTH).fill(''));
+          setPendingEmailPrimaryActivation(false);
+          onProfileUpdated?.(verifiedProfile);
+          showToastNotification(
+            'error',
+            primaryError instanceof Error
+              ? `${primaryError.message} Email was verified, but Google sign-in is still not enabled.`
+              : 'Email was verified, but Google sign-in is still not enabled.'
+          );
+          return;
+        }
+      }
+
+      setProfile(nextProfile);
       setFormData((prev) => ({
         ...prev,
-        username: verifiedProfile.username,
-        displayName: verifiedProfile.displayName,
-        email: verifiedProfile.email,
-        phone: verifiedProfile.phone || '',
+        username: nextProfile.username,
+        displayName: nextProfile.displayName,
+        email: nextProfile.email,
+        phone: nextProfile.phone || '',
       }));
       setPhoneEditMode(false);
       setShowVerificationModal(false);
       setVerificationDigits(Array(VERIFICATION_CODE_LENGTH).fill(''));
-      showToastNotification('success', 'Phone number verified successfully.');
-      onProfileUpdated?.(verifiedProfile);
+      setPendingEmailPrimaryActivation(false);
+      showToastNotification('success', successMessage);
+      onProfileUpdated?.(nextProfile);
     } catch (err) {
-      showToastNotification('error', err instanceof Error ? err.message : 'Failed to verify phone number.');
+      setPendingEmailPrimaryActivation(false);
+      showToastNotification('error', err instanceof Error ? err.message : (
+        verificationTarget === 'email' ? 'Failed to verify email address.' : 'Failed to verify phone number.'
+      ));
     } finally {
-      setConfirmingPhoneCode(false);
+      setConfirmingVerificationCode(false);
     }
   };
 
@@ -436,14 +709,22 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
 
             <div className="profile-account-meta">
               <span className="profile-account-role">{accountTypeLabel}</span>
+              {accountIsVerified && <span className="profile-verified-badge profile-verified-badge-account">Verified Account</span>}
+              <span className="profile-account-login-mode">Google sign-in: {isEmailPrimaryLogin ? 'Enabled' : 'Not enabled'}</span>
               <span className="profile-account-username">@{formData.username}</span>
             </div>
           </section>
 
           <section className="profile-panel" aria-label="Account information">
             <div className="form-group">
-              <label className="profile-label" htmlFor="username">Username</label>
+              <div className="profile-label-row">
+                <label className="profile-label" htmlFor="username">Username</label>
+                <div className="profile-label-actions">
+                  <span className="profile-primary-login-badge">Manual Sign-In</span>
+                </div>
+              </div>
               <input id="username" type="text" className="profile-input profile-input-readonly" value={formData.username} readOnly tabIndex={-1} />
+              <p className="profile-login-hint">{usernameLoginHint}</p>
             </div>
 
             <div className="form-group">
@@ -460,16 +741,44 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
             </div>
 
             <div className="form-group">
-              <label htmlFor="email" className="profile-label">Email Address</label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                className="profile-input"
-                value={formData.email}
-                onChange={handleChange}
-                autoComplete="email"
-              />
+              <div className="profile-label-row">
+                <label htmlFor="email" className="profile-label">Email Address</label>
+                <div className="profile-label-actions">
+                  {activeEmailIsVerified && isEmailPrimaryLogin && (
+                    <span className="profile-primary-login-badge">Google Sign-In</span>
+                  )}
+                  {activeEmailIsVerified && <span className="profile-verified-badge">Verified</span>}
+                </div>
+              </div>
+              <div className="profile-input-action-wrap">
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  className={`profile-input ${showEmailActionButton ? 'profile-input-has-action profile-input-has-wide-action' : ''} ${showChangeEmailButton ? 'profile-input-readonly' : ''}`}
+                  value={formData.email}
+                  onChange={handleChange}
+                  autoComplete="email"
+                  readOnly={showChangeEmailButton}
+                />
+                {showEmailActionButton && (
+                  <button
+                    type="button"
+                    className="profile-input-action-btn profile-input-action-btn-wide"
+                    onClick={showChangeEmailButton ? openEmailChangeModal : handleEmailPrimaryAction}
+                    disabled={saving || updatingPrimaryLogin || sendingEmailCode || sendingPhoneCode || confirmingVerificationCode || requestingEmailChange || confirmingEmailChange}
+                  >
+                    {showChangeEmailButton
+                      ? 'Change Email'
+                      : (updatingPrimaryLogin
+                        ? 'Saving...'
+                        : (sendingEmailCode ? 'Sending...' : 'Make Primary'))}
+                  </button>
+                )}
+              </div>
+              <p className={`profile-verify-hint ${activeEmailIsVerified ? 'verified' : 'unverified'}`}>
+                {emailVerificationHint}
+              </p>
             </div>
 
             <div className="form-group">
@@ -492,7 +801,7 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
                     type="button"
                     className="profile-input-action-btn"
                     onClick={handlePhoneAction}
-                    disabled={saving || sendingPhoneCode || confirmingPhoneCode}
+                    disabled={saving || updatingPrimaryLogin || sendingPhoneCode || sendingEmailCode || confirmingVerificationCode}
                   >
                     {activePhoneIsVerified ? 'Edit' : (sendingPhoneCode ? 'Sending...' : 'Verify')}
                   </button>
@@ -509,7 +818,7 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
                 View Personal Details
               </button>
 
-              <button type="submit" className="profile-submit" disabled={saving || !isDirty}>
+              <button type="submit" className="profile-submit" disabled={saving || updatingPrimaryLogin || !isDirty}>
                 {saving ? 'Saving changes...' : 'Save Changes'}
               </button>
             </div>
@@ -519,8 +828,10 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
 
       {showVerificationModal && (
         <div className="profile-verify-modal-backdrop" role="presentation">
-          <div className="profile-verify-modal" role="dialog" aria-modal="true" aria-labelledby="verify-phone-title">
-            <h3 id="verify-phone-title" className="profile-verify-modal-title">Verify Phone Number</h3>
+          <div className="profile-verify-modal" role="dialog" aria-modal="true" aria-labelledby="verify-contact-title">
+            <h3 id="verify-contact-title" className="profile-verify-modal-title">
+              {verificationTarget === 'email' ? 'Verify Email Address' : 'Verify Phone Number'}
+            </h3>
             <p className="profile-verify-modal-desc">
               Enter the 6-digit code sent via <strong>{verificationChannel === 'email' ? 'Email' : 'SMS'}</strong>
               {verificationDestination ? <> to <strong>{verificationDestination}</strong></> : null}.
@@ -566,19 +877,123 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
                   type="button"
                   className="profile-verify-cancel-btn"
                   onClick={closeVerificationModal}
-                  disabled={confirmingPhoneCode}
+                  disabled={confirmingVerificationCode}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   className="profile-verify-submit-btn"
-                  disabled={confirmingPhoneCode}
+                  disabled={confirmingVerificationCode}
                 >
-                  {confirmingPhoneCode ? 'Verifying...' : 'Verify Code'}
+                  {confirmingVerificationCode ? 'Verifying...' : 'Verify Code'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showEmailChangeModal && (
+        <div className="profile-email-change-modal-backdrop" role="presentation">
+          <div className="profile-email-change-modal" role="dialog" aria-modal="true" aria-labelledby="profile-email-change-title">
+            <h3 id="profile-email-change-title" className="profile-email-change-title">Change Google Sign-In Email</h3>
+            <p className="profile-email-change-desc">
+              Your current Google sign-in email is <strong>{normalizedProfileEmail}</strong>. Verify a new email first before replacing it.
+            </p>
+
+            {emailChangeStep === 'email' ? (
+              <form className="profile-email-change-form" onSubmit={submitEmailChangeRequest}>
+                {emailChangeError && <p className="profile-email-change-error" role="alert">{emailChangeError}</p>}
+                <label className="profile-label" htmlFor="profile-email-change-input">New Email Address</label>
+                <input
+                  id="profile-email-change-input"
+                  type="email"
+                  className="profile-input"
+                  value={emailChangeDraft}
+                  onChange={(event) => {
+                    setEmailChangeDraft(event.target.value);
+                    if (emailChangeError) {
+                      setEmailChangeError('');
+                    }
+                  }}
+                  autoComplete="email"
+                  placeholder="Enter new email address"
+                />
+                <p className="profile-email-change-hint">
+                  We will send a verification code to the new email. Your current email stays active until the code is confirmed.
+                </p>
+                <div className="profile-email-change-actions">
+                  <button
+                    type="button"
+                    className="profile-email-change-cancel-btn"
+                    onClick={closeEmailChangeModal}
+                    disabled={requestingEmailChange}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="profile-email-change-submit-btn"
+                    disabled={requestingEmailChange}
+                  >
+                    {requestingEmailChange ? 'Sending...' : 'Send Verification'}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form className="profile-email-change-form" onSubmit={submitEmailChangeVerification}>
+                {emailChangeError && <p className="profile-email-change-error" role="alert">{emailChangeError}</p>}
+                <p className="profile-email-change-meta">
+                  Code sent to <strong>{emailChangeDestination || emailChangeDraft}</strong>.
+                </p>
+                <p className="profile-email-change-meta">
+                  Status: {emailChangeDeliveryStatus || 'accepted'}
+                  {emailChangeMessageId ? ` | Message ID: ${emailChangeMessageId}` : ''}
+                </p>
+                {emailChangeProvider ? (
+                  <p className="profile-email-change-meta">Email provider: {emailChangeProvider}</p>
+                ) : null}
+                {emailChangeProviderMessage ? (
+                  <p className="profile-email-change-meta">Gateway: {emailChangeProviderMessage}</p>
+                ) : null}
+                <label className="profile-label" htmlFor="profile-email-change-code">Verification Code</label>
+                <input
+                  id="profile-email-change-code"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autoComplete="one-time-code"
+                  maxLength={VERIFICATION_CODE_LENGTH}
+                  className="profile-email-change-code-input"
+                  value={emailChangeCode}
+                  onChange={(event) => {
+                    setEmailChangeCode(event.target.value.replace(/\D/g, '').slice(0, VERIFICATION_CODE_LENGTH));
+                    if (emailChangeError) {
+                      setEmailChangeError('');
+                    }
+                  }}
+                  placeholder="Enter 6-digit code"
+                />
+                <div className="profile-email-change-actions">
+                  <button
+                    type="button"
+                    className="profile-email-change-cancel-btn"
+                    onClick={closeEmailChangeModal}
+                    disabled={confirmingEmailChange}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="profile-email-change-submit-btn"
+                    disabled={confirmingEmailChange}
+                  >
+                    {confirmingEmailChange ? 'Verifying...' : 'Verify New Email'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

@@ -397,11 +397,238 @@
   cursor: not-allowed;
 }
 
+.login-method-stack {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.login-submit-manual {
+  margin-top: 0;
+}
+
+.login-method-divider {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.login-method-divider::before {
+  content: '';
+  position: absolute;
+  inset: 50% 0 auto;
+  border-top: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.login-method-divider span {
+  position: relative;
+  padding: 0 0.7rem;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.login-google-section {
+  display: grid;
+  gap: 0.45rem;
+  justify-items: center;
+}
+
+.login-google-button-host {
+  width: fit-content;
+  max-width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: center;
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.login-google-button-host.is-busy {
+  pointer-events: none;
+  opacity: 0.72;
+}
+
+.login-google-button-host > div {
+  max-width: 100%;
+}
+
+.login-google-button-host iframe {
+  display: block;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.login-google-fallback {
+  width: min(100%, 320px);
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  border: 1px solid #dadce0;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #3c4043;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: default;
+}
+
+.login-google-fallback-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.login-google-fallback-icon svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.login-google-fallback-text {
+  line-height: 1;
+}
+
+.login-google-status {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
 .security-note {
   margin: 0.95rem 0 0;
   font-size: 0.78rem;
   line-height: 1.45;
   color: #64748b;
+}
+
+.login-verify-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.56);
+  backdrop-filter: blur(8px);
+}
+
+.login-verify-modal {
+  width: min(100%, 420px);
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.24);
+  padding: 1.3rem 1.3rem 1.1rem;
+}
+
+.login-verify-modal-title {
+  margin: 0;
+  color: #0f172a;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.login-verify-modal-desc,
+.login-verify-modal-meta,
+.login-verify-modal-provider {
+  margin: 0.65rem 0 0;
+  color: #475569;
+  font-size: 0.87rem;
+  line-height: 1.5;
+}
+
+.login-verify-modal-form {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.login-verify-modal-error {
+  margin: 0;
+  border: 1px solid #dc2626;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #b91c1c;
+  padding: 0.72rem 0.8rem;
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.login-verify-code-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  border-radius: 12px;
+  background: #ffffff;
+  color: #0f172a;
+  padding: 0.86rem 0.95rem;
+  font-size: 1.02rem;
+  letter-spacing: 0.22em;
+  text-align: center;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.login-verify-code-input:focus {
+  outline: none;
+  border-color: var(--login-gold-deep);
+  box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.22);
+}
+
+.login-verify-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.login-verify-cancel-btn,
+.login-verify-submit-btn {
+  border-radius: 10px;
+  padding: 0.72rem 1rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease, filter 0.2s ease;
+}
+
+.login-verify-cancel-btn {
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: rgba(248, 250, 252, 0.95);
+  color: #475569;
+}
+
+.login-verify-submit-btn {
+  border: 0;
+  background: linear-gradient(130deg, #f7ba06, #f99705);
+  color: #ffffff;
+}
+
+.login-verify-cancel-btn:hover:not(:disabled) {
+  border-color: var(--login-gold-deep);
+  color: var(--login-gold-deep);
+}
+
+.login-verify-submit-btn:hover:not(:disabled) {
+  filter: brightness(1.04);
+}
+
+.login-verify-cancel-btn:disabled,
+.login-verify-submit-btn:disabled {
+  opacity: 0.68;
+  cursor: not-allowed;
 }
 
 [data-theme='dark'] .login-pane-form {
@@ -416,8 +643,54 @@
 
 [data-theme='dark'] .login-subtitle,
 [data-theme='dark'] .login-label,
-[data-theme='dark'] .security-note {
+[data-theme='dark'] .security-note,
+[data-theme='dark'] .login-google-status,
+[data-theme='dark'] .login-method-divider {
   color: rgba(226, 232, 240, 0.85);
+}
+
+[data-theme='dark'] .login-method-divider span {
+  background: rgba(15, 23, 42, 0.95);
+}
+
+[data-theme='dark'] .login-google-fallback {
+  border-color: rgba(148, 163, 184, 0.34);
+  background: rgba(255, 255, 255, 0.96);
+  color: #1f2937;
+}
+
+[data-theme='dark'] .login-verify-modal {
+  border-color: rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.96);
+}
+
+[data-theme='dark'] .login-verify-modal-title {
+  color: #f8fafc;
+}
+
+[data-theme='dark'] .login-verify-modal-desc,
+[data-theme='dark'] .login-verify-modal-meta,
+[data-theme='dark'] .login-verify-modal-provider {
+  color: rgba(226, 232, 240, 0.86);
+}
+
+[data-theme='dark'] .login-verify-code-input {
+  background: rgba(15, 23, 42, 0.82);
+  border-color: rgba(148, 163, 184, 0.35);
+  color: #f8fafc;
+}
+
+[data-theme='dark'] .login-verify-cancel-btn {
+  border-color: rgba(148, 163, 184, 0.35);
+  background: rgba(30, 41, 59, 0.8);
+  color: rgba(226, 232, 240, 0.92);
+}
+
+@media (max-width: 640px) {
+  .login-google-button-host,
+  .login-google-fallback {
+    width: 100%;
+  }
 }
 
 [data-theme='dark'] .login-input {

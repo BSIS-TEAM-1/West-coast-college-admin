@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { updateProfile, clearStoredToken } from '../lib/authApi';
+import { getProfile, updateProfile, clearStoredToken } from '../lib/authApi';
 import type { ProfileResponse, UpdateProfileRequest } from '../lib/authApi';
 import { LogOut } from 'lucide-react';
 import { applyThemePreference, getStoredTheme, type ThemePreference } from '../lib/theme';
@@ -13,6 +13,7 @@ type SettingsProps = {
 };
 
 export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) {
+  const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
 
@@ -24,6 +25,7 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
     newUsername: '',
     currentPassword: '',
     newPassword: '',
+    loginEmailVerificationEnabled: false,
   });
 
   // Load theme preference from localStorage on mount
@@ -31,6 +33,21 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
     const initialTheme = getStoredTheme();
     setTheme(initialTheme);
     applyThemePreference(initialTheme, { persist: false });
+
+    getProfile()
+      .then((loadedProfile) => {
+        setProfile(loadedProfile);
+        setFormData((prev) => ({
+          ...prev,
+          loginEmailVerificationEnabled: Boolean(loadedProfile.loginEmailVerificationEnabled),
+        }));
+      })
+      .catch((err) => {
+        setStatus({
+          type: 'error',
+          message: err instanceof Error ? err.message : 'Failed to load security settings.',
+        });
+      });
   }, []);
 
   useEffect(() => {
@@ -56,13 +73,19 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
   const isDirty = useMemo(() => {
     return (
       formData.newUsername.trim().length > 0 ||
-      formData.newPassword.length >= 6
+      formData.newPassword.length >= 6 ||
+      Boolean(profile) && formData.loginEmailVerificationEnabled !== Boolean(profile?.loginEmailVerificationEnabled)
     );
-  }, [formData]);
+  }, [formData, profile]);
+
+  const canEnableLoginEmailVerification = Boolean(profile?.emailVerified && profile?.email);
+  const loginEmailVerificationHint = canEnableLoginEmailVerification
+    ? `A 6-digit code will be sent to ${profile?.email} every time you sign in.`
+    : 'Verify an email address on your profile first before enabling login email verification.';
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    const { name, type, value, checked } = e.target;
+    setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
   };
 
   const handleSignOut = () => {
@@ -75,6 +98,14 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
     if (!isDirty) return;
 
     setStatus(null);
+
+    if (formData.loginEmailVerificationEnabled && !canEnableLoginEmailVerification) {
+      setStatus({
+        type: 'error',
+        message: 'Verify your email address in Profile before enabling login email verification.',
+      });
+      return;
+    }
     
     // Password Validation Logic
     if (formData.newPassword && !formData.currentPassword) {
@@ -88,14 +119,25 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
         newUsername: formData.newUsername.trim() || undefined,
       };
 
+      if (profile && formData.loginEmailVerificationEnabled !== Boolean(profile.loginEmailVerificationEnabled)) {
+        updates.loginEmailVerificationEnabled = formData.loginEmailVerificationEnabled;
+      }
+
       if (formData.newPassword.length >= 6) {
         updates.currentPassword = formData.currentPassword;
         updates.newPassword = formData.newPassword;
       }
 
       const updated = await updateProfile(updates);
+      setProfile(updated);
       
-      setFormData(prev => ({ ...prev, currentPassword: '', newPassword: '' }));
+      setFormData(prev => ({
+        ...prev,
+        newUsername: '',
+        currentPassword: '',
+        newPassword: '',
+        loginEmailVerificationEnabled: Boolean(updated.loginEmailVerificationEnabled),
+      }));
       setStatus({ type: 'success', message: 'Security settings updated successfully.' });
       onProfileUpdated?.(updated);
     } catch (err) {
@@ -260,6 +302,32 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
                   minLength={6}
                 />
               </div>
+            </fieldset>
+
+            <fieldset className="settings-fieldset">
+              <legend className="settings-legend">Login Verification</legend>
+
+              <label
+                className={`settings-toggle-card ${!canEnableLoginEmailVerification && !formData.loginEmailVerificationEnabled ? 'is-disabled' : ''}`}
+                htmlFor="loginEmailVerificationEnabled"
+              >
+                <div className="settings-toggle-copy">
+                  <span className="settings-toggle-title">Enable Email Verification on Login</span>
+                  <span className="settings-toggle-description">{loginEmailVerificationHint}</span>
+                </div>
+                <span className="settings-toggle-control">
+                  <input
+                    id="loginEmailVerificationEnabled"
+                    name="loginEmailVerificationEnabled"
+                    type="checkbox"
+                    className="settings-toggle-input"
+                    checked={formData.loginEmailVerificationEnabled}
+                    onChange={handleChange}
+                    disabled={!canEnableLoginEmailVerification && !formData.loginEmailVerificationEnabled}
+                  />
+                  <span className="settings-toggle-slider" aria-hidden="true" />
+                </span>
+              </label>
             </fieldset>
 
             <button 

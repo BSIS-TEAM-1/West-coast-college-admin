@@ -1,6 +1,89 @@
 const mongoose = require('mongoose');
 const Joi = require('joi');
 
+const ACCOUNT_TYPES = ['admin', 'registrar', 'professor'];
+const DOCUMENT_CATEGORIES = [
+  'POLICY',
+  'HANDBOOK',
+  'ACCREDITATION',
+  'FORM',
+  'GUIDELINE',
+  'PROCEDURE',
+  'REPORT',
+  'OTHER'
+];
+const DOCUMENT_STATUSES = ['DRAFT', 'ACTIVE', 'ARCHIVED', 'SUPERSEDED'];
+const DOCUMENT_ALLOWED_ROLES = ['admin', 'registrar', 'faculty', 'staff', 'student'];
+const STUDENT_COURSES = [101, 102, 103, 201];
+const STUDENT_SEMESTERS = ['1st', '2nd', 'Summer'];
+const STUDENT_STATUSES = ['Regular', 'Dropped', 'Returnee', 'Transferee'];
+const ENROLLMENT_STATUSES = ['Enrolled', 'Not Enrolled', 'On Leave', 'Dropped'];
+const STUDENT_COR_STATUSES = ['Pending', 'Received', 'Verified'];
+const SCHOLARSHIP_OPTIONS = [
+  'N/A',
+  'CHED Scholarship Programs',
+  'OWWA Scholarship Programs',
+  'DOST-SEI Undergraduate Scholarships',
+  'Tertiary Education Subsidy',
+  'GrabScholar College Scholarship',
+  'SM College Scholarship (SM Foundation)',
+  'Foundation Scholarships'
+];
+const STUDENT_GENDERS = ['Male', 'Female', 'Other', 'Prefer not to say'];
+const STUDENT_CIVIL_STATUSES = ['Single', 'Married', 'Widowed', 'Separated', 'Divorced'];
+const subjectIdSchema = Joi.string().pattern(/^[0-9a-fA-F]{24}$/);
+const studentNumberSchema = Joi.string().pattern(/^[0-9]{4}-[A-Z]{2,6}-[0-9]{5}$/);
+const schoolYearSchema = Joi.string().pattern(/^\d{4}-\d{4}$/);
+const nonEmptyTrimmedString = (max = 254) => Joi.string().trim().min(1).max(max);
+const optionalTrimmedString = (max = 254) => Joi.string().trim().max(max).allow('');
+const studentEmergencyContactSchema = Joi.object({
+  name: optionalTrimmedString(254).optional(),
+  relationship: optionalTrimmedString(254).optional(),
+  contactNumber: optionalTrimmedString(30).optional(),
+  address: optionalTrimmedString(500).optional()
+});
+const studentMutationFields = {
+  firstName: nonEmptyTrimmedString(120),
+  middleName: optionalTrimmedString(120),
+  lastName: nonEmptyTrimmedString(120),
+  suffix: optionalTrimmedString(50),
+  course: Joi.number().integer().valid(...STUDENT_COURSES),
+  major: optionalTrimmedString(120),
+  yearLevel: Joi.number().integer().min(1).max(5),
+  semester: Joi.string().valid(...STUDENT_SEMESTERS),
+  schoolYear: schoolYearSchema,
+  studentStatus: Joi.string().valid(...STUDENT_STATUSES),
+  enrollmentStatus: Joi.string().valid(...ENROLLMENT_STATUSES),
+  corStatus: Joi.string().valid(...STUDENT_COR_STATUSES),
+  scholarship: Joi.string().valid(...SCHOLARSHIP_OPTIONS),
+  email: Joi.string().email().lowercase().max(254).allow(''),
+  contactNumber: nonEmptyTrimmedString(30),
+  address: nonEmptyTrimmedString(500),
+  permanentAddress: optionalTrimmedString(500),
+  birthDate: Joi.alternatives().try(Joi.date(), Joi.string().allow('')),
+  birthPlace: optionalTrimmedString(200),
+  gender: Joi.string().valid(...STUDENT_GENDERS).allow(''),
+  civilStatus: Joi.string().valid(...STUDENT_CIVIL_STATUSES).allow(''),
+  nationality: optionalTrimmedString(100),
+  religion: optionalTrimmedString(100),
+  emergencyContact: studentEmergencyContactSchema.optional(),
+  assignedProfessor: optionalTrimmedString(254),
+  schedule: optionalTrimmedString(254),
+  latestGrade: Joi.alternatives().try(Joi.number().min(1).max(5), Joi.string().allow('')),
+  gradeProfessor: optionalTrimmedString(254),
+  gradeDate: Joi.alternatives().try(Joi.date(), Joi.string().allow('')),
+  isActive: Joi.boolean().optional()
+};
+const subjectMutationFields = {
+  code: nonEmptyTrimmedString(30),
+  title: nonEmptyTrimmedString(254),
+  units: Joi.number().min(0.5).max(6),
+  course: Joi.number().integer().valid(...STUDENT_COURSES),
+  yearLevel: Joi.number().integer().min(1).max(5),
+  semester: Joi.string().valid(...STUDENT_SEMESTERS),
+  isActive: Joi.boolean()
+};
+
 /**
  * Deep sanitization function that rejects any MongoDB operators ($ keys) and dot notation keys
  * in nested objects. Scans all input recursively.
@@ -161,17 +244,17 @@ const schemas = {
     body: Joi.object({
       username: Joi.string().trim().lowercase().min(1).max(254).required(),
       displayName: Joi.string().trim().min(1).max(254).optional(),
-      accountType: Joi.string().valid('admin', 'registrar', 'professor').required(),
+      accountType: Joi.string().valid(...ACCOUNT_TYPES).required(),
       password: Joi.string().min(8).max(128).required(),
-      uid: Joi.string().pattern(/^[0-9]{4}-[A-Z]{2,6}-[0-9]{5}$/).required()
+      uid: studentNumberSchema.required()
     })
   },
 
   // Student number validation
-  studentNumber: Joi.string().pattern(/^[0-9]{4}-[A-Z]{2,6}-[0-9]{5}$/),
+  studentNumber: studentNumberSchema,
 
   // ObjectId validation
-  objectId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required(),
+  objectId: subjectIdSchema.required(),
 
   // Admin operations schemas
   admin: {
@@ -180,6 +263,8 @@ const schemas = {
         displayName: Joi.string().trim().max(254).optional(),
         email: Joi.string().email().lowercase().max(254).optional(),
         phone: Joi.string().trim().max(30).allow('').optional(),
+        primaryLoginMethod: Joi.string().valid('username', 'email').optional(),
+        loginEmailVerificationEnabled: Joi.boolean().optional(),
         newUsername: Joi.string().trim().lowercase().min(1).max(254).optional(),
         currentPassword: Joi.string().min(1).max(128).optional(),
         newPassword: Joi.string().min(8).max(128).optional(),
@@ -197,6 +282,32 @@ const schemas = {
         }).optional()
       })
     },
+    sendEmailVerificationCode: {
+      body: Joi.object({
+        email: Joi.string().email().lowercase().max(254).required()
+      })
+    },
+    verifyEmailVerificationCode: {
+      body: Joi.object({
+        code: Joi.string().trim().pattern(/^\d{6}$/).required()
+      })
+    },
+    requestEmailChangeVerification: {
+      body: Joi.object({
+        email: Joi.string().email().lowercase().max(254).required()
+      })
+    },
+    verifyEmailChangeVerification: {
+      body: Joi.object({
+        code: Joi.string().trim().pattern(/^\d{6}$/).required()
+      })
+    },
+    verifyLoginEmailVerification: {
+      body: Joi.object({
+        challengeToken: Joi.string().trim().min(32).max(128).required(),
+        code: Joi.string().trim().pattern(/^\d{6}$/).required()
+      })
+    },
     sendPhoneVerificationCode: {
       body: Joi.object({
         phone: Joi.string().trim().max(30).required()
@@ -207,13 +318,18 @@ const schemas = {
         code: Joi.string().trim().pattern(/^\d{6}$/).required()
       })
     },
+    googleLogin: {
+      body: Joi.object({
+        credential: Joi.string().trim().min(1).required()
+      })
+    },
     createAccount: {
       body: Joi.object({
         username: Joi.string().trim().lowercase().min(1).max(254).required(),
         displayName: Joi.string().trim().min(1).max(254).optional(),
-        accountType: Joi.string().valid('admin', 'registrar', 'professor').required(),
+        accountType: Joi.string().valid(...ACCOUNT_TYPES).required(),
         password: Joi.string().min(8).max(128).required(),
-        uid: Joi.string().pattern(/^[0-9]{4}-[A-Z]{2,6}-[0-9]{5}$/).required()
+        uid: studentNumberSchema.required()
       })
     },
     updateAvatar: {
@@ -260,6 +376,7 @@ const schemas = {
         targetAudience: Joi.string().valid('all', 'students', 'faculty', 'staff', 'admin').optional(),
         expiresAt: Joi.date().optional(),
         isPinned: Joi.boolean().optional(),
+        isArchived: Joi.boolean().optional(),
         isActive: Joi.boolean().optional(),
         media: Joi.array().max(6).items(
           Joi.object({
@@ -327,8 +444,8 @@ const schemas = {
       body: Joi.object({
         title: Joi.string().trim().min(1).max(254).required(),
         description: Joi.string().trim().max(1000).optional(),
-        category: Joi.string().trim().min(1).max(100).required(),
-        subcategory: Joi.string().trim().max(100).optional(),
+        category: Joi.string().uppercase().valid(...DOCUMENT_CATEGORIES).required(),
+        subcategory: Joi.string().trim().max(100).allow('').optional(),
         fileName: Joi.string().trim().min(1).max(254).required(),
         originalFileName: Joi.string().trim().min(1).max(254).required(),
         mimeType: Joi.string().trim().min(1).max(100).required(),
@@ -336,33 +453,136 @@ const schemas = {
         fileData: Joi.string().required(),
         version: Joi.string().trim().max(50).optional(),
         isPublic: Joi.boolean().optional(),
-        allowedRoles: Joi.array().items(Joi.string()).optional(),
-        tags: Joi.array().items(Joi.string()).optional(),
+        allowedRoles: Joi.array().items(Joi.string().valid(...DOCUMENT_ALLOWED_ROLES)).optional(),
+        tags: Joi.array().items(Joi.string().trim().max(50)).optional(),
         effectiveDate: Joi.date().optional(),
-        expiryDate: Joi.date().optional()
+        expiryDate: Joi.date().optional(),
+        status: Joi.string().valid(...DOCUMENT_STATUSES).optional()
       })
     },
     update: {
       body: Joi.object({
         title: Joi.string().trim().min(1).max(254).optional(),
         description: Joi.string().trim().max(1000).optional(),
-        category: Joi.string().trim().min(1).max(100).optional(),
-        subcategory: Joi.string().trim().max(100).optional(),
+        category: Joi.string().uppercase().valid(...DOCUMENT_CATEGORIES).optional(),
+        subcategory: Joi.string().trim().max(100).allow('').optional(),
         isPublic: Joi.boolean().optional(),
-        allowedRoles: Joi.array().items(Joi.string()).optional(),
-        tags: Joi.array().items(Joi.string()).optional(),
+        allowedRoles: Joi.array().items(Joi.string().valid(...DOCUMENT_ALLOWED_ROLES)).optional(),
+        tags: Joi.array().items(Joi.string().trim().max(50)).optional(),
         effectiveDate: Joi.date().optional(),
         expiryDate: Joi.date().optional(),
-        status: Joi.string().valid('ACTIVE', 'INACTIVE', 'ARCHIVED').optional()
-      })
+        status: Joi.string().valid(...DOCUMENT_STATUSES).optional()
+      }).min(1)
     },
     query: {
       query: Joi.object({
-        category: Joi.string().trim().max(100).optional(),
-        status: Joi.string().valid('ACTIVE', 'INACTIVE', 'ARCHIVED').optional(),
+        category: Joi.string().uppercase().valid(...DOCUMENT_CATEGORIES).optional(),
+        status: Joi.string().valid(...DOCUMENT_STATUSES).optional(),
         search: Joi.string().trim().max(100).optional(),
         page: Joi.number().integer().min(1).optional(),
         limit: Joi.number().integer().min(1).max(100).optional()
+      })
+    }
+  },
+
+  // Registrar student schemas
+  student: {
+    create: {
+      body: Joi.object({
+        ...studentMutationFields
+      }).keys({
+        firstName: studentMutationFields.firstName.required(),
+        lastName: studentMutationFields.lastName.required(),
+        course: studentMutationFields.course.required(),
+        yearLevel: studentMutationFields.yearLevel.required(),
+        semester: studentMutationFields.semester.required(),
+        schoolYear: studentMutationFields.schoolYear.required(),
+        contactNumber: studentMutationFields.contactNumber.required(),
+        address: studentMutationFields.address.required()
+      })
+    },
+    update: {
+      body: Joi.object(studentMutationFields).min(1)
+    },
+    query: {
+      query: Joi.object({
+        course: Joi.number().integer().valid(...STUDENT_COURSES).optional(),
+        yearLevel: Joi.number().integer().min(1).max(5).optional(),
+        semester: Joi.string().valid(...STUDENT_SEMESTERS).optional(),
+        schoolYear: schoolYearSchema.optional(),
+        studentStatus: Joi.string().valid(...STUDENT_STATUSES).optional(),
+        enrollmentStatus: Joi.string().valid(...ENROLLMENT_STATUSES).optional()
+      })
+    },
+    idParam: {
+      params: Joi.object({
+        id: subjectIdSchema.required()
+      })
+    },
+    studentNumberParam: {
+      params: Joi.object({
+        studentNumber: studentNumberSchema.required()
+      })
+    },
+    enroll: {
+      params: Joi.object({
+        id: subjectIdSchema.required()
+      }),
+      body: Joi.object({
+        schoolYear: schoolYearSchema.required(),
+        semester: Joi.string().valid(...STUDENT_SEMESTERS).required(),
+        subjectIds: Joi.array().items(subjectIdSchema.required()).min(1).required()
+      })
+    },
+    currentEnrollment: {
+      params: Joi.object({
+        id: subjectIdSchema.required()
+      }),
+      query: Joi.object({
+        schoolYear: schoolYearSchema.required(),
+        semester: Joi.string().valid(...STUDENT_SEMESTERS).required()
+      })
+    },
+    assignSubjectInstructor: {
+      params: Joi.object({
+        sectionId: subjectIdSchema.required()
+      }),
+      body: Joi.object({
+        subjectId: subjectIdSchema.required(),
+        instructor: nonEmptyTrimmedString(254).required(),
+        schedule: optionalTrimmedString(254).optional(),
+        room: optionalTrimmedString(100).optional(),
+        semester: Joi.string().valid(...STUDENT_SEMESTERS).allow('').optional(),
+        schoolYear: schoolYearSchema.allow('').optional()
+      })
+    }
+  },
+
+  // Registrar subject schemas
+  subject: {
+    query: {
+      query: Joi.object({
+        course: Joi.number().integer().valid(...STUDENT_COURSES).optional(),
+        yearLevel: Joi.number().integer().min(1).max(5).optional(),
+        semester: Joi.string().valid(...STUDENT_SEMESTERS).optional(),
+        q: Joi.string().trim().max(100).optional()
+      })
+    },
+    create: {
+      body: Joi.object({
+        ...subjectMutationFields
+      }).keys({
+        code: subjectMutationFields.code.required(),
+        title: subjectMutationFields.title.required(),
+        units: subjectMutationFields.units.required()
+      })
+    },
+    update: {
+      body: Joi.object(subjectMutationFields).min(1)
+    },
+    idParam: {
+      params: Joi.object({
+        id: subjectIdSchema.required()
       })
     }
   }

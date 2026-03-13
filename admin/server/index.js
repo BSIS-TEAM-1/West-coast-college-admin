@@ -40,13 +40,16 @@ const StudentBlockAssignment = require('./models/StudentBlockAssignment')
 const BackupSystem = require('./backup')
 const SemaphoreSmsService = require('./services/semaphoreSmsService')
 const SmsApiPhService = require('./services/smsApiPhService')
+const VerificationEmailService = require('./services/verificationEmailService')
 const registrarRoutes = require('./routes/registrarRoutes')
 const blockController = require('./controllers/blockController')
+const { requireAnyRole, requireAdminRole, isOwnerOrAdmin } = require('./authorization')
 
 // Initialize backup system
 const backupSystem = new BackupSystem()
 const semaphoreSmsService = new SemaphoreSmsService()
 const smsApiPhService = new SmsApiPhService()
+const verificationEmailService = new VerificationEmailService()
 
 // Schedule automatic backups (every 6 hours)
 setInterval(async () => {
@@ -68,10 +71,22 @@ setInterval(async () => {
 const app = express()
 const PORT = process.env.PORT || 3001
 const JWT_SECRET = process.env.JWT_SECRET || 'wcc-admin-dev-secret-change-in-production'
+const UPLOADS_ROOT_DIR = path.join(__dirname, 'uploads')
+const DOCUMENT_UPLOADS_DIR = path.join(UPLOADS_ROOT_DIR, 'documents')
+const DOCUMENT_MANAGEMENT_ROLES = ['admin', 'registrar']
+const requireAdminOrRegistrarRole = requireAnyRole(...DOCUMENT_MANAGEMENT_ROLES)
 const parsedPhoneVerificationTtlMs = Number(process.env.PHONE_VERIFICATION_CODE_TTL_MS)
 const PHONE_VERIFICATION_CODE_TTL_MS = Number.isFinite(parsedPhoneVerificationTtlMs) && parsedPhoneVerificationTtlMs > 0
   ? parsedPhoneVerificationTtlMs
   : 10 * 60 * 1000
+const parsedEmailVerificationTtlMs = Number(process.env.EMAIL_VERIFICATION_CODE_TTL_MS)
+const EMAIL_VERIFICATION_CODE_TTL_MS = Number.isFinite(parsedEmailVerificationTtlMs) && parsedEmailVerificationTtlMs > 0
+  ? parsedEmailVerificationTtlMs
+  : PHONE_VERIFICATION_CODE_TTL_MS
+const parsedLoginEmailVerificationTtlMs = Number(process.env.LOGIN_EMAIL_VERIFICATION_CODE_TTL_MS)
+const LOGIN_EMAIL_VERIFICATION_CODE_TTL_MS = Number.isFinite(parsedLoginEmailVerificationTtlMs) && parsedLoginEmailVerificationTtlMs > 0
+  ? parsedLoginEmailVerificationTtlMs
+  : EMAIL_VERIFICATION_CODE_TTL_MS
 
 // Hide Express server information
 app.disable('x-powered-by')
@@ -263,6 +278,104 @@ app.use((req, res, next) => {
 
 // Serve uploaded files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')))
+
+function sanitizeStorageFileName(fileName) {
+  const trimmedFileName = String(fileName || '').trim()
+  const safeFileName = trimmedFileName
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[-.]+|[-.]+$/g, '')
+
+  return safeFileName || 'document.bin'
+}
+
+function decodeBase64FileData(fileData) {
+  const rawValue = String(fileData || '').trim()
+  if (!rawValue) {
+    const error = new Error('Document file data is required.')
+    error.statusCode = 400
+    throw error
+  }
+
+  const dataUriMatch = rawValue.match(/^data:([^;,]+);base64,(.+)$/i)
+  const detectedMimeType = dataUriMatch ? String(dataUriMatch[1] || '').trim().toLowerCase() : ''
+  const encodedPayload = (dataUriMatch ? dataUriMatch[2] : rawValue).replace(/\s+/g, '')
+
+  let fileBuffer
+  try {
+    fileBuffer = Buffer.from(encodedPayload, 'base64')
+  } catch (error) {
+    const decodeError = new Error('Document file data must be valid base64.')
+    decodeError.statusCode = 400
+    throw decodeError
+  }
+
+  const normalizedInput = encodedPayload.replace(/=+$/g, '')
+  const normalizedDecoded = fileBuffer.toString('base64').replace(/=+$/g, '')
+  if (!fileBuffer.length || normalizedDecoded !== normalizedInput) {
+    const validationError = new Error('Document file data must be valid base64.')
+    validationError.statusCode = 400
+    throw validationError
+  }
+
+  return {
+    buffer: fileBuffer,
+    detectedMimeType
+  }
+}
+
+async function persistDocumentUpload({ originalFileName, fileData, mimeType, fileSize }) {
+  const { buffer, detectedMimeType } = decodeBase64FileData(fileData)
+  const normalizedMimeType = String(mimeType || '').trim().toLowerCase()
+  if (detectedMimeType && normalizedMimeType && detectedMimeType !== normalizedMimeType) {
+    const mimeError = new Error('Document MIME type does not match the uploaded file data.')
+    mimeError.statusCode = 400
+    throw mimeError
+  }
+
+  if (Number(fileSize) !== buffer.length) {
+    const sizeError = new Error('Document size does not match the uploaded file data.')
+    sizeError.statusCode = 400
+    throw sizeError
+  }
+
+  await fs.promises.mkdir(DOCUMENT_UPLOADS_DIR, { recursive: true })
+
+  const safeOriginalFileName = sanitizeStorageFileName(originalFileName)
+  const extension = path.extname(safeOriginalFileName)
+  const baseName = path.basename(safeOriginalFileName, extension) || 'document'
+  const storedFileName = `${Date.now()}-${crypto.randomUUID()}-${baseName}${extension}`
+  const absoluteFilePath = path.join(DOCUMENT_UPLOADS_DIR, storedFileName)
+
+  await fs.promises.writeFile(absoluteFilePath, buffer)
+
+  return {
+    fileName: storedFileName,
+    filePath: path.posix.join('documents', storedFileName)
+  }
+}
+
+function resolveUploadPath(relativePath) {
+  return path.resolve(UPLOADS_ROOT_DIR, String(relativePath || ''))
+}
+
+async function deleteStoredUpload(relativePath) {
+  const resolvedPath = resolveUploadPath(relativePath)
+  const uploadsRoot = path.resolve(UPLOADS_ROOT_DIR)
+  if (!resolvedPath.startsWith(uploadsRoot)) {
+    const pathError = new Error('Invalid upload path.')
+    pathError.statusCode = 400
+    throw pathError
+  }
+
+  try {
+    await fs.promises.unlink(resolvedPath)
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      throw error
+    }
+  }
+}
 
 // Serve frontend static files
 const distPath = path.join(__dirname, '..', 'dist')
@@ -645,13 +758,6 @@ async function authMiddleware(req, res, next) {
     console.error('Auth middleware error:', error)
     return res.status(401).json({ error: 'Authentication failed.' })
   }
-}
-
-function requireAdminRole(req, res, next) {
-  if (String(req.accountType || '').toLowerCase() !== 'admin') {
-    return res.status(403).json({ error: 'Forbidden. Admin access required.' })
-  }
-  next()
 }
 
 const AUDIT_REDACTION_PLACEHOLDER = '[REDACTED]'
@@ -1053,12 +1159,255 @@ function isValidPhilippineMobileNumber(normalizedNumber) {
   return /^09\d{9}$/.test(String(normalizedNumber || ''))
 }
 
+function isValidEmailAddress(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim())
+}
+
+async function findAdminByLoginIdentifier(identifier) {
+  const normalizedIdentifier = String(identifier || '').trim().toLowerCase()
+  if (!normalizedIdentifier) return null
+
+  return Admin.findOne({ username: normalizedIdentifier })
+}
+
+function getAllowedGoogleSignInClientIds() {
+  return Array.from(new Set(
+    [
+      process.env.GOOGLE_SIGNIN_CLIENT_IDS || '',
+      process.env.VITE_GOOGLE_SIGNIN_CLIENT_ID || '',
+      process.env.GMAIL_CLIENT_ID || ''
+    ]
+      .flatMap((value) => String(value || '').split(','))
+      .map((value) => value.trim())
+      .filter(Boolean)
+  ))
+}
+
+async function verifyGoogleSignInCredential(credential) {
+  const normalizedCredential = String(credential || '').trim()
+  if (!normalizedCredential) {
+    throw new Error('Missing Google credential.')
+  }
+
+  const allowedClientIds = getAllowedGoogleSignInClientIds()
+  if (allowedClientIds.length === 0) {
+    throw new Error('Google sign-in is not configured.')
+  }
+
+  const tokenInfoUrl = new URL('https://oauth2.googleapis.com/tokeninfo')
+  tokenInfoUrl.searchParams.set('id_token', normalizedCredential)
+
+  const response = await fetch(tokenInfoUrl.toString())
+  const payload = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error('Google sign-in token could not be verified.')
+  }
+
+  const issuer = String(payload.iss || '').trim()
+  const audience = String(payload.aud || '').trim()
+  const email = String(payload.email || '').trim().toLowerCase()
+  const emailVerified = String(payload.email_verified || '').trim().toLowerCase() === 'true'
+  const expiresAt = Number(payload.exp || 0) * 1000
+
+  if (!['accounts.google.com', 'https://accounts.google.com'].includes(issuer)) {
+    throw new Error('Invalid Google token issuer.')
+  }
+
+  if (!allowedClientIds.includes(audience)) {
+    throw new Error('Google sign-in token audience is not allowed.')
+  }
+
+  if (!emailVerified || !isValidEmailAddress(email)) {
+    throw new Error('Google account email must be verified.')
+  }
+
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    throw new Error('Google sign-in token has expired.')
+  }
+
+  return {
+    email,
+    sub: String(payload.sub || '').trim(),
+    displayName: String(payload.name || '').trim(),
+    picture: String(payload.picture || '').trim()
+  }
+}
+
+async function completeAdminLogin({ admin, clientIp, userAgent, deviceId, loginMeta, auditDescription }) {
+  console.log('Login - admin.accountType:', admin.accountType, 'typeof:', typeof admin.accountType)
+
+  const token = crypto.randomBytes(32).toString('hex')
+
+  await AuthToken.create({
+    token,
+    adminId: admin._id,
+    username: admin.username,
+    accountType: admin.accountType,
+    ipAddress: clientIp,
+    userAgent,
+    deviceId: deviceId || undefined
+  })
+
+  let revokedSessionsFromOtherIps = 0
+  if (clientIp && clientIp !== 'unknown') {
+    const revokeResult = await AuthToken.updateMany(
+      {
+        adminId: admin._id,
+        isActive: true,
+        token: { $ne: token },
+        ipAddress: { $ne: clientIp }
+      },
+      {
+        $set: {
+          isActive: false,
+          invalidationReason: 'new_ip_login',
+          invalidatedAt: new Date()
+        }
+      }
+    )
+
+    revokedSessionsFromOtherIps = Number(revokeResult.modifiedCount || 0)
+  }
+
+  const loginResponse = {
+    message: 'OK',
+    username: admin.username,
+    token,
+    accountType: admin.accountType
+  }
+  console.log('Login response being sent:', loginResponse)
+
+  await logAudit(
+    'LOGIN',
+    'ADMIN',
+    admin._id.toString(),
+    admin.username,
+    auditDescription,
+    admin._id.toString(),
+    admin.accountType,
+    null,
+    loginMeta,
+    'SUCCESS',
+    'LOW',
+    clientIp,
+    userAgent
+  )
+
+  if (revokedSessionsFromOtherIps > 0) {
+    await logAudit(
+      'LOGOUT',
+      'SECURITY',
+      admin._id.toString(),
+      admin.username,
+      `Revoked ${revokedSessionsFromOtherIps} previous session(s) after login from IP ${clientIp}.`,
+      admin._id.toString(),
+      admin.accountType,
+      null,
+      {
+        ...loginMeta,
+        revokedSessionsFromOtherIps
+      },
+      'SUCCESS',
+      'MEDIUM',
+      clientIp,
+      userAgent
+    )
+  }
+
+  return loginResponse
+}
+
 function generatePhoneVerificationCode() {
   return String(crypto.randomInt(100000, 1000000))
 }
 
 function hashPhoneVerificationCode(code) {
   return crypto.createHash('sha256').update(String(code || '')).digest('hex')
+}
+
+function generateLoginEmailVerificationChallengeToken() {
+  return crypto.randomBytes(32).toString('hex')
+}
+
+function hashLoginEmailVerificationChallengeToken(token) {
+  return crypto.createHash('sha256').update(String(token || '')).digest('hex')
+}
+
+function clearLoginEmailVerificationState(admin) {
+  admin.loginEmailVerificationCodeHash = ''
+  admin.loginEmailVerificationExpiresAt = null
+  admin.loginEmailVerificationChallengeHash = ''
+  admin.loginEmailVerificationDeviceId = ''
+  admin.loginEmailVerificationAuthProvider = ''
+}
+
+function clearPendingEmailChangeState(admin) {
+  admin.pendingEmailChange = ''
+  admin.pendingEmailChangeCodeHash = ''
+  admin.pendingEmailChangeExpiresAt = null
+}
+
+async function beginLoginEmailVerification({ admin, deviceId, authProvider }) {
+  const normalizedEmail = String(admin.email || '').trim().toLowerCase()
+  if (!admin.loginEmailVerificationEnabled) {
+    return null
+  }
+
+  if (!admin.emailVerified || !isValidEmailAddress(normalizedEmail)) {
+    const error = new Error('Login email verification is enabled, but no verified email address is available for this account.')
+    error.statusCode = 400
+    throw error
+  }
+
+  if (!verificationEmailService.isConfigured()) {
+    const error = new Error('Email verification service is not configured for login verification.')
+    error.statusCode = 503
+    throw error
+  }
+
+  const verificationCode = generatePhoneVerificationCode()
+  const verificationCodeHash = hashPhoneVerificationCode(verificationCode)
+  const challengeToken = generateLoginEmailVerificationChallengeToken()
+  const challengeHash = hashLoginEmailVerificationChallengeToken(challengeToken)
+  const expiresAt = new Date(Date.now() + LOGIN_EMAIL_VERIFICATION_CODE_TTL_MS)
+  const expiresInMinutes = Math.max(1, Math.ceil(LOGIN_EMAIL_VERIFICATION_CODE_TTL_MS / 60000))
+
+  admin.loginEmailVerificationCodeHash = verificationCodeHash
+  admin.loginEmailVerificationExpiresAt = expiresAt
+  admin.loginEmailVerificationChallengeHash = challengeHash
+  admin.loginEmailVerificationDeviceId = String(deviceId || '').trim()
+  admin.loginEmailVerificationAuthProvider = authProvider === 'google' ? 'google' : 'password'
+  await admin.save()
+
+  let deliveryResult = null
+
+  try {
+    deliveryResult = await verificationEmailService.sendVerificationCode({
+      to: normalizedEmail,
+      code: verificationCode,
+      expiresInMinutes,
+      displayName: admin.displayName || admin.username || 'Administrator'
+    })
+  } catch (deliveryError) {
+    clearLoginEmailVerificationState(admin)
+    await admin.save()
+    deliveryError.statusCode = Number(deliveryError?.statusCode || 502)
+    throw deliveryError
+  }
+
+  return {
+    requiresEmailVerification: true,
+    challengeToken,
+    email: normalizedEmail,
+    expiresAt: expiresAt.toISOString(),
+    channel: 'email',
+    emailProvider: deliveryResult.emailProvider,
+    destination: deliveryResult.recipient || normalizedEmail,
+    deliveryStatus: deliveryResult.status,
+    messageId: deliveryResult.messageId,
+    providerMessage: deliveryResult.providerMessage || null
+  }
 }
 
 // POST /api/admin/signup
@@ -1350,7 +1699,7 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
       }
     }
 
-    const admin = await Admin.findOne({ username: normalizedUsername })
+    const admin = await findAdminByLoginIdentifier(normalizedUsername)
     if (!admin) {
       const attemptResult = registerFailedAttempt()
       if (attemptResult.lockoutTriggered) {
@@ -1447,94 +1796,198 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
       factor.store.delete(factor.key)
     })
 
-    // Allow registrar login but include account type in response for routing
-    console.log('Login - admin.accountType:', admin.accountType, 'typeof:', typeof admin.accountType)
-    
-    // Generate a random token
-    const token = crypto.randomBytes(32).toString('hex')
-    
-    // Store token in MongoDB
-    await AuthToken.create({
-      token,
-      adminId: admin._id,
-      username: admin.username,
-      accountType: admin.accountType,
-      ipAddress: clientIp,
-      userAgent,
-      deviceId: deviceId || undefined
+    const loginVerificationChallenge = await beginLoginEmailVerification({
+      admin,
+      deviceId,
+      authProvider: 'password'
     })
-
-    let revokedSessionsFromOtherIps = 0
-    if (clientIp && clientIp !== 'unknown') {
-      const revokeResult = await AuthToken.updateMany(
-        {
-          adminId: admin._id,
-          isActive: true,
-          token: { $ne: token },
-          ipAddress: { $ne: clientIp }
-        },
-        {
-          $set: {
-            isActive: false,
-            invalidationReason: 'new_ip_login',
-            invalidatedAt: new Date()
-          }
-        }
-      )
-
-      revokedSessionsFromOtherIps = Number(revokeResult.modifiedCount || 0)
+    if (loginVerificationChallenge) {
+      return res.status(202).json(loginVerificationChallenge)
     }
-    
-    const loginResponse = { 
-      message: 'OK', 
-      username: admin.username, 
-      token,
-      accountType: admin.accountType 
-    }
-    console.log('Login response being sent:', loginResponse)
 
-    // Log the login action
-    await logAudit(
-      'LOGIN',
-      'ADMIN',
-      admin._id.toString(),
-      admin.username,
-      `Admin login: ${admin.username}`,
-      admin._id.toString(),
-      admin.accountType,
-      null,
-      loginMeta,
-      'SUCCESS',
-      'LOW',
+    const loginResponse = await completeAdminLogin({
+      admin,
       clientIp,
-      userAgent
-    )
-
-    if (revokedSessionsFromOtherIps > 0) {
-      await logAudit(
-        'LOGOUT',
-        'SECURITY',
-        admin._id.toString(),
-        admin.username,
-        `Revoked ${revokedSessionsFromOtherIps} previous session(s) after login from IP ${clientIp}.`,
-        admin._id.toString(),
-        admin.accountType,
-        null,
-        {
-          ...loginMeta,
-          revokedSessionsFromOtherIps
-        },
-        'SUCCESS',
-        'MEDIUM',
-        clientIp,
-        userAgent
-      )
-    }
-
+      userAgent,
+      deviceId,
+      loginMeta,
+      auditDescription: `Admin login: ${admin.username}`
+    })
     res.json(loginResponse)
   } catch (err) {
     console.error('Login error:', err.message)
-    res.status(500).json({ error: 'Login failed.' })
+    res.status(Number(err?.statusCode || 500)).json({ error: err?.message || 'Login failed.' })
+  }
+})
+
+app.post('/api/admin/google-login', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.googleLogin), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable. Check server logs and Atlas IP whitelist.' })
+  }
+
+  try {
+    const clientIpCandidates = getClientIpCandidates(req)
+    const clientIp = getClientIpAddress(req)
+    const userAgent = req.get('User-Agent')
+    const deviceId = String(req.get('x-device-id') || '').trim()
+    const loginMeta = {
+      ipAddress: clientIp,
+      deviceId: deviceId || null,
+      authProvider: 'google'
+    }
+
+    const blockedIpRecord = await findActiveBlockedIp(clientIpCandidates)
+    if (blockedIpRecord) {
+      await BlockedIP.findByIdAndUpdate(blockedIpRecord._id, {
+        $inc: { attemptCount: 1 },
+        $set: { lastAttemptAt: new Date() }
+      })
+
+      return res.status(403).json({
+        error: 'Access denied. This IP address is blocked.',
+        code: 'IP_BLOCKED',
+        reason: blockedIpRecord.reason,
+        blockedUntil: blockedIpRecord.expiresAt
+      })
+    }
+
+    const googleProfile = await verifyGoogleSignInCredential(req.body.credential)
+    const matchingAdmins = await Admin.find({
+      email: googleProfile.email,
+      emailVerified: true
+    }).limit(2)
+
+    if (matchingAdmins.length === 0) {
+      return res.status(403).json({
+        error: 'This Google account email is not verified in any profile.'
+      })
+    }
+
+    if (matchingAdmins.length > 1) {
+      return res.status(409).json({
+        error: 'Multiple verified profiles use this email. Contact an administrator to resolve the duplicate email.'
+      })
+    }
+
+    const admin = matchingAdmins[0]
+
+    if (admin.primaryLoginMethod !== 'email') {
+      return res.status(403).json({
+        error: 'This email is verified, but it is not set as the primary login for the account.'
+      })
+    }
+
+    const loginVerificationChallenge = await beginLoginEmailVerification({
+      admin,
+      deviceId,
+      authProvider: 'google'
+    })
+    if (loginVerificationChallenge) {
+      return res.status(202).json(loginVerificationChallenge)
+    }
+
+    const loginResponse = await completeAdminLogin({
+      admin,
+      clientIp,
+      userAgent,
+      deviceId,
+      loginMeta: {
+        ...loginMeta,
+        googleEmail: googleProfile.email,
+        googleSub: googleProfile.sub || null
+      },
+      auditDescription: `Admin login via Google: ${admin.username}`
+    })
+
+    res.json(loginResponse)
+  } catch (err) {
+    console.error('Google login error:', err.message)
+    const message = err instanceof Error ? err.message : 'Google sign-in failed.'
+    const statusCode = Number(err?.statusCode || (/not configured/i.test(message) ? 503 : 401))
+    res.status(statusCode).json({ error: message })
+  }
+})
+
+app.post('/api/admin/login/verify-email', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.verifyLoginEmailVerification), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable. Check server logs and Atlas IP whitelist.' })
+  }
+
+  try {
+    const challengeTokenHash = hashLoginEmailVerificationChallengeToken(req.body.challengeToken)
+    const clientIpCandidates = getClientIpCandidates(req)
+    const clientIp = getClientIpAddress(req)
+    const userAgent = req.get('User-Agent')
+    const deviceId = String(req.get('x-device-id') || '').trim()
+
+    const blockedIpRecord = await findActiveBlockedIp(clientIpCandidates)
+    if (blockedIpRecord) {
+      await BlockedIP.findByIdAndUpdate(blockedIpRecord._id, {
+        $inc: { attemptCount: 1 },
+        $set: { lastAttemptAt: new Date() }
+      })
+
+      return res.status(403).json({
+        error: 'Access denied. This IP address is blocked.',
+        code: 'IP_BLOCKED',
+        reason: blockedIpRecord.reason,
+        blockedUntil: blockedIpRecord.expiresAt
+      })
+    }
+
+    const admin = await Admin.findOne({
+      loginEmailVerificationChallengeHash: challengeTokenHash
+    }).select('+loginEmailVerificationCodeHash +loginEmailVerificationExpiresAt +loginEmailVerificationChallengeHash +loginEmailVerificationDeviceId +loginEmailVerificationAuthProvider')
+
+    if (!admin) {
+      return res.status(400).json({ error: 'Login verification challenge was not found or has expired.' })
+    }
+
+    if (admin.loginEmailVerificationDeviceId && admin.loginEmailVerificationDeviceId !== deviceId) {
+      return res.status(400).json({ error: 'Complete the login verification on the same device where the sign-in started.' })
+    }
+
+    if (!admin.loginEmailVerificationCodeHash || !admin.loginEmailVerificationExpiresAt) {
+      clearLoginEmailVerificationState(admin)
+      await admin.save()
+      return res.status(400).json({ error: 'No active login verification code was found. Sign in again to request a new one.' })
+    }
+
+    if (new Date(admin.loginEmailVerificationExpiresAt).getTime() < Date.now()) {
+      clearLoginEmailVerificationState(admin)
+      await admin.save()
+      return res.status(400).json({ error: 'Login verification code has expired. Sign in again to request a new one.' })
+    }
+
+    const providedCodeHash = hashPhoneVerificationCode(req.body.code)
+    if (providedCodeHash !== admin.loginEmailVerificationCodeHash) {
+      return res.status(400).json({ error: 'Invalid login verification code.' })
+    }
+
+    const authProvider = admin.loginEmailVerificationAuthProvider === 'google' ? 'google' : 'password'
+    clearLoginEmailVerificationState(admin)
+    await admin.save()
+
+    const loginResponse = await completeAdminLogin({
+      admin,
+      clientIp,
+      userAgent,
+      deviceId,
+      loginMeta: {
+        ipAddress: clientIp,
+        deviceId: deviceId || null,
+        authProvider,
+        loginEmailVerification: true
+      },
+      auditDescription: authProvider === 'google'
+        ? `Admin login via Google: ${admin.username}`
+        : `Admin login: ${admin.username}`
+    })
+
+    res.json(loginResponse)
+  } catch (err) {
+    console.error('Login email verification error:', err.message)
+    res.status(Number(err?.statusCode || 500)).json({ error: err?.message || 'Failed to verify login email code.' })
   }
 })
 
@@ -1602,6 +2055,9 @@ const buildAdminProfileResponse = (adminRecord) => ({
   username: adminRecord.username,
   displayName: adminRecord.displayName || '',
   email: adminRecord.email || '',
+  emailVerified: Boolean(adminRecord.emailVerified),
+  primaryLoginMethod: adminRecord.primaryLoginMethod === 'email' ? 'email' : 'username',
+  loginEmailVerificationEnabled: Boolean(adminRecord.loginEmailVerificationEnabled),
   phone: adminRecord.phone || '',
   phoneVerified: Boolean(adminRecord.phoneVerified),
   avatar: adminRecord.avatar || '',
@@ -1641,10 +2097,34 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
     const admin = await Admin.findById(req.adminId)
     if (!admin) return res.status(404).json({ error: 'Admin not found.' })
 
-    const { displayName, email, phone, newUsername, currentPassword, newPassword, additionalInfo } = req.body
+    const {
+      displayName,
+      email,
+      phone,
+      primaryLoginMethod,
+      loginEmailVerificationEnabled,
+      newUsername,
+      currentPassword,
+      newPassword,
+      additionalInfo
+    } = req.body
 
     if (typeof displayName === 'string') admin.displayName = displayName.trim()
-    if (typeof email === 'string') admin.email = email.trim().toLowerCase()
+    if (typeof email === 'string') {
+      const normalizedEmail = email.trim().toLowerCase()
+      if (normalizedEmail !== String(admin.email || '').trim().toLowerCase()) {
+        admin.email = normalizedEmail
+        admin.emailVerified = false
+        admin.emailVerificationCodeHash = ''
+        admin.emailVerificationExpiresAt = null
+        admin.primaryLoginMethod = 'username'
+        admin.loginEmailVerificationEnabled = false
+        clearLoginEmailVerificationState(admin)
+        clearPendingEmailChangeState(admin)
+      } else {
+        admin.email = normalizedEmail
+      }
+    }
     if (typeof phone === 'string') {
       const trimmedPhone = String(phone || '').trim()
       const normalizedPhone = normalizePhilippineMobileNumber(trimmedPhone)
@@ -1658,6 +2138,45 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
         admin.phoneVerificationCodeHash = ''
         admin.phoneVerificationExpiresAt = null
       }
+    }
+
+    if (typeof primaryLoginMethod === 'string') {
+      if (primaryLoginMethod === 'email') {
+        const normalizedEmail = String(admin.email || '').trim().toLowerCase()
+        if (!isValidEmailAddress(normalizedEmail)) {
+          return res.status(400).json({ error: 'Add a valid email address before making it primary.' })
+        }
+        if (!admin.emailVerified) {
+          return res.status(400).json({ error: 'Verify your email address before making it primary.' })
+        }
+
+        const conflictingEmailOwner = await Admin.findOne({
+          _id: { $ne: admin._id },
+          $or: [
+            { email: normalizedEmail },
+            { username: normalizedEmail }
+          ]
+        }).select('_id')
+
+        if (conflictingEmailOwner) {
+          return res.status(409).json({ error: 'That email is already used by another account.' })
+        }
+      }
+
+      admin.primaryLoginMethod = primaryLoginMethod === 'email' ? 'email' : 'username'
+    }
+
+    if (typeof loginEmailVerificationEnabled === 'boolean') {
+      if (loginEmailVerificationEnabled) {
+        const normalizedEmail = String(admin.email || '').trim().toLowerCase()
+        if (!isValidEmailAddress(normalizedEmail) || !admin.emailVerified) {
+          return res.status(400).json({ error: 'Verify your email address before enabling login email verification.' })
+        }
+      } else {
+        clearLoginEmailVerificationState(admin)
+      }
+
+      admin.loginEmailVerificationEnabled = loginEmailVerificationEnabled
     }
 
     if (typeof newUsername === 'string') {
@@ -1695,6 +2214,271 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
   } catch (err) {
     console.error('Profile update error:', err.message)
     res.status(500).json({ error: 'Failed to update profile.' })
+  }
+})
+
+// POST /api/admin/profile/email/send-code - send email verification code
+app.post('/api/admin/profile/email/send-code', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.sendEmailVerificationCode), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+
+  if (!verificationEmailService.isConfigured()) {
+    return res.status(503).json({
+      error: 'Email verification service is not configured. Set Gmail API, Semaphore Email, or SendGrid credentials.'
+    })
+  }
+
+  try {
+    const admin = await Admin.findById(req.adminId).select('+emailVerificationCodeHash +emailVerificationExpiresAt')
+    if (!admin) return res.status(404).json({ error: 'Admin not found.' })
+
+    const requestedEmail = String(req.body.email || '').trim().toLowerCase()
+    if (!isValidEmailAddress(requestedEmail)) {
+      return res.status(400).json({ error: 'Enter a valid email address before verification.' })
+    }
+
+    const verificationCode = generatePhoneVerificationCode()
+    const verificationCodeHash = hashPhoneVerificationCode(verificationCode)
+    const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_CODE_TTL_MS)
+    const expiresInMinutes = Math.max(1, Math.ceil(EMAIL_VERIFICATION_CODE_TTL_MS / 60000))
+
+    admin.email = requestedEmail
+    admin.emailVerified = false
+    admin.emailVerificationCodeHash = verificationCodeHash
+    admin.emailVerificationExpiresAt = expiresAt
+    admin.primaryLoginMethod = 'username'
+    admin.loginEmailVerificationEnabled = false
+    clearLoginEmailVerificationState(admin)
+    clearPendingEmailChangeState(admin)
+    await admin.save()
+
+    let deliveryResult = null
+
+    try {
+      deliveryResult = await verificationEmailService.sendVerificationCode({
+        to: requestedEmail,
+        code: verificationCode,
+        expiresInMinutes,
+        displayName: admin.displayName || admin.username || 'Administrator'
+      })
+    } catch (deliveryError) {
+      admin.emailVerificationCodeHash = ''
+      admin.emailVerificationExpiresAt = null
+      await admin.save()
+      const deliveryErrorMessage = deliveryError?.message || 'Failed to send verification code.'
+      console.error('Email verification delivery error:', deliveryErrorMessage)
+      return res.status(502).json({
+        error: deliveryErrorMessage
+      })
+    }
+
+    console.log('Email verification request accepted.', {
+      recipient: deliveryResult.recipient,
+      status: deliveryResult.status,
+      messageId: deliveryResult.messageId,
+      emailProvider: deliveryResult.emailProvider
+    })
+
+    res.json({
+      message: 'Verification code sent.',
+      email: requestedEmail,
+      expiresAt: expiresAt.toISOString(),
+      channel: 'email',
+      emailProvider: deliveryResult.emailProvider,
+      destination: deliveryResult.recipient || requestedEmail,
+      deliveryStatus: deliveryResult.status,
+      messageId: deliveryResult.messageId,
+      providerMessage: deliveryResult.providerMessage || null
+    })
+  } catch (err) {
+    console.error('Send email verification code error:', err.message)
+    res.status(500).json({ error: 'Failed to send verification code.' })
+  }
+})
+
+// POST /api/admin/profile/email/verify - verify email code
+app.post('/api/admin/profile/email/verify', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.verifyEmailVerificationCode), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+
+  try {
+    const admin = await Admin.findById(req.adminId).select('+emailVerificationCodeHash +emailVerificationExpiresAt')
+    if (!admin) return res.status(404).json({ error: 'Admin not found.' })
+
+    const normalizedEmail = String(admin.email || '').trim().toLowerCase()
+    if (!isValidEmailAddress(normalizedEmail)) {
+      return res.status(400).json({ error: 'Add a valid email address before verification.' })
+    }
+
+    if (!admin.emailVerificationCodeHash || !admin.emailVerificationExpiresAt) {
+      return res.status(400).json({ error: 'No active verification code found. Request a new code first.' })
+    }
+
+    if (new Date(admin.emailVerificationExpiresAt).getTime() < Date.now()) {
+      admin.emailVerificationCodeHash = ''
+      admin.emailVerificationExpiresAt = null
+      await admin.save()
+      return res.status(400).json({ error: 'Verification code has expired. Request a new one.' })
+    }
+
+    const providedCodeHash = hashPhoneVerificationCode(req.body.code)
+    if (providedCodeHash !== admin.emailVerificationCodeHash) {
+      return res.status(400).json({ error: 'Invalid verification code.' })
+    }
+
+    admin.email = normalizedEmail
+    admin.emailVerified = true
+    admin.emailVerificationCodeHash = ''
+    admin.emailVerificationExpiresAt = null
+    await admin.save()
+
+    res.json(buildAdminProfileResponse(admin))
+  } catch (err) {
+    console.error('Email verification error:', err.message)
+    res.status(500).json({ error: 'Failed to verify email address.' })
+  }
+})
+
+app.post('/api/admin/profile/email/change/request', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.requestEmailChangeVerification), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+
+  if (!verificationEmailService.isConfigured()) {
+    return res.status(503).json({
+      error: 'Email verification service is not configured. Set Gmail API, Semaphore Email, or SendGrid credentials.'
+    })
+  }
+
+  try {
+    const admin = await Admin.findById(req.adminId).select('+pendingEmailChange +pendingEmailChangeCodeHash +pendingEmailChangeExpiresAt')
+    if (!admin) return res.status(404).json({ error: 'Admin not found.' })
+
+    const currentEmail = String(admin.email || '').trim().toLowerCase()
+    const requestedEmail = String(req.body.email || '').trim().toLowerCase()
+
+    if (!admin.emailVerified || admin.primaryLoginMethod !== 'email' || !isValidEmailAddress(currentEmail)) {
+      return res.status(400).json({ error: 'Enable Google sign-in with a verified primary email before changing it.' })
+    }
+
+    if (!isValidEmailAddress(requestedEmail)) {
+      return res.status(400).json({ error: 'Enter a valid replacement email address.' })
+    }
+
+    if (requestedEmail === currentEmail) {
+      return res.status(400).json({ error: 'Enter a different email address to continue.' })
+    }
+
+    const conflictingEmailOwner = await Admin.findOne({
+      _id: { $ne: admin._id },
+      $or: [
+        { email: requestedEmail },
+        { username: requestedEmail }
+      ]
+    }).select('_id')
+
+    if (conflictingEmailOwner) {
+      return res.status(409).json({ error: 'That email is already used by another account.' })
+    }
+
+    const verificationCode = generatePhoneVerificationCode()
+    const verificationCodeHash = hashPhoneVerificationCode(verificationCode)
+    const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_CODE_TTL_MS)
+    const expiresInMinutes = Math.max(1, Math.ceil(EMAIL_VERIFICATION_CODE_TTL_MS / 60000))
+
+    admin.pendingEmailChange = requestedEmail
+    admin.pendingEmailChangeCodeHash = verificationCodeHash
+    admin.pendingEmailChangeExpiresAt = expiresAt
+    await admin.save()
+
+    let deliveryResult = null
+
+    try {
+      deliveryResult = await verificationEmailService.sendVerificationCode({
+        to: requestedEmail,
+        code: verificationCode,
+        expiresInMinutes,
+        displayName: admin.displayName || admin.username || 'Administrator'
+      })
+    } catch (deliveryError) {
+      clearPendingEmailChangeState(admin)
+      await admin.save()
+      const deliveryErrorMessage = deliveryError?.message || 'Failed to send verification code.'
+      console.error('Email change verification delivery error:', deliveryErrorMessage)
+      return res.status(502).json({
+        error: deliveryErrorMessage
+      })
+    }
+
+    res.json({
+      message: 'Verification code sent.',
+      email: requestedEmail,
+      expiresAt: expiresAt.toISOString(),
+      channel: 'email',
+      emailProvider: deliveryResult.emailProvider,
+      destination: deliveryResult.recipient || requestedEmail,
+      deliveryStatus: deliveryResult.status,
+      messageId: deliveryResult.messageId,
+      providerMessage: deliveryResult.providerMessage || null
+    })
+  } catch (err) {
+    console.error('Request email change verification error:', err.message)
+    res.status(500).json({ error: 'Failed to start the email change verification.' })
+  }
+})
+
+app.post('/api/admin/profile/email/change/verify', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.verifyEmailChangeVerification), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+
+  try {
+    const admin = await Admin.findById(req.adminId).select('+pendingEmailChange +pendingEmailChangeCodeHash +pendingEmailChangeExpiresAt')
+    if (!admin) return res.status(404).json({ error: 'Admin not found.' })
+
+    const pendingEmailChange = String(admin.pendingEmailChange || '').trim().toLowerCase()
+    if (!isValidEmailAddress(pendingEmailChange) || !admin.pendingEmailChangeCodeHash || !admin.pendingEmailChangeExpiresAt) {
+      return res.status(400).json({ error: 'No pending email change was found. Start the change request again.' })
+    }
+
+    if (new Date(admin.pendingEmailChangeExpiresAt).getTime() < Date.now()) {
+      clearPendingEmailChangeState(admin)
+      await admin.save()
+      return res.status(400).json({ error: 'Verification code has expired. Start the email change again.' })
+    }
+
+    const providedCodeHash = hashPhoneVerificationCode(req.body.code)
+    if (providedCodeHash !== admin.pendingEmailChangeCodeHash) {
+      return res.status(400).json({ error: 'Invalid verification code.' })
+    }
+
+    const conflictingEmailOwner = await Admin.findOne({
+      _id: { $ne: admin._id },
+      $or: [
+        { email: pendingEmailChange },
+        { username: pendingEmailChange }
+      ]
+    }).select('_id')
+
+    if (conflictingEmailOwner) {
+      clearPendingEmailChangeState(admin)
+      await admin.save()
+      return res.status(409).json({ error: 'That email is already used by another account.' })
+    }
+
+    admin.email = pendingEmailChange
+    admin.emailVerified = true
+    admin.primaryLoginMethod = 'email'
+    clearPendingEmailChangeState(admin)
+    clearLoginEmailVerificationState(admin)
+    await admin.save()
+
+    res.json(buildAdminProfileResponse(admin))
+  } catch (err) {
+    console.error('Verify email change error:', err.message)
+    res.status(500).json({ error: 'Failed to verify the new email address.' })
   }
 })
 
@@ -1882,7 +2666,7 @@ app.delete('/api/admin/avatar', authMiddleware, async (req, res) => {
 })
 
 // GET /api/admin/accounts - get all account logs
-app.get('/api/admin/accounts', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.accountsQuery), async (req, res) => {
+app.get('/api/admin/accounts', authMiddleware, requireAdminRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.accountsQuery), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -1899,7 +2683,7 @@ app.get('/api/admin/accounts', authMiddleware, securityMiddleware.inputValidatio
 })
 
 // GET /api/admin/accounts/count - get account count by type
-app.get('/api/admin/accounts/count', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.accountsQuery), async (req, res) => {
+app.get('/api/admin/accounts/count', authMiddleware, requireAdminRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.accountsQuery), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -1915,7 +2699,7 @@ app.get('/api/admin/accounts/count', authMiddleware, securityMiddleware.inputVal
 })
 
 // POST /api/admin/accounts - create new account
-app.post('/api/admin/accounts', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.createAccount), async (req, res) => {
+app.post('/api/admin/accounts', authMiddleware, requireAdminRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.createAccount), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -1985,7 +2769,7 @@ app.post('/api/admin/accounts', authMiddleware, securityMiddleware.inputValidati
 })
 
 // DELETE /api/admin/accounts/:id - delete an account (super admin can delete anyone, regular admin can only delete registrars)
-app.delete('/api/admin/accounts/:id', authMiddleware, async (req, res) => {
+app.delete('/api/admin/accounts/:id', authMiddleware, requireAdminRole, securityMiddleware.inputValidationMiddleware({ params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -2003,13 +2787,13 @@ app.delete('/api/admin/accounts/:id', authMiddleware, async (req, res) => {
     }
 
     // Prevent deleting yourself
-    if (req.adminId === req.params.id) {
+    if (String(req.adminId) === String(accountToDelete._id)) {
       return res.status(400).json({ error: 'Cannot delete your own account.' })
     }
 
-    // Regular admin cannot delete other admin accounts (only super admin/original creator can)
+    // Admin accounts cannot delete other admin accounts.
     if (currentAdmin.accountType === 'admin' && accountToDelete.accountType === 'admin') {
-      return res.status(403).json({ error: 'Only super admin can delete other admin accounts.' })
+      return res.status(403).json({ error: 'Admin accounts cannot delete other admin accounts.' })
     }
 
     // If a professor account is deleted, clear professor references so
@@ -2276,7 +3060,7 @@ app.get('/api/announcements/:id', async (req, res) => {
 })
 
 // GET /api/admin/announcements - get all announcements (admin)
-app.get('/api/admin/announcements', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.announcements.query), async (req, res) => {
+app.get('/api/admin/announcements', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.announcements.query), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -2309,7 +3093,7 @@ app.get('/api/admin/announcements', authMiddleware, securityMiddleware.inputVali
 })
 
 // POST /api/admin/announcements - create new announcement
-app.post('/api/admin/announcements', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.announcements.create), async (req, res) => {
+app.post('/api/admin/announcements', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.announcements.create), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -2367,12 +3151,12 @@ app.post('/api/admin/announcements', authMiddleware, securityMiddleware.inputVal
 })
 
 // PUT /api/admin/announcements/:id - update announcement
-app.put('/api/admin/announcements/:id', authMiddleware, securityMiddleware.inputValidationMiddleware({ body: securityMiddleware.schemas.announcements.update, params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
+app.put('/api/admin/announcements/:id', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware({ body: securityMiddleware.schemas.announcements.update, params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
-    const { title, message, type, targetAudience, expiresAt, isPinned, isActive, media } = req.body
+    const { title, message, type, targetAudience, expiresAt, isPinned, isActive, isArchived, media } = req.body
     const validationErrors = validateAnnouncementPayload(req.body, { isUpdate: true })
     if (validationErrors.length > 0) {
       return res.status(400).json({
@@ -2385,6 +3169,9 @@ app.put('/api/admin/announcements/:id', authMiddleware, securityMiddleware.input
     if (!announcement) {
       return res.status(404).json({ error: 'Announcement not found.' })
     }
+    if (!isOwnerOrAdmin(req, announcement.createdBy)) {
+      return res.status(403).json({ error: 'You can only modify your own announcements unless you are an admin.' })
+    }
 
     const oldValue = announcement.toObject()
     
@@ -2395,6 +3182,7 @@ app.put('/api/admin/announcements/:id', authMiddleware, securityMiddleware.input
     if (expiresAt !== undefined) announcement.expiresAt = new Date(expiresAt)
     if (isPinned !== undefined) announcement.isPinned = isPinned
     if (isActive !== undefined) announcement.isActive = isActive
+    if (isArchived === true) announcement.isActive = false
 
     if (Array.isArray(media)) {
       announcement.media = normalizeAnnouncementMedia(media)
@@ -2429,7 +3217,7 @@ app.put('/api/admin/announcements/:id', authMiddleware, securityMiddleware.input
 })
 
 // DELETE /api/admin/announcements/:id - delete announcement
-app.delete('/api/admin/announcements/:id', authMiddleware, securityMiddleware.inputValidationMiddleware({ params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
+app.delete('/api/admin/announcements/:id', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware({ params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -2437,6 +3225,9 @@ app.delete('/api/admin/announcements/:id', authMiddleware, securityMiddleware.in
     const announcement = await Announcement.findById(req.params.id)
     if (!announcement) {
       return res.status(404).json({ error: 'Announcement not found.' })
+    }
+    if (!isOwnerOrAdmin(req, announcement.createdBy)) {
+      return res.status(403).json({ error: 'You can only delete your own announcements unless you are an admin.' })
     }
 
     await Announcement.findByIdAndDelete(req.params.id)
@@ -2645,7 +3436,7 @@ app.get('/api/documents', securityMiddleware.inputValidationMiddleware(securityM
 })
 
 // GET /api/admin/documents - get all documents (admin)
-app.get('/api/admin/documents', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.documents.query), async (req, res) => {
+app.get('/api/admin/documents', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.documents.query), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -2686,37 +3477,42 @@ app.get('/api/admin/documents', authMiddleware, securityMiddleware.inputValidati
 })
 
 // POST /api/admin/documents - upload new document
-app.post('/api/admin/documents', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.documents.create), async (req, res) => {
+app.post('/api/admin/documents', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.documents.create), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
+  let storedFilePath = ''
   try {
     const { 
       title, description, category, subcategory, fileName, originalFileName, 
       mimeType, fileSize, fileData, version, isPublic, allowedRoles, tags,
-      effectiveDate, expiryDate 
+      effectiveDate, expiryDate, status
     } = req.body
-    
-    // Create file path (you might want to store files in a dedicated uploads folder)
-    const filePath = `documents/${Date.now()}-${originalFileName}`
+    const persistedFile = await persistDocumentUpload({
+      originalFileName: originalFileName || fileName,
+      fileData,
+      mimeType,
+      fileSize
+    })
+    storedFilePath = persistedFile.filePath
 
     const document = new Document({
       title,
       description,
       category,
       subcategory,
-      fileName,
+      fileName: persistedFile.fileName,
       originalFileName,
       mimeType,
       fileSize,
-      filePath,
+      filePath: persistedFile.filePath,
       version: version || '1.0',
       isPublic: isPublic || false,
       allowedRoles: allowedRoles || [],
       tags: tags || [],
       effectiveDate: effectiveDate ? new Date(effectiveDate) : undefined,
       expiryDate: expiryDate ? new Date(expiryDate) : undefined,
-      status: 'ACTIVE',
+      status: status || 'ACTIVE',
       createdBy: req.adminId
     })
 
@@ -2744,12 +3540,19 @@ app.post('/api/admin/documents', authMiddleware, securityMiddleware.inputValidat
     })
   } catch (err) {
     console.error('Upload document error:', err.message)
-    res.status(500).json({ error: 'Failed to upload document.' })
+    if (storedFilePath) {
+      try {
+        await deleteStoredUpload(storedFilePath)
+      } catch (cleanupError) {
+        console.error('Failed to clean up uploaded document file:', cleanupError.message)
+      }
+    }
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to upload document.' })
   }
 })
 
 // PUT /api/admin/documents/:id - update document
-app.put('/api/admin/documents/:id', authMiddleware, securityMiddleware.inputValidationMiddleware({ body: securityMiddleware.schemas.documents.update, params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
+app.put('/api/admin/documents/:id', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware({ body: securityMiddleware.schemas.documents.update, params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -2805,7 +3608,7 @@ app.put('/api/admin/documents/:id', authMiddleware, securityMiddleware.inputVali
 })
 
 // POST /api/admin/documents/:id/download - track document download
-app.post('/api/admin/documents/:id/download', authMiddleware, securityMiddleware.inputValidationMiddleware({ params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
+app.post('/api/admin/documents/:id/download', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware({ params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -2813,6 +3616,10 @@ app.post('/api/admin/documents/:id/download', authMiddleware, securityMiddleware
     const document = await Document.findById(req.params.id)
     if (!document) {
       return res.status(404).json({ error: 'Document not found.' })
+    }
+    const absoluteFilePath = resolveUploadPath(document.filePath)
+    if (!absoluteFilePath.startsWith(path.resolve(UPLOADS_ROOT_DIR)) || !fs.existsSync(absoluteFilePath)) {
+      return res.status(404).json({ error: 'Document file not found.' })
     }
 
     // Update download tracking
@@ -2838,7 +3645,7 @@ app.post('/api/admin/documents/:id/download', authMiddleware, securityMiddleware
 
     res.json({ 
       message: 'Download tracked successfully.',
-      downloadUrl: `/uploads/${document.filePath}`
+      downloadUrl: `/uploads/${String(document.filePath || '').replace(/\\/g, '/')}`
     })
   } catch (err) {
     console.error('Track download error:', err.message)
@@ -2847,7 +3654,7 @@ app.post('/api/admin/documents/:id/download', authMiddleware, securityMiddleware
 })
 
 // DELETE /api/admin/documents/:id - delete document
-app.delete('/api/admin/documents/:id', authMiddleware, securityMiddleware.inputValidationMiddleware({ params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
+app.delete('/api/admin/documents/:id', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware({ params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -2857,6 +3664,7 @@ app.delete('/api/admin/documents/:id', authMiddleware, securityMiddleware.inputV
       return res.status(404).json({ error: 'Document not found.' })
     }
 
+    await deleteStoredUpload(document.filePath)
     await Document.findByIdAndDelete(req.params.id)
 
     // Log the action

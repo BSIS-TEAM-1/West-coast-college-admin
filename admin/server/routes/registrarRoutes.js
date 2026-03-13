@@ -3,6 +3,8 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const StudentController = require('../controllers/studentController');
 const SubjectController = require('../controllers/subjectController');
+const securityMiddleware = require('../securityMiddleware');
+const { requireAnyRole } = require('../authorization');
 
 // Rate limiter for registrar routes
 const registrarLimiter = rateLimit({
@@ -12,27 +14,28 @@ const registrarLimiter = rateLimit({
 });
 
 router.use(registrarLimiter);
+router.use(requireAnyRole('admin', 'registrar'));
 
 // Student Routes
 router.get('/professors', StudentController.getProfessorAccounts);
-router.get('/students', StudentController.getStudents);
-router.post('/students', StudentController.createStudent);
-router.get('/students/:id', StudentController.getStudentById);
-router.get('/students/number/:studentNumber', StudentController.getStudentByNumber);
-router.put('/students/:id', StudentController.updateStudent);
-router.delete('/students/:id', StudentController.deleteStudent);
-router.get('/students/:id/cor', StudentController.generateCorPdf);
+router.get('/students', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.query), StudentController.getStudents);
+router.post('/students', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.create), StudentController.createStudent);
+router.get('/students/:id', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.idParam), StudentController.getStudentById);
+router.get('/students/number/:studentNumber', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.studentNumberParam), StudentController.getStudentByNumber);
+router.put('/students/:id', securityMiddleware.inputValidationMiddleware({ ...securityMiddleware.schemas.student.idParam, ...securityMiddleware.schemas.student.update }), StudentController.updateStudent);
+router.delete('/students/:id', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.idParam), StudentController.deleteStudent);
+router.get('/students/:id/cor', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.idParam), StudentController.generateCorPdf);
 
 // Enrollment Routes
-router.post('/students/:id/enroll', StudentController.enrollStudent);
-router.get('/students/:id/current-enrollment', StudentController.getCurrentEnrollment);
-router.get('/students/:id/enrollments', StudentController.getEnrollmentHistory);
-router.post('/sections/:sectionId/subject-assignment', StudentController.assignSubjectInstructorToSection);
+router.post('/students/:id/enroll', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.enroll), StudentController.enrollStudent);
+router.get('/students/:id/current-enrollment', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.currentEnrollment), StudentController.getCurrentEnrollment);
+router.get('/students/:id/enrollments', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.idParam), StudentController.getEnrollmentHistory);
+router.post('/sections/:sectionId/subject-assignment', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.assignSubjectInstructor), StudentController.assignSubjectInstructorToSection);
 
 // Subject Routes
-router.get('/subjects', SubjectController.getSubjects);
-router.post('/subjects', SubjectController.createSubject);
-router.put('/subjects/:id', SubjectController.updateSubject);
-router.delete('/subjects/:id', SubjectController.deleteSubject);
+router.get('/subjects', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.subject.query), SubjectController.getSubjects);
+router.post('/subjects', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.subject.create), SubjectController.createSubject);
+router.put('/subjects/:id', securityMiddleware.inputValidationMiddleware({ ...securityMiddleware.schemas.subject.idParam, ...securityMiddleware.schemas.subject.update }), SubjectController.updateSubject);
+router.delete('/subjects/:id', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.subject.idParam), SubjectController.deleteSubject);
 
 module.exports = router;

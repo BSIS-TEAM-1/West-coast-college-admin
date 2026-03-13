@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Edit, Eye, UserPlus, GraduationCap, X, Check, AlertCircle, FileText as FileTextIcon, ExternalLink, Trash2 } from 'lucide-react';
+import { Search, Edit, Eye, UserPlus, GraduationCap, X, Check, AlertCircle, FileText as FileTextIcon, ExternalLink, Trash2, MoreHorizontal } from 'lucide-react';
 import { API_URL, getStoredToken } from '../lib/authApi';
 import StudentService from '../lib/studentApi';
 import './StudentManagement.css';
@@ -110,6 +110,7 @@ const StudentManagement: React.FC = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
   const [formData, setFormData] = useState<StudentFormData>({
     firstName: '',
     middleName: '',
@@ -229,6 +230,30 @@ const StudentManagement: React.FC = () => {
   useEffect(() => {
     loadStudents();
   }, []);
+
+  useEffect(() => {
+    if (!openActionMenuId) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('.student-action-menu')) return;
+      setOpenActionMenuId(null);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpenActionMenuId(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [openActionMenuId]);
 
   const loadStudents = async () => {
     try {
@@ -545,48 +570,78 @@ const StudentManagement: React.FC = () => {
                   </span>
                 </td>
                 <td>{student.contactNumber}</td>
-                <td>
-                  <div className="action-buttons">
+                <td className="actions-cell">
+                  <div className="student-action-menu">
                     <button
                       type="button"
-                      className="action-btn view"
-                      onClick={() => setSelectedStudent(student)}
-                      title="View Details"
+                      className={`action-menu-toggle ${openActionMenuId === student._id ? 'open' : ''}`}
+                      onClick={() => setOpenActionMenuId((current) => current === student._id ? null : student._id)}
+                      aria-haspopup="menu"
+                      aria-expanded={openActionMenuId === student._id}
                     >
-                      <Eye size={14} />
+                      <span>Actions</span>
+                      <MoreHorizontal size={16} />
                     </button>
-                    <button
-                      type="button"
-                      className="action-btn edit"
-                      onClick={() => handleEditStudent(student)}
-                      title="Edit Student"
-                    >
-                      <Edit size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      className="action-btn cor"
-                      onClick={() => handleDownloadCor(student)}
-                      title="Download COR"
-                    >
-                      <FileTextIcon size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      className="action-btn cor view-cor"
-                      onClick={() => handleViewCor(student)}
-                      title="View COR"
-                    >
-                      <ExternalLink size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      className="action-btn delete"
-                      onClick={() => handleDeleteStudent(student)}
-                      title="Delete Student"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+
+                    {openActionMenuId === student._id && (
+                      <div className="action-dropdown" role="menu" aria-label={`Actions for ${student.firstName} ${student.lastName}`}>
+                        <button
+                          type="button"
+                          className="action-dropdown-item view"
+                          onClick={() => {
+                            setSelectedStudent(student);
+                            setOpenActionMenuId(null);
+                          }}
+                        >
+                          <Eye size={14} />
+                          View Details
+                        </button>
+                        <button
+                          type="button"
+                          className="action-dropdown-item edit"
+                          onClick={() => {
+                            handleEditStudent(student);
+                            setOpenActionMenuId(null);
+                          }}
+                        >
+                          <Edit size={14} />
+                          Edit Student
+                        </button>
+                        <button
+                          type="button"
+                          className="action-dropdown-item cor"
+                          onClick={() => {
+                            void handleDownloadCor(student);
+                            setOpenActionMenuId(null);
+                          }}
+                        >
+                          <FileTextIcon size={14} />
+                          Download COR
+                        </button>
+                        <button
+                          type="button"
+                          className="action-dropdown-item view-cor"
+                          onClick={() => {
+                            void handleViewCor(student);
+                            setOpenActionMenuId(null);
+                          }}
+                        >
+                          <ExternalLink size={14} />
+                          View COR
+                        </button>
+                        <button
+                          type="button"
+                          className="action-dropdown-item delete"
+                          onClick={() => {
+                            void handleDeleteStudent(student);
+                            setOpenActionMenuId(null);
+                          }}
+                        >
+                          <Trash2 size={14} />
+                          Delete Student
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </td>
               </tr>

@@ -1,11 +1,27 @@
 import React, { useEffect, useRef, useState } from 'react'
 
 import './Login.css'
+import type { LoginEmailVerificationChallengeResponse, LoginFlowResponse, LoginResponse } from '../lib/authApi'
 import { applyThemePreference, getStoredTheme, setActiveThemeScope, type ThemePreference } from '../lib/theme'
 import { ensureRecaptchaLoaded, executeRecaptchaAction, getRecaptchaSiteKey } from '../lib/recaptcha'
 
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        id?: {
+          initialize: (options: { client_id: string; callback: (response: { credential?: string }) => void }) => void
+          renderButton: (parent: HTMLElement, options: Record<string, unknown>) => void
+        }
+      }
+    }
+  }
+}
+
 type LoginProps = {
-  onLogin: (username: string, password: string, captchaToken?: string) => void
+  onLogin: (username: string, password: string, captchaToken?: string) => Promise<LoginFlowResponse | null | void> | LoginFlowResponse | null | void
+  onGoogleLogin?: (credential: string) => Promise<LoginFlowResponse | null | void> | LoginFlowResponse | null | void
+  onVerifyLoginEmailCode?: (challengeToken: string, code: string) => Promise<LoginResponse>
   error?: string
   signUpSuccess?: boolean
   loading?: boolean
@@ -17,6 +33,15 @@ const THEME_OPTIONS: Array<{ value: ThemePreference; label: string }> = [
   { value: 'dark', label: 'Dark' },
   { value: 'auto', label: 'Auto' }
 ]
+
+const GoogleIcon = () => (
+  <svg viewBox="0 0 18 18" aria-hidden="true">
+    <path fill="#EA4335" d="M17.64 9.2045c0-.6382-.0573-1.2518-.1636-1.8409H9v3.4818h4.8436c-.2087 1.125-.8427 2.0782-1.796 2.7164v2.2582h2.9087c1.7018-1.5664 2.6837-3.8746 2.6837-6.6155z" />
+    <path fill="#4285F4" d="M9 18c2.43 0 4.4673-.8059 5.9564-2.1791l-2.9087-2.2582c-.8059.54-1.8368.8591-3.0477.8591-2.3441 0-4.3282-1.5832-5.0364-3.7105H.9573v2.3318C2.4382 15.9832 5.4818 18 9 18z" />
+    <path fill="#FBBC05" d="M3.9636 10.7105c-.18-.54-.2836-1.1168-.2836-1.7105s.1036-1.1705.2836-1.7105V4.9577H.9573C.3477 6.1723 0 7.5482 0 9s.3477 2.8277.9573 4.0423l3.0063-2.3318z" />
+    <path fill="#34A853" d="M9 3.5782c1.3214 0 2.5077.4541 3.4405 1.3459l2.5814-2.5814C13.4632.8918 11.4268 0 9 0 5.4818 0 2.4382 2.0168.9573 4.9577l3.0063 2.3318C4.6718 5.1614 6.6559 3.5782 9 3.5782z" />
+  </svg>
+)
 
 const renderThemeIcon = (theme: ThemePreference) => {
   if (theme === 'light') {
@@ -52,18 +77,34 @@ const renderThemeIcon = (theme: ThemePreference) => {
   )
 }
 
-export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, loading, onBack }: LoginProps) {
+export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, error, signUpSuccess: _signUpSuccess, loading, onBack }: LoginProps) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [theme, setTheme] = useState<ThemePreference>(() => getStoredTheme(null))
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false)
   const [captchaLoading, setCaptchaLoading] = useState(false)
+  const [googleButtonReady, setGoogleButtonReady] = useState(false)
+  const [googleAuthPending, setGoogleAuthPending] = useState(false)
+  const [loginVerificationChallenge, setLoginVerificationChallenge] = useState<LoginEmailVerificationChallengeResponse | null>(null)
+  const [loginVerificationCode, setLoginVerificationCode] = useState('')
+  const [loginVerificationError, setLoginVerificationError] = useState('')
   const captchaEnabled = import.meta.env.PROD
+  const googleClientId = import.meta.env.VITE_GOOGLE_SIGNIN_CLIENT_ID?.trim() || ''
   const [captchaReady, setCaptchaReady] = useState(!captchaEnabled)
   const recaptchaSiteKey = getRecaptchaSiteKey()
   const devBypassToken = 'dev-bypass'
   const hasInitializedTheme = useRef(false)
   const themeMenuRef = useRef<HTMLDivElement | null>(null)
+  const googleButtonHostRef = useRef<HTMLDivElement | null>(null)
+
+  const handleLoginFlowResponse = (result: LoginFlowResponse | null | void) => {
+    if (result && 'requiresEmailVerification' in result && result.requiresEmailVerification) {
+      setLoginVerificationChallenge(result)
+      setLoginVerificationCode('')
+      setLoginVerificationError('')
+      setPassword('')
+    }
+  }
 
   useEffect(() => {
     setActiveThemeScope(null)
@@ -140,6 +181,113 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
     }
   }, [captchaEnabled, recaptchaSiteKey])
 
+  useEffect(() => {
+    if (!loading) {
+      setGoogleAuthPending(false)
+    }
+  }, [loading])
+
+  useEffect(() => {
+    if (!onGoogleLogin || !googleClientId || !googleButtonHostRef.current) {
+      setGoogleButtonReady(false)
+      return
+    }
+
+    let cancelled = false
+    const scriptId = 'google-identity-services-client'
+
+    const renderGoogleButton = () => {
+      if (cancelled || !googleButtonHostRef.current || !window.google?.accounts?.id) {
+        return
+      }
+
+      try {
+        googleButtonHostRef.current.innerHTML = ''
+        window.google.accounts.id.initialize({
+          client_id: googleClientId,
+          callback: (response) => {
+            const credential = String(response?.credential || '').trim()
+            if (!credential) return
+            setGoogleAuthPending(true)
+            void (async () => {
+              try {
+                const result = await onGoogleLogin(credential)
+                handleLoginFlowResponse(result)
+              } catch {
+                // App-level error state handles login failures.
+              }
+            })()
+          }
+        })
+
+        const hostWidth = Math.max(
+          240,
+          Math.min(
+            320,
+            Math.round(
+              googleButtonHostRef.current.parentElement?.clientWidth
+              || googleButtonHostRef.current.clientWidth
+              || 320
+            )
+          )
+        )
+        
+        window.google.accounts.id.renderButton(googleButtonHostRef.current, {
+          type: 'standard',
+          theme: 'outline',
+          size: 'large',
+          shape: 'rectangular',
+          text: 'signin_with',
+          logo_alignment: 'left',
+          width: hostWidth
+        })
+        setGoogleButtonReady(true)
+      } catch (googleRenderError) {
+        setGoogleButtonReady(false)
+        console.error('Failed to render Google sign-in button:', googleRenderError)
+      }
+    }
+
+    const handleScriptLoad = () => {
+      renderGoogleButton()
+    }
+
+    const handleScriptError = () => {
+      setGoogleButtonReady(false)
+    }
+
+    const existingScript = document.getElementById(scriptId) as HTMLScriptElement | null
+    if (existingScript) {
+      if (window.google?.accounts?.id) {
+        renderGoogleButton()
+      } else {
+        existingScript.addEventListener('load', handleScriptLoad, { once: true })
+        existingScript.addEventListener('error', handleScriptError, { once: true })
+      }
+
+      return () => {
+        cancelled = true
+        existingScript.removeEventListener('load', handleScriptLoad)
+        existingScript.removeEventListener('error', handleScriptError)
+      }
+    }
+
+    const script = document.createElement('script')
+    script.id = scriptId
+    script.src = 'https://accounts.google.com/gsi/client'
+    script.async = true
+    script.defer = true
+    script.addEventListener('load', handleScriptLoad, { once: true })
+    script.addEventListener('error', handleScriptError, { once: true })
+    document.head.appendChild(script)
+
+    return () => {
+      cancelled = true
+      script.removeEventListener('load', handleScriptLoad)
+      script.removeEventListener('error', handleScriptError)
+    }
+  }, [googleClientId, onGoogleLogin])
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
@@ -151,7 +299,8 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
       try {
         setCaptchaLoading(true)
         const token = await executeRecaptchaAction(recaptchaSiteKey, 'admin_login')
-        onLogin(username, password, token)
+        const result = await onLogin(username, password, token)
+        handleLoginFlowResponse(result)
       } catch (captchaError) {
         console.error('Failed to execute reCAPTCHA v3:', captchaError)
       } finally {
@@ -160,11 +309,46 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
       return
     }
 
-    onLogin(username, password, devBypassToken)
+    const result = await onLogin(username, password, devBypassToken)
+    handleLoginFlowResponse(result)
+  }
+
+  async function handleLoginVerificationSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!loginVerificationChallenge || !onVerifyLoginEmailCode) {
+      return
+    }
+
+    const normalizedCode = loginVerificationCode.replace(/\D/g, '').slice(0, 6)
+    if (!/^\d{6}$/.test(normalizedCode)) {
+      setLoginVerificationError('Enter the 6-digit code sent to your email.')
+      return
+    }
+
+    setLoginVerificationError('')
+
+    try {
+      await onVerifyLoginEmailCode(loginVerificationChallenge.challengeToken, normalizedCode)
+    } catch (verificationError) {
+      setLoginVerificationError(
+        verificationError instanceof Error
+          ? verificationError.message
+          : 'Failed to verify the login email code.'
+      )
+    }
+  }
+
+  const closeLoginVerificationModal = () => {
+    if (loading) return
+    setLoginVerificationChallenge(null)
+    setLoginVerificationCode('')
+    setLoginVerificationError('')
   }
 
   const submitting = Boolean(loading || captchaLoading)
   const submitDisabled = submitting || (captchaEnabled && (!recaptchaSiteKey || !captchaReady))
+  const googleSignInAvailable = Boolean(onGoogleLogin && googleClientId)
   const activeThemeOption = THEME_OPTIONS.find(option => option.value === theme) ?? THEME_OPTIONS[2]
 
   const handleThemeChange = (nextTheme: ThemePreference) => {
@@ -269,16 +453,104 @@ export default function Login({ onLogin, error, signUpSuccess: _signUpSuccess, l
                 />
               </label>
 
-              <button type="submit" className="login-submit" disabled={submitDisabled}>
-                {submitting ? 'Authenticating...' : 'Sign In'}
-              </button>
+              <div className="login-method-stack">
+                <button type="submit" className="login-submit login-submit-manual" disabled={submitDisabled}>
+                  {submitting ? 'Authenticating...' : 'Manual Sign In'}
+                </button>
+
+                <div className="login-method-divider" aria-hidden="true">
+                  <span>or</span>
+                </div>
+
+                <div className="login-google-section">
+                  {googleSignInAvailable ? (
+                    <div
+                      ref={googleButtonHostRef}
+                      className={`login-google-button-host ${(loading && googleAuthPending) ? 'is-busy' : ''}`}
+                      aria-live="polite"
+                    />
+                  ) : (
+                    <button type="button" className="login-google-fallback" disabled>
+                      <span className="login-google-fallback-icon">
+                        <GoogleIcon />
+                      </span>
+                      <span className="login-google-fallback-text">Sign in with Google</span>
+                    </button>
+                  )}
+                  {googleSignInAvailable && !googleButtonReady && (
+                    <p className="login-google-status">Preparing Google sign-in...</p>
+                  )}
+                  {googleSignInAvailable && loading && googleAuthPending && (
+                    <p className="login-google-status">Completing Google sign-in...</p>
+                  )}
+                </div>
+              </div>
             </form>
 
             <p className="security-note">Protected by reCAPTCHA and secure session controls.</p>
           </div>
         </section>
       </div>
+
+      {loginVerificationChallenge && (
+        <div className="login-verify-modal-backdrop" role="presentation">
+          <div className="login-verify-modal" role="dialog" aria-modal="true" aria-labelledby="login-verify-title">
+            <h3 id="login-verify-title" className="login-verify-modal-title">Confirm Login by Email</h3>
+            <p className="login-verify-modal-desc">
+              Enter the 6-digit code sent to <strong>{loginVerificationChallenge.destination || loginVerificationChallenge.email}</strong>.
+            </p>
+            <p className="login-verify-modal-meta">
+              Status: {loginVerificationChallenge.deliveryStatus || 'accepted'}
+              {loginVerificationChallenge.messageId ? ` | Message ID: ${loginVerificationChallenge.messageId}` : ''}
+            </p>
+            {loginVerificationChallenge.emailProvider ? (
+              <p className="login-verify-modal-provider">Email provider: {loginVerificationChallenge.emailProvider}</p>
+            ) : null}
+            {loginVerificationChallenge.providerMessage ? (
+              <p className="login-verify-modal-provider">Gateway: {loginVerificationChallenge.providerMessage}</p>
+            ) : null}
+
+            <form className="login-verify-modal-form" onSubmit={handleLoginVerificationSubmit}>
+              {loginVerificationError && (
+                <p className="login-verify-modal-error" role="alert">{loginVerificationError}</p>
+              )}
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                autoComplete="one-time-code"
+                maxLength={6}
+                className="login-verify-code-input"
+                value={loginVerificationCode}
+                onChange={(event) => {
+                  setLoginVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))
+                  if (loginVerificationError) {
+                    setLoginVerificationError('')
+                  }
+                }}
+                placeholder="Enter 6-digit code"
+              />
+              <div className="login-verify-modal-actions">
+                <button
+                  type="button"
+                  className="login-verify-cancel-btn"
+                  onClick={closeLoginVerificationModal}
+                  disabled={loading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="login-verify-submit-btn"
+                  disabled={loading}
+                >
+                  {loading ? 'Verifying...' : 'Verify Login'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
-

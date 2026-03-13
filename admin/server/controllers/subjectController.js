@@ -1,4 +1,5 @@
 const Subject = require('../models/Subject');
+const Enrollment = require('../models/Enrollment');
 
 class SubjectController {
   static async getSubjects(req, res) {
@@ -103,6 +104,17 @@ class SubjectController {
   static async deleteSubject(req, res) {
     try {
       const { id } = req.params;
+      const hasEnrollmentReference = await Enrollment.exists({
+        'subjects.subjectId': id
+      });
+
+      if (hasEnrollmentReference) {
+        return res.status(409).json({
+          success: false,
+          message: 'Cannot delete subject because enrollment records reference it. Deactivate it instead.'
+        });
+      }
+
       const subject = await Subject.findByIdAndDelete(id);
       if (!subject) {
         return res.status(404).json({ success: false, message: 'Subject not found' });

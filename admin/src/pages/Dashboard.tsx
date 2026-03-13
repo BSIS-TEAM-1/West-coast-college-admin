@@ -338,7 +338,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
               {/* Recent Registration Logs & Calendar */}
               <div className="dashboard-secondary-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '2rem', marginBottom: '2rem' }}>
                 <div className="dashboard-stats-section">
-                  <h2 className="section-title" style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--text-primary)' }}>Recent Registration Logs</h2>
+                  <h2 className="section-title" style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--text-primary)' }}>Recent Account Registration Logs</h2>
                   <div className="registration-logs-card" style={{
                     background: 'var(--bg-secondary)',
                     border: '1px solid var(--border-color)',
