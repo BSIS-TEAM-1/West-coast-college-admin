@@ -1272,7 +1272,6 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
   const selectedTargetSection = sections.find((section) => section._id === selectedSection) || null
   const selectedCourseOption = blockCourseOptions.find((course) => course.value === Number(newGroupCourse)) || null
   const newGroupPreviewCode = `${selectedCourseOption?.fullLabel || 'Course'}`
-  const newGroupPreviewShortCode = `${selectedCourseOption?.label || 'Course'}`
   const newGroupPreviewInlineCode = `${selectedCourseOption?.label || 'Course'} - ${newGroupBlockNumber}`
   const newGroupPreviewCourseCode = `${selectedCourseOption?.value || '000'}`
   const newGroupPreviewLabel = `${selectedCourseOption?.fullLabel || 'Course'}`
