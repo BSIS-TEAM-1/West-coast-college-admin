@@ -110,7 +110,7 @@ function App() {
 
     try {
       const data = await apiLogin(username, password, captchaToken)
-      if ('requiresEmailVerification' in data && data.requiresEmailVerification) {
+      if (!('token' in data)) {
         return data
       }
       await finalizeLogin(data.token, data.username)
@@ -129,7 +129,7 @@ function App() {
 
     try {
       const data = await apiGoogleLogin(credential)
-      if ('requiresEmailVerification' in data && data.requiresEmailVerification) {
+      if (!('token' in data)) {
         return data
       }
       await finalizeLogin(data.token, data.username)
