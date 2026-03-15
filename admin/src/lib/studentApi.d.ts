@@ -12,6 +12,8 @@ export interface StudentData {
   semester: string;
   schoolYear: string;
   studentStatus: string;
+  lifecycleStatus?: string;
+  corStatus?: string;
   scholarship?: string;
   enrollmentStatus: string;
   email: string;

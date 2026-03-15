@@ -51,6 +51,12 @@ export const THEME_ACCENT_PRESETS: ThemeAccentPreset[] = [
     description: 'Fresh green with a softer UI glow.',
   },
   {
+    id: 'teal',
+    label: 'Teal',
+    color: '#14b8a6',
+    description: 'Cool aqua accent for a cleaner, balanced palette.',
+  },
+  {
     id: 'ocean',
     label: 'Ocean',
     color: '#0ea5e9',

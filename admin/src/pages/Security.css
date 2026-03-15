@@ -1160,20 +1160,26 @@ div.security-actions-grid > div.action-card:hover h3 {
   font-weight: 600;
   text-transform: uppercase;
   font-size: 0.75rem;
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
-  text-align: center;
   white-space: nowrap;
-  min-width: fit-content;
+  min-width: 0;
   justify-self: center;
 }
 
-.log-entry .status.success {
+.log-entry .status .status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  min-width: fit-content;
+}
+
+.log-entry .status.success .status-pill {
   background: #10b981;
   color: white;
 }
 
-.log-entry .status.failed {
+.log-entry .status.failed .status-pill {
   background: #ef4444;
   color: white;
 }
@@ -1356,4 +1362,220 @@ div.security-actions-grid > div.action-card:hover h3 {
 
 .security-scan-results div[style*="border-left"]:hover {
   background-color: #334155 !important;
+}
+
+@media (max-width: 1024px) {
+  .security-container .security-actions-grid {
+    justify-content: center !important;
+  }
+
+  .audit-logs-modal {
+    padding: 1rem;
+    align-items: flex-start;
+  }
+
+  .audit-logs-modal .modal-content {
+    width: min(100%, 900px);
+    max-width: 100%;
+    max-height: calc(100vh - 2rem);
+  }
+}
+
+@media (max-width: 768px) {
+  .security-container .security-actions-grid {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .security-container div.security-actions-grid > div.action-card:nth-child(1),
+  .security-container div.security-actions-grid > div.action-card:nth-child(2),
+  .security-container div.security-actions-grid > div.action-card:nth-child(3),
+  .security-container div.security-actions-grid > div.action-card:nth-child(4),
+  .security-container div.security-actions-grid > div.action-card:nth-child(5) {
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    border-radius: 20px !important;
+    aspect-ratio: auto !important;
+    padding: 1rem 1.1rem !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+  }
+
+  .security-container div.security-actions-grid > div.action-card:nth-child(1),
+  .security-container div.security-actions-grid > div.action-card:nth-child(2) {
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 0.9rem !important;
+  }
+
+  .security-container div.security-actions-grid > div.action-card:nth-child(1) > div:first-child,
+  .security-container div.security-actions-grid > div.action-card:nth-child(2) > div:first-child {
+    margin-bottom: 0 !important;
+    flex-shrink: 0;
+  }
+
+  .security-container .security-header h1 {
+    font-size: 1.5rem;
+  }
+
+  .security-container .score-circle {
+    width: 68px;
+    height: 68px;
+    font-size: 1.25rem;
+  }
+
+  .audit-logs-modal {
+    padding: 0.75rem;
+  }
+
+  .audit-logs-modal .modal-content {
+    width: 100%;
+    max-height: calc(100vh - 1.5rem);
+    border-radius: 14px;
+  }
+
+  .audit-logs-modal .modal-header {
+    padding: 1rem;
+  }
+
+  .audit-logs-modal .modal-header h2 {
+    font-size: 1.125rem;
+    color: #e2e8f0;
+  }
+
+  .audit-logs-modal .modal-body {
+    padding: 1rem;
+  }
+
+  .audit-logs-modal .logs-header {
+    display: none;
+  }
+
+  .audit-logs-modal .logs-list {
+    max-height: none;
+    padding: 0.5rem;
+  }
+
+  .audit-logs-modal .log-entry {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+    padding: 1rem;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    margin-bottom: 0.75rem;
+  }
+
+  .audit-logs-modal .log-entry .timestamp,
+  .audit-logs-modal .log-entry .action,
+  .audit-logs-modal .log-entry .user,
+  .audit-logs-modal .log-entry .status,
+  .audit-logs-modal .log-entry .description {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+    min-width: 0;
+  }
+
+  .audit-logs-modal .log-entry .status {
+    justify-self: stretch;
+    text-align: right;
+  }
+
+  .audit-logs-modal .log-entry .description {
+    grid-column: auto;
+  }
+
+  .audit-logs-modal .log-entry .timestamp::before,
+  .audit-logs-modal .log-entry .action::before,
+  .audit-logs-modal .log-entry .user::before,
+  .audit-logs-modal .log-entry .status::before,
+  .audit-logs-modal .log-entry .description::before {
+    content: attr(data-label);
+    color: #94a3b8;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    flex: 0 0 94px;
+  }
+
+  .audit-logs-modal .responsive-table-wrap {
+    overflow-x: visible !important;
+  }
+
+  .audit-logs-modal .responsive-data-table,
+  .audit-logs-modal .responsive-data-table tbody,
+  .audit-logs-modal .responsive-data-table tr,
+  .audit-logs-modal .responsive-data-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .audit-logs-modal .responsive-data-table thead {
+    display: none;
+  }
+
+  .audit-logs-modal .responsive-data-table tbody {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .audit-logs-modal .responsive-data-table tr {
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 0.95rem;
+  }
+
+  .audit-logs-modal .responsive-data-table td {
+    display: flex !important;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0 !important;
+    border: none !important;
+    font-size: 0.875rem;
+    overflow-wrap: anywhere;
+  }
+
+  .audit-logs-modal .responsive-data-table td + td {
+    margin-top: 0.65rem;
+  }
+
+  .audit-logs-modal .responsive-data-table td::before {
+    content: attr(data-label);
+    color: #475569;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    flex: 0 0 108px;
+  }
+
+  .audit-logs-modal .responsive-data-table td > * {
+    max-width: 60%;
+    text-align: right;
+  }
+
+  .audit-logs-modal .responsive-data-table td:last-child button {
+    margin-left: auto;
+  }
+}
+
+@media (prefers-color-scheme: dark) and (max-width: 768px) {
+  .audit-logs-modal .responsive-data-table tr {
+    background: #0f172a;
+    border-color: #334155;
+  }
+
+  .audit-logs-modal .responsive-data-table td::before {
+    color: #94a3b8;
+  }
 }

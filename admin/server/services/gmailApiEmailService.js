@@ -44,6 +44,14 @@ function extractGmailErrorMessage(payload) {
   return errorMessage.slice(0, 300)
 }
 
+function toMimeBase64(value) {
+  const normalized = Buffer.isBuffer(value)
+    ? value
+    : Buffer.from(String(value || '').replace(/\s+/g, ''), 'base64')
+
+  return normalized.toString('base64').replace(/(.{76})/g, '$1\r\n')
+}
+
 class GmailApiEmailService {
   constructor({
     clientId = process.env.GMAIL_CLIENT_ID,
@@ -79,39 +87,67 @@ class GmailApiEmailService {
     )
   }
 
-  buildRawMessage({ to, subject, text, html, fromEmail, fromName }) {
-    const boundary = `wcc-boundary-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  buildRawMessage({ to, subject, text, html, fromEmail, fromName, attachments = [] }) {
+    const relatedBoundary = `wcc-related-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const alternativeBoundary = `wcc-alt-${Date.now()}-${Math.random().toString(16).slice(2)}`
     const normalizedRecipient = String(to || '').trim().toLowerCase()
     const normalizedFromEmail = String(fromEmail || this.senderEmail || '').trim().toLowerCase()
     const finalFromName = String(fromName || this.senderName || '').trim()
     const textBody = String(text || '').trim()
     const htmlBody = String(html || '').trim() || `<p>${escapeHtml(textBody)}</p>`
+    const normalizedAttachments = Array.isArray(attachments) ? attachments.filter(Boolean) : []
 
     const fromHeader = finalFromName
       ? `${encodeHeaderValue(finalFromName)} <${normalizedFromEmail}>`
       : normalizedFromEmail
 
-    return [
+    const parts = [
       'MIME-Version: 1.0',
       `To: ${normalizedRecipient}`,
       `From: ${fromHeader}`,
       `Subject: ${encodeHeaderValue(subject)}`,
-      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      `Content-Type: multipart/related; boundary="${relatedBoundary}"`,
       '',
-      `--${boundary}`,
+      `--${relatedBoundary}`,
+      `Content-Type: multipart/alternative; boundary="${alternativeBoundary}"`,
+      '',
+      `--${alternativeBoundary}`,
       'Content-Type: text/plain; charset="UTF-8"',
       'Content-Transfer-Encoding: 8bit',
       '',
       textBody,
       '',
-      `--${boundary}`,
+      `--${alternativeBoundary}`,
       'Content-Type: text/html; charset="UTF-8"',
       'Content-Transfer-Encoding: 8bit',
       '',
       htmlBody,
       '',
-      `--${boundary}--`
-    ].join('\r\n')
+      `--${alternativeBoundary}--`
+    ]
+
+    normalizedAttachments.forEach((attachment) => {
+      const filename = String(attachment.filename || 'attachment').trim() || 'attachment'
+      const contentType = String(attachment.contentType || 'application/octet-stream').trim() || 'application/octet-stream'
+      const disposition = String(attachment.disposition || 'attachment').trim() || 'attachment'
+      const contentId = String(attachment.contentId || '').trim()
+
+      parts.push(
+        '',
+        `--${relatedBoundary}`,
+        `Content-Type: ${contentType}; name="${filename}"`,
+        'Content-Transfer-Encoding: base64',
+        `Content-Disposition: ${disposition}; filename="${filename}"`,
+        ...(contentId ? [`Content-ID: <${contentId}>`] : []),
+        ...(contentId ? [`X-Attachment-Id: ${contentId}`] : []),
+        `Content-Location: ${filename}`,
+        '',
+        toMimeBase64(attachment.content)
+      )
+    })
+
+    parts.push('', `--${relatedBoundary}--`)
+    return parts.join('\r\n')
   }
 
   async fetchAccessToken() {
@@ -155,7 +191,7 @@ class GmailApiEmailService {
     }
   }
 
-  async sendEmail({ to, subject, text, html, fromEmail, fromName } = {}) {
+  async sendEmail({ to, subject, text, html, fromEmail, fromName, attachments = [] } = {}) {
     if (!this.isConfigured()) {
       throw new Error('Gmail API email is not configured. Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, and GMAIL_SENDER_EMAIL.')
     }
@@ -188,7 +224,8 @@ class GmailApiEmailService {
       text: textBody,
       html: htmlBody,
       fromEmail: finalFromEmail,
-      fromName
+      fromName,
+      attachments
     })
 
     try {

@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect, useRef, useMemo } from 'react'
-import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Video, Calendar, Award, Search, ChevronRight, Download, Send, Eye, CalendarDays, List, Grid3X3, MapPin } from 'lucide-react'
+import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Video, Calendar, Award, Search, ChevronRight, Download, Send, Eye, CalendarDays, List, Grid3X3, MapPin, MoreHorizontal } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
@@ -109,7 +109,20 @@ interface ProfessorRosterClassOption {
   room: string
 }
 
+interface ProfessorRosterSectionOption {
+  key: string
+  courseCode: string
+  blockCode: string
+  sectionId: string
+  sectionCode: string
+  semester: string
+  schoolYear: string
+  yearLevel: number | null
+  subjectCount: number
+}
+
 interface ProfessorRosterStudent extends Omit<ProfessorAssignedStudent, 'studentNumber'> {
+  rosterEntryKey: string
   studentNumber: string
   email?: string
   contactNumber?: string
@@ -122,6 +135,12 @@ interface ProfessorRosterStudent extends Omit<ProfessorAssignedStudent, 'student
   assignmentScores?: Array<{ name: string; score: number | string }>
   attendanceRecord?: Array<{ date: string; status: string }>
   remarks?: string
+  classBlockCode?: string
+  classSectionCode?: string
+  classSubjectCode?: string
+  classSubjectTitle?: string
+  classSemester?: string
+  classSchoolYear?: string
 }
 
 type RosterSortBy = 'name-asc' | 'name-desc' | 'id-asc' | 'id-desc'
@@ -155,6 +174,8 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
   const [coursesLoading, setCoursesLoading] = useState(false)
   const [coursesError, setCoursesError] = useState('')
   const [selectedSubjectDetail, setSelectedSubjectDetail] = useState<ProfessorSubjectDetailState | null>(null)
+  const [selectedRosterClassKey, setSelectedRosterClassKey] = useState('')
+  const [selectedRosterFocus, setSelectedRosterFocus] = useState<'students' | 'attendance'>('students')
   
   // Animation refs
   const dashboardRef = useRef<HTMLDivElement>(null)
@@ -323,7 +344,19 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
 
       const payload = await response.json().catch(() => ({}))
       const courses = Array.isArray(payload?.data?.courses) ? payload.data.courses : []
-      setAssignedCourses(courses)
+      const isVisibleProfessorBlock = (block: ProfessorAssignedBlock) => {
+        const normalizedSectionCode = String(block?.sectionCode || '').trim().toLowerCase()
+        return Boolean(block?.sectionId)
+          && !normalizedSectionCode.includes('unassigned')
+          && !normalizedSectionCode.includes('unknown')
+      }
+      const visibleCourses = courses
+        .map((course: ProfessorAssignedCourse) => ({
+          ...course,
+          blocks: (Array.isArray(course.blocks) ? course.blocks : []).filter((block) => isVisibleProfessorBlock(block))
+        }))
+        .filter((course: ProfessorAssignedCourse) => course.blocks.length > 0)
+      setAssignedCourses(visibleCourses)
     } catch (error) {
       console.error('Failed to fetch professor assigned blocks:', error)
       setAssignedCourses([])
@@ -348,6 +381,7 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
       case 'courses':
         return (
           <CourseManagement
+            professorName={profile?.displayName || profile?.username || username}
             courses={assignedCourses}
             loading={coursesLoading}
             error={coursesError}
@@ -356,6 +390,12 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
               setSelectedSubjectDetail(detail)
               setView('subject-detail')
             }}
+            onOpenRosterClass={(classKey, mode = 'students') => {
+              setSelectedRosterClassKey(classKey)
+              setSelectedRosterFocus(mode)
+              setView('students')
+            }}
+            onOpenGradesView={() => setView('grades')}
           />
         )
       case 'students':
@@ -365,6 +405,8 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
             loading={coursesLoading}
             error={coursesError}
             onRefresh={fetchAssignedCourses}
+            initialClassKey={selectedRosterClassKey}
+            entryMode={selectedRosterFocus}
           />
         )
       case 'grades':
@@ -645,14 +687,17 @@ function ProfessorHome({ announcements, onAnnouncementClick, quickActionsRef, ne
 }
 
 interface CourseManagementProps {
+  professorName: string
   courses: ProfessorAssignedCourse[]
   loading: boolean
   error: string
   onRefresh: () => Promise<void>
   onOpenSubjectDetail: (detail: ProfessorSubjectDetailState) => void
+  onOpenRosterClass: (classKey: string, mode?: 'students' | 'attendance') => void
+  onOpenGradesView: () => void
 }
 
-function CourseManagement({ courses, loading, error, onRefresh, onOpenSubjectDetail }: CourseManagementProps) {
+function CourseManagementLegacy({ courses, loading, error, onRefresh, onOpenSubjectDetail }: CourseManagementProps) {
   const [layoutMode, setLayoutMode] = useState<'grid' | 'list'>('grid')
   const [searchQuery, setSearchQuery] = useState('')
   const [courseFilter, setCourseFilter] = useState('all')
@@ -718,6 +763,31 @@ function CourseManagement({ courses, loading, error, onRefresh, onOpenSubjectDet
     const displayCourseCode = toCourseDisplayLabel(courseCode)
     const sectionSuffix = getSectionSuffix(sectionCode)
     return String(`${displayCourseCode}-${sectionSuffix}`)
+  }
+
+  const getBlockRosterCount = (block: ProfessorAssignedBlock) => {
+    const counts = block.subjects
+      .map((subject) => Number(subject.enrolledStudents ?? 0))
+      .filter((count) => Number.isFinite(count) && count >= 0)
+
+    if (counts.length === 0) return 0
+
+    const frequency = new Map<number, number>()
+    counts.forEach((count) => {
+      frequency.set(count, (frequency.get(count) || 0) + 1)
+    })
+
+    let bestCount = counts[0]
+    let bestFrequency = frequency.get(bestCount) || 0
+
+    frequency.forEach((countFrequency, countValue) => {
+      if (countFrequency > bestFrequency || (countFrequency === bestFrequency && countValue > bestCount)) {
+        bestCount = countValue
+        bestFrequency = countFrequency
+      }
+    })
+
+    return bestCount
   }
 
   const semesterOptions = useMemo(() => {
@@ -821,9 +891,7 @@ function CourseManagement({ courses, loading, error, onRefresh, onOpenSubjectDet
       return sum + course.blocks.reduce((blockSum, block) => blockSum + block.subjects.length, 0)
     }, 0)
     const students = courses.reduce((sum, course) => {
-      return sum + course.blocks.reduce((blockSum, block) => {
-        return blockSum + block.subjects.reduce((subjectSum, subject) => subjectSum + (subject.enrolledStudents ?? 0), 0)
-      }, 0)
+      return sum + course.blocks.reduce((blockSum, block) => blockSum + getBlockRosterCount(block), 0)
     }, 0)
 
     return {
@@ -840,9 +908,7 @@ function CourseManagement({ courses, loading, error, onRefresh, onOpenSubjectDet
       return sum + course.blocks.reduce((blockSum, block) => blockSum + block.subjects.length, 0)
     }, 0)
     const students = filteredCourses.reduce((sum, course) => {
-      return sum + course.blocks.reduce((blockSum, block) => {
-        return blockSum + block.subjects.reduce((subjectSum, subject) => subjectSum + (subject.enrolledStudents ?? 0), 0)
-      }, 0)
+      return sum + course.blocks.reduce((blockSum, block) => blockSum + getBlockRosterCount(block), 0)
     }, 0)
 
     return {
@@ -1089,23 +1155,19 @@ function CourseManagement({ courses, loading, error, onRefresh, onOpenSubjectDet
         <div className={`professor-course-grid ${layoutMode === 'list' ? 'professor-course-layout-list' : 'professor-course-layout-grid'}`}>
           {filteredCourses.map((course) => {
             const courseSubjectCount = course.blocks.reduce((sum, block) => sum + block.subjects.length, 0)
-            const courseStudentCount = course.blocks.reduce((sum, block) => {
-              return sum + block.subjects.reduce((subjectSum, subject) => subjectSum + (subject.enrolledStudents ?? 0), 0)
-            }, 0)
 
             return (
             <div key={course.courseCode} className="placeholder-card professor-course-card">
               <div className="professor-course-header">
                 <h3>{toCourseDisplayLabel(course.courseCode)}</h3>
                 <span className="professor-course-summary">
-                  {course.blocks.length} block(s) - {courseSubjectCount} subject(s) - {courseStudentCount} student(s)
+                  {course.blocks.length} block(s) - {courseSubjectCount} subject(s)
                 </span>
               </div>
 
               <div className="professor-block-list">
                 {course.blocks.map((block) => {
                   const blockCode = formatBlockCode(course.courseCode, block.sectionCode)
-                  const blockStudentCount = block.subjects.reduce((sum, subject) => sum + (subject.enrolledStudents ?? 0), 0)
                   return (
                   <div
                     key={`${course.courseCode}-${block.sectionCode}-${block.semester}-${block.schoolYear}`}
@@ -1121,7 +1183,6 @@ function CourseManagement({ courses, loading, error, onRefresh, onOpenSubjectDet
                       </div>
                       <div className="professor-block-metrics">
                         <span>{block.subjects.length} subject(s)</span>
-                        <span>{blockStudentCount} student(s)</span>
                       </div>
                     </div>
                     <div className="professor-subject-list">
@@ -1343,15 +1404,925 @@ function ProfessorSubjectDetail({ detail, onBack }: ProfessorSubjectDetailProps)
   )
 }
 
+void CourseManagementLegacy
+
+function CourseManagement({
+  professorName,
+  courses,
+  loading,
+  error,
+  onRefresh,
+  onOpenSubjectDetail,
+  onOpenRosterClass,
+  onOpenGradesView
+}: CourseManagementProps) {
+  const [layoutMode, setLayoutMode] = useState<'grid' | 'list'>('grid')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [courseFilter, setCourseFilter] = useState('all')
+  const [semesterFilter, setSemesterFilter] = useState('all')
+  const [schoolYearFilter, setSchoolYearFilter] = useState('all')
+  const [subjectSort, setSubjectSort] = useState<'default' | 'code' | 'students'>('default')
+  const [showEnrolledOnly, setShowEnrolledOnly] = useState(false)
+  const [showUsageTips, setShowUsageTips] = useState(false)
+  const [expandedBlockKeys, setExpandedBlockKeys] = useState<string[]>([])
+  const [openListActionMenuId, setOpenListActionMenuId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const storedLayout = window.localStorage.getItem('professor-course-layout')
+    if (storedLayout === 'grid' || storedLayout === 'list') {
+      setLayoutMode(storedLayout)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem('professor-course-layout', layoutMode)
+  }, [layoutMode])
+
+  useEffect(() => {
+    if (!showUsageTips || typeof window === 'undefined') return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowUsageTips(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [showUsageTips])
+
+  useEffect(() => {
+    if (!openListActionMenuId) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('.professor-subject-action-menu')) return
+      setOpenListActionMenuId(null)
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpenListActionMenuId(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleEscape)
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [openListActionMenuId])
+
+  useEffect(() => {
+    if (layoutMode !== 'list') {
+      setOpenListActionMenuId(null)
+    }
+  }, [layoutMode])
+
+  const toCourseDisplayLabel = (value: string | number) => {
+    const raw = String(value ?? '').trim()
+    if (!raw) return 'N/A'
+
+    const normalized = raw.toUpperCase().replace(/\s+/g, '').replace(/_/g, '-')
+    const labelByCode: Record<string, string> = {
+      '101': 'BEED',
+      '102': 'BSED-ENGLISH',
+      '103': 'BSED-MATH',
+      '201': 'BSBA-HRM'
+    }
+
+    if (labelByCode[normalized]) return labelByCode[normalized]
+    if (normalized.includes('BEED')) return 'BEED'
+    if (normalized.includes('BSED-ENGLISH') || normalized === 'ENGLISH') return 'BSED-ENGLISH'
+    if (normalized.includes('BSED-MATH') || normalized === 'MATH' || normalized === 'MATHEMATICS') return 'BSED-MATH'
+    if (normalized.includes('BSBA-HRM') || normalized === 'HRM') return 'BSBA-HRM'
+    return raw
+  }
+
+  const getSectionSuffix = (sectionCode: string) => {
+    const text = String(sectionCode || '').trim()
+    if (!text) return 'TBA'
+    const parts = text.split('-').map((part) => part.trim()).filter(Boolean)
+    if (parts.length >= 2) {
+      const last = parts[parts.length - 1]
+      const prev = parts[parts.length - 2]
+
+      if (/^\d+$/.test(prev) && /^[A-Za-z]+$/.test(last)) {
+        return `${prev}${last.toUpperCase()}`
+      }
+
+      return last.toUpperCase()
+    }
+
+    return text.toUpperCase()
+  }
+
+  const formatBlockCode = (courseCode: string, sectionCode: string) => {
+    const displayCourseCode = toCourseDisplayLabel(courseCode)
+    const sectionSuffix = getSectionSuffix(sectionCode)
+    return String(`${displayCourseCode}-${sectionSuffix}`)
+  }
+
+  const getBlockKey = (courseCode: string, block: ProfessorAssignedBlock) => {
+    return [courseCode, block.sectionId || block.sectionCode, block.semester, block.schoolYear].join('|')
+  }
+
+  const getRosterClassKey = (courseCode: string, block: ProfessorAssignedBlock, subject: ProfessorAssignedSubject) => {
+    if (!block.sectionId) return ''
+    return `${courseCode}|${block.sectionId}|${subject.subjectId}`
+  }
+
+  const getBlockRosterCount = (block: ProfessorAssignedBlock) => {
+    const counts = block.subjects
+      .map((subject) => Number(subject.enrolledStudents ?? 0))
+      .filter((count) => Number.isFinite(count) && count >= 0)
+
+    if (counts.length === 0) return 0
+
+    const frequency = new Map<number, number>()
+    counts.forEach((count) => {
+      frequency.set(count, (frequency.get(count) || 0) + 1)
+    })
+
+    let bestCount = counts[0]
+    let bestFrequency = frequency.get(bestCount) || 0
+
+    frequency.forEach((countFrequency, countValue) => {
+      if (countFrequency > bestFrequency || (countFrequency === bestFrequency && countValue > bestCount)) {
+        bestCount = countValue
+        bestFrequency = countFrequency
+      }
+    })
+
+    return bestCount
+  }
+
+  const formatStudentCountLabel = (count: number) => `${count} student${count === 1 ? '' : 's'}`
+
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours()
+    if (hour < 12) return 'Good morning'
+    if (hour < 18) return 'Good afternoon'
+    return 'Good evening'
+  }, [])
+
+  const professorFirstName = useMemo(() => {
+    const trimmed = String(professorName || '').trim()
+    if (!trimmed) return 'Professor'
+    return trimmed.split(/\s+/)[0]
+  }, [professorName])
+
+  const semesterOptions = useMemo(() => {
+    const semesters = new Set<string>()
+    courses.forEach((course) => {
+      course.blocks.forEach((block) => {
+        if (block.semester) {
+          semesters.add(block.semester)
+        }
+      })
+    })
+    return Array.from(semesters).sort((a, b) => a.localeCompare(b))
+  }, [courses])
+
+  const schoolYearOptions = useMemo(() => {
+    const years = new Set<string>()
+    courses.forEach((course) => {
+      course.blocks.forEach((block) => {
+        if (block.schoolYear) {
+          years.add(block.schoolYear)
+        }
+      })
+    })
+    return Array.from(years).sort((a, b) => b.localeCompare(a))
+  }, [courses])
+
+  const courseOptions = useMemo(() => {
+    const uniqueCodes = Array.from(
+      new Set(courses.map((course) => String(course.courseCode || '').trim()).filter(Boolean))
+    )
+    return uniqueCodes
+      .map((courseCode) => ({
+        value: courseCode,
+        label: toCourseDisplayLabel(courseCode)
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [courses])
+
+  const normalizedQuery = searchQuery.trim().toLowerCase()
+
+  const filteredCourses = useMemo(() => {
+    return courses
+      .filter((course) => courseFilter === 'all' || course.courseCode === courseFilter)
+      .map((course) => {
+        const displayCourseCode = toCourseDisplayLabel(course.courseCode)
+        const courseMatch = normalizedQuery
+          ? `${course.courseCode} ${displayCourseCode}`.toLowerCase().includes(normalizedQuery)
+          : false
+
+        const blocks = course.blocks
+          .filter((block) => semesterFilter === 'all' || block.semester === semesterFilter)
+          .filter((block) => schoolYearFilter === 'all' || block.schoolYear === schoolYearFilter)
+          .map((block) => {
+            const blockCode = formatBlockCode(course.courseCode, block.sectionCode)
+            const blockMatch = normalizedQuery
+              ? [
+                  block.sectionCode,
+                  blockCode,
+                  block.semester,
+                  block.schoolYear,
+                  block.yearLevel ? `Year ${block.yearLevel}` : ''
+                ].join(' ').toLowerCase().includes(normalizedQuery)
+              : false
+
+            let subjects = normalizedQuery && !courseMatch && !blockMatch
+              ? block.subjects.filter((subject) => {
+                return [
+                  subject.code,
+                  subject.title,
+                  subject.schedule,
+                  subject.room
+                ].join(' ').toLowerCase().includes(normalizedQuery)
+              })
+              : block.subjects
+
+            if (showEnrolledOnly) {
+              subjects = subjects.filter((subject) => (subject.enrolledStudents ?? 0) > 0)
+            }
+
+            if (subjectSort === 'code') {
+              subjects = [...subjects].sort((a, b) => String(a.code || '').localeCompare(String(b.code || '')))
+            } else if (subjectSort === 'students') {
+              subjects = [...subjects].sort((a, b) => (b.enrolledStudents ?? 0) - (a.enrolledStudents ?? 0))
+            }
+
+            return { ...block, subjects }
+          })
+          .filter((block) => block.subjects.length > 0)
+
+        return {
+          ...course,
+          blocks
+        }
+      })
+      .filter((course) => course.blocks.length > 0)
+  }, [courses, courseFilter, semesterFilter, schoolYearFilter, normalizedQuery, showEnrolledOnly, subjectSort])
+
+  const totalStats = useMemo(() => {
+    const blocks = courses.reduce((sum, course) => sum + course.blocks.length, 0)
+    const subjects = courses.reduce((sum, course) => {
+      return sum + course.blocks.reduce((blockSum, block) => blockSum + block.subjects.length, 0)
+    }, 0)
+    const students = courses.reduce((sum, course) => {
+      return sum + course.blocks.reduce((blockSum, block) => {
+        return blockSum + block.subjects.reduce((subjectSum, subject) => subjectSum + (subject.enrolledStudents ?? 0), 0)
+      }, 0)
+    }, 0)
+
+    return {
+      courses: courses.length,
+      blocks,
+      subjects,
+      students
+    }
+  }, [courses])
+
+  const visibleStats = useMemo(() => {
+    const blocks = filteredCourses.reduce((sum, course) => sum + course.blocks.length, 0)
+    const subjects = filteredCourses.reduce((sum, course) => {
+      return sum + course.blocks.reduce((blockSum, block) => blockSum + block.subjects.length, 0)
+    }, 0)
+    const students = filteredCourses.reduce((sum, course) => {
+      return sum + course.blocks.reduce((blockSum, block) => {
+        return blockSum + block.subjects.reduce((subjectSum, subject) => subjectSum + (subject.enrolledStudents ?? 0), 0)
+      }, 0)
+    }, 0)
+
+    return {
+      courses: filteredCourses.length,
+      blocks,
+      subjects,
+      students
+    }
+  }, [filteredCourses])
+
+  const hasActiveFilters = Boolean(normalizedQuery)
+    || courseFilter !== 'all'
+    || semesterFilter !== 'all'
+    || schoolYearFilter !== 'all'
+    || subjectSort !== 'default'
+    || showEnrolledOnly
+
+  useEffect(() => {
+    const allKeys = filteredCourses.flatMap((course) => course.blocks.map((block) => getBlockKey(course.courseCode, block)))
+    const defaultKeys = filteredCourses.flatMap((course) => course.blocks.slice(0, 1).map((block) => getBlockKey(course.courseCode, block)))
+
+    setExpandedBlockKeys((current) => {
+      const validKeys = new Set(allKeys)
+      const kept = current.filter((key) => validKeys.has(key))
+
+      if (allKeys.length === 0) {
+        return []
+      }
+
+      if (hasActiveFilters) {
+        return allKeys
+      }
+
+      if (kept.length > 0) {
+        return kept
+      }
+
+      return defaultKeys
+    })
+  }, [filteredCourses, hasActiveFilters])
+
+  const clearFilters = () => {
+    setSearchQuery('')
+    setCourseFilter('all')
+    setSemesterFilter('all')
+    setSchoolYearFilter('all')
+    setSubjectSort('default')
+    setShowEnrolledOnly(false)
+  }
+
+  const toggleBlock = (blockKey: string) => {
+    setExpandedBlockKeys((current) => {
+      if (current.includes(blockKey)) {
+        return current.filter((key) => key !== blockKey)
+      }
+      return [...current, blockKey]
+    })
+  }
+
+  const subjectRows = useMemo(() => {
+    return filteredCourses.flatMap((course) => {
+      const courseLabel = toCourseDisplayLabel(course.courseCode)
+
+      return course.blocks.flatMap((block) => {
+        const blockCode = formatBlockCode(course.courseCode, block.sectionCode)
+        const blockMeta = [
+          block.semester,
+          block.schoolYear,
+          block.yearLevel ? `Year ${block.yearLevel}` : ''
+        ].filter(Boolean).join(' • ')
+
+        return block.subjects.map((subject) => {
+          const scheduleText = subject.schedule?.trim() ? subject.schedule : 'TBA'
+          const roomText = subject.room?.trim() ? subject.room : 'TBA'
+          const classKey = getRosterClassKey(course.courseCode, block, subject)
+
+          return {
+            key: [course.courseCode, block.sectionId || block.sectionCode, subject.subjectId].join('|'),
+            courseCode: course.courseCode,
+            courseLabel,
+            block,
+            blockCode,
+            blockMeta,
+            subject,
+            scheduleText,
+            roomText,
+            classKey,
+            canOpenRoster: Boolean(classKey)
+          }
+        })
+      })
+    })
+  }, [filteredCourses])
+
+  useEffect(() => {
+    if (!openListActionMenuId) return
+    if (!subjectRows.some((row) => row.key === openListActionMenuId)) {
+      setOpenListActionMenuId(null)
+    }
+  }, [subjectRows, openListActionMenuId])
+
+  const getSubjectActionItems = (
+    params: {
+      courseCode: string
+      blockCode: string
+      block: ProfessorAssignedBlock
+      subject: ProfessorAssignedSubject
+      classKey: string
+      canOpenRoster: boolean
+    }
+  ) => {
+    return [
+      {
+        key: 'open',
+        label: 'Open Class',
+        icon: Eye,
+        isPrimary: true,
+        onSelect: () => onOpenSubjectDetail({
+          courseCode: params.courseCode,
+          blockCode: params.blockCode,
+          sectionId: params.block.sectionId,
+          sectionCode: params.block.sectionCode,
+          semester: params.block.semester,
+          schoolYear: params.block.schoolYear,
+          subject: params.subject
+        })
+      },
+      {
+        key: 'students',
+        label: 'Students',
+        icon: GraduationCap,
+        disabled: !params.canOpenRoster,
+        onSelect: () => {
+          if (params.canOpenRoster) {
+            onOpenRosterClass(params.classKey, 'students')
+          }
+        }
+      },
+      {
+        key: 'attendance',
+        label: 'Attendance',
+        icon: CalendarDays,
+        disabled: !params.canOpenRoster,
+        onSelect: () => {
+          if (params.canOpenRoster) {
+            onOpenRosterClass(params.classKey, 'attendance')
+          }
+        }
+      },
+      {
+        key: 'grades',
+        label: 'Grades',
+        icon: Award,
+        onSelect: onOpenGradesView
+      }
+    ]
+  }
+
+  const renderSubjectActionMenu = (
+    menuId: string,
+    params: {
+      courseCode: string
+      blockCode: string
+      block: ProfessorAssignedBlock
+      subject: ProfessorAssignedSubject
+      classKey: string
+      canOpenRoster: boolean
+    },
+    options?: {
+      menuClassName?: string
+      align?: 'start' | 'end'
+    }
+  ) => {
+    const isOpen = openListActionMenuId === menuId
+    const actionItems = getSubjectActionItems(params)
+    const menuClassName = ['professor-subject-action-menu', options?.menuClassName].filter(Boolean).join(' ')
+    const dropdownClassName = [
+      'professor-subject-action-dropdown',
+      options?.align === 'start' ? 'align-start' : ''
+    ].filter(Boolean).join(' ')
+
+    return (
+      <div className={menuClassName}>
+        <button
+          type="button"
+          className={`professor-subject-action-menu-toggle ${isOpen ? 'open' : ''}`}
+          onClick={() => setOpenListActionMenuId((current) => current === menuId ? null : menuId)}
+          aria-haspopup="menu"
+          aria-expanded={isOpen}
+        >
+          <span>Actions</span>
+          <MoreHorizontal size={16} />
+        </button>
+
+        {isOpen && (
+          <div className={dropdownClassName} role="menu" aria-label={`Actions for ${params.subject.title || params.subject.code || 'subject'}`}>
+            {actionItems.map((item) => {
+              const Icon = item.icon
+
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`professor-subject-action-dropdown-item ${item.isPrimary ? 'is-primary' : ''}`}
+                  onClick={() => {
+                    setOpenListActionMenuId(null)
+                    item.onSelect()
+                  }}
+                  disabled={item.disabled}
+                >
+                  <Icon size={14} />
+                  {item.label}
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="professor-section professor-course-management">
+      <div className="placeholder-card professor-course-hero">
+        <div className="professor-course-hero-copy">
+          <span className="professor-course-hero-eyebrow">{greeting}, {professorFirstName}</span>
+          <h2 className="professor-section-title">My Courses</h2>
+          <p className="professor-section-desc">
+            Review your teaching load by course, expand a block only when you need it, and jump straight into your class tools.
+          </p>
+        </div>
+        <div className="professor-course-hero-actions">
+          <button type="button" className="professor-course-help-trigger" onClick={() => setShowUsageTips(true)}>
+            <Info size={16} />
+            <span>Usage tips</span>
+          </button>
+          <button className="professor-btn" onClick={() => void onRefresh()} disabled={loading}>
+            {loading ? 'Loading...' : 'Refresh Assignments'}
+          </button>
+        </div>
+      </div>
+
+      <div className="placeholder-card professor-course-stats professor-course-statbar">
+        {[
+          { label: 'Courses', value: visibleStats.courses, total: totalStats.courses },
+          { label: 'Blocks', value: visibleStats.blocks, total: totalStats.blocks },
+          { label: 'Subjects', value: visibleStats.subjects, total: totalStats.subjects },
+          { label: 'Students', value: visibleStats.students, total: totalStats.students }
+        ].map((stat) => (
+          <div key={stat.label} className="professor-course-stat professor-course-statbar-item">
+            <span>{stat.label}</span>
+            <strong>{stat.value}</strong>
+            <small>{stat.value === stat.total ? `${stat.total} total` : `${stat.total} total assigned`}</small>
+          </div>
+        ))}
+      </div>
+
+      <div className="placeholder-card professor-course-filter-shell">
+        <div className="professor-course-controls professor-course-filter-row">
+          <label className="professor-course-search">
+            <Search size={16} />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search subject code, title, schedule, room, or block..."
+              aria-label="Search assigned subjects"
+            />
+          </label>
+          <div className="professor-course-filter-group">
+            <label className="professor-course-select">
+              <span>Course</span>
+              <select value={courseFilter} onChange={(event) => setCourseFilter(event.target.value)}>
+                <option value="all">All courses</option>
+                {courseOptions.map((course) => (
+                  <option key={course.value} value={course.value}>{course.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="professor-course-select">
+              <span>Semester</span>
+              <select value={semesterFilter} onChange={(event) => setSemesterFilter(event.target.value)}>
+                <option value="all">All semesters</option>
+                {semesterOptions.map((semester) => (
+                  <option key={semester} value={semester}>{semester}</option>
+                ))}
+              </select>
+            </label>
+            <label className="professor-course-select">
+              <span>School year</span>
+              <select value={schoolYearFilter} onChange={(event) => setSchoolYearFilter(event.target.value)}>
+                <option value="all">All school years</option>
+                {schoolYearOptions.map((year) => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+            </label>
+            <label className="professor-course-select professor-course-sort">
+              <span>Sort</span>
+              <select
+                value={subjectSort}
+                onChange={(event) => setSubjectSort(event.target.value as 'default' | 'code' | 'students')}
+              >
+                <option value="default">Default</option>
+                <option value="code">Subject code</option>
+                <option value="students">Student count</option>
+              </select>
+            </label>
+            <label className="professor-course-toggle">
+              <input
+                type="checkbox"
+                checked={showEnrolledOnly}
+                onChange={(event) => setShowEnrolledOnly(event.target.checked)}
+              />
+              <span>Only show classes with enrolled students</span>
+            </label>
+            {hasActiveFilters && (
+              <button type="button" className="professor-btn professor-btn-secondary" onClick={clearFilters}>
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {hasActiveFilters && (
+        <div className="professor-active-filters" aria-label="Active filters">
+          {normalizedQuery && (
+            <button type="button" className="professor-filter-chip" onClick={() => setSearchQuery('')}>
+              Search: "{searchQuery.trim()}" x
+            </button>
+          )}
+          {courseFilter !== 'all' && (
+            <button type="button" className="professor-filter-chip" onClick={() => setCourseFilter('all')}>
+              Course: {toCourseDisplayLabel(courseFilter)} x
+            </button>
+          )}
+          {semesterFilter !== 'all' && (
+            <button type="button" className="professor-filter-chip" onClick={() => setSemesterFilter('all')}>
+              Semester: {semesterFilter} x
+            </button>
+          )}
+          {schoolYearFilter !== 'all' && (
+            <button type="button" className="professor-filter-chip" onClick={() => setSchoolYearFilter('all')}>
+              School Year: {schoolYearFilter} x
+            </button>
+          )}
+          {subjectSort !== 'default' && (
+            <button type="button" className="professor-filter-chip" onClick={() => setSubjectSort('default')}>
+              Sort: {subjectSort === 'code' ? 'Subject code' : 'Student count'} x
+            </button>
+          )}
+          {showEnrolledOnly && (
+            <button type="button" className="professor-filter-chip" onClick={() => setShowEnrolledOnly(false)}>
+              Enrolled only x
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="professor-course-toolbar">
+        <div className="professor-course-results">
+          <strong>{visibleStats.subjects} subject(s)</strong>
+          <span>Across {visibleStats.blocks} block(s) in {visibleStats.courses} course(s)</span>
+        </div>
+        <div className="professor-course-toolbar-start">
+          <div className="professor-layout-toggle" role="group" aria-label="Subject card layout mode">
+            <button
+              type="button"
+              className={`professor-layout-btn ${layoutMode === 'grid' ? 'is-active' : ''}`}
+              onClick={() => setLayoutMode('grid')}
+            >
+              <Grid3X3 size={14} />
+              Grid
+            </button>
+            <button
+              type="button"
+              className={`professor-layout-btn ${layoutMode === 'list' ? 'is-active' : ''}`}
+              onClick={() => setLayoutMode('list')}
+            >
+              <List size={14} />
+              List
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {error && (
+        <p className="professor-data-error">{error}</p>
+      )}
+
+      {loading && courses.length === 0 ? (
+        <div className="placeholder-card professor-empty-state">
+          <h3>Loading your teaching load</h3>
+          <p>Please wait while your assigned courses and blocks are being prepared.</p>
+        </div>
+      ) : !loading && courses.length === 0 ? (
+        <div className="placeholder-card professor-empty-state">
+          <h3>No assigned blocks yet</h3>
+          <p>The registrar has not assigned subjects or block sections to this professor yet.</p>
+        </div>
+      ) : !loading && filteredCourses.length === 0 ? (
+        <div className="placeholder-card professor-empty-state">
+          <h3>No matching subjects found</h3>
+          <p>Try another keyword, change the sort, or clear the current filters.</p>
+          {hasActiveFilters && (
+            <button type="button" className="professor-btn professor-btn-secondary" onClick={clearFilters}>
+              Reset filters
+            </button>
+          )}
+        </div>
+      ) : layoutMode === 'list' ? (
+        <section className="professor-course-list" aria-label="Assigned subjects list">
+          <div className="professor-course-list-header" aria-hidden="true">
+            <span className="professor-course-list-heading professor-course-list-heading-code">Subject Code</span>
+            <span className="professor-course-list-heading professor-course-list-heading-title">Subject Title</span>
+            <span className="professor-course-list-heading professor-course-list-heading-course">Course</span>
+            <span className="professor-course-list-heading professor-course-list-heading-block">Block</span>
+            <span className="professor-course-list-heading professor-course-list-heading-schedule">Schedule</span>
+            <span className="professor-course-list-heading professor-course-list-heading-room">Room</span>
+            <span className="professor-course-list-heading professor-course-list-heading-actions">Actions</span>
+          </div>
+          <div className="professor-course-list-body">
+            {subjectRows.map((row) => (
+              <article key={row.key} className="professor-course-list-row">
+                <div className="professor-course-list-cell professor-course-list-cell-code" data-label="Subject Code">
+                  <span className="professor-course-list-code">{row.subject.code || 'N/A'}</span>
+                </div>
+                <div className="professor-course-list-cell professor-course-list-cell-title" data-label="Subject Title">
+                  <div className="professor-course-list-primary">
+                    <strong className="professor-course-list-title">{row.subject.title || 'Untitled subject'}</strong>
+                    <span className="professor-course-list-inline-meta">
+                      {row.courseLabel} • {row.blockCode}
+                    </span>
+                  </div>
+                </div>
+                <div className="professor-course-list-cell professor-course-list-cell-course" data-label="Course">
+                  <span className="professor-course-list-text">{row.courseLabel}</span>
+                </div>
+                <div className="professor-course-list-cell professor-course-list-cell-block" data-label="Block">
+                  <div className="professor-course-list-primary">
+                    <strong className="professor-course-list-block">{row.blockCode}</strong>
+                    <span className="professor-course-list-note">{row.blockMeta}</span>
+                  </div>
+                </div>
+                <div className="professor-course-list-cell professor-course-list-cell-schedule" data-label="Schedule">
+                  <div className="professor-course-list-primary">
+                    <strong className="professor-course-list-text">{row.scheduleText}</strong>
+                    <span className="professor-course-list-mobile-note">Room {row.roomText}</span>
+                  </div>
+                </div>
+                <div className="professor-course-list-cell professor-course-list-cell-room" data-label="Room">
+                  <span className="professor-course-list-text">Room {row.roomText}</span>
+                </div>
+                <div className="professor-course-list-cell professor-course-list-cell-actions" data-label="Actions">
+                  {renderSubjectActionMenu(row.key, {
+                    courseCode: row.courseCode,
+                    blockCode: row.blockCode,
+                    block: row.block,
+                    subject: row.subject,
+                    classKey: row.classKey,
+                    canOpenRoster: row.canOpenRoster
+                  }, {
+                    menuClassName: 'professor-subject-action-menu-list',
+                    align: 'end'
+                  })}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : (
+        <div className="professor-course-grid professor-course-layout-grid">
+          {filteredCourses.map((course) => {
+            const courseSubjectCount = course.blocks.reduce((sum, block) => sum + block.subjects.length, 0)
+
+            return (
+              <article key={course.courseCode} className="placeholder-card professor-course-card">
+                <div className="professor-course-header">
+                  <div className="professor-course-header-main">
+                    <span className="professor-course-label">Course</span>
+                    <h3>{toCourseDisplayLabel(course.courseCode)}</h3>
+                  </div>
+                  <div className="professor-course-summary">
+                    <span>{course.blocks.length} block(s)</span>
+                    <span>{courseSubjectCount} subject(s)</span>
+                  </div>
+                </div>
+
+                <div className="professor-block-list">
+                  {course.blocks.map((block) => {
+                    const blockCode = formatBlockCode(course.courseCode, block.sectionCode)
+                    const blockKey = getBlockKey(course.courseCode, block)
+                    const isExpanded = expandedBlockKeys.includes(blockKey)
+                    const blockStudentCount = getBlockRosterCount(block)
+                    const blockStudentLabel = formatStudentCountLabel(blockStudentCount)
+
+                    return (
+                      <section
+                        key={`${course.courseCode}-${block.sectionCode}-${block.semester}-${block.schoolYear}`}
+                        className={`professor-block-item ${isExpanded ? 'is-expanded' : ''}`}
+                      >
+                        <button
+                          type="button"
+                          className="professor-block-toggle"
+                          onClick={() => toggleBlock(blockKey)}
+                          aria-expanded={isExpanded}
+                        >
+                          <div className="professor-block-toggle-main">
+                            <span className="professor-block-label">Block</span>
+                            <strong>{blockCode}</strong>
+                            <span className="professor-block-meta">
+                              {block.semester} • {block.schoolYear}
+                              {block.yearLevel ? ` • Year ${block.yearLevel}` : ''}
+                            </span>
+                          </div>
+                          <div className="professor-block-toggle-side">
+                            <div className="professor-block-metrics">
+                              <span>{blockStudentLabel}</span>
+                              <span>{block.subjects.length} subjects</span>
+                            </div>
+                            <ChevronRight size={16} className={`professor-block-chevron ${isExpanded ? 'is-expanded' : ''}`} />
+                          </div>
+                        </button>
+
+                        {isExpanded && (
+                          <div className="professor-subject-list">
+                            {block.subjects.map((subject) => {
+                              const scheduleText = subject.schedule?.trim() ? subject.schedule : 'TBA'
+                              const roomText = subject.room?.trim() ? subject.room : 'TBA'
+                              const classKey = getRosterClassKey(course.courseCode, block, subject)
+                              const canOpenRoster = Boolean(classKey)
+                              const subjectMenuId = [course.courseCode, block.sectionId || block.sectionCode, subject.subjectId].join('|')
+
+                              return (
+                                <article key={`${block.sectionCode}-${subject.subjectId}`} className="professor-subject-item">
+                                  <div className="professor-subject-card-head">
+                                    <div className="professor-subject-code-row">
+                                      <span className="professor-subject-code">
+                                        <BookOpen size={15} />
+                                        {subject.code || 'N/A'}
+                                      </span>
+                                    </div>
+                                    <div className="professor-subject-title">{subject.title}</div>
+                                  </div>
+
+                                  <div className="professor-subject-facts">
+                                    <span className="professor-subject-fact">
+                                      <Clock size={14} />
+                                      {scheduleText}
+                                    </span>
+                                    <span className="professor-subject-fact">
+                                      <MapPin size={14} />
+                                      Room {roomText}
+                                    </span>
+                                  </div>
+
+                                  <div className="professor-subject-actions">
+                                    {renderSubjectActionMenu(subjectMenuId, {
+                                      courseCode: course.courseCode,
+                                      blockCode,
+                                      block,
+                                      subject,
+                                      classKey,
+                                      canOpenRoster
+                                    }, {
+                                      menuClassName: 'professor-subject-action-menu-grid',
+                                      align: 'end'
+                                    })}
+                                  </div>
+                                </article>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </section>
+                    )
+                  })}
+                </div>
+              </article>
+            )
+          })}
+        </div>
+      )}
+
+      {showUsageTips && (
+        <div className="professor-help-modal-backdrop" onClick={() => setShowUsageTips(false)}>
+          <div className="professor-help-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="professor-help-modal-header">
+              <div>
+                <span className="professor-course-hero-eyebrow">Quick help</span>
+                <h3>Using My Courses</h3>
+              </div>
+              <button type="button" className="professor-btn-xs professor-btn-secondary" onClick={() => setShowUsageTips(false)}>
+                Close
+              </button>
+            </div>
+            <div className="professor-help-modal-content">
+              <p>
+                Expand a block only when you need its subjects, then use the action buttons on each card to jump into the right class workflow.
+              </p>
+              <ul>
+                <li>Use the filter row to narrow by course, semester, school year, or student enrollment.</li>
+                <li>Switch between grid and list if you want either compact scanning or a roomier subject view.</li>
+                <li>Use Open Class for a subject overview, Students for the roster, Attendance for attendance-focused roster access, and Grades for grade tools.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface StudentManagementProps {
   courses: ProfessorAssignedCourse[]
   loading: boolean
   error: string
   onRefresh: () => Promise<void>
+  initialClassKey?: string
+  entryMode?: 'students' | 'attendance'
 }
 
-function StudentManagement({ courses, loading, error, onRefresh }: StudentManagementProps) {
+function StudentManagement({ courses, loading, error, onRefresh, initialClassKey = '', entryMode = 'students' }: StudentManagementProps) {
   const [selectedClassKey, setSelectedClassKey] = useState('')
+  const [selectedSectionKey, setSelectedSectionKey] = useState('all')
   const [students, setStudents] = useState<ProfessorRosterStudent[]>([])
   const [studentsLoading, setStudentsLoading] = useState(false)
   const [studentsError, setStudentsError] = useState('')
@@ -1364,12 +2335,38 @@ function StudentManagement({ courses, loading, error, onRefresh }: StudentManage
   const formatCourseLabel = (value: string | number) => {
     const text = String(value || '').trim()
     if (!text) return ''
-    if (/^\d{3,6}$/.test(text)) return text
-    const normal = text.replace(/\s+/g, ' ').toUpperCase()
-    if (normal.includes('BACHELOR OF INFORMATION SYSTEMS')) return 'BSIS'
-    if (normal.includes('ELEMENTARY EDUCATION')) return 'BEED'
-    if (normal.includes('SECONDARY EDUCATION')) return 'BSED'
-    if (normal.includes('BA') || normal.includes('EDUCATION')) return 'BSE'
+    const normalized = text.toUpperCase().replace(/\s+/g, '').replace(/_/g, '-')
+    const labelsByCode: Record<string, string> = {
+      '101': 'BEED',
+      '102': 'BSED-ENGLISH',
+      '103': 'BSED-MATH',
+      '201': 'BSBA-HRM'
+    }
+
+    if (labelsByCode[normalized]) return labelsByCode[normalized]
+    if (normalized.includes('BEED') || normalized.includes('ELEMENTARYEDUCATION')) return 'BEED'
+    if (
+      normalized.includes('BSED-ENGLISH')
+      || normalized === 'ENGLISH'
+      || (normalized.includes('SECONDARYEDUCATION') && normalized.includes('ENGLISH'))
+    ) {
+      return 'BSED-ENGLISH'
+    }
+    if (
+      normalized.includes('BSED-MATH')
+      || normalized === 'MATH'
+      || normalized === 'MATHEMATICS'
+      || (normalized.includes('SECONDARYEDUCATION') && (normalized.includes('MATH') || normalized.includes('MATHEMATICS')))
+    ) {
+      return 'BSED-MATH'
+    }
+    if (
+      normalized.includes('BSBA-HRM')
+      || normalized === 'HRM'
+      || (normalized.includes('BSBA') && normalized.includes('HRM'))
+    ) {
+      return 'BSBA-HRM'
+    }
     return text
   }
 
@@ -1403,17 +2400,61 @@ function StudentManagement({ courses, loading, error, onRefresh }: StudentManage
     })
   }, [courses])
 
+  const sectionOptions = useMemo<ProfessorRosterSectionOption[]>(() => {
+    return courses.flatMap((course) => {
+      return course.blocks
+        .filter((block) => Boolean(block.sectionId))
+        .map((block) => ({
+          key: `${course.courseCode}|${block.sectionId}`,
+          courseCode: course.courseCode,
+          blockCode: formatBlockCode(course.courseCode, block.sectionCode),
+          sectionId: block.sectionId as string,
+          sectionCode: block.sectionCode,
+          semester: block.semester,
+          schoolYear: block.schoolYear,
+          yearLevel: block.yearLevel,
+          subjectCount: block.subjects.length
+        }))
+    })
+  }, [courses])
+
   const selectedClass = useMemo(
     () => classOptions.find((item) => item.key === selectedClassKey) || null,
     [classOptions, selectedClassKey]
   )
 
+  const selectedSection = useMemo(
+    () => sectionOptions.find((item) => item.key === selectedSectionKey) || null,
+    [sectionOptions, selectedSectionKey]
+  )
+
+  useEffect(() => {
+    if (!initialClassKey) return
+    const matchedClass = classOptions.find((item) => item.key === initialClassKey)
+    if (matchedClass) {
+      setSelectedClassKey(initialClassKey)
+      setSelectedSectionKey(`${matchedClass.courseCode}|${matchedClass.sectionId}`)
+      setSearchQuery('')
+      setStatusFilter('all')
+      setSortBy('name-asc')
+      setCurrentPage(1)
+    }
+  }, [classOptions, initialClassKey])
+
   useEffect(() => {
     const active = classOptions.some((item) => item.key === selectedClassKey)
-    if (!active) {
+    if (!active && selectedClassKey) {
       setSelectedClassKey('')
     }
   }, [classOptions, selectedClassKey])
+
+  useEffect(() => {
+    if (selectedSectionKey === 'all') return
+    const active = sectionOptions.some((item) => item.key === selectedSectionKey)
+    if (!active) {
+      setSelectedSectionKey('all')
+    }
+  }, [sectionOptions, selectedSectionKey])
 
   const getName = (student: ProfessorRosterStudent) => {
     return [student.lastName, student.firstName, student.middleName, student.suffix]
@@ -1422,14 +2463,28 @@ function StudentManagement({ courses, loading, error, onRefresh }: StudentManage
       .join(', ')
   }
 
+  const getStudentCourseDisplay = (student?: ProfessorRosterStudent | null) => {
+    const rawCourse = String(student?.course || selectedSection?.courseCode || selectedClass?.courseCode || '').trim()
+    return formatCourseLabel(rawCourse) || rawCourse || 'N/A'
+  }
+
   const normalizeCourseCode = (courseCode: string) => {
     const normalized = String(courseCode || '').trim().toUpperCase().replace(/\s+/g, '')
     if (!normalized) return ''
     if (/^\d{3,5}$/.test(normalized)) return normalized
     if (normalized.includes('BEED')) return '101'
-    if (normalized.includes('BSIS') || normalized.includes('BSEI')) return '102'
-    if (normalized.includes('BSIT')) return '103'
-    if (normalized.includes('BSBA')) return '201'
+    if (
+      normalized.includes('BSED-ENGLISH')
+      || normalized === 'ENGLISH'
+      || (normalized.includes('SECONDARYEDUCATION') && normalized.includes('ENGLISH'))
+    ) return '102'
+    if (
+      normalized.includes('BSED-MATH')
+      || normalized === 'MATH'
+      || normalized === 'MATHEMATICS'
+      || (normalized.includes('SECONDARYEDUCATION') && (normalized.includes('MATH') || normalized.includes('MATHEMATICS')))
+    ) return '103'
+    if (normalized.includes('BSBA-HRM') || normalized === 'HRM' || (normalized.includes('BSBA') && normalized.includes('HRM'))) return '201'
     return normalized.slice(0, 3) || 'COURSE'
   }
 
@@ -1460,11 +2515,18 @@ function StudentManagement({ courses, loading, error, onRefresh }: StudentManage
     return `${year}-${normalizeCourseCode(fallbackCourseCode)}-${seq}`
   }
 
+  const rosterTargets = useMemo(() => {
+    if (selectedSection) {
+      return [selectedSection]
+    }
+    return sectionOptions
+  }, [sectionOptions, selectedSection])
+
   useEffect(() => {
     let cancelled = false
 
     const fetchStudents = async () => {
-      if (!selectedClass?.sectionId) {
+      if (rosterTargets.length === 0) {
         setStudents([])
         setStudentsError('')
         return
@@ -1481,45 +2543,60 @@ function StudentManagement({ courses, loading, error, onRefresh }: StudentManage
           return
         }
 
-        const response = await fetch(`${API_URL}/api/blocks/sections/${selectedClass.sectionId}/students`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
+        const responses = await Promise.all(rosterTargets.map(async (target) => {
+          const response = await fetch(`${API_URL}/api/blocks/sections/${target.sectionId}/students`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          })
+
+          if (!response.ok) {
+            throw new Error(`Failed to fetch students: ${response.status}`)
           }
-        })
 
-        if (!response.ok) {
-          throw new Error(`Failed to fetch students: ${response.status}`)
-        }
+          const payload = await response.json().catch(() => ({}))
+          const rosterRows = Array.isArray(payload?.students) ? payload.students : []
+          return { target, rosterRows }
+        }))
 
-        const payload = await response.json().catch(() => ({}))
-        const rosterRows = Array.isArray(payload?.students) ? payload.students : []
-        const normalized = rosterRows.map((raw: any) => {
-          const yearLevel = typeof raw?.yearLevel === 'number' ? raw.yearLevel : Number(raw?.yearLevel)
-          return {
-            _id: String(raw?._id || raw?.id || ''),
-            studentNumber: formatStudentNumber(
-              raw?.studentNumber || raw?.studentId || '',
-              selectedClass.courseCode
-            ),
-            firstName: String(raw?.firstName || ''),
-            middleName: raw?.middleName ? String(raw.middleName) : '',
-            lastName: String(raw?.lastName || ''),
-            suffix: raw?.suffix ? String(raw.suffix) : '',
-            yearLevel: Number.isFinite(yearLevel) ? yearLevel : undefined,
-            studentStatus: raw?.studentStatus || raw?.status || 'Active',
-            course: raw?.course || selectedClass.courseCode || '',
-            email: raw?.email || 'Not provided',
-            contactNumber: raw?.contactNumber || 'Not provided',
-            assignedAt: raw?.assignedAt,
-            attendancePercentage: raw?.attendancePercentage,
-            latestGrade: raw?.latestGrade,
-            currentGrade: raw?.currentGrade ?? raw?.grade ?? '',
-            remarks: raw?.remarks || '',
-            attendanceRecord: Array.isArray(raw?.attendanceRecord) ? raw.attendanceRecord : undefined,
-            quizScores: Array.isArray(raw?.quizScores) ? raw.quizScores : undefined,
-            assignmentScores: Array.isArray(raw?.assignmentScores) ? raw.assignmentScores : undefined
-          } as ProfessorRosterStudent
+        const normalized = responses.flatMap(({ target, rosterRows }) => {
+          return rosterRows.map((raw: any, index: number) => {
+            const yearLevel = typeof raw?.yearLevel === 'number' ? raw.yearLevel : Number(raw?.yearLevel)
+            const rawId = String(raw?._id || raw?.id || raw?.studentNumber || raw?.studentId || index)
+            const matchedSubjectContext = selectedClass?.sectionId === target.sectionId ? selectedClass : null
+            return {
+              _id: String(raw?._id || raw?.id || ''),
+              rosterEntryKey: `${target.sectionId}-${rawId}-${index}`,
+              studentNumber: formatStudentNumber(
+                raw?.studentNumber || raw?.studentId || '',
+                target.courseCode
+              ),
+              firstName: String(raw?.firstName || ''),
+              middleName: raw?.middleName ? String(raw.middleName) : '',
+              lastName: String(raw?.lastName || ''),
+              suffix: raw?.suffix ? String(raw.suffix) : '',
+              yearLevel: Number.isFinite(yearLevel) ? yearLevel : undefined,
+              studentStatus: raw?.studentStatus || raw?.status || 'Active',
+              course: target.courseCode || raw?.course || '',
+              email: raw?.email || 'Not provided',
+              contactNumber: raw?.contactNumber || 'Not provided',
+              assignedAt: raw?.assignedAt,
+              attendancePercentage: raw?.attendancePercentage,
+              latestGrade: raw?.latestGrade,
+              currentGrade: raw?.currentGrade ?? raw?.grade ?? '',
+              remarks: raw?.remarks || '',
+              attendanceRecord: Array.isArray(raw?.attendanceRecord) ? raw.attendanceRecord : undefined,
+              quizScores: Array.isArray(raw?.quizScores) ? raw.quizScores : undefined,
+              assignmentScores: Array.isArray(raw?.assignmentScores) ? raw.assignmentScores : undefined,
+              classBlockCode: target.blockCode,
+              classSectionCode: target.sectionCode,
+              classSubjectCode: matchedSubjectContext?.subjectCode || '',
+              classSubjectTitle: matchedSubjectContext?.subjectTitle || '',
+              classSemester: target.semester,
+              classSchoolYear: target.schoolYear
+            } as ProfessorRosterStudent
+          })
         })
         if (!cancelled) {
           setStudents(normalized)
@@ -1541,7 +2618,7 @@ function StudentManagement({ courses, loading, error, onRefresh }: StudentManage
     return () => {
       cancelled = true
     }
-  }, [selectedClass?.sectionId, selectedClass?.courseCode])
+  }, [rosterTargets, selectedClass])
 
   const filteredStudents = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
@@ -1552,7 +2629,12 @@ function StudentManagement({ courses, loading, error, onRefresh }: StudentManage
         const studentName = getName(student).toLowerCase()
         return (
           studentName.includes(query) ||
-          String(student.studentNumber).toLowerCase().includes(query)
+          String(student.studentNumber).toLowerCase().includes(query) ||
+          String(student.course || '').toLowerCase().includes(query) ||
+          getStudentCourseDisplay(student).toLowerCase().includes(query) ||
+          String(student.classBlockCode || '').toLowerCase().includes(query) ||
+          String(student.classSubjectCode || '').toLowerCase().includes(query) ||
+          String(student.classSubjectTitle || '').toLowerCase().includes(query)
         )
       })
     }
@@ -1598,6 +2680,9 @@ function StudentManagement({ courses, loading, error, onRefresh }: StudentManage
 
   const totalStudents = students.length
   const hasGrades = students.some((student) => student.currentGrade || student.latestGrade)
+  const rosterScopeLabel = selectedSection ? selectedSection.blockCode : 'All assigned classes'
+  const rosterProgramCount = new Set(rosterTargets.map((target) => String(target.courseCode || '').trim()).filter(Boolean)).size
+  const rosterClassCount = rosterTargets.length
 
   const gradeTotals = students
     .map((student) => Number(student.currentGrade ?? student.latestGrade))
@@ -1605,28 +2690,33 @@ function StudentManagement({ courses, loading, error, onRefresh }: StudentManage
 
   const classAverageGrade = gradeTotals.length > 0
     ? `${(gradeTotals.reduce((sum, value) => sum + value, 0) / gradeTotals.length).toFixed(1)}%`
-    : 'â€”'
+    : 'N/A'
 
   const exportRoster = () => {
-    if (!selectedClass) {
+    if (students.length === 0) {
       return
     }
     const rows = students.map((student) => [
-      formatStudentNumber(student.studentNumber, selectedClass.courseCode),
+      formatStudentNumber(student.studentNumber, String(student.course || selectedSection?.courseCode || selectedClass?.courseCode || '')),
       getName(student),
-      String(student.course || selectedClass.courseCode),
+      getStudentCourseDisplay(student),
+      String(student.classBlockCode || selectedSection?.blockCode || selectedClass?.blockCode || 'N/A'),
       String(student.yearLevel ?? ''),
       student.email || '',
       String(student.currentGrade ?? student.latestGrade ?? ''),
       student.studentStatus || 'Active'
     ])
-    const header = ['Student ID', 'Full Name', 'Program/Course', 'Year Level', 'Email', 'Current Grade', 'Status']
+    const header = ['Student ID', 'Full Name', 'Program/Course', 'Block / Section', 'Year Level', 'Email', 'Current Grade', 'Status']
     const csv = [header, ...rows].map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\r\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `${selectedClass.subjectCode}-${selectedClass.sectionCode}-roster.csv`
+    link.download = selectedClass
+      ? `${selectedClass.subjectCode}-${selectedClass.sectionCode}-roster.csv`
+      : selectedSection
+        ? `${selectedSection.blockCode}-roster.csv`
+        : 'assigned-students-roster.csv'
     document.body.appendChild(link)
     link.click()
     link.remove()
@@ -1680,22 +2770,28 @@ function StudentManagement({ courses, loading, error, onRefresh }: StudentManage
 
       <div className="professor-roster-controls">
         <div className="professor-roster-class-select">
-          <label htmlFor="professor-class-select">Assigned Class</label>
+          <label htmlFor="professor-class-select">Block / Section Filter</label>
           <select
             id="professor-class-select"
-            value={selectedClassKey}
+            value={selectedSectionKey}
             onChange={(event) => {
-              setSelectedClassKey(event.target.value)
+              const nextValue = event.target.value
+              setSelectedSectionKey(nextValue)
+              if (nextValue === 'all') {
+                setSelectedClassKey('')
+              } else if (selectedClass && `${selectedClass.courseCode}|${selectedClass.sectionId}` !== nextValue) {
+                setSelectedClassKey('')
+              }
               setSearchQuery('')
               setStatusFilter('all')
               setSortBy('name-asc')
               setCurrentPage(1)
             }}
           >
-            <option value="">Select a course or section</option>
-            {classOptions.map((option) => (
+            <option value="all">All assigned classes</option>
+            {sectionOptions.map((option) => (
               <option key={option.key} value={option.key}>
-                {option.subjectCode} - {formatCourseLabel(option.courseCode)} {option.sectionCode}
+                {option.blockCode} - {option.subjectCount} subject(s)
               </option>
             ))}
           </select>
@@ -1706,158 +2802,164 @@ function StudentManagement({ courses, loading, error, onRefresh }: StudentManage
             type="button"
             className="professor-btn"
             onClick={exportRoster}
-            disabled={!selectedClass || students.length === 0}
+            disabled={students.length === 0}
           >
             <Download size={14} />
             Export Roster
           </button>
-          <button
-            type="button"
-            className="professor-btn professor-btn-secondary"
-            onClick={sendAnnouncement}
-            disabled={!selectedClass}
-          >
-            <Send size={14} />
-            Send Announcement to Class
-          </button>
+          {selectedClass && (
+            <button
+              type="button"
+              className="professor-btn professor-btn-secondary"
+              onClick={sendAnnouncement}
+            >
+              <Send size={14} />
+              Send Announcement to Class
+            </button>
+          )}
         </div>
       </div>
 
-      {!selectedClass ? (
-        <div className="professor-empty-state">
-          <h3>No class selected</h3>
-          <p>Select a course or section to view the student roster.</p>
+      {entryMode === 'attendance' && selectedClass && (
+        <div className="professor-inline-note">
+          Attendance quick access is open for <strong>{selectedClass.subjectCode}</strong>. Review each student profile for any attendance data currently available.
         </div>
-      ) : (
-        <>
-          <div className="professor-class-overview">
-            <div className="professor-overview-row"><span>Subject Code</span><strong>{selectedClass.subjectCode}</strong></div>
-            <div className="professor-overview-row"><span>Subject Title</span><strong>{selectedClass.subjectTitle}</strong></div>
-            <div className="professor-overview-row"><span>Section / Block</span><strong>{selectedClass.blockCode}</strong></div>
-            <div className="professor-overview-row"><span>Schedule</span><strong>{selectedClass.schedule}</strong></div>
-            <div className="professor-overview-row"><span>Semester / School Year</span><strong>{selectedClass.semester} / {selectedClass.schoolYear}</strong></div>
-            <div className="professor-overview-row"><span>Total Students</span><strong>{totalStudents}</strong></div>
-          </div>
-
-          <div className="professor-summary-grid">
-            <div className="professor-summary-card">
-              <span>Total Students</span>
-              <strong>{totalStudents}</strong>
-            </div>
-            <div className="professor-summary-card">
-              <span>Class Average Grade</span>
-              <strong>{classAverageGrade}</strong>
-              {!hasGrades && <small>not available</small>}
-            </div>
-          </div>
-
-          <div className="professor-roster-toolbar">
-            <div className="professor-roster-search">
-              <Search size={16} />
-              <input
-                type="text"
-                placeholder="Search name or student ID"
-                value={searchQuery}
-                onChange={(event) => {
-                  setSearchQuery(event.target.value)
-                  setCurrentPage(1)
-                }}
-              />
-            </div>
-            <label>
-              <span>Status</span>
-              <select
-                value={statusFilter}
-                onChange={(event) => {
-                  setStatusFilter(event.target.value as 'all' | 'active' | 'dropped')
-                  setCurrentPage(1)
-                }}
-              >
-                <option value="all">All</option>
-                <option value="active">Active</option>
-                <option value="dropped">Dropped</option>
-              </select>
-            </label>
-            <label>
-              <span>Sort</span>
-              <select
-                value={sortBy}
-                onChange={(event) => {
-                  setSortBy(event.target.value as RosterSortBy)
-                  setCurrentPage(1)
-                }}
-              >
-                <option value="name-asc">Name A-Z</option>
-                <option value="name-desc">Name Z-A</option>
-                <option value="id-asc">Student ID</option>
-                <option value="id-desc">Student ID (desc)</option>
-              </select>
-            </label>
-          </div>
-
-          <div className="professor-table-wrap">
-            <table className="professor-table">
-              <thead>
-                <tr>
-                  <th>Student ID</th>
-                  <th>Full Name</th>
-                  <th>Program / Course</th>
-                  <th>Year Level</th>
-                  <th>Email</th>
-                  <th>Current Grade</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {studentsLoading ? (
-                  <tr>
-                    <td colSpan={7}>Loading students...</td>
-                  </tr>
-                ) : studentsError ? (
-                  <tr>
-                    <td colSpan={7} className="professor-data-error">{studentsError}</td>
-                  </tr>
-                ) : currentPageStudents.length === 0 ? (
-                  <tr>
-                    <td colSpan={7}>No students are currently enrolled in this class.</td>
-                  </tr>
-                ) : (
-                  currentPageStudents.map((student) => (
-                    <tr key={student._id}>
-                      <td>{student.studentNumber}</td>
-                      <td>{getName(student)}</td>
-                      <td>{student.course || selectedClass.courseCode}</td>
-                      <td>{student.yearLevel ?? 'N/A'}</td>
-                      <td>{student.email || 'Not provided'}</td>
-                      <td>{student.currentGrade ?? student.latestGrade ?? 'â€”'}</td>
-                      <td>{student.studentStatus || student.status || 'Active'}</td>
-                      <td className="professor-table-actions">
-                        <button type="button" className="professor-btn-xs" onClick={() => setSelectedStudent(student)}>
-                          <Eye size={12} />
-                          View Profile
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {currentPageStudents.length > 0 && (
-            <div className="professor-pagination">
-              <button type="button" onClick={() => setCurrentPage((prev) => prev - 1)} disabled={!canGoPrev}>
-                Prev
-              </button>
-              <span>{`Page ${currentPage} of ${totalPages}`}</span>
-              <button type="button" onClick={() => setCurrentPage((prev) => prev + 1)} disabled={!canGoNext}>
-                Next
-              </button>
-            </div>
-          )}
-        </>
       )}
+
+      <>
+        <div className="professor-class-overview">
+          <div className="professor-overview-row"><span>Scope</span><strong>{rosterScopeLabel}</strong></div>
+          <div className="professor-overview-row"><span>Subject</span><strong>{selectedClass ? `${selectedClass.subjectCode} - ${selectedClass.subjectTitle}` : 'All subjects in view'}</strong></div>
+          <div className="professor-overview-row"><span>Schedule</span><strong>{selectedClass ? selectedClass.schedule : 'Mixed schedules'}</strong></div>
+          <div className="professor-overview-row"><span>Semester / School Year</span><strong>{selectedSection ? `${selectedSection.semester} / ${selectedSection.schoolYear}` : 'Across assigned classes'}</strong></div>
+          <div className="professor-overview-row"><span>Visible Classes</span><strong>{rosterClassCount}</strong></div>
+          <div className="professor-overview-row"><span>Total Students</span><strong>{totalStudents}</strong></div>
+        </div>
+
+        <div className="professor-summary-grid">
+          <div className="professor-summary-card">
+            <span>Total Students</span>
+            <strong>{totalStudents}</strong>
+          </div>
+          <div className="professor-summary-card">
+            <span>Programs / Courses</span>
+            <strong>{rosterProgramCount}</strong>
+          </div>
+          <div className="professor-summary-card">
+            <span>Class Average Grade</span>
+            <strong>{classAverageGrade}</strong>
+            {!hasGrades && <small>not available</small>}
+          </div>
+        </div>
+
+        <div className="professor-roster-toolbar">
+          <div className="professor-roster-search">
+            <Search size={16} />
+            <input
+              type="text"
+              placeholder="Search name, student ID, course, section, or subject"
+              value={searchQuery}
+              onChange={(event) => {
+                setSearchQuery(event.target.value)
+                setCurrentPage(1)
+              }}
+            />
+          </div>
+          <label>
+            <span>Status</span>
+            <select
+              value={statusFilter}
+              onChange={(event) => {
+                setStatusFilter(event.target.value as 'all' | 'active' | 'dropped')
+                setCurrentPage(1)
+              }}
+            >
+              <option value="all">All</option>
+              <option value="active">Active</option>
+              <option value="dropped">Dropped</option>
+            </select>
+          </label>
+          <label>
+            <span>Sort</span>
+            <select
+              value={sortBy}
+              onChange={(event) => {
+                setSortBy(event.target.value as RosterSortBy)
+                setCurrentPage(1)
+              }}
+            >
+              <option value="name-asc">Name A-Z</option>
+              <option value="name-desc">Name Z-A</option>
+              <option value="id-asc">Student ID</option>
+              <option value="id-desc">Student ID (desc)</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="professor-table-wrap">
+          <table className="professor-table">
+            <thead>
+              <tr>
+                <th>Student ID</th>
+                <th>Full Name</th>
+                <th>Program / Course</th>
+                <th>Block / Section</th>
+                <th>Year Level</th>
+                <th>Email</th>
+                <th>Current Grade</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {studentsLoading ? (
+                <tr>
+                  <td colSpan={9}>Loading students...</td>
+                </tr>
+              ) : studentsError ? (
+                <tr>
+                  <td colSpan={9} className="professor-data-error">{studentsError}</td>
+                </tr>
+              ) : currentPageStudents.length === 0 ? (
+                <tr>
+                  <td colSpan={9}>No students matched the current filters.</td>
+                </tr>
+              ) : (
+                currentPageStudents.map((student) => (
+                  <tr key={student.rosterEntryKey}>
+                    <td>{student.studentNumber}</td>
+                    <td>{getName(student)}</td>
+                    <td>{getStudentCourseDisplay(student)}</td>
+                    <td>{student.classBlockCode || selectedSection?.blockCode || selectedClass?.blockCode || 'N/A'}</td>
+                    <td>{student.yearLevel ?? 'N/A'}</td>
+                    <td>{student.email || 'Not provided'}</td>
+                    <td>{student.currentGrade ?? student.latestGrade ?? 'N/A'}</td>
+                    <td>{student.studentStatus || student.status || 'Active'}</td>
+                    <td className="professor-table-actions">
+                      <button type="button" className="professor-btn-xs" onClick={() => setSelectedStudent(student)}>
+                        <Eye size={12} />
+                        View Profile
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {currentPageStudents.length > 0 && (
+          <div className="professor-pagination">
+            <button type="button" onClick={() => setCurrentPage((prev) => prev - 1)} disabled={!canGoPrev}>
+              Prev
+            </button>
+            <span>{`Page ${currentPage} of ${totalPages}`}</span>
+            <button type="button" onClick={() => setCurrentPage((prev) => prev + 1)} disabled={!canGoNext}>
+              Next
+            </button>
+          </div>
+        )}
+      </>
 
       {selectedStudent && (
         <div className="professor-student-modal-backdrop" onClick={() => setSelectedStudent(null)}>
@@ -1872,9 +2974,10 @@ function StudentManagement({ courses, loading, error, onRefresh }: StudentManage
               <div className="professor-student-modal-grid">
                 <div><strong>Full Name:</strong> {getName(selectedStudent)}</div>
                 <div><strong>Student ID:</strong> {selectedStudent.studentNumber}</div>
-                <div><strong>Program / Course:</strong> {selectedStudent.course || selectedClass?.courseCode}</div>
+                <div><strong>Program / Course:</strong> {getStudentCourseDisplay(selectedStudent)}</div>
                 <div><strong>Year Level:</strong> {selectedStudent.yearLevel ?? 'N/A'}</div>
-                <div><strong>Block / Section:</strong> {selectedClass?.blockCode}</div>
+                <div><strong>Block / Section:</strong> {selectedStudent.classBlockCode || selectedSection?.blockCode || selectedClass?.blockCode || 'N/A'}</div>
+                <div><strong>Subject:</strong> {selectedStudent.classSubjectCode ? `${selectedStudent.classSubjectCode} - ${selectedStudent.classSubjectTitle || 'Untitled subject'}` : 'Multiple subjects in view'}</div>
                 <div><strong>Email:</strong> {selectedStudent.email || 'Not provided'}</div>
                 <div><strong>Contact Number:</strong> {selectedStudent.contactNumber || 'Not provided'}</div>
                 <div><strong>Enrollment Status:</strong> {selectedStudent.studentStatus || selectedStudent.status || 'Active'}</div>

@@ -1,3 +1,5 @@
+const fs = require('fs')
+const path = require('path')
 const SendGridEmailService = require('./sendGridEmailService')
 const SemaphoreEmailService = require('./semaphoreEmailService')
 const GmailApiEmailService = require('./gmailApiEmailService')
@@ -37,17 +39,73 @@ function getBrandBaseUrl() {
   return ''
 }
 
+function getInlineBrandLogoAsset() {
+  const candidateFiles = [
+    { filePath: path.join(__dirname, '../../public/logo-header.jpg'), filename: 'Logo.jpg', contentType: 'image/jpeg' },
+    { filePath: path.join(__dirname, '../../public/logo-header.jpg'), filename: 'logo-header.jpg', contentType: 'image/jpeg' },
+    { filePath: path.join(__dirname, '../../public/logo.svg'), filename: 'logo.svg', contentType: 'image/svg+xml' }
+  ]
+
+  for (const candidate of candidateFiles) {
+    try {
+      if (!fs.existsSync(candidate.filePath)) continue
+      const content = fs.readFileSync(candidate.filePath)
+      if (!content || content.length === 0) continue
+
+      return {
+        filename: candidate.filename,
+        contentType: candidate.contentType,
+        content: content.toString('base64')
+      }
+    } catch (error) {
+      console.error('Unable to load inline verification email logo asset.', {
+        filePath: candidate.filePath,
+        message: error?.message || 'Unknown file read error.'
+      })
+    }
+  }
+
+  return null
+}
+
+function getVerificationLogoPayload(providerKey) {
+  const inlineCapableProviders = new Set(['gmail-api', 'sendgrid'])
+  const inlineAsset = inlineCapableProviders.has(providerKey) ? getInlineBrandLogoAsset() : null
+
+  if (inlineAsset) {
+    return {
+      logoMarkup: '<img src="cid:wcc-brand-logo" alt="West Coast College" width="64" height="64" style="display:block;width:64px;height:64px;border-radius:16px;border:1px solid rgba(245,158,11,0.25);box-shadow:0 8px 18px rgba(15,23,42,0.12);object-fit:cover;" />',
+      attachments: [{
+        filename: inlineAsset.filename,
+        contentType: inlineAsset.contentType,
+        content: inlineAsset.content,
+        disposition: 'inline',
+        contentId: 'wcc-brand-logo'
+      }]
+    }
+  }
+
+  const brandBaseUrl = getBrandBaseUrl()
+  const logoUrl = brandBaseUrl ? `${brandBaseUrl}/logo-header.jpg` : ''
+  if (logoUrl) {
+    return {
+      logoMarkup: `<img src="${escapeHtmlAttribute(logoUrl)}" alt="West Coast College" width="64" height="64" style="display:block;width:64px;height:64px;border-radius:16px;border:1px solid rgba(245,158,11,0.25);box-shadow:0 8px 18px rgba(15,23,42,0.12);object-fit:cover;" />`,
+      attachments: []
+    }
+  }
+
+  return {
+    logoMarkup: '<div style="width:64px;height:64px;border-radius:16px;background:linear-gradient(135deg,#f59e0b,#b45309);color:#ffffff;font-size:24px;font-weight:800;line-height:64px;text-align:center;box-shadow:0 10px 24px rgba(180,83,9,0.25);">WCC</div>',
+    attachments: []
+  }
+}
+
 function buildVerificationEmailHtml({
+  logoMarkup,
   safeDisplayName,
   verificationCode,
   expiresLabel
 }) {
-  const brandBaseUrl = getBrandBaseUrl()
-  const logoUrl = brandBaseUrl ? `${brandBaseUrl}/Logo.jpg` : ''
-  const logoMarkup = logoUrl
-    ? `<img src="${escapeHtmlAttribute(logoUrl)}" alt="West Coast College" width="64" height="64" style="display:block;width:64px;height:64px;border-radius:16px;border:1px solid rgba(245,158,11,0.25);box-shadow:0 8px 18px rgba(15,23,42,0.12);object-fit:cover;" />`
-    : '<div style="width:64px;height:64px;border-radius:16px;background:linear-gradient(135deg,#f59e0b,#b45309);color:#ffffff;font-size:24px;font-weight:800;line-height:64px;text-align:center;box-shadow:0 10px 24px rgba(180,83,9,0.25);">WCC</div>'
-
   return [
     '<div style="margin:0;padding:32px 16px;background:#f8fafc;">',
     '<div style="max-width:600px;margin:0 auto;border:1px solid #e2e8f0;border-radius:24px;overflow:hidden;background:#ffffff;box-shadow:0 24px 60px rgba(15,23,42,0.12);font-family:Arial,sans-serif;color:#0f172a;">',
@@ -174,11 +232,19 @@ class VerificationEmailService {
       }
 
       try {
+        const { logoMarkup, attachments } = getVerificationLogoPayload(providerKey)
+        const html = buildVerificationEmailHtml({
+          logoMarkup,
+          safeDisplayName,
+          verificationCode,
+          expiresLabel
+        })
         const result = await service.sendEmail({
           to: recipientEmail,
           subject,
           text,
-          html
+          html,
+          attachments
         })
 
         return {

@@ -1219,15 +1219,15 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
                   <div className="logs-list">
                     {auditLogs.map((log) => (
                       <div key={log._id} className="log-entry">
-                        <span className="timestamp">
+                        <span className="timestamp" data-label="Timestamp">
                           {new Date(log.createdAt).toLocaleString()}
                         </span>
-                        <span className="action">{log.action}</span>
-                        <span className="user">{log.performedBy?.username || 'System'}</span>
-                        <span className={`status ${log.status.toLowerCase()}`}>
-                          {log.status}
+                        <span className="action" data-label="Action">{log.action}</span>
+                        <span className="user" data-label="User">{log.performedBy?.username || 'System'}</span>
+                        <span className={`status ${log.status.toLowerCase()}`} data-label="Status">
+                          <span className="status-pill">{log.status}</span>
                         </span>
-                        <span className="description">{log.description}</span>
+                        <span className="description" data-label="Description">{log.description}</span>
                       </div>
                     ))}
                   </div>
@@ -1331,8 +1331,8 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
               ) : blockedIPs.length === 0 ? (
                 <div className="no-logs" style={{ color: '#6b7280', padding: '2rem', textAlign: 'center' }}>No blocked IP addresses</div>
               ) : (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <div className="responsive-table-wrap" style={{ overflowX: 'auto' }}>
+                  <table className="responsive-data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
                         <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600', color: '#374151' }}>IP Address</th>
@@ -1347,9 +1347,9 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
                     <tbody>
                       {blockedIPs.map((ip) => (
                         <tr key={ip._id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                          <td style={{ padding: '0.75rem', fontFamily: 'monospace', color: '#1f2937' }}>{ip.ipAddress}</td>
-                          <td style={{ padding: '0.75rem', color: '#475569' }}>{ip.reason}</td>
-                          <td style={{ padding: '0.75rem' }}>
+                          <td data-label="IP Address" style={{ padding: '0.75rem', fontFamily: 'monospace', color: '#1f2937' }}>{ip.ipAddress}</td>
+                          <td data-label="Reason" style={{ padding: '0.75rem', color: '#475569' }}>{ip.reason}</td>
+                          <td data-label="Severity" style={{ padding: '0.75rem' }}>
                             <span style={{ 
                               padding: '0.25rem 0.75rem', 
                               borderRadius: '4px', 
@@ -1361,16 +1361,16 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
                               {ip.severity?.toUpperCase()}
                             </span>
                           </td>
-                          <td style={{ padding: '0.75rem', fontSize: '0.875rem', color: '#64748b' }}>
+                          <td data-label="Blocked At" style={{ padding: '0.75rem', fontSize: '0.875rem', color: '#64748b' }}>
                             {new Date(ip.blockedAt).toLocaleDateString()}
                           </td>
-                          <td style={{ padding: '0.75rem', fontSize: '0.875rem', color: '#64748b' }}>
+                          <td data-label="Blocked Until" style={{ padding: '0.75rem', fontSize: '0.875rem', color: '#64748b' }}>
                             {ip.expiresAt ? new Date(ip.expiresAt).toLocaleString() : 'N/A'}
                           </td>
-                          <td style={{ padding: '0.75rem', fontSize: '0.875rem', color: '#64748b' }}>
+                          <td data-label="Attempts" style={{ padding: '0.75rem', fontSize: '0.875rem', color: '#64748b' }}>
                             {Number(ip.attemptCount || 0)}
                           </td>
-                          <td style={{ padding: '0.75rem' }}>
+                          <td data-label="Action" style={{ padding: '0.75rem' }}>
                             <button 
                               onClick={() => handleUnblockIP(ip._id, ip.ipAddress)}
                               disabled={unblockingIpId === ip._id}
@@ -1398,8 +1398,8 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
                     No blocked IP audit logs yet
                   </div>
                 ) : (
-                  <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <div className="responsive-table-wrap" style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
+                    <table className="responsive-data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead>
                         <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
                           <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600', color: '#374151' }}>Timestamp</th>
@@ -1413,10 +1413,10 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
                       <tbody>
                         {blockedIpAuditLogs.map((log) => (
                           <tr key={log._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                            <td style={{ padding: '0.75rem', color: '#475569', fontSize: '0.875rem' }}>
+                            <td data-label="Timestamp" style={{ padding: '0.75rem', color: '#475569', fontSize: '0.875rem' }}>
                               {new Date(log.createdAt).toLocaleString()}
                             </td>
-                            <td style={{ padding: '0.75rem' }}>
+                            <td data-label="Action" style={{ padding: '0.75rem' }}>
                               <span
                                 style={{
                                   padding: '0.2rem 0.5rem',
@@ -1430,16 +1430,16 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
                                 {log.action}
                               </span>
                             </td>
-                            <td style={{ padding: '0.75rem', fontFamily: 'monospace', color: '#1f2937' }}>
+                            <td data-label="IP Address" style={{ padding: '0.75rem', fontFamily: 'monospace', color: '#1f2937' }}>
                               {log.resourceName || 'N/A'}
                             </td>
-                            <td style={{ padding: '0.75rem', color: '#475569' }}>
+                            <td data-label="Performed By" style={{ padding: '0.75rem', color: '#475569' }}>
                               {log.performedBy?.displayName || log.performedBy?.username || 'System'}
                             </td>
-                            <td style={{ padding: '0.75rem', color: '#475569', fontWeight: 600 }}>
+                            <td data-label="Status" style={{ padding: '0.75rem', color: '#475569', fontWeight: 600 }}>
                               {log.status}
                             </td>
-                            <td style={{ padding: '0.75rem', color: '#475569', fontSize: '0.875rem' }}>
+                            <td data-label="Description" style={{ padding: '0.75rem', color: '#475569', fontSize: '0.875rem' }}>
                               {log.description}
                             </td>
                           </tr>

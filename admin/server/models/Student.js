@@ -84,6 +84,12 @@ const studentSchema = new Schema({
     enum: ['Regular', 'Dropped', 'Returnee', 'Transferee'],
     default: 'Regular'
   },
+  lifecycleStatus: {
+    type: String,
+    enum: ['Pending', 'Enrolled', 'Not Enrolled', 'Dropped', 'Inactive', 'Graduated'],
+    default: 'Pending',
+    index: true
+  },
   enrollmentStatus: {
     type: String,
     enum: ['Enrolled', 'Not Enrolled', 'On Leave', 'Dropped'],
@@ -244,7 +250,7 @@ studentSchema.virtual('currentEnrollment', {
 // Indexes
 studentSchema.index({ lastName: 1, firstName: 1 });
 studentSchema.index({ course: 1, yearLevel: 1, section: 1 });
-studentSchema.index({ studentStatus: 1, enrollmentStatus: 1 });
+studentSchema.index({ lifecycleStatus: 1, studentStatus: 1, enrollmentStatus: 1 });
 
 // Pre-save hook to ensure student number format
 studentSchema.pre('validate', async function(next) {

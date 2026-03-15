@@ -11,7 +11,7 @@ interface LiveGraphProps {
 export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGraphProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  
+
   // Use refs to track data without triggering re-renders
   const dataRef = useRef(data)
   const animationIdRef = useRef<number | null>(null)
@@ -23,28 +23,27 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
   }, [data])
 
   // Dynamic scaling function to adjust maxValue when data approaches limits
-  const getAdjustedMaxValue = (data: number[], baseMaxValue: number) => {
-    if (data.length === 0) return baseMaxValue
-    
-    const maxDataValue = Math.max(...data)
-    const minDataValue = Math.min(...data)
+  const getAdjustedMaxValue = (values: number[], baseMaxValue: number) => {
+    if (values.length === 0) return baseMaxValue
+
+    const maxDataValue = Math.max(...values)
+    const minDataValue = Math.min(...values)
     const dataRange = maxDataValue - minDataValue
-    
-    // If max data value is close to the base maxValue (within 10%), scale up
+
+    // If max data value is close to the base maxValue (within 10%), scale up.
     if (maxDataValue >= baseMaxValue * 0.9) {
       return maxDataValue * 1.2
     }
-    
-    // If data range is very small, scale down for better visibility
+
+    // If data range is very small, scale down for better visibility.
     if (dataRange < baseMaxValue * 0.1 && maxDataValue < baseMaxValue * 0.5) {
       const scaledValue = Math.max(maxDataValue * 1.5, dataRange * 3)
       return Math.max(scaledValue, baseMaxValue * 0.2)
     }
-    
+
     return baseMaxValue
   }
 
-  // Initialize animation on mount
   useEffect(() => {
     const canvas = canvasRef.current
     const container = containerRef.current
@@ -62,43 +61,47 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
       canvas.height = height * dpr
       ctx.scale(dpr, dpr)
 
-      // Clear canvas
       ctx.clearRect(0, 0, width, height)
 
-      // Get dynamically adjusted maxValue
       const adjustedMaxValue = getAdjustedMaxValue(dataRef.current, maxValue)
+      const compact = width < 560
+      const small = width < 420
+      const leftPadding = small ? 16 : compact ? 20 : 30
+      const rightPadding = small ? 12 : 20
+      const topPadding = small ? 18 : 20
+      const titleFontSize = small ? 15 : compact ? 17 : 20
+      const valueFontSize = small ? 24 : compact ? 28 : 32
+      const trendFontSize = small ? 11 : compact ? 12 : 14
+      const axisFontSize = small ? 10 : 12
+      const chartStartY = small ? 48 : compact ? 54 : 60
+      const chartBottomReserve = small ? 74 : compact ? 92 : 120
 
-      // Professional light background with subtle gradient
       const bgGradient = ctx.createLinearGradient(0, 0, 0, height)
       bgGradient.addColorStop(0, '#f8f9fa')
       bgGradient.addColorStop(1, '#f1f3f5')
       ctx.fillStyle = bgGradient
       ctx.fillRect(0, 0, width, height)
 
-      // Subtle grid lines
       ctx.strokeStyle = 'rgba(108, 117, 125, 0.1)'
       ctx.lineWidth = 0.5
       ctx.setLineDash([5, 5])
 
-      // Horizontal grid lines only
       for (let i = 1; i < 5; i++) {
         const y = (height / 5) * i
         ctx.beginPath()
-        ctx.moveTo(30, y)
-        ctx.lineTo(width - 20, y)
+        ctx.moveTo(leftPadding, y)
+        ctx.lineTo(width - rightPadding, y)
         ctx.stroke()
       }
       ctx.setLineDash([])
 
       if (dataRef.current.length > 1) {
-        const chartWidth = width - 50
-        const chartHeight = height - 120
-        const startX = 30
-        const startY = 20
-
+        const chartWidth = Math.max(width - leftPadding - rightPadding - (small ? 16 : 18), 80)
+        const chartHeight = Math.max(height - chartStartY - chartBottomReserve, 80)
+        const startX = leftPadding
+        const startY = chartStartY
         const xStep = chartWidth / (dataRef.current.length - 1)
 
-        // Area under the line with subtle gradient
         const areaGradient = ctx.createLinearGradient(0, startY, 0, startY + chartHeight)
         areaGradient.addColorStop(0, color + '30')
         areaGradient.addColorStop(1, color + '05')
@@ -114,7 +117,6 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
         ctx.closePath()
         ctx.fill()
 
-        // Main line with smooth rendering
         ctx.strokeStyle = color
         ctx.lineWidth = 3
         ctx.lineCap = 'round'
@@ -131,12 +133,10 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
         })
         ctx.stroke()
 
-        // Last data point with pulsing glow
         const lastIndex = dataRef.current.length - 1
         const lastX = startX + lastIndex * xStep
         const lastY = startY + chartHeight - (dataRef.current[lastIndex] / adjustedMaxValue) * chartHeight
 
-        // Pulsing glow
         const pulseRadius = 12 + Math.sin(pulse) * 4
         const glowGradient = ctx.createRadialGradient(lastX, lastY, 0, lastX, lastY, pulseRadius)
         glowGradient.addColorStop(0, color + '60')
@@ -147,48 +147,48 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
         ctx.arc(lastX, lastY, pulseRadius, 0, 2 * Math.PI)
         ctx.fill()
 
-        // Center dot
         ctx.fillStyle = color
         ctx.beginPath()
         ctx.arc(lastX, lastY, 5, 0, 2 * Math.PI)
         ctx.fill()
       }
 
-      // Title
       ctx.fillStyle = '#1f2937'
-      ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+      ctx.font = `bold ${titleFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
       ctx.textAlign = 'left'
-      ctx.fillText(title, 30, 40)
+      ctx.fillText(title, leftPadding, topPadding + titleFontSize)
 
-      // Current Value
       const lastValue = dataRef.current[dataRef.current.length - 1] || 0
       ctx.fillStyle = color
-      ctx.font = 'bold 32px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+      ctx.font = `bold ${valueFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
       ctx.textAlign = 'left'
-      ctx.fillText(`${lastValue.toFixed(1)}${unit}`, 30, height - 60)
+      ctx.fillText(`${lastValue.toFixed(1)}${unit}`, leftPadding, height - (small ? 42 : compact ? 50 : 60))
 
-      // Trend
       if (dataRef.current.length > 1) {
         const trend = dataRef.current[dataRef.current.length - 1] - dataRef.current[dataRef.current.length - 2]
-        const trendPercentage = dataRef.current[dataRef.current.length - 2] ? (trend / dataRef.current[dataRef.current.length - 2]) * 100 : 0
+        const previousValue = dataRef.current[dataRef.current.length - 2]
+        const trendPercentage = previousValue ? (trend / previousValue) * 100 : 0
         const trendColor = trend > 0 ? '#10b981' : trend < 0 ? '#ef4444' : '#64748b'
-        const trendSign = trend > 0 ? '▲' : trend < 0 ? '▼' : '→'
+        const trendSign = trend > 0 ? '^' : trend < 0 ? 'v' : '->'
 
         ctx.fillStyle = trendColor
-        ctx.font = '14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+        ctx.font = `${trendFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
         ctx.textAlign = 'left'
-        ctx.fillText(`${trendSign} ${Math.abs(trend).toFixed(1)} (${Math.abs(trendPercentage).toFixed(1)}%)`, 30, height - 35)
+        ctx.fillText(
+          `${trendSign} ${Math.abs(trend).toFixed(1)} (${Math.abs(trendPercentage).toFixed(1)}%)`,
+          leftPadding,
+          height - (small ? 20 : compact ? 26 : 35)
+        )
       }
 
-      // Y-axis labels
       ctx.fillStyle = '#6b7280'
-      ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+      ctx.font = `${axisFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
       ctx.textAlign = 'right'
-      
+
       for (let i = 0; i <= 5; i++) {
-        const value = (getAdjustedMaxValue(dataRef.current, maxValue) / 5) * (5 - i)
+        const value = (adjustedMaxValue / 5) * (5 - i)
         const y = (height / 5) * i + 25
-        ctx.fillText(`${value.toFixed(1)}${unit}`, width - 15, y + 5)
+        ctx.fillText(`${value.toFixed(1)}${unit}`, width - rightPadding, y + 5)
       }
     }
 
@@ -198,11 +198,10 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
       animationIdRef.current = requestAnimationFrame(animate)
     }
 
-    // Handle resize
     const handleResize = () => {
       const newWidth = container.clientWidth
       const newHeight = container.clientHeight
-      
+
       if (newWidth > 0 && newHeight > 0) {
         width = newWidth
         height = newHeight
@@ -211,8 +210,6 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
 
     const resizeObserver = new ResizeObserver(handleResize)
     resizeObserver.observe(container)
-    
-    // Start animation
     animate()
 
     return () => {
@@ -222,14 +219,14 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
         animationIdRef.current = null
       }
     }
-  }, []) // Empty dependency array - runs only once on mount
+  }, [color, maxValue, title, unit])
 
   return (
     <div
       ref={containerRef}
       style={{
         width: '100%',
-        height: '400px',
+        height: 'clamp(240px, 52vw, 400px)',
         borderRadius: '12px',
         overflow: 'hidden',
         background: '#ffffff',

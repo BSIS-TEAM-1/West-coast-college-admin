@@ -17,6 +17,7 @@ const DOCUMENT_ALLOWED_ROLES = ['admin', 'registrar', 'faculty', 'staff', 'stude
 const STUDENT_COURSES = [101, 102, 103, 201];
 const STUDENT_SEMESTERS = ['1st', '2nd', 'Summer'];
 const STUDENT_STATUSES = ['Regular', 'Dropped', 'Returnee', 'Transferee'];
+const STUDENT_LIFECYCLE_STATUSES = ['Pending', 'Enrolled', 'Not Enrolled', 'Dropped', 'Inactive', 'Graduated'];
 const ENROLLMENT_STATUSES = ['Enrolled', 'Not Enrolled', 'On Leave', 'Dropped'];
 const STUDENT_COR_STATUSES = ['Pending', 'Received', 'Verified'];
 const SCHOLARSHIP_OPTIONS = [
@@ -32,7 +33,8 @@ const SCHOLARSHIP_OPTIONS = [
 const STUDENT_GENDERS = ['Male', 'Female', 'Other', 'Prefer not to say'];
 const STUDENT_CIVIL_STATUSES = ['Single', 'Married', 'Widowed', 'Separated', 'Divorced'];
 const subjectIdSchema = Joi.string().pattern(/^[0-9a-fA-F]{24}$/);
-const studentNumberSchema = Joi.string().pattern(/^[0-9]{4}-[A-Z]{2,6}-[0-9]{5}$/);
+const studentNumberSchema = Joi.string().pattern(/^[0-9]{4}-(?:[0-9]{3}|[A-Z][A-Z0-9-]{1,20})-[0-9]{5}$/);
+const accountUidSchema = Joi.string().trim().pattern(/^1\d{11,12}$/);
 const schoolYearSchema = Joi.string().pattern(/^\d{4}-\d{4}$/);
 const nonEmptyTrimmedString = (max = 254) => Joi.string().trim().min(1).max(max);
 const optionalTrimmedString = (max = 254) => Joi.string().trim().max(max).allow('');
@@ -53,6 +55,7 @@ const studentMutationFields = {
   semester: Joi.string().valid(...STUDENT_SEMESTERS),
   schoolYear: schoolYearSchema,
   studentStatus: Joi.string().valid(...STUDENT_STATUSES),
+  lifecycleStatus: Joi.string().valid(...STUDENT_LIFECYCLE_STATUSES),
   enrollmentStatus: Joi.string().valid(...ENROLLMENT_STATUSES),
   corStatus: Joi.string().valid(...STUDENT_COR_STATUSES),
   scholarship: Joi.string().valid(...SCHOLARSHIP_OPTIONS),
@@ -246,7 +249,7 @@ const schemas = {
       displayName: Joi.string().trim().min(1).max(254).optional(),
       accountType: Joi.string().valid(...ACCOUNT_TYPES).required(),
       password: Joi.string().min(8).max(128).required(),
-      uid: studentNumberSchema.required()
+      uid: accountUidSchema.required()
     })
   },
 
@@ -329,7 +332,7 @@ const schemas = {
         displayName: Joi.string().trim().min(1).max(254).optional(),
         accountType: Joi.string().valid(...ACCOUNT_TYPES).required(),
         password: Joi.string().min(8).max(128).required(),
-        uid: studentNumberSchema.required()
+        uid: accountUidSchema.required()
       })
     },
     updateAvatar: {
@@ -416,12 +419,26 @@ const schemas = {
     createBlockGroup: {
       body: Joi.object({
         name: Joi.string().trim().min(1).max(100).required(),
-        academicYear: Joi.string().pattern(/^\d{4}-\d{4}$/).required(),
-        semester: Joi.string().valid('1st', '2nd').required(),
-        department: Joi.string().trim().min(1).max(100).required(),
-        program: Joi.string().trim().min(1).max(100).required(),
-        yearLevel: Joi.string().valid('1st', '2nd', '3rd', '4th').required()
+        semester: Joi.string().valid('1st', '2nd', 'Summer').required(),
+        year: Joi.number().integer().min(2000).max(3000).optional(),
+        academicYear: Joi.string().pattern(/^\d{4}-\d{4}$/).optional(),
+        department: Joi.string().trim().min(1).max(100).optional(),
+        program: Joi.string().trim().min(1).max(100).optional(),
+        yearLevel: Joi.string().valid('1st', '2nd', '3rd', '4th').optional(),
+        policies: Joi.object({
+          overcapPolicy: Joi.string().valid('allow', 'deny', 'waitlist').optional(),
+          maxOvercap: Joi.number().integer().min(0).optional(),
+          allowCapacityIncrease: Joi.boolean().optional(),
+          allowAutoSectionCreation: Joi.boolean().optional()
+        }).optional()
       })
+        .or('year', 'academicYear')
+        .custom((value) => {
+          if (value.year === undefined && value.academicYear) {
+            value.year = Number(String(value.academicYear).split('-')[0]);
+          }
+          return value;
+        })
     },
     objectIdParam: {
       params: Joi.object({
@@ -431,10 +448,19 @@ const schemas = {
     },
     createSection: {
       body: Joi.object({
-        name: Joi.string().trim().min(1).max(50).required(),
-        capacity: Joi.number().integer().min(1).max(50).optional(),
+        sectionCode: Joi.string().trim().min(1).max(50).optional(),
+        name: Joi.string().trim().min(1).max(50).optional(),
+        capacity: Joi.number().integer().min(1).max(50).required(),
+        schedule: Joi.string().trim().max(255).allow('').optional(),
         subjectIds: Joi.array().items(Joi.string().pattern(/^[0-9a-fA-F]{24}$/)).optional()
       })
+        .or('sectionCode', 'name')
+        .custom((value) => {
+          if (!value.sectionCode && value.name) {
+            value.sectionCode = value.name;
+          }
+          return value;
+        })
     }
   },
 
@@ -511,7 +537,14 @@ const schemas = {
         semester: Joi.string().valid(...STUDENT_SEMESTERS).optional(),
         schoolYear: schoolYearSchema.optional(),
         studentStatus: Joi.string().valid(...STUDENT_STATUSES).optional(),
+        lifecycleStatus: Joi.string().valid(...STUDENT_LIFECYCLE_STATUSES).optional(),
         enrollmentStatus: Joi.string().valid(...ENROLLMENT_STATUSES).optional()
+      })
+    },
+    nextStudentNumber: {
+      query: Joi.object({
+        course: Joi.number().integer().valid(...STUDENT_COURSES).required(),
+        schoolYear: schoolYearSchema.required()
       })
     },
     idParam: {
@@ -554,6 +587,17 @@ const schemas = {
         room: optionalTrimmedString(100).optional(),
         semester: Joi.string().valid(...STUDENT_SEMESTERS).allow('').optional(),
         schoolYear: schoolYearSchema.allow('').optional()
+      })
+    },
+    sectionAssignments: {
+      params: Joi.object({
+        sectionId: subjectIdSchema.required()
+      })
+    },
+    sectionAssignmentTarget: {
+      params: Joi.object({
+        sectionId: subjectIdSchema.required(),
+        subjectId: subjectIdSchema.required()
       })
     }
   },

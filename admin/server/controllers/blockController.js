@@ -74,6 +74,8 @@ class BlockController {
       201: ['BSBA-HRM', 'BSBS-HRM', 'HRM']
     };
 
+    conditions.push({ studentNumber: { $regex: `-${numericCourse}-`, $options: 'i' } });
+
     const aliases = studentNumberAliasMap[numericCourse] || [];
     aliases.forEach((alias) => {
       conditions.push({ studentNumber: { $regex: `-${alias}`, $options: 'i' } });
@@ -81,6 +83,71 @@ class BlockController {
 
     return conditions;
   }
+
+  formatSchoolYearFromStartYear(value) {
+    const year = Number(value);
+    if (!Number.isFinite(year) || year < 1000) return '';
+    return `${year}-${year + 1}`;
+  }
+
+  async clearEnrollmentSubjectAssignmentsForStudents({ studentIds = [], semester = '', schoolYear = '', session = null } = {}) {
+    const validStudentObjectIds = Array.from(
+      new Set(
+        studentIds
+          .map((studentId) => String(studentId || '').trim())
+          .filter((studentId) => mongoose.Types.ObjectId.isValid(studentId))
+      )
+    ).map((studentId) => new mongoose.Types.ObjectId(studentId));
+
+    if (validStudentObjectIds.length === 0) {
+      return 0;
+    }
+
+    const enrollmentQuery = {
+      studentId: { $in: validStudentObjectIds },
+      status: { $ne: 'Dropped' }
+    };
+    if (String(semester || '').trim()) enrollmentQuery.semester = String(semester).trim();
+    if (String(schoolYear || '').trim()) enrollmentQuery.schoolYear = String(schoolYear).trim();
+
+    let enrollmentQueryBuilder = Enrollment.find(enrollmentQuery);
+    if (session) enrollmentQueryBuilder = enrollmentQueryBuilder.session(session);
+    const enrollments = await enrollmentQueryBuilder;
+
+    let updatedEnrollments = 0;
+    for (const enrollment of enrollments) {
+      let changed = false;
+      (Array.isArray(enrollment.subjects) ? enrollment.subjects : []).forEach((entry) => {
+        if (String(entry?.status || '').toLowerCase() === 'dropped') return;
+
+        const currentInstructor = String(entry?.instructor || '').trim();
+        const currentSchedule = String(entry?.schedule || '').trim();
+        const currentRoom = String(entry?.room || '').trim();
+        const needsReset = (
+          (currentInstructor && !/^TBA$/i.test(currentInstructor)) ||
+          (currentSchedule && !/^TBA$/i.test(currentSchedule)) ||
+          (currentRoom && !/^TBA$/i.test(currentRoom))
+        );
+
+        if (!needsReset) return;
+
+        entry.instructor = 'TBA';
+        entry.schedule = 'TBA';
+        entry.room = 'TBA';
+        entry.dateModified = new Date();
+        changed = true;
+      });
+
+      if (changed) {
+        enrollment.markModified('subjects');
+        await enrollment.save(session ? { session } : undefined);
+        updatedEnrollments += 1;
+      }
+    }
+
+    return updatedEnrollments;
+  }
+
   extractYearLevelFromGroupName(groupName) {
     const match = String(groupName || '').match(/(\d+)(?!.*\d)/);
     if (!match) return null;
@@ -303,12 +370,18 @@ class BlockController {
         const waitlistEntries = await SectionWaitlist.find({
           sectionId: { $in: sectionIds }
         }).select('_id studentId sectionId');
+        const loggedStudentIds = await BlockActionLog.distinct('studentId', {
+          sectionId: { $in: sectionIds }
+        });
 
-        const studentIdSet = new Set(
-          [...assignments, ...waitlistEntries]
+        const studentIdSet = new Set([
+          ...[...assignments, ...waitlistEntries]
             .map((entry) => String(entry.studentId || '').trim())
+            .filter(Boolean),
+          ...loggedStudentIds
+            .map((studentId) => String(studentId || '').trim())
             .filter(Boolean)
-        );
+        ]);
 
         const validStudentIds = Array.from(studentIdSet).filter((studentId) =>
           mongoose.Types.ObjectId.isValid(studentId)
@@ -339,6 +412,28 @@ class BlockController {
         if (assignedCount > 0 || waitlistCount > 0) {
           return res.status(409).json({
             error: `Cannot delete block. It still has ${assignedCount} assigned/waitlisted and ${waitlistCount} waitlisted record(s).`
+          });
+        }
+
+        const schoolYear = this.formatSchoolYearFromStartYear(group.year);
+        const stillAssignedStudentIds = validStudentIds.length > 0
+          ? await StudentBlockAssignment.find({
+              studentId: { $in: validStudentIds },
+              status: 'ASSIGNED',
+              ...(group.semester ? { semester: group.semester } : {}),
+              ...(Number.isFinite(Number(group.year)) ? { year: Number(group.year) } : {})
+            }).distinct('studentId')
+          : [];
+        const stillAssignedStudentIdSet = new Set(
+          stillAssignedStudentIds.map((studentId) => String(studentId || '').trim()).filter(Boolean)
+        );
+        const studentIdsToCleanup = validStudentIds.filter((studentId) => !stillAssignedStudentIdSet.has(studentId));
+
+        if (studentIdsToCleanup.length > 0) {
+          await this.clearEnrollmentSubjectAssignmentsForStudents({
+            studentIds: studentIdsToCleanup,
+            semester: group.semester,
+            schoolYear
           });
         }
 
@@ -871,6 +966,27 @@ class BlockController {
       const studentSnapshot = await Student.findById(normalizedStudentId)
         .select('_id schoolYear semester')
         .session(session);
+      const targetSchoolYear = String(
+        studentSnapshot?.schoolYear || this.formatSchoolYearFromStartYear(normalizedYear) || ''
+      ).trim();
+      const targetSemester = assignmentSemester || String(studentSnapshot?.semester || '').trim();
+
+      const clearedTargetEnrollments = await this.clearEnrollmentSubjectAssignmentsForStudents({
+        studentIds: [normalizedStudentId],
+        semester: targetSemester,
+        schoolYear: targetSchoolYear,
+        session
+      });
+
+      // Legacy records are sometimes saved under inconsistent school-year or
+      // current-enrollment flags. If the targeted cleanup missed them, clear
+      // any remaining active enrollment subjects for this student as well.
+      if (clearedTargetEnrollments === 0) {
+        await this.clearEnrollmentSubjectAssignmentsForStudents({
+          studentIds: [normalizedStudentId],
+          session
+        });
+      }
 
       await StudentBlockAssignment.deleteOne({ _id: assignment._id }).session(session);
 
@@ -878,6 +994,7 @@ class BlockController {
         normalizedStudentId,
         {
           $set: {
+            section: '',
             enrollmentStatus: 'Not Enrolled',
             corStatus: 'Pending'
           }
@@ -885,21 +1002,14 @@ class BlockController {
         { session }
       );
 
-      // Ensure COR generation no longer uses an active enrollment after unassign.
-      const targetSchoolYear = String(studentSnapshot?.schoolYear || '').trim();
-      const targetSemester = assignmentSemester || String(studentSnapshot?.semester || '').trim();
-      const enrollmentFilter = {
-        studentId: new mongoose.Types.ObjectId(normalizedStudentId),
-        status: { $in: ['Pending', 'Enrolled'] },
-        $or: [
-          { isCurrent: true },
-          ...(targetSchoolYear && targetSemester
-            ? [{ schoolYear: targetSchoolYear, semester: targetSemester }]
-            : [])
-        ]
-      };
+      // A registrar unassign means the student no longer has an active block
+      // load for the current enrollment. Drop any active enrollment rows so
+      // professor loads and COR generation cannot keep stale assignments alive.
       await Enrollment.updateMany(
-        enrollmentFilter,
+        {
+          studentId: new mongoose.Types.ObjectId(normalizedStudentId),
+          status: { $in: ['Pending', 'Enrolled'] }
+        },
         {
           $set: {
             status: 'Dropped',

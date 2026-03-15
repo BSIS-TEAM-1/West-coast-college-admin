@@ -1,0 +1,1094 @@
+.registrar-course-management-page {
+  width: 100%;
+  max-width: none;
+  display: grid;
+  gap: 1.25rem;
+  font-size: 0.94rem;
+}
+
+.registrar-course-management-page .registrar-section-title {
+  font-size: 1.35rem;
+  margin-bottom: 0.35rem;
+}
+
+.registrar-course-management-page .registrar-section-desc {
+  font-size: 0.83rem;
+  margin-bottom: 0;
+}
+
+.registrar-course-management-page .registrar-btn {
+  font-size: 0.82rem;
+  padding: 0.55rem 0.9rem;
+}
+
+.registrar-course-hero,
+.registrar-course-directory-card,
+.registrar-course-detail-card,
+.registrar-course-alert-card,
+.registrar-course-workspace-card,
+.registrar-course-section-card,
+.registrar-course-guide-card {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-surface) 96%, white), var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
+  border-radius: 1rem;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+}
+
+.registrar-course-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.35rem 1.5rem;
+}
+
+.registrar-course-eyebrow,
+.registrar-course-card-label,
+.registrar-professor-load-kicker {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-primary-on-surface);
+}
+
+.registrar-course-hero-actions,
+.registrar-course-card-header,
+.registrar-course-workspace-footer,
+.registrar-course-workspace-meta,
+.registrar-course-footer-actions,
+.registrar-professor-load-head,
+.registrar-professor-load-metrics,
+.registrar-course-detail-summary,
+.registrar-course-section-meta {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.registrar-course-hero-actions,
+.registrar-course-workspace-footer,
+.registrar-course-card-header {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.registrar-course-hero-actions .registrar-btn,
+.registrar-course-card-header .registrar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.registrar-course-stat-bar {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.registrar-course-stat-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.9rem;
+  padding: 1rem 1.05rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.registrar-course-stat-card strong {
+  font-size: 1.25rem;
+  color: var(--color-text);
+}
+
+.registrar-course-stat-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-secondary);
+}
+
+.registrar-course-stat-meta {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.registrar-course-stat-card-alert {
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-primary) 34%, var(--color-border));
+}
+
+.registrar-refresh-signal {
+  position: fixed;
+  top: clamp(6rem, 18vh, 12rem);
+  right: clamp(0.9rem, 2vw, 1.5rem);
+  z-index: 1200;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.85rem;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(1.6rem) scale(0.96);
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.registrar-refresh-signal.is-visible {
+  opacity: 1;
+  transform: translateX(0) scale(1);
+}
+
+.registrar-refresh-signal-rail {
+  position: relative;
+  width: 0.68rem;
+  height: 7.5rem;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-primary) 26%, white),
+      var(--color-primary) 34%,
+      color-mix(in srgb, var(--color-primary) 82%, transparent) 68%,
+      transparent
+    );
+  border: 1px solid color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-primary) 16%, transparent),
+    0 0 22px color-mix(in srgb, var(--color-primary) 34%, transparent),
+    0 0 48px color-mix(in srgb, var(--color-primary) 24%, transparent),
+    0 0 84px color-mix(in srgb, var(--color-primary) 18%, transparent);
+  overflow: hidden;
+}
+
+.registrar-refresh-signal-rail::before {
+  content: '';
+  position: absolute;
+  inset: 8% 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(
+      180deg,
+      transparent,
+      color-mix(in srgb, var(--color-on-primary) 44%, transparent),
+      transparent
+    );
+  animation: registrarRefreshLight 1.35s ease both;
+}
+
+.registrar-refresh-signal-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.35rem;
+  padding: 0.55rem 0.9rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 18%, var(--color-border));
+  box-shadow: 0 18px 34px rgba(15, 23, 42, 0.14);
+  color: var(--color-text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.registrar-course-toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.6fr) repeat(4, minmax(140px, 1fr)) auto auto;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.registrar-course-toolbar select,
+.registrar-course-toolbar input {
+  width: 100%;
+  padding: 0.72rem 0.85rem;
+  font-size: 0.83rem;
+  border-radius: 0.8rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-sizing: border-box;
+}
+
+.registrar-course-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.registrar-course-search input {
+  padding-left: 2.4rem;
+}
+
+.registrar-course-search-icon {
+  position: absolute;
+  left: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.registrar-course-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 44px;
+  padding: 0 0.2rem;
+  color: var(--color-text-secondary);
+  font-size: 0.86rem;
+}
+
+.registrar-course-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 34%) minmax(0, 66%);
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.registrar-course-directory-card,
+.registrar-course-detail-card,
+.registrar-course-alert-card,
+.registrar-course-workspace-card,
+.registrar-course-section-card,
+.registrar-course-guide-card {
+  padding: 1.15rem;
+}
+
+.registrar-course-side-stack,
+.registrar-course-support-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.registrar-course-layout > .registrar-course-side-stack,
+.registrar-course-layout > .registrar-course-support-stack {
+  height: 100%;
+}
+
+.registrar-course-layout > .registrar-course-support-stack {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.registrar-course-layout > .registrar-course-support-stack .registrar-course-alert-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.registrar-course-layout > .registrar-course-support-stack .registrar-course-alert-list,
+.registrar-course-layout > .registrar-course-support-stack .registrar-course-alert-empty {
+  flex: 1;
+  align-content: start;
+}
+
+.registrar-course-helper-copy {
+  margin: 0 0 0.9rem;
+  color: var(--color-text-secondary);
+  font-size: 0.88rem;
+}
+
+.registrar-course-selector-shell,
+.registrar-course-focus-panel {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.registrar-course-selector-copy {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.registrar-course-selector-copy span,
+.registrar-course-focus-copy {
+  font-size: 0.81rem;
+  color: var(--color-text-muted);
+}
+
+.registrar-course-focus-copy {
+  margin: 0.28rem 0 0;
+  max-width: 44rem;
+}
+
+.registrar-course-selector {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.registrar-course-selector-card {
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 0.95rem;
+  background: color-mix(in srgb, var(--color-bg-soft) 40%, var(--color-surface));
+  padding: 0.8rem 0.9rem;
+  display: grid;
+  gap: 0.25rem;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.registrar-course-selector-card::before,
+.registrar-course-selector-card::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.registrar-course-selector-card::before {
+  inset: 0;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 11%, transparent), transparent 58%),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--color-primary) 14%, transparent), transparent 42%);
+  opacity: 0;
+}
+
+.registrar-course-selector-card::after {
+  top: 0;
+  left: 0.9rem;
+  right: 0.9rem;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--color-primary-on-surface), color-mix(in srgb, var(--color-primary) 30%, transparent));
+  opacity: 0.4;
+  transform: scaleX(0.32);
+  transform-origin: left center;
+}
+
+.registrar-course-selector-card:hover,
+.registrar-course-selector-card:focus-visible {
+  border-color: color-mix(in srgb, var(--color-primary) 46%, var(--color-border));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)), color-mix(in srgb, var(--color-bg-soft) 30%, var(--color-surface)));
+  box-shadow: 0 16px 28px rgba(15, 23, 42, 0.1);
+  transform: translateY(-2px);
+  outline: none;
+}
+
+.registrar-course-selector-card:hover::before,
+.registrar-course-selector-card:hover::after,
+.registrar-course-selector-card:focus-visible::before,
+.registrar-course-selector-card:focus-visible::after {
+  opacity: 1;
+}
+
+.registrar-course-selector-card:hover::after,
+.registrar-course-selector-card:focus-visible::after {
+  transform: scaleX(1);
+}
+
+.registrar-course-selector-card-active {
+  border-color: color-mix(in srgb, var(--color-primary) 58%, var(--color-border));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-primary) 11%, var(--color-surface)), color-mix(in srgb, var(--color-bg-soft) 26%, var(--color-surface)));
+  box-shadow: 0 18px 32px rgba(15, 23, 42, 0.12);
+  transform: translateY(-1px);
+}
+
+.registrar-course-selector-card-active::before,
+.registrar-course-selector-card-active::after {
+  opacity: 1;
+}
+
+.registrar-course-selector-card-active::after {
+  transform: scaleX(1);
+}
+
+.registrar-course-selector-card strong {
+  font-size: 0.92rem;
+  color: var(--color-text);
+  transition: color 0.18s ease;
+}
+
+.registrar-course-selector-card span {
+  font-size: 0.79rem;
+  color: var(--color-text-secondary);
+  transition: color 0.18s ease;
+}
+
+.registrar-course-selector-card small {
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+  transition: color 0.18s ease;
+}
+
+.registrar-course-selector-card:hover strong,
+.registrar-course-selector-card:focus-visible strong,
+.registrar-course-selector-card-active strong {
+  color: var(--color-primary-on-surface);
+}
+
+.registrar-course-selector-card:hover span,
+.registrar-course-selector-card:focus-visible span,
+.registrar-course-selector-card-active span {
+  color: var(--color-text);
+}
+
+.registrar-course-selector-card:hover small,
+.registrar-course-selector-card:focus-visible small,
+.registrar-course-selector-card-active small {
+  color: var(--color-text-secondary);
+}
+
+.registrar-course-focus-panel {
+  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
+  border-radius: 1rem;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-primary) 4%, var(--color-surface)), var(--color-surface));
+  padding: 1rem;
+  container-type: inline-size;
+}
+
+.registrar-course-focus-head,
+.registrar-course-focus-metrics {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.registrar-course-focus-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.registrar-course-focus-head h4 {
+  margin: 0.12rem 0 0;
+  font-size: 1rem;
+  color: var(--color-text);
+}
+
+.registrar-course-focus-metrics span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  padding: 0.35rem 0.75rem;
+  background: color-mix(in srgb, var(--color-bg-soft) 72%, var(--color-surface));
+  color: var(--color-text-secondary);
+  font-size: 0.79rem;
+  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+}
+
+.registrar-course-focus-metrics strong {
+  color: var(--color-text);
+}
+
+.registrar-course-subject-table {
+  border: 1px solid color-mix(in srgb, var(--color-border) 84%, transparent);
+  border-radius: 0.95rem;
+  background: color-mix(in srgb, var(--color-bg-soft) 36%, var(--color-surface));
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.registrar-course-subject-head,
+.registrar-course-subject-row {
+  display: grid;
+  grid-template-columns: minmax(200px, 1.6fr) minmax(120px, 0.9fr) minmax(128px, 0.95fr) minmax(96px, 0.8fr) minmax(70px, 0.5fr) minmax(164px, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.registrar-course-subject-head {
+  padding: 0.72rem 0.95rem;
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
+}
+
+.registrar-course-subject-head span {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-secondary);
+}
+
+.registrar-course-subject-body {
+  display: grid;
+}
+
+.registrar-course-subject-row {
+  padding: 0.85rem 0.95rem;
+  font-size: 0.81rem;
+  color: var(--color-text-secondary);
+}
+
+.registrar-course-subject-head > span,
+.registrar-course-subject-row > span,
+.registrar-course-subject-main,
+.registrar-course-subject-actions {
+  min-width: 0;
+}
+
+.registrar-course-subject-row + .registrar-course-subject-row {
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+}
+
+.registrar-course-subject-students {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  font-weight: 700;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.registrar-course-subject-main {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.registrar-course-subject-main strong {
+  color: var(--color-text);
+  font-size: 0.84rem;
+}
+
+.registrar-course-subject-main span {
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.registrar-course-subject-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.registrar-course-subject-actions .registrar-btn {
+  min-width: 74px;
+}
+
+@container (max-width: 980px) {
+  .registrar-course-subject-head {
+    display: none;
+  }
+
+  .registrar-course-subject-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem 0.85rem;
+  }
+
+  .registrar-course-subject-main {
+    grid-column: 1 / -1;
+  }
+
+  .registrar-course-subject-main::before,
+  .registrar-course-subject-row > span::before,
+  .registrar-course-subject-actions::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.14rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--color-text-secondary);
+  }
+}
+
+@container (max-width: 620px) {
+  .registrar-course-subject-row {
+    grid-template-columns: 1fr;
+  }
+
+  .registrar-course-subject-actions {
+    justify-content: flex-start;
+  }
+}
+
+.registrar-course-card-pill,
+.registrar-professor-load-badge,
+.registrar-professor-course-tag,
+.registrar-course-assignment-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.28rem 0.65rem;
+  font-size: 0.71rem;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary-on-surface);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
+}
+
+.registrar-professor-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.registrar-professor-list-row {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 0.95rem;
+  background: var(--color-surface);
+  padding: 0.9rem 0.95rem;
+  display: grid;
+  gap: 0.65rem;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.registrar-professor-list-row:hover,
+.registrar-professor-list-row-active {
+  border-color: color-mix(in srgb, var(--color-primary) 44%, var(--color-border));
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+}
+
+.registrar-professor-list-head,
+.registrar-professor-list-metrics {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.registrar-professor-list-head div {
+  display: grid;
+  gap: 0.16rem;
+}
+
+.registrar-professor-list-head h3,
+.registrar-course-card-header h3 {
+  margin: 0.12rem 0 0;
+  font-size: 1rem;
+  color: var(--color-text);
+}
+
+.registrar-professor-list-head p,
+.registrar-professor-load-empty,
+.registrar-course-alert-empty,
+.registrar-course-empty-state p,
+.registrar-course-summary-item small,
+.registrar-course-assignment-row-meta,
+.registrar-course-student-row span {
+  font-size: 0.81rem;
+  color: var(--color-text-muted);
+}
+
+.registrar-professor-list-metrics,
+.registrar-course-detail-summary {
+  flex-wrap: wrap;
+}
+
+.registrar-professor-list-metrics span,
+.registrar-course-detail-summary div {
+  font-size: 0.79rem;
+}
+
+.registrar-professor-course-tags,
+.registrar-course-summary-list,
+.registrar-course-alert-list,
+.registrar-course-assignment-list,
+.registrar-course-student-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.registrar-course-student-list.is-scrollable {
+  max-height: 22rem;
+  overflow-y: auto;
+  padding-right: 0.2rem;
+  scrollbar-gutter: stable;
+}
+
+.registrar-professor-course-tag-muted {
+  background: transparent;
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
+}
+
+.registrar-course-summary-item,
+.registrar-course-assignment-row,
+.registrar-course-alert-item,
+.registrar-course-student-row {
+  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+  border-radius: 0.85rem;
+  background: color-mix(in srgb, var(--color-bg-soft) 60%, var(--color-surface));
+  padding: 0.8rem 0.85rem;
+}
+
+.registrar-course-summary-item,
+.registrar-course-alert-item div,
+.registrar-course-student-row div,
+.registrar-course-assignment-row-head div {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.registrar-course-assignment-row-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.registrar-course-assignment-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.75rem;
+  margin-top: 0.65rem;
+  font-size: 0.79rem;
+}
+
+.registrar-course-workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.9fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.registrar-course-workspace-meta {
+  flex-wrap: wrap;
+}
+
+.registrar-course-workspace-brief {
+  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
+  border-radius: 0.95rem;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)), color-mix(in srgb, var(--color-bg-soft) 54%, var(--color-surface)));
+  padding: 0.95rem 1rem;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.registrar-course-workspace-brief-empty {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--color-bg-soft) 54%, var(--color-surface));
+}
+
+.registrar-course-workspace-brief-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.registrar-course-workspace-brief-head > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.registrar-course-workspace-brief h4 {
+  margin: 0;
+  font-size: 0.98rem;
+  color: var(--color-text);
+}
+
+.registrar-course-workspace-brief p {
+  margin: 0;
+  font-size: 0.81rem;
+  color: var(--color-text-secondary);
+}
+
+.registrar-course-workspace-summary,
+.registrar-course-workspace-steps {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.registrar-course-workspace-summary article,
+.registrar-course-workspace-steps span {
+  min-width: 138px;
+  border-radius: 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--color-border) 84%, transparent);
+  background: color-mix(in srgb, var(--color-surface) 88%, var(--color-bg-soft));
+  padding: 0.62rem 0.72rem;
+}
+
+.registrar-course-workspace-summary article {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.registrar-course-workspace-summary span,
+.registrar-course-workspace-steps span {
+  font-size: 0.73rem;
+  color: var(--color-text-secondary);
+}
+
+.registrar-course-workspace-summary strong {
+  color: var(--color-text);
+}
+
+.registrar-course-workspace-steps span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.registrar-course-footer-actions,
+.registrar-course-inline-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.registrar-course-workspace-meta article {
+  min-width: 170px;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.registrar-course-workspace-meta span,
+.registrar-course-detail-summary span {
+  font-size: 0.74rem;
+  color: var(--color-text-secondary);
+}
+
+.registrar-course-workspace-meta strong,
+.registrar-course-detail-summary strong {
+  color: var(--color-text);
+}
+
+.registrar-course-section-meta {
+  flex-wrap: wrap;
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+  margin-bottom: 0.75rem;
+}
+
+.registrar-course-guide-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.55rem;
+  color: var(--color-text-secondary);
+}
+
+.registrar-course-manager-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.registrar-course-manager-item {
+  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+  border-radius: 0.85rem;
+  background: color-mix(in srgb, var(--color-bg-soft) 60%, var(--color-surface));
+  padding: 0.85rem;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.registrar-course-danger-btn {
+  background: color-mix(in srgb, #dc2626 86%, transparent);
+  color: #fff;
+}
+
+.registrar-course-danger-btn:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.registrar-course-empty-state {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.85rem;
+  text-align: left;
+}
+
+.registrar-course-empty-state-compact {
+  min-height: 0;
+  justify-content: flex-start;
+  padding: 0.5rem 0;
+}
+
+.registrar-skeleton {
+  border-radius: 999px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--color-border) 72%, transparent), color-mix(in srgb, var(--color-primary) 12%, transparent), color-mix(in srgb, var(--color-border) 72%, transparent));
+  background-size: 200% 100%;
+  animation: registrarSkeletonPulse 1.3s linear infinite;
+}
+
+.registrar-skeleton-title {
+  width: 68%;
+  height: 16px;
+}
+
+.registrar-skeleton-line {
+  width: 100%;
+  height: 12px;
+}
+
+@keyframes registrarSkeletonPulse {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes registrarRefreshLight {
+  0% {
+    opacity: 0;
+    transform: translateY(2.6rem) scaleY(0.5);
+  }
+  24% {
+    opacity: 1;
+    transform: translateY(-0.3rem) scaleY(1);
+  }
+  58% {
+    opacity: 0.92;
+    transform: translateY(-2rem) scaleY(0.88);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-3.4rem) scaleY(0.52);
+  }
+}
+
+@media (max-width: 1220px) {
+  .registrar-course-stat-bar,
+  .registrar-course-toolbar,
+  .registrar-course-layout,
+  .registrar-course-workspace-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .registrar-course-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .registrar-course-subject-head,
+  .registrar-course-subject-row {
+    grid-template-columns: minmax(180px, 1.2fr) minmax(120px, 0.8fr) minmax(130px, 0.92fr) minmax(96px, 0.72fr) minmax(74px, 0.52fr) minmax(156px, 0.95fr);
+  }
+}
+
+@media (max-width: 860px) {
+  .registrar-course-stat-bar,
+  .registrar-course-layout,
+  .registrar-course-workspace-grid,
+  .registrar-course-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .registrar-course-hero,
+  .registrar-course-hero-actions,
+  .registrar-course-workspace-footer,
+  .registrar-course-workspace-brief-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .registrar-course-selector {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+
+  .registrar-course-focus-head,
+  .registrar-course-focus-metrics,
+  .registrar-course-selector-copy {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .registrar-course-focus-head-actions {
+    justify-content: flex-start;
+  }
+
+  .registrar-course-subject-head {
+    display: none;
+  }
+
+  .registrar-course-subject-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem 0.85rem;
+  }
+
+  .registrar-course-subject-main {
+    grid-column: 1 / -1;
+  }
+
+  .registrar-course-subject-main::before,
+  .registrar-course-subject-row > span::before,
+  .registrar-course-subject-actions::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.14rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--color-text-secondary);
+  }
+}
+
+@media (max-width: 560px) {
+  .registrar-course-management-page {
+    gap: 1rem;
+  }
+
+  .registrar-course-hero,
+  .registrar-course-directory-card,
+  .registrar-course-detail-card,
+  .registrar-course-alert-card,
+  .registrar-course-workspace-card,
+  .registrar-course-section-card,
+  .registrar-course-guide-card {
+    padding: 1rem;
+  }
+
+  .registrar-professor-list-row,
+  .registrar-course-summary-item,
+  .registrar-course-assignment-row,
+  .registrar-course-alert-item {
+    padding: 0.75rem 0.8rem;
+  }
+
+  .registrar-course-selector {
+    grid-template-columns: 1fr;
+  }
+
+  .registrar-course-focus-panel {
+    padding: 0.9rem;
+  }
+
+  .registrar-course-subject-row {
+    grid-template-columns: 1fr;
+  }
+
+  .registrar-course-subject-actions {
+    justify-content: flex-start;
+  }
+
+  .registrar-course-student-list.is-scrollable {
+    max-height: 18rem;
+  }
+
+  .registrar-refresh-signal {
+    top: auto;
+    bottom: 1rem;
+    right: 0.85rem;
+    gap: 0.6rem;
+  }
+
+  .registrar-refresh-signal-rail {
+    height: 5.5rem;
+  }
+
+  .registrar-refresh-signal-label {
+    padding-inline: 0.8rem;
+    font-size: 0.74rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .registrar-refresh-signal,
+  .registrar-refresh-signal-rail::before {
+    transition: none;
+    animation: none;
+  }
+}

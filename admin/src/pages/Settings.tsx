@@ -87,6 +87,14 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
     [accentColor]
   );
   const isCustomAccentActive = activeAccentPreset === null;
+  const themeLabel = theme === 'auto' ? 'Device Auto' : theme === 'dark' ? 'Dark Mode' : 'Light Mode';
+  const accentLabel = activeAccentPreset?.label ?? 'Custom';
+  const loginVerificationStatus = formData.loginEmailVerificationEnabled ? 'Enabled' : 'Disabled';
+  const emailStatus = profile?.email
+    ? profile.emailVerified
+      ? 'Verified email'
+      : 'Verification pending'
+    : 'No email linked';
 
   const handleAccentColorChange = (newAccentColor: string) => {
     const normalizedAccentColor = applyAccentColorPreference(newAccentColor, { animate: true });
@@ -191,16 +199,46 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
 
   return (
     <div className="settings-page">
-      <header>
-        <h2 className="settings-title">Settings</h2>
-        <p className="settings-desc">Manage your preferences and security settings.</p>
+      <header className="settings-hero">
+        <div className="settings-hero-copy">
+          <p className="settings-eyebrow">Preferences Workspace</p>
+          <h2 className="settings-title">Settings</h2>
+          <p className="settings-desc">Manage your preferences and security settings.</p>
+        </div>
+
+        <div className="settings-hero-stats" aria-label="Settings summary">
+          <article className="settings-hero-stat">
+            <span className="settings-hero-stat-label">Theme</span>
+            <strong>{themeLabel}</strong>
+            <span className="settings-hero-stat-meta">Appearance mode</span>
+          </article>
+          <article className="settings-hero-stat">
+            <span className="settings-hero-stat-label">Accent</span>
+            <strong>{accentLabel}</strong>
+            <span className="settings-hero-stat-meta">{accentColor.toUpperCase()}</span>
+          </article>
+          <article className="settings-hero-stat">
+            <span className="settings-hero-stat-label">Login Verification</span>
+            <strong>{loginVerificationStatus}</strong>
+            <span className="settings-hero-stat-meta">Email code on sign-in</span>
+          </article>
+          <article className="settings-hero-stat">
+            <span className="settings-hero-stat-label">Profile Email</span>
+            <strong>{emailStatus}</strong>
+            <span className="settings-hero-stat-meta">{profile?.email ?? 'Add one in Profile'}</span>
+          </article>
+        </div>
       </header>
 
-      <div className="settings-sections">
+      <div className="settings-workspace">
         {/* Theme Preferences */}
-        <section className="settings-section">
-          <h3 className="settings-section-title">Theme Preferences</h3>
-          <p className="settings-section-desc">Choose how the application should appear.</p>
+        <section className="settings-section settings-section-theme">
+          <div className="settings-section-header">
+            <div>
+              <h3 className="settings-section-title">Theme Preferences</h3>
+              <p className="settings-section-desc">Choose how the application should appear.</p>
+            </div>
+          </div>
           
           <div className="theme-options">
             <div className="theme-option">
@@ -376,119 +414,142 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
           </div>
         </section>
 
-        {/* Security Settings */}
-        <section className="settings-section">
-          <h3 className="settings-section-title">Security Settings</h3>
-          <p className="settings-section-desc">Update your username and password.</p>
-
+        <div className="settings-side-stack">
+          {/* Security Settings */}
           <form className="settings-form" onSubmit={handleSubmit}>
-            {status && (
-              <p className={`settings-status ${status.type === 'error' ? 'settings-error' : 'settings-success'}`} role="alert">
-                {status.message}
-              </p>
-            )}
-
-            <fieldset className="settings-fieldset">
-              <legend className="settings-legend">Change Username</legend>
-              
-              <div className="form-group">
-                <label htmlFor="newUsername">New Username</label>
-                <input
-                  id="newUsername"
-                  name="newUsername"
-                  type="text"
-                  className="settings-input"
-                  value={formData.newUsername}
-                  onChange={handleChange}
-                  autoComplete="off"
-                  placeholder="Enter new username"
-                />
-              </div>
-            </fieldset>
-
-            <fieldset className="settings-fieldset">
-              <legend className="settings-legend">Change Password</legend>
-              
-              <div className="form-group">
-                <label htmlFor="currentPassword">Current Password</label>
-                <input
-                  id="currentPassword"
-                  name="currentPassword"
-                  type="password"
-                  className="settings-input"
-                  value={formData.currentPassword}
-                  onChange={handleChange}
-                  placeholder="Confirm current password"
-                  autoComplete="current-password"
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="newPassword">New Password</label>
-                <input
-                  id="newPassword"
-                  name="newPassword"
-                  type="password"
-                  className="settings-input"
-                  value={formData.newPassword}
-                  onChange={handleChange}
-                  placeholder="Minimum 6 characters"
-                  autoComplete="new-password"
-                  minLength={6}
-                />
-              </div>
-            </fieldset>
-
-            <fieldset className="settings-fieldset">
-              <legend className="settings-legend">Login Verification</legend>
-
-              <label
-                className={`settings-toggle-card ${!canEnableLoginEmailVerification && !formData.loginEmailVerificationEnabled ? 'is-disabled' : ''}`}
-                htmlFor="loginEmailVerificationEnabled"
-              >
-                <div className="settings-toggle-copy">
-                  <span className="settings-toggle-title">Enable Email Verification on Login</span>
-                  <span className="settings-toggle-description">{loginEmailVerificationHint}</span>
+            <section className="settings-section settings-section-security">
+              <div className="settings-section-header">
+                <div>
+                  <h3 className="settings-section-title">Security Settings</h3>
+                  <p className="settings-section-desc">Update your username and password.</p>
                 </div>
-                <span className="settings-toggle-control">
-                  <input
-                    id="loginEmailVerificationEnabled"
-                    name="loginEmailVerificationEnabled"
-                    type="checkbox"
-                    className="settings-toggle-input"
-                    checked={formData.loginEmailVerificationEnabled}
-                    onChange={handleChange}
-                    disabled={!canEnableLoginEmailVerification && !formData.loginEmailVerificationEnabled}
-                  />
-                  <span className="settings-toggle-slider" aria-hidden="true" />
-                </span>
-              </label>
-            </fieldset>
+              </div>
+
+              {status && (
+                <p className={`settings-status ${status.type === 'error' ? 'settings-error' : 'settings-success'}`} role="alert">
+                  {status.message}
+                </p>
+              )}
+
+              <div className="settings-security-grid">
+                <fieldset className="settings-fieldset">
+                  <legend className="settings-legend">Change Username</legend>
+                  
+                  <div className="form-group">
+                    <label htmlFor="newUsername">New Username</label>
+                    <input
+                      id="newUsername"
+                      name="newUsername"
+                      type="text"
+                      className="settings-input"
+                      value={formData.newUsername}
+                      onChange={handleChange}
+                      autoComplete="off"
+                      placeholder="Enter new username"
+                    />
+                  </div>
+                </fieldset>
+
+                <fieldset className="settings-fieldset">
+                  <legend className="settings-legend">Change Password</legend>
+                  
+                  <div className="form-group">
+                    <label htmlFor="currentPassword">Current Password</label>
+                    <input
+                      id="currentPassword"
+                      name="currentPassword"
+                      type="password"
+                      className="settings-input"
+                      value={formData.currentPassword}
+                      onChange={handleChange}
+                      placeholder="Confirm current password"
+                      autoComplete="current-password"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="newPassword">New Password</label>
+                    <input
+                      id="newPassword"
+                      name="newPassword"
+                      type="password"
+                      className="settings-input"
+                      value={formData.newPassword}
+                      onChange={handleChange}
+                      placeholder="Minimum 6 characters"
+                      autoComplete="new-password"
+                      minLength={6}
+                    />
+                  </div>
+                </fieldset>
+              </div>
+            </section>
+
+            <section className="settings-section settings-section-access">
+              <div className="settings-section-header">
+                <div>
+                  <h3 className="settings-section-title">Access Control</h3>
+                  <p className="settings-section-desc">Control whether sign-in requires a verification code.</p>
+                </div>
+              </div>
+
+              <fieldset className="settings-fieldset">
+                <legend className="settings-legend">Login Verification</legend>
+
+                <label
+                  className={`settings-toggle-card ${!canEnableLoginEmailVerification && !formData.loginEmailVerificationEnabled ? 'is-disabled' : ''}`}
+                  htmlFor="loginEmailVerificationEnabled"
+                >
+                  <div className="settings-toggle-copy">
+                    <span className="settings-toggle-title">Enable Email Verification on Login</span>
+                    <span className="settings-toggle-description">{loginEmailVerificationHint}</span>
+                  </div>
+                  <span className="settings-toggle-control">
+                    <input
+                      id="loginEmailVerificationEnabled"
+                      name="loginEmailVerificationEnabled"
+                      type="checkbox"
+                      className="settings-toggle-input"
+                      checked={formData.loginEmailVerificationEnabled}
+                      onChange={handleChange}
+                      disabled={!canEnableLoginEmailVerification && !formData.loginEmailVerificationEnabled}
+                    />
+                    <span className="settings-toggle-slider" aria-hidden="true" />
+                  </span>
+                </label>
+              </fieldset>
+
+              <div className="settings-submit-bar">
+                <button 
+                  type="submit" 
+                  className="settings-submit" 
+                  disabled={saving || !isDirty}
+                >
+                  {saving ? 'Saving changes...' : 'Save Changes'}
+                </button>
+              </div>
+            </section>
+          </form>
+
+          {/* Sign Out Section */}
+          <section className="settings-section settings-section-signout">
+            <div className="settings-section-header">
+              <div>
+                <h3 className="settings-section-title">Sign Out</h3>
+                <p className="settings-section-desc">Sign out of your admin account.</p>
+              </div>
+            </div>
 
             <button 
-              type="submit" 
-              className="settings-submit" 
-              disabled={saving || !isDirty}
+              type="button" 
+              className="settings-signout-btn"
+              onClick={handleSignOut}
             >
-              {saving ? 'Saving changes...' : 'Save Changes'}
+              <LogOut size={18} />
+              Sign Out
             </button>
-          </form>
-        </section>
-
-        {/* Sign Out Section */}
-        <section className="settings-section">
-          <h3 className="settings-section-title">Sign Out</h3>
-          <p className="settings-section-desc">Sign out of your admin account.</p>
-          
-          <button 
-            type="button" 
-            className="settings-signout-btn"
-            onClick={handleSignOut}
-          >
-            <LogOut size={18} />
-            Sign Out
-          </button>
-        </section>
+          </section>
+        </div>
       </div>
     </div>
   );
