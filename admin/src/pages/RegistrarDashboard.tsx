@@ -89,7 +89,6 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
   const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string | null>(null)
   const [blockWorkspaceSelection, setBlockWorkspaceSelection] = useState<BlockWorkspaceSelection | null>(null)
   const [courseWorkspaceSelection, setCourseWorkspaceSelection] = useState<RegistrarCourseWorkspaceSelection | null>(null)
-  const [selectedStudentForCor, setSelectedStudentForCor] = useState<string | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -160,10 +159,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
   const renderContent = () => {
     switch (view) {
       case 'students':
-        return <StudentManagement onViewCor={(studentId) => {
-          setSelectedStudentForCor(studentId)
-          setView('cor-docs')
-        }} />
+        return <StudentManagement />
       case 'courses':
         return (
           <RegistrarCourseManagement
@@ -213,7 +209,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
       case 'personal-details':
         return <PersonalDetails onBack={() => setView('profile')} />
       case 'cor-docs':
-        return <CorGeneration studentId={selectedStudentForCor} onBack={() => setView('students')} />
+        return <CorGeneration />
       default:
         return <RegistrarHome announcements={announcements} onAnnouncementClick={handleAnnouncementClick} setView={setView} />
     }

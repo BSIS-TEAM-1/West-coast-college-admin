@@ -165,6 +165,28 @@ body.student-workspace-overlay-open #root * {
   color: var(--color-text, #f8fafc);
 }
 
+/* Pending enrollment card - uses theme accent color */
+.student-workspace__stat-card--pending {
+  border-color: color-mix(in srgb, var(--theme-accent-base, var(--color-primary)) 30%, var(--student-border));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--theme-accent-base, var(--color-primary)) 8%, var(--student-surface)),
+    var(--student-surface-soft)
+  );
+}
+
+.student-workspace__stat-card--pending span {
+  color: color-mix(in srgb, var(--theme-accent-base, var(--color-primary)) 85%, var(--student-text-soft));
+}
+
+.student-workspace__stat-card--pending strong {
+  color: var(--theme-accent-base, var(--color-primary));
+}
+
+.student-workspace__stat-card--pending small {
+  color: color-mix(in srgb, var(--theme-accent-base, var(--color-primary)) 60%, var(--student-text-soft));
+}
+
 .student-workspace__controls-card,
 .student-workspace__table-card {
   padding: 1.35rem;
@@ -319,6 +341,7 @@ body.student-workspace-overlay-open #root * {
 .student-workspace__status-control select {
   min-width: 0;
   padding-right: 2rem;
+  background: color-mix(in srgb, var(--student-surface-soft) 85%, white 15%);
 }
 
 .student-workspace__actions-column {
@@ -414,9 +437,9 @@ body.student-workspace-overlay-open #root * {
 }
 
 .student-workspace__message--success {
-  background: rgba(16, 185, 129, 0.14);
-  border-color: rgba(16, 185, 129, 0.28);
-  color: #d1fae5;
+  background: color-mix(in srgb, var(--theme-accent-base, var(--color-primary)) 14%, transparent);
+  border-color: color-mix(in srgb, var(--theme-accent-base, var(--color-primary)) 28%, transparent);
+  color: color-mix(in srgb, var(--theme-accent-base, var(--color-primary)) 85%, white);
 }
 
 .student-workspace__message--error {
@@ -459,6 +482,12 @@ body.student-workspace-overlay-open #root * {
   background: rgba(245, 158, 11, 0.14);
   border-color: rgba(245, 158, 11, 0.22);
   color: #fde68a;
+}
+
+.student-workspace__badge--accent {
+  background: color-mix(in srgb, var(--theme-accent-base, var(--color-primary)) 14%, transparent);
+  border-color: color-mix(in srgb, var(--theme-accent-base, var(--color-primary)) 22%, transparent);
+  color: color-mix(in srgb, var(--theme-accent-base, var(--color-primary)) 90%, white);
 }
 
 .student-workspace__badge--danger {
@@ -516,15 +545,15 @@ body.student-workspace-overlay-open #root * {
   margin: 0;
   padding: 0;
   cursor: default;
-  background: rgba(2, 6, 23, 0.76);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: rgba(2, 6, 23, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   pointer-events: none;
 }
 
 .student-workspace__modal {
   position: relative;
-  z-index: 1;
+  z-index: 100;
   display: flex;
   flex-direction: column;
   width: min(960px, 100%);
@@ -542,6 +571,288 @@ body.student-workspace-overlay-open #root * {
 
 .student-workspace__modal--wide {
   width: min(1100px, 100%);
+}
+
+/* Centered Profile Modal Styles */
+.student-workspace__profile-modal {
+  position: relative;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  width: min(80%, 1200px);
+  max-height: min(90vh, 900px);
+  max-height: min(90dvh, 900px);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--student-border) 92%, rgba(255, 255, 255, 0.16));
+  border-radius: 1.5rem;
+  background: color-mix(in srgb, var(--student-surface-strong) 98%, white 2%);
+  box-shadow:
+    0 34px 80px rgba(2, 6, 23, 0.42),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
+  pointer-events: auto;
+}
+
+.student-workspace__profile-header {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem 2rem;
+  border-bottom: 1px solid var(--student-border);
+  background: linear-gradient(180deg, var(--student-surface-strong), var(--student-surface));
+}
+
+.student-workspace__profile-header-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.student-workspace__profile-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.student-workspace__profile-title h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-text, #f8fafc);
+}
+
+.student-workspace__profile-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  font-size: 0.9rem;
+  color: var(--student-text-soft);
+}
+
+.student-workspace__profile-summary span {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.student-workspace__profile-summary strong {
+  color: var(--color-text, #f8fafc);
+  font-weight: 600;
+}
+
+.student-workspace__profile-close {
+  flex-shrink: 0;
+  padding: 0.5rem;
+  border: none;
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--student-border) 50%, transparent);
+  color: var(--student-text-soft);
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.student-workspace__profile-close:hover {
+  background: color-mix(in srgb, var(--color-primary) 20%, transparent);
+  color: var(--color-text, #f8fafc);
+}
+
+.student-workspace__profile-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 2rem;
+  border-bottom: 1px solid var(--student-border);
+  background: var(--student-surface);
+}
+
+.student-workspace__profile-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.student-workspace__profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.student-workspace__profile-actions button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border-radius: 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.student-workspace__profile-tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem 2rem 0;
+  border-bottom: 1px solid var(--student-border);
+  background: var(--student-surface);
+  overflow-x: auto;
+}
+
+.student-workspace__profile-tabs button {
+  position: relative;
+  padding: 1rem 1.25rem;
+  border: none;
+  border-radius: 0.5rem 0.5rem 0 0;
+  background: transparent;
+  color: var(--student-text-soft);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  margin-bottom: -1px;
+}
+
+.student-workspace__profile-tabs button::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0.5rem;
+  right: 0.5rem;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--color-primary);
+  transform: scaleX(0);
+  transition: transform 0.2s ease;
+}
+
+.student-workspace__profile-tabs button:hover {
+  color: var(--color-text, #f8fafc);
+  background: color-mix(in srgb, var(--student-border) 40%, transparent);
+}
+
+.student-workspace__profile-tabs button.student-workspace__tab--active {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.student-workspace__profile-tabs button.student-workspace__tab--active::after {
+  transform: scaleX(1);
+}
+
+.student-workspace__profile-content {
+  flex: 1;
+  min-height: 0;
+  padding: 1.25rem 2rem;
+  overflow-y: auto;
+  background: var(--student-surface-soft);
+}
+
+.student-workspace__profile-grid-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.student-workspace__profile-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.25rem;
+  border: 1px solid var(--student-border);
+  border-radius: 1rem;
+  background: var(--student-surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.student-workspace__profile-section h3 {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--color-text, #f8fafc);
+  letter-spacing: 0.01em;
+}
+
+.student-workspace__profile-section > p {
+  margin: -0.25rem 0 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--student-text-soft);
+  line-height: 1.4;
+}
+
+.student-workspace__detail-list {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid color-mix(in srgb, var(--student-border) 70%, transparent);
+  margin-top: 0.25rem;
+}
+
+.student-workspace__detail-item-new {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr;
+  gap: 0.75rem;
+  align-items: baseline;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--student-border) 50%, transparent);
+}
+
+.student-workspace__detail-item-new:last-child {
+  border-bottom: none;
+}
+
+.student-workspace__detail-item-new .label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--student-text-soft);
+  line-height: 1.3;
+}
+
+.student-workspace__detail-item-new .value {
+  font-size: 0.875rem;
+  color: var(--color-text, #f8fafc);
+  font-weight: 500;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 960px) {
+  .student-workspace__profile-modal {
+    width: min(95%, 1200px);
+    max-height: min(95vh, 900px);
+  }
+
+  .student-workspace__profile-grid-two-col {
+    grid-template-columns: 1fr;
+  }
+
+  .student-workspace__profile-header,
+  .student-workspace__profile-status-row,
+  .student-workspace__profile-tabs,
+  .student-workspace__profile-content {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .student-workspace__profile-status-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .student-workspace__profile-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .student-workspace__profile-actions button {
+    flex: 1;
+    justify-content: center;
+  }
 }
 
 .student-workspace__modal-header,
