@@ -894,7 +894,7 @@
 
 .graphs-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
   gap: 2rem;
   margin-bottom: 2rem;
 }
@@ -966,6 +966,28 @@
   height: 24px;
 }
 
+@media (max-width: 1024px) {
+  .health-header {
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+
+  .header-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .overall-status {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .graph-container {
+    padding: 1.25rem;
+  }
+}
+
 @media (max-width: 768px) {
   .graphs-grid {
     grid-template-columns: 1fr;
@@ -974,6 +996,28 @@
   
   .graph-container {
     padding: 1rem;
+  }
+
+  .atlas-graphs-section,
+  .logs-section {
+    padding: 1rem;
+  }
+
+  .terminal-line {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
+
+  .terminal-timestamp,
+  .terminal-level,
+  .terminal-module {
+    min-width: 0;
+  }
+
+  .security-button {
+    width: 100%;
+    justify-content: center;
   }
 }
 

@@ -10,6 +10,8 @@ import Announcements from './Announcements'
 import AnnouncementDetail from './AnnouncementDetail'
 import PersonalDetails from './PersonalDetails'
 import StudentManagement from '../components/StudentManagement'
+import RegistrarCourseManagement from '../components/RegistrarCourseManagement'
+import RegistrarCourseWorkspace, { type RegistrarCourseWorkspaceSelection } from '../components/RegistrarCourseWorkspace'
 import RegistrarReportsPanel from './RegistrarReportsPanel'
 import './RegistrarDashboard.css'
 
@@ -58,7 +60,7 @@ type BlockWorkspaceSelection = {
   initialSectionId?: string | null
 }
 
-type RegistrarView = 'dashboard' | 'students' | 'courses' | 'block-management' | 'block-workspace' | 'assign-subject' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details'
+type RegistrarView = 'dashboard' | 'students' | 'courses' | 'course-workspace' | 'block-management' | 'view-blocks' | 'block-workspace' | 'assign-subject' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details'
 
 type RegistrarDashboardProps = {
   username: string
@@ -71,7 +73,7 @@ const REGISTRAR_NAV_ITEMS: { id: RegistrarView; label: string; icon: any }[] = [
   { id: 'students', label: 'Student Management', icon: GraduationCap },
   { id: 'block-management', label: 'Block Management', icon: Blocks },
   { id: 'assign-subject', label: 'Assign Subject', icon: Users },
-  { id: 'courses', label: 'Assign Instructor', icon: BookOpen },
+  { id: 'courses', label: 'Professor Loads', icon: BookOpen },
   { id: 'announcements', label: 'Announcements', icon: Bell },
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'profile', label: 'Profile', icon: User },
@@ -85,6 +87,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string | null>(null)
   const [blockWorkspaceSelection, setBlockWorkspaceSelection] = useState<BlockWorkspaceSelection | null>(null)
+  const [courseWorkspaceSelection, setCourseWorkspaceSelection] = useState<RegistrarCourseWorkspaceSelection | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -157,14 +160,27 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
       case 'students':
         return <StudentManagement />
       case 'courses':
-        return <CourseManagement setView={setView} />
+        return (
+          <RegistrarCourseManagement
+            onOpenStudents={() => setView('students')}
+            onOpenReports={() => setView('reports')}
+            onOpenWorkspace={(selection) => {
+              setCourseWorkspaceSelection(selection)
+              setView('course-workspace')
+            }}
+          />
+        )
+      case 'course-workspace':
+        return <RegistrarCourseWorkspace selection={courseWorkspaceSelection} onBack={() => setView('courses')} />
       case 'block-management':
-        return <BlockManagement onOpenWorkspace={(selection) => {
+        return <BlockManagement onOpenBlocksPage={() => setView('view-blocks')} />
+      case 'view-blocks':
+        return <ViewBlocksPage onBack={() => setView('block-management')} onOpenWorkspace={(selection) => {
           setBlockWorkspaceSelection(selection)
           setView('block-workspace')
         }} />
       case 'block-workspace':
-        return <BlockWorkspace selection={blockWorkspaceSelection} onBack={() => setView('block-management')} />
+        return <BlockWorkspace selection={blockWorkspaceSelection} onBack={() => setView('view-blocks')} />
       case 'assign-subject':
         return <AssignSubjectPage />
       case 'reports':
@@ -229,9 +245,17 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
             <button
               key={id}
               type="button"
-              className={`registrar-sidebar-link ${view === id ? 'registrar-sidebar-link-active' : ''}`}
+              className={`registrar-sidebar-link ${(
+                view === id
+                || (id === 'courses' && view === 'course-workspace')
+                || (id === 'block-management' && (view === 'view-blocks' || view === 'block-workspace'))
+              ) ? 'registrar-sidebar-link-active' : ''}`}
               onClick={() => setView(id)}
-              aria-current={view === id ? 'page' : undefined}
+              aria-current={(
+                view === id
+                || (id === 'courses' && view === 'course-workspace')
+                || (id === 'block-management' && (view === 'view-blocks' || view === 'block-workspace'))
+              ) ? 'page' : undefined}
             >
               <Icon size={18} className="registrar-sidebar-icon" />
               <span>{label}</span>
@@ -411,7 +435,7 @@ function RegistrarHome({ announcements, onAnnouncementClick, setView }: Registra
 }
 
 
-function CourseManagement({ setView }: { setView: (view: RegistrarView) => void }) {
+function LegacyCourseManagement({ setView }: { setView: (view: RegistrarView) => void }) {
   const [blockGroups, setBlockGroups] = useState<BlockGroup[]>([])
   const [selectedGroupId, setSelectedGroupId] = useState('')
   const [sections, setSections] = useState<BlockSection[]>([])
@@ -675,7 +699,7 @@ function CourseManagement({ setView }: { setView: (view: RegistrarView) => void 
   }, [selectedSectionId])
 
   return (
-    <div className="registrar-section">
+    <div className="registrar-section block-management-page">
       <h2 className="registrar-section-title">Assign Instructor</h2>
       <p className="registrar-section-desc">Assign and manage instructor handling per block and section.</p>
 
@@ -839,6 +863,8 @@ function CourseManagement({ setView }: { setView: (view: RegistrarView) => void 
   )
 }
 
+void LegacyCourseManagement
+
 type BlockGroup = {
   _id: string
   name: string
@@ -900,10 +926,10 @@ type SubjectDraft = {
 }
 
 type BlockManagementProps = {
-  onOpenWorkspace: (selection: BlockWorkspaceSelection) => void
+  onOpenBlocksPage: () => void
 }
 
-function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
+function BlockManagement({ onOpenBlocksPage }: BlockManagementProps) {
   const blockCourseOptions: Array<{ value: number; label: string; fullLabel: string }> = [
     { value: 101, label: 'BEED', fullLabel: 'Bachelor of Elementary Education (BEED)' },
     { value: 102, label: 'BSEd-English', fullLabel: 'Bachelor of Secondary Education - Major in English' },
@@ -935,8 +961,6 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
   const [blockGroups, setBlockGroups] = useState<BlockGroup[]>([])
   const [selectedGroup, setSelectedGroup] = useState<BlockGroup | null>(null)
   const [sections, setSections] = useState<BlockSection[]>([])
-  const [selectedCourseFilter, setSelectedCourseFilter] = useState('')
-  const [selectedYearFilter, setSelectedYearFilter] = useState('')
   const [selectedSection, setSelectedSection] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -994,81 +1018,6 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
     return `${slot.yearLevel}-${slot.letter}`
   }
 
-  const getCourseAbbreviation = (value: string) => {
-    const text = String(value || '').trim()
-    if (!text) return 'N/A'
-    const first = text.split('-')[0]
-    const mapped = courseAbbreviationByCode[first]
-    if (mapped) return mapped
-
-    const normalized = first.toUpperCase().replace(/\s+/g, '')
-    if (normalized.includes('BEED')) return 'BEED'
-    if (normalized.includes('BSED') && normalized.includes('ENGLISH')) return 'BSEd-English'
-    if (normalized.includes('BSED') && (normalized.includes('MATH') || normalized.includes('MATHEMATICS'))) return 'BSEd-Math'
-    if (normalized.includes('BSBA') && normalized.includes('HRM')) return 'BSBA-HRM'
-    return first
-  }
-
-  const compareBlockOrder = (a: string, b: string) => {
-    const slotA = parseBlockSlot(a)
-    const slotB = parseBlockSlot(b)
-
-    if (slotA && slotB) {
-      if (slotA.yearLevel !== slotB.yearLevel) {
-        return slotA.yearLevel - slotB.yearLevel
-      }
-      return slotA.letter.localeCompare(slotB.letter)
-    }
-
-    if (slotA) return -1
-    if (slotB) return 1
-    return String(a || '').localeCompare(String(b || ''))
-  }
-  const courseRowOrder = ['BEED', 'BSEd-English', 'BSEd-Math', 'BSBA-HRM']
-  const courseOptions = Array.from(
-    new Set(blockGroups.map((group) => getCourseAbbreviation(group.name)))
-  ).sort((a, b) => {
-    const indexA = courseRowOrder.indexOf(a)
-    const indexB = courseRowOrder.indexOf(b)
-    if (indexA >= 0 && indexB >= 0) return indexA - indexB
-    if (indexA >= 0) return -1
-    if (indexB >= 0) return 1
-    return a.localeCompare(b)
-  })
-  const yearOptions = Array.from(
-    new Set(
-      blockGroups
-        .filter((group) => !selectedCourseFilter || getCourseAbbreviation(group.name) === selectedCourseFilter)
-        .map((group) => parseBlockSlot(group.name)?.yearLevel)
-        .filter((year): year is number => typeof year === 'number' && Number.isFinite(year))
-    )
-  ).sort((a, b) => a - b)
-  const filteredBlockGroups = blockGroups
-    .filter((group) => selectedCourseFilter && getCourseAbbreviation(group.name) === selectedCourseFilter)
-    .filter((group) => {
-      if (!selectedYearFilter) return false
-      const year = parseBlockSlot(group.name)?.yearLevel
-      return String(year || '') === selectedYearFilter
-    })
-    .sort((a, b) => {
-      const byName = compareBlockOrder(a.name, b.name)
-      if (byName !== 0) return byName
-      if (Number(a.year) !== Number(b.year)) return Number(b.year) - Number(a.year)
-      return String(a.semester).localeCompare(String(b.semester))
-    })
-  const formatBlockGroupOptionLabel = (group: BlockGroup) => {
-    const blockLabel = formatBlockColumnLabel(group.name)
-    return `Block-${blockLabel.replace('-', '')} | ${group.semester} ${group.year}`
-  }
-
-  useEffect(() => {
-    if (!selectedGroup) return
-    const nextCourse = getCourseAbbreviation(selectedGroup.name)
-    const nextYear = parseBlockSlot(selectedGroup.name)?.yearLevel
-    setSelectedCourseFilter(nextCourse)
-    setSelectedYearFilter(nextYear ? String(nextYear) : '')
-  }, [selectedGroup])
-
   useEffect(() => {
     if (!selectedGroup) return
     const stillExists = blockGroups.some((group) => group._id === selectedGroup._id)
@@ -1076,29 +1025,6 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
       setSelectedGroup(null)
     }
   }, [blockGroups, selectedGroup])
-
-  const handleCourseFilterChange = (nextCourse: string) => {
-    setSelectedCourseFilter(nextCourse)
-    setSelectedYearFilter('')
-    setSelectedGroup(null)
-  }
-
-  const handleYearFilterChange = (nextYear: string) => {
-    setSelectedYearFilter(nextYear)
-    setSelectedGroup(null)
-  }
-
-  const handleBlockGroupChange = (groupId: string) => {
-    const nextGroup = blockGroups.find((group) => group._id === groupId) || null
-    setSelectedGroup(nextGroup)
-  }
-
-  const blockPickerStatusText = selectedGroup
-    ? `Selected block: ${formatBlockGroupOptionLabel(selectedGroup)}`
-    : 'Pick course, year, and block to continue.'
-
-  const hasYearOptions = Boolean(selectedCourseFilter && yearOptions.length > 0)
-  const hasBlockOptions = Boolean(selectedCourseFilter && selectedYearFilter && filteredBlockGroups.length > 0)
 
   useEffect(() => {
     void fetchBlockGroups()
@@ -1242,30 +1168,6 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
     }
   }
 
-  const handleDeleteGroup = async () => {
-    if (!selectedGroup) return
-    const confirmed = window.confirm(`Delete block "${selectedGroup.name}"? This cannot be undone.`)
-    if (!confirmed) return
-
-    setLoading(true)
-    setError('')
-    setSuccess('')
-    try {
-      const data = await authorizedFetch(`/api/blocks/groups/${selectedGroup._id}`, {
-        method: 'DELETE'
-      })
-      setSuccess((data?.message as string) || 'Block deleted successfully')
-      setSelectedGroup(null)
-      setSections([])
-      setSelectedSection('')
-      await fetchBlockGroups()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete block')
-    } finally {
-      setLoading(false)
-    }
-  }
-
   const selectedGroupLabel = selectedGroup
     ? `${formatBlockLabel(selectedGroup.name)} (${selectedGroup.semester} ${selectedGroup.year})`
     : 'No block selected yet'
@@ -1284,56 +1186,14 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
   const selectedBlockBadge = selectedGroup
     ? `Block-${formatBlockColumnLabel(selectedGroup.name).replace('-', '')}`
     : 'No block selected'
-  const tutorialTarget = !blockGroups.length
-    ? 'create-action'
-    : !selectedCourseFilter
-      ? 'filter-course'
-      : !selectedYearFilter
-        ? 'filter-year'
-        : !selectedGroup
-          ? 'filter-block'
-          : sections.length === 0 && !loading
-            ? 'refresh-blocks'
-            : 'workspace'
-  const guidePanelTitle = tutorialTarget === 'create-action'
-    ? 'Press Create Block'
-    : tutorialTarget === 'filter-course'
-      ? 'Press Course'
-      : tutorialTarget === 'filter-year'
-        ? 'Press Year Level'
-        : tutorialTarget === 'filter-block'
-          ? 'Press Block'
-          : tutorialTarget === 'refresh-blocks'
-            ? 'Press Refresh Blocks'
-            : 'Press Open Workspace'
+  const tutorialTarget = !blockGroups.length ? 'create-action' : 'view-blocks'
+  const guidePanelTitle = tutorialTarget === 'create-action' ? 'Press Create Block' : 'Press View Blocks'
   const guidePanelText = tutorialTarget === 'create-action'
     ? `The form is prefilled. Change anything you want, then press Create Block for ${newGroupPreviewCode}.`
-    : tutorialTarget === 'filter-course'
-      ? 'Start Step 2 by pressing the Course dropdown.'
-      : tutorialTarget === 'filter-year'
-        ? 'The course is selected. Press Year Level next.'
-        : tutorialTarget === 'filter-block'
-          ? `Press Block and choose from ${filteredBlockGroups.length} matching option(s).`
-          : tutorialTarget === 'refresh-blocks'
-            ? 'The block is selected but sections are still empty. Press Refresh Blocks to sync them.'
-            : `Your block is ready. Press the workspace card for ${selectedBlockBadge}.`
+    : 'Created block groups now live on a separate page. Press View Blocks to browse them, review sections, and open the workspace.'
   const tutorialFocus = {
     createAction: tutorialTarget === 'create-action',
-    filterCourse: tutorialTarget === 'filter-course',
-    filterYear: tutorialTarget === 'filter-year',
-    filterBlock: tutorialTarget === 'filter-block',
-    refreshBlocks: tutorialTarget === 'refresh-blocks',
-    workspace: tutorialTarget === 'workspace'
-  }
-  const handleOpenWorkspace = () => {
-    if (!selectedGroup) return
-    onOpenWorkspace({
-      groupId: selectedGroup._id,
-      groupName: selectedGroup.name,
-      semester: selectedGroup.semester,
-      year: Number(selectedGroup.year),
-      initialSectionId: selectedTargetSection?._id || null
-    })
+    viewBlocks: tutorialTarget === 'view-blocks'
   }
 
   return (
@@ -1345,23 +1205,6 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
       {success && <p className="registrar-feedback registrar-feedback-success">{success}</p>}
 
       <div className="block-management-content">
-        <div className="block-management-hero">
-          <div className="block-management-hero-copy">
-            <span className="block-hero-kicker">Registrar Workflow</span>
-            <h3>Build blocks faster, then open the assignment workspace with the right target already loaded.</h3>
-            <p>Start with a clean block preview, narrow the selection by course and year level, then move into assignment once the block is confirmed.</p>
-          </div>
-          <div className="block-management-hero-status">
-            <span className="block-hero-status-label">Setup Summary</span>
-            <strong>{guidePanelTitle}</strong>
-            <p>{guidePanelText}</p>
-            <div className="block-hero-status-meta">
-              <span>{selectedGroup ? `${openBlocks.length} open section(s)` : `${blockGroups.length} total block group(s)`}</span>
-              <span>{selectedGroup ? `${totalSectionPopulation}/${totalSectionCapacity || 0} seats used` : 'Guided setup mode'}</span>
-            </div>
-          </div>
-        </div>
-
         <div className="block-summary-grid">
           <div className="assignment-section block-summary-card">
             <span className="block-summary-label">Block Groups</span>
@@ -1385,7 +1228,29 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
           </div>
         </div>
 
-        <div className="assignment-section block-create-card">
+        <div className="block-management-header-row">
+          <div className="block-management-banner">
+            <span className="block-hero-kicker">Registrar Workflow</span>
+            <div className="block-management-banner-copy">
+              <h3>Build blocks faster</h3>
+              <p>Start with a clean block preview, confirm the term and slot, then move straight into the workspace once the block is created.</p>
+            </div>
+          </div>
+          <div className="block-management-inline-summary">
+            <div className="block-management-inline-summary-copy">
+              <span className="block-hero-status-label">Setup Summary</span>
+              <strong>{guidePanelTitle}</strong>
+              <p>{guidePanelText}</p>
+            </div>
+            <div className="block-management-inline-summary-meta">
+              <span>{selectedGroup ? `${openBlocks.length} open section(s)` : `${blockGroups.length} total block group(s)`}</span>
+              <span>{selectedGroup ? `${totalSectionPopulation}/${totalSectionCapacity || 0} seats used` : 'Guided setup mode'}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="block-management-workspace-grid">
+          <div className="assignment-section block-create-card">
           <div className="block-panel-head">
             <div>
               <span className="block-step-badge">Step 1</span>
@@ -1497,151 +1362,479 @@ function BlockManagement({ onOpenWorkspace }: BlockManagementProps) {
               </button>
             </div>
           </div>
-        </div>
-      </div>
+          </div>
 
-      <div className="block-selection block-selection-card">
+          <div className="block-selection block-selection-card">
         <div className="block-selection-head">
           <div>
             <span className="block-step-badge">Step 2</span>
-            <p className="block-selection-title">Select Block Group</p>
+            <p className="block-selection-title">View Blocks</p>
           </div>
-          <p className="block-selection-subtitle">{blockGroups.length} available</p>
+          <p className="block-selection-subtitle">{blockGroups.length} created</p>
         </div>
-        <p className="block-selection-helper">Current selection: {selectedGroupLabel}</p>
+        <p className="block-selection-helper">Open a dedicated page to browse created blocks, inspect sections, delete a block, and launch the assignment workspace.</p>
         <div className="block-selection-helper-list">
           <span className="block-selection-pill">
-            {selectedCourseFilter ? `Course: ${selectedCourseFilter}` : 'Choose course'}
+            {blockGroups.length ? `${blockGroups.length} block group(s)` : 'No blocks yet'}
           </span>
           <span className="block-selection-pill">
-            {selectedYearFilter ? `Year ${selectedYearFilter}` : 'Choose year level'}
+            {selectedGroup ? `Latest: ${selectedGroupLabel}` : 'Create one, then review it here'}
           </span>
           <span className="block-selection-pill">
-            {selectedGroup ? selectedBlockBadge : 'Choose block'}
+            {selectedGroup && selectedTargetSection ? `Target: ${formatBlockColumnLabel(selectedTargetSection.sectionCode)}` : 'Sections shown on View Blocks'}
           </span>
         </div>
-        <div className="block-picker-grid">
-          <label className="block-picker-field">
-            <span className="block-field-head">
-              <span>Course</span>
-              {tutorialFocus.filterCourse && (
-                <span className="block-control-callout compact">Press here first</span>
-              )}
-            </span>
-            <select
-              className={tutorialFocus.filterCourse ? 'tutorial-focus' : ''}
-              value={selectedCourseFilter}
-              onChange={(event) => handleCourseFilterChange(event.target.value)}
-            >
-              <option value="">Choose course</option>
-              {courseOptions.map((course) => (
-                <option key={course} value={course}>{course}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="block-picker-field">
-            <span className="block-field-head">
-              <span>Year Level</span>
-              {tutorialFocus.filterYear && (
-                <span className="block-control-callout compact">Press here next</span>
-              )}
-            </span>
-            <select
-              className={tutorialFocus.filterYear ? 'tutorial-focus' : ''}
-              value={selectedYearFilter}
-              onChange={(event) => handleYearFilterChange(event.target.value)}
-              disabled={!selectedCourseFilter || !hasYearOptions}
-            >
-              <option value="">{selectedCourseFilter ? 'Choose year level' : 'Select course first'}</option>
-              {yearOptions.map((yearLevel) => (
-                <option key={yearLevel} value={yearLevel}>{`Year ${yearLevel}`}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="block-picker-field">
-            <span className="block-field-head">
-              <span>Block</span>
-              {tutorialFocus.filterBlock && (
-                <span className="block-control-callout compact">Press here next</span>
-              )}
-            </span>
-            <select
-              className={tutorialFocus.filterBlock ? 'tutorial-focus' : ''}
-              value={selectedGroup?._id || ''}
-              onChange={(event) => handleBlockGroupChange(event.target.value)}
-              disabled={!selectedCourseFilter || !selectedYearFilter || !hasBlockOptions}
-            >
-              <option value="">
-                {selectedYearFilter ? 'Choose block' : 'Select year level first'}
-              </option>
-              {filteredBlockGroups.map((group) => (
-                <option key={group._id} value={group._id}>{formatBlockGroupOptionLabel(group)}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <p className="block-selection-helper">{blockPickerStatusText}</p>
         <div className="block-current-card">
-          <span className="block-current-label">Selected Block Snapshot</span>
-          <strong>{selectedBlockBadge}</strong>
-          <p>{selectedGroup ? `${formatBlockLabel(selectedGroup.name)} is ready for section review and student assignment.` : 'Choose a course, year level, and block to load a working target.'}</p>
+          <span className="block-current-label">Blocks Page Preview</span>
+          <strong>{selectedGroup ? selectedBlockBadge : `${blockGroups.length} block group(s)`}</strong>
+          <p>{selectedGroup ? `${formatBlockLabel(selectedGroup.name)} is ready for section review and student assignment on the View Blocks page.` : 'Keep block creation here, then use the separate View Blocks page for browsing and workspace entry.'}</p>
           <div className="block-current-meta">
-            <span>{selectedGroup ? `${selectedGroup.semester} ${selectedGroup.year}` : 'No term selected'}</span>
-            <span>{selectedGroup && selectedYearLevel ? `Year ${selectedYearLevel}` : 'No year selected'}</span>
-            <span>{selectedGroup ? `${utilizationPercent}% utilized` : 'Workspace locked'}</span>
+            <span>{selectedGroup ? `${selectedGroup.semester} ${selectedGroup.year}` : 'Ready for review'}</span>
+            <span>{selectedGroup && selectedYearLevel ? `Year ${selectedYearLevel}` : 'Dedicated block directory'}</span>
+            <span>{selectedGroup ? `${utilizationPercent}% utilized` : 'Cleaner block workflow'}</span>
           </div>
         </div>
         <div className="block-selection-actions">
           <div className="block-action-stack">
-            {tutorialFocus.refreshBlocks && (
-              <span className="block-control-callout">Press this if the selected block has not loaded sections yet.</span>
+            {tutorialFocus.viewBlocks && (
+              <span className="block-control-callout">Press this to open the dedicated block directory.</span>
             )}
             <button
               type="button"
-              className={`registrar-btn ${tutorialFocus.refreshBlocks ? 'tutorial-focus' : ''}`}
-              onClick={() => {
-                void fetchBlockGroups()
-                if (selectedGroup) void fetchSections(selectedGroup._id)
-              } }
-              disabled={loading}
+              className={`registrar-btn ${tutorialFocus.viewBlocks ? 'tutorial-focus' : ''}`}
+              onClick={onOpenBlocksPage}
             >
-              Refresh Blocks
+              View Blocks
             </button>
           </div>
-          {selectedGroup && (
-            <button
-              type="button"
-              className="section-delete-btn"
-              onClick={() => void handleDeleteGroup()}
-              disabled={loading}
-            >
-              Delete Block
-            </button>
-          )}
         </div>
-        {selectedGroup && (
-          <div className="block-action-stack">
-            {tutorialFocus.workspace && (
-              <span className="block-control-callout">Press this card to continue to the assignment workspace.</span>
-            )}
-            <button
-              type="button"
-              className={`block-workspace-launch-card ${tutorialFocus.workspace ? 'tutorial-focus' : ''}`}
-              onClick={handleOpenWorkspace}
-            >
-              <div className="block-workspace-launch-badge">Workspace Ready</div>
-              <h3>Open Block Assignment Workspace</h3>
-              <p>Assign students and review block details for this selected block.</p>
-              <div className="block-workspace-launch-meta">
-                <span>{formatBlockLabel(selectedGroup.name)}</span>
-                <span>{selectedGroup.semester} {selectedGroup.year}</span>
-                <span>{openBlocks.length} open section(s)</span>
-              </div>
-            </button>
           </div>
-        )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+type ViewBlocksPageProps = {
+  onBack: () => void
+  onOpenWorkspace: (selection: BlockWorkspaceSelection) => void
+}
+
+function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
+  const [blockGroups, setBlockGroups] = useState<BlockGroup[]>([])
+  const [selectedGroup, setSelectedGroup] = useState<BlockGroup | null>(null)
+  const [sections, setSections] = useState<BlockSection[]>([])
+  const [selectedCourseFilter, setSelectedCourseFilter] = useState('')
+  const [selectedYearFilter, setSelectedYearFilter] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+
+  const courseAbbreviationByCode: Record<string, string> = {
+    '101': 'BEED',
+    '102': 'BSEd-English',
+    '103': 'BSEd-Math',
+    '201': 'BSBA-HRM'
+  }
+
+  const formatBlockLabel = (value: string) => {
+    const text = String(value || '').trim()
+    if (!text) return value
+    const parts = text.split('-')
+    if (parts.length === 0) return text
+    const first = parts[0]
+    const mapped = courseAbbreviationByCode[first] || first
+    return [mapped, ...parts.slice(1)].join('-')
+  }
+
+  const parseBlockSlot = (value: string) => {
+    const text = String(value || '').trim().toUpperCase()
+    if (!text) return null
+
+    const directMatch = text.match(/(?:^|-)(\d+)([A-Z])$/)
+    if (directMatch) {
+      return {
+        yearLevel: Number(directMatch[1]) || 99,
+        letter: directMatch[2]
+      }
+    }
+
+    const dashedMatch = text.match(/(?:^|-)(\d+)-([A-Z])$/)
+    if (dashedMatch) {
+      return {
+        yearLevel: Number(dashedMatch[1]) || 99,
+        letter: dashedMatch[2]
+      }
+    }
+
+    return null
+  }
+
+  const formatBlockColumnLabel = (value: string) => {
+    const slot = parseBlockSlot(value)
+    if (!slot) return formatBlockLabel(value)
+    return `${slot.yearLevel}-${slot.letter}`
+  }
+
+  const getCourseAbbreviation = (value: string) => {
+    const text = String(value || '').trim()
+    if (!text) return 'N/A'
+    const first = text.split('-')[0]
+    const mapped = courseAbbreviationByCode[first]
+    if (mapped) return mapped
+
+    const normalized = first.toUpperCase().replace(/\s+/g, '')
+    if (normalized.includes('BEED')) return 'BEED'
+    if (normalized.includes('BSED') && normalized.includes('ENGLISH')) return 'BSEd-English'
+    if (normalized.includes('BSED') && (normalized.includes('MATH') || normalized.includes('MATHEMATICS'))) return 'BSEd-Math'
+    if (normalized.includes('BSBA') && normalized.includes('HRM')) return 'BSBA-HRM'
+    return first
+  }
+
+  const compareBlockOrder = (a: string, b: string) => {
+    const slotA = parseBlockSlot(a)
+    const slotB = parseBlockSlot(b)
+
+    if (slotA && slotB) {
+      if (slotA.yearLevel !== slotB.yearLevel) {
+        return slotA.yearLevel - slotB.yearLevel
+      }
+      return slotA.letter.localeCompare(slotB.letter)
+    }
+
+    if (slotA) return -1
+    if (slotB) return 1
+    return String(a || '').localeCompare(String(b || ''))
+  }
+
+  const authorizedFetch = async (path: string, init: RequestInit = {}) => {
+    const token = await getStoredToken()
+    if (!token) throw new Error('No authentication token found')
+
+    const response = await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers: {
+        ...(init.headers || {}),
+        Authorization: `Bearer ${token}`
+      }
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error((data?.error as string) || (data?.message as string) || `Request failed (${response.status})`)
+    }
+    return data
+  }
+
+  const fetchBlockGroups = async () => {
+    try {
+      const data = await authorizedFetch('/api/blocks/groups')
+      setBlockGroups(Array.isArray(data) ? data : [])
+      setError('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch block groups')
+    }
+  }
+
+  const fetchSections = async (groupId: string) => {
+    try {
+      const data = await authorizedFetch(`/api/blocks/groups/${groupId}/sections`)
+      setSections(Array.isArray(data) ? data : [])
+      setError('')
+    } catch (err) {
+      setSections([])
+      setError(err instanceof Error ? err.message : 'Failed to fetch sections')
+    }
+  }
+
+  useEffect(() => {
+    void fetchBlockGroups()
+  }, [])
+
+  useEffect(() => {
+    if (!selectedGroup) {
+      setSections([])
+      return
+    }
+    void fetchSections(selectedGroup._id)
+  }, [selectedGroup])
+
+  useEffect(() => {
+    if (!selectedGroup) return
+    const stillExists = blockGroups.some((group) => group._id === selectedGroup._id)
+    if (!stillExists) {
+      setSelectedGroup(null)
+      setSections([])
+    }
+  }, [blockGroups, selectedGroup])
+
+  const courseRowOrder = ['BEED', 'BSEd-English', 'BSEd-Math', 'BSBA-HRM']
+  const courseOptions = Array.from(
+    new Set(blockGroups.map((group) => getCourseAbbreviation(group.name)))
+  ).sort((a, b) => {
+    const indexA = courseRowOrder.indexOf(a)
+    const indexB = courseRowOrder.indexOf(b)
+    if (indexA >= 0 && indexB >= 0) return indexA - indexB
+    if (indexA >= 0) return -1
+    if (indexB >= 0) return 1
+    return a.localeCompare(b)
+  })
+
+  const yearOptions = Array.from(
+    new Set(
+      blockGroups
+        .filter((group) => !selectedCourseFilter || getCourseAbbreviation(group.name) === selectedCourseFilter)
+        .map((group) => parseBlockSlot(group.name)?.yearLevel)
+        .filter((year): year is number => typeof year === 'number' && Number.isFinite(year))
+    )
+  ).sort((a, b) => a - b)
+
+  const filteredBlockGroups = blockGroups
+    .filter((group) => !selectedCourseFilter || getCourseAbbreviation(group.name) === selectedCourseFilter)
+    .filter((group) => {
+      if (!selectedYearFilter) return true
+      const year = parseBlockSlot(group.name)?.yearLevel
+      return String(year || '') === selectedYearFilter
+    })
+    .sort((a, b) => {
+      const byName = compareBlockOrder(a.name, b.name)
+      if (byName !== 0) return byName
+      if (Number(a.year) !== Number(b.year)) return Number(b.year) - Number(a.year)
+      return String(a.semester).localeCompare(String(b.semester))
+    })
+
+  const openSections = sections.filter((section) => (section.status || 'OPEN').toUpperCase() === 'OPEN')
+  const selectedTargetSection = openSections[0] || sections[0] || null
+  const totalSectionCapacity = sections.reduce((sum, section) => sum + (Number(section.capacity) || 0), 0)
+  const totalSectionPopulation = sections.reduce((sum, section) => sum + (Number(section.currentPopulation) || 0), 0)
+  const selectedYearLevel = selectedGroup ? parseBlockSlot(selectedGroup.name)?.yearLevel : null
+
+  const handleRefresh = async () => {
+    setLoading(true)
+    setError('')
+    setSuccess('')
+    try {
+      await fetchBlockGroups()
+      if (selectedGroup) {
+        await fetchSections(selectedGroup._id)
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDeleteGroup = async () => {
+    if (!selectedGroup) return
+    const confirmed = window.confirm(`Delete block "${selectedGroup.name}"? This cannot be undone.`)
+    if (!confirmed) return
+
+    setLoading(true)
+    setError('')
+    setSuccess('')
+    try {
+      const data = await authorizedFetch(`/api/blocks/groups/${selectedGroup._id}`, {
+        method: 'DELETE'
+      })
+      setSuccess((data?.message as string) || 'Block deleted successfully')
+      setSelectedGroup(null)
+      setSections([])
+      await fetchBlockGroups()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete block')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleOpenWorkspace = () => {
+    if (!selectedGroup) return
+    onOpenWorkspace({
+      groupId: selectedGroup._id,
+      groupName: selectedGroup.name,
+      semester: selectedGroup.semester,
+      year: Number(selectedGroup.year),
+      initialSectionId: selectedTargetSection?._id || null
+    })
+  }
+
+  return (
+    <div className="registrar-section view-blocks-page">
+      <div className="block-view-shell">
+        <div className="block-view-header">
+          <button type="button" className="registrar-btn registrar-btn-secondary" onClick={onBack}>
+            Back to Block Management
+          </button>
+          <button type="button" className="registrar-btn registrar-btn-secondary" onClick={() => void handleRefresh()} disabled={loading}>
+            {loading ? 'Refreshing...' : 'Refresh Blocks'}
+          </button>
+        </div>
+
+        <div>
+          <h2 className="registrar-section-title">View Blocks</h2>
+          <p className="registrar-section-desc">Browse every created block group on a dedicated page, then inspect sections or open the assignment workspace.</p>
+        </div>
+
+        {error && <p className="registrar-feedback registrar-feedback-error">{error}</p>}
+        {success && <p className="registrar-feedback registrar-feedback-success">{success}</p>}
+
+        <div className="block-summary-grid">
+          <div className="assignment-section block-summary-card">
+            <span className="block-summary-label">Created Blocks</span>
+            <strong className="block-summary-value">{blockGroups.length}</strong>
+            <small>All registrar block groups</small>
+          </div>
+          <div className="assignment-section block-summary-card">
+            <span className="block-summary-label">Filtered Results</span>
+            <strong className="block-summary-value">{filteredBlockGroups.length}</strong>
+            <small>{selectedCourseFilter || selectedYearFilter ? 'Matching current filters' : 'Showing all blocks'}</small>
+          </div>
+          <div className="assignment-section block-summary-card">
+            <span className="block-summary-label">Sections</span>
+            <strong className="block-summary-value">{sections.length}</strong>
+            <small>{selectedGroup ? 'Inside selected block' : 'Select a block to inspect'}</small>
+          </div>
+          <div className="assignment-section block-summary-card">
+            <span className="block-summary-label">Open Sections</span>
+            <strong className="block-summary-value">{openSections.length}</strong>
+            <small>{selectedGroup ? 'Ready for assignment' : 'No block selected'}</small>
+          </div>
+        </div>
+
+        <div className="block-view-grid">
+          <section className="assignment-section block-view-panel">
+            <div className="block-panel-head">
+              <div>
+                <span className="block-step-badge">Directory</span>
+                <h3>Created Block Groups</h3>
+              </div>
+              <p>Filter by course or year level, then pick a block to inspect.</p>
+            </div>
+
+            <div className="block-view-filter-row">
+              <label className="block-picker-field">
+                <span>Course</span>
+                <select value={selectedCourseFilter} onChange={(event) => setSelectedCourseFilter(event.target.value)}>
+                  <option value="">All courses</option>
+                  {courseOptions.map((course) => (
+                    <option key={course} value={course}>{course}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block-picker-field">
+                <span>Year Level</span>
+                <select value={selectedYearFilter} onChange={(event) => setSelectedYearFilter(event.target.value)} disabled={yearOptions.length === 0}>
+                  <option value="">{selectedCourseFilter ? 'All year levels' : 'Select course or show all'}</option>
+                  {yearOptions.map((yearLevel) => (
+                    <option key={yearLevel} value={yearLevel}>{`Year ${yearLevel}`}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="block-view-filter-actions">
+                <button
+                  type="button"
+                  className="registrar-btn registrar-btn-secondary"
+                  onClick={() => {
+                    setSelectedCourseFilter('')
+                    setSelectedYearFilter('')
+                  }}
+                >
+                  Clear Filters
+                </button>
+              </div>
+            </div>
+
+            {filteredBlockGroups.length === 0 ? (
+              <p className="block-view-empty">No block groups match the current filters.</p>
+            ) : (
+              <div className="created-block-grid">
+                {filteredBlockGroups.map((group) => {
+                  const isActive = selectedGroup?._id === group._id
+                  const groupYearLevel = parseBlockSlot(group.name)?.yearLevel
+                  return (
+                    <button
+                      key={group._id}
+                      type="button"
+                      className={`created-block-card ${isActive ? 'active' : ''}`}
+                      onClick={() => setSelectedGroup(group)}
+                    >
+                      <span className="created-block-card-label">{getCourseAbbreviation(group.name)}</span>
+                      <strong>{formatBlockColumnLabel(group.name)}</strong>
+                      <p>{formatBlockLabel(group.name)}</p>
+                      <div className="created-block-card-meta">
+                        <span>{group.semester}</span>
+                        <span>{group.year}</span>
+                        <span>{groupYearLevel ? `Year ${groupYearLevel}` : 'No year'}</span>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+
+          <section className="assignment-section block-view-detail">
+            <div className="block-panel-head">
+              <div>
+                <span className="block-step-badge">Details</span>
+                <h3>{selectedGroup ? formatBlockLabel(selectedGroup.name) : 'Select a block'}</h3>
+              </div>
+              <p>{selectedGroup ? 'Review sections or move straight into the block workspace.' : 'Choose a block card from the directory first.'}</p>
+            </div>
+
+            {selectedGroup ? (
+              <>
+                <div className="block-current-card">
+                  <span className="block-current-label">Selected Block Snapshot</span>
+                  <strong>{`Block-${formatBlockColumnLabel(selectedGroup.name).replace('-', '')}`}</strong>
+                  <p>{formatBlockLabel(selectedGroup.name)} is loaded and ready for section review.</p>
+                  <div className="block-current-meta">
+                    <span>{`${selectedGroup.semester} ${selectedGroup.year}`}</span>
+                    <span>{selectedYearLevel ? `Year ${selectedYearLevel}` : 'No year selected'}</span>
+                    <span>{`${totalSectionPopulation}/${totalSectionCapacity || 0} seats used`}</span>
+                  </div>
+                </div>
+
+                <div className="block-view-actions">
+                  <button type="button" className="registrar-btn" onClick={handleOpenWorkspace}>
+                    Open Workspace
+                  </button>
+                  <button type="button" className="registrar-btn registrar-btn-secondary" onClick={() => void fetchSections(selectedGroup._id)} disabled={loading}>
+                    Refresh Sections
+                  </button>
+                  <button type="button" className="section-delete-btn" onClick={() => void handleDeleteGroup()} disabled={loading}>
+                    Delete Block
+                  </button>
+                </div>
+
+                {sections.length === 0 ? (
+                  <p className="block-view-empty">No sections found for this block yet.</p>
+                ) : (
+                  <div className="created-block-section-list">
+                    {sections
+                      .slice()
+                      .sort((a, b) => compareBlockOrder(a.sectionCode, b.sectionCode))
+                      .map((section) => (
+                        <article key={section._id} className="created-block-section-card">
+                          <div>
+                            <strong>{formatBlockColumnLabel(section.sectionCode)}</strong>
+                            <p>{(section.status || 'OPEN').toUpperCase()} section</p>
+                          </div>
+                          <div className="created-block-section-meta">
+                            <span>{`${section.currentPopulation}/${section.capacity} seats`}</span>
+                            <span>{(section.status || 'OPEN').toUpperCase()}</span>
+                          </div>
+                        </article>
+                      ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="block-view-empty block-view-empty-state">
+                <strong>Choose a block group</strong>
+                <span>Select a block from the directory to inspect its sections, capacity, and workspace actions.</span>
+              </div>
+            )}
+          </section>
+        </div>
       </div>
     </div>
   )
@@ -2035,10 +2228,10 @@ function BlockWorkspace({ selection, onBack }: BlockWorkspaceProps) {
       <div className="registrar-section">
         <div className="block-workspace-shell">
           <button type="button" className="registrar-btn registrar-btn-secondary" onClick={onBack}>
-            Back to Step 2
+            Back to View Blocks
           </button>
           <h2 className="registrar-section-title">Block Assignment Workspace</h2>
-          <p className="registrar-section-desc">Select a block in Step 2 first, then open workspace.</p>
+          <p className="registrar-section-desc">Select a block from View Blocks first, then open the workspace.</p>
         </div>
       </div>
     )
@@ -2049,7 +2242,7 @@ function BlockWorkspace({ selection, onBack }: BlockWorkspaceProps) {
       <div className="block-workspace-shell">
         <div className="block-workspace-header">
           <button type="button" className="registrar-btn registrar-btn-secondary" onClick={onBack}>
-            Back to Step 2
+            Back to View Blocks
           </button>
           <button type="button" className="registrar-btn registrar-btn-secondary" onClick={() => void handleRefreshWorkspace()} disabled={loading || assigning}>
             {loading ? 'Refreshing...' : 'Refresh Workspace'}

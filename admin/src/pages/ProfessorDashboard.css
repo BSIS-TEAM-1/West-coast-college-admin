@@ -184,7 +184,10 @@
 
 .professor-dashboard-main {
   flex: 1;
-  padding: 2rem;
+  min-width: 0;
+  width: 100%;
+  max-width: none;
+  padding: 2rem clamp(1.5rem, 2vw, 2rem);
   background: var(--color-bg-soft);
 }
 
@@ -206,7 +209,8 @@
 
 /* Professor Home Styles - Matching RegistrarDashboard */
 .professor-home {
-  max-width: 64rem;
+  width: 100%;
+  max-width: none;
 }
 
 .professor-welcome-title {
@@ -227,6 +231,8 @@
   grid-template-columns: 2fr 1fr;
   gap: 2rem;
   align-items: start;
+  width: 100%;
+  max-width: none;
 }
 
 @media (max-width: 1024px) {
@@ -627,7 +633,8 @@
 
 /* Professor Section Styles - Matching RegistrarDashboard */
 .professor-section {
-  max-width: 64rem;
+  width: 100%;
+  max-width: none;
 }
 
 .professor-section-title {
@@ -2750,6 +2757,10 @@
     margin-left: 0;
   }
 
+  .professor-dashboard-main {
+    padding: 1.25rem;
+  }
+
   .professor-sidebar-nav {
     flex: initial;
   }
@@ -2929,4 +2940,1029 @@
     height: clamp(120px, 30vw, 160px);
     max-height: clamp(120px, 30vw, 160px);
   }
+}
+
+/* My Courses redesign */
+.professor-course-management {
+  display: grid;
+  gap: 1rem;
+  width: 100%;
+  max-width: none;
+}
+
+.professor-course-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.15rem 1.2rem;
+  border-radius: 1rem;
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--color-primary) 14%, transparent), transparent 42%),
+    linear-gradient(145deg, color-mix(in srgb, var(--color-surface) 88%, var(--color-primary) 12%), var(--color-surface));
+  box-shadow: 0 18px 34px rgba(2, 6, 23, 0.08);
+}
+
+.professor-course-hero-copy {
+  min-width: 0;
+}
+
+.professor-course-hero-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-primary) 72%, var(--color-text-muted));
+}
+
+.professor-course-hero .professor-section-title {
+  margin: 0 0 0.25rem;
+}
+
+.professor-course-hero .professor-section-desc {
+  margin: 0;
+  max-width: 58ch;
+}
+
+.professor-course-hero-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.professor-course-help-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  color: var(--color-text);
+  border-radius: 999px;
+  padding: 0.55rem 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.professor-course-help-trigger:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--color-primary) 46%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface));
+}
+
+.professor-course-statbar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  padding: 0.35rem;
+  overflow: hidden;
+}
+
+.professor-course-statbar-item {
+  min-width: 0;
+  padding: 0.95rem 1rem;
+  border-radius: 0.8rem;
+  background: transparent;
+}
+
+.professor-course-statbar-item + .professor-course-statbar-item {
+  border-left: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
+}
+
+.professor-course-filter-shell {
+  padding: 0.9rem 1rem;
+}
+
+.professor-course-filter-row {
+  align-items: stretch;
+  gap: 0.85rem;
+  margin-bottom: 0;
+}
+
+.professor-course-filter-row .professor-course-search {
+  flex: 1 1 280px;
+  max-width: none;
+  min-height: 3rem;
+  padding: 0.8rem 0.85rem;
+  border-radius: 0.85rem;
+}
+
+.professor-course-filter-row .professor-course-filter-group {
+  flex: 999 1 780px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.7rem;
+  align-items: end;
+}
+
+.professor-course-filter-row .professor-course-select,
+.professor-course-filter-row .professor-course-toggle {
+  min-height: 100%;
+}
+
+.professor-course-filter-row .professor-course-select select {
+  min-height: 3rem;
+  border-radius: 0.85rem;
+  padding: 0.72rem 0.75rem;
+}
+
+.professor-course-filter-row .professor-course-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 3rem;
+  border-radius: 0.85rem;
+  padding: 0.72rem 0.8rem;
+}
+
+.professor-course-filter-row .professor-btn {
+  min-height: 3rem;
+}
+
+.professor-course-toolbar {
+  margin-bottom: 0;
+}
+
+.professor-course-toolbar-start {
+  justify-content: flex-end;
+}
+
+.professor-course-results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.16rem;
+}
+
+.professor-course-results strong {
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.professor-course-results span {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.professor-course-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 1rem;
+}
+
+@media (min-width: 1600px) {
+  .professor-course-grid.professor-course-layout-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.professor-course-list {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+  container-type: inline-size;
+  scrollbar-gutter: stable both-edges;
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 14%, var(--color-border));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-surface) 96%, white), color-mix(in srgb, var(--color-bg-soft) 92%, var(--color-surface)));
+  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.08);
+}
+
+.professor-course-list-header,
+.professor-course-list-row {
+  display: grid;
+  grid-template-columns:
+    minmax(92px, 0.75fr)
+    minmax(220px, 1.7fr)
+    minmax(96px, 0.8fr)
+    minmax(132px, 1fr)
+    minmax(160px, 1.15fr)
+    minmax(112px, 0.82fr)
+    minmax(250px, 1.6fr);
+  gap: 0.85rem;
+  align-items: center;
+}
+
+.professor-course-list-header {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 92%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+}
+
+.professor-course-list-heading {
+  font-size: 0.69rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.professor-course-list-body {
+  display: grid;
+}
+
+.professor-course-list-row {
+  padding: 0.9rem 1rem;
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.professor-course-list-body .professor-course-list-row:first-child {
+  border-top: none;
+}
+
+.professor-course-list-row:hover {
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+}
+
+.professor-course-list-cell {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.professor-course-list-cell-actions {
+  justify-content: flex-end;
+}
+
+.professor-course-list-heading-actions {
+  justify-self: end;
+  text-align: right;
+}
+
+.professor-course-list-primary {
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.professor-course-list-code,
+.professor-course-list-block,
+.professor-course-list-text,
+.professor-course-list-title {
+  min-width: 0;
+  color: var(--color-text);
+}
+
+.professor-course-list-code {
+  font-size: 0.84rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.professor-course-list-title {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.professor-course-list-block,
+.professor-course-list-text {
+  font-size: 0.84rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.professor-course-list-note,
+.professor-course-list-inline-meta,
+.professor-course-list-mobile-note {
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+}
+
+.professor-course-list-inline-meta,
+.professor-course-list-mobile-note {
+  display: none;
+}
+
+@container (max-width: 1180px) {
+  .professor-course-list-header,
+  .professor-course-list-row {
+    grid-template-columns:
+      minmax(92px, 0.85fr)
+      minmax(220px, 2fr)
+      minmax(160px, 1.2fr)
+      minmax(240px, 1.6fr);
+  }
+
+  .professor-course-list-heading-course,
+  .professor-course-list-heading-block,
+  .professor-course-list-cell-course,
+  .professor-course-list-cell-block {
+    display: none;
+  }
+
+  .professor-course-list-inline-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+  }
+}
+
+@container (max-width: 1024px) {
+  .professor-course-list-header,
+  .professor-course-list-row {
+    grid-template-columns:
+      minmax(88px, 0.9fr)
+      minmax(0, 2fr)
+      minmax(170px, 1.2fr)
+      minmax(220px, 1.5fr);
+    gap: 0.75rem;
+  }
+
+  .professor-course-list-heading-room,
+  .professor-course-list-cell-room {
+    display: none;
+  }
+
+  .professor-course-list-mobile-note {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+  }
+
+  .professor-course-list-row {
+    padding: 0.85rem 0.9rem;
+  }
+}
+
+@container (max-width: 768px) {
+  .professor-course-list-header {
+    display: none;
+  }
+
+  .professor-course-list-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.7rem 1rem;
+    align-items: start;
+    padding: 0.9rem;
+  }
+
+  .professor-course-list-cell {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.22rem;
+  }
+
+  .professor-course-list-cell::before {
+    content: attr(data-label);
+    font-size: 0.67rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  .professor-course-list-cell-title,
+  .professor-course-list-cell-actions {
+    grid-column: 1 / -1;
+  }
+
+  .professor-course-list-cell-actions .professor-subject-action-menu {
+    justify-content: flex-start;
+  }
+
+  .professor-course-list-cell-actions .professor-subject-action-dropdown {
+    left: 0;
+    right: auto;
+  }
+}
+
+@container (max-width: 560px) {
+  .professor-course-list-row {
+    grid-template-columns: 1fr;
+  }
+
+  .professor-course-list-cell-actions .professor-subject-action-menu {
+    width: 100%;
+  }
+
+  .professor-course-list-cell-actions .professor-subject-action-menu-toggle {
+    width: 100%;
+  }
+
+  .professor-course-list-cell-actions .professor-subject-action-dropdown {
+    left: 0;
+    right: 0;
+    min-width: 0;
+  }
+
+}
+
+.professor-subject-action-menu {
+  position: relative;
+  display: inline-flex;
+  width: auto;
+}
+
+.professor-course-list-cell-actions .professor-subject-action-menu,
+.professor-subject-actions .professor-subject-action-menu {
+  justify-content: flex-end;
+}
+
+.professor-subject-action-menu-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 7rem;
+  padding: 0.46rem 0.72rem;
+  border-radius: 0.72rem;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 18%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  color: var(--color-text);
+  font-size: 0.77rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.professor-subject-action-menu-toggle:hover,
+.professor-subject-action-menu-toggle.open {
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-primary) 34%, var(--color-border));
+}
+
+.professor-subject-action-menu-toggle:hover {
+  transform: translateY(-1px);
+}
+
+.professor-subject-action-dropdown {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  z-index: 40;
+  min-width: 13rem;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.4rem;
+  border-radius: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 16%, var(--color-border));
+  background: color-mix(in srgb, var(--color-surface) 96%, var(--color-bg-soft));
+  box-shadow: 0 18px 32px rgba(15, 23, 42, 0.14);
+}
+
+.professor-subject-action-menu-grid .professor-subject-action-dropdown,
+.professor-subject-action-menu-list .professor-subject-action-dropdown {
+  top: auto;
+  bottom: calc(100% + 0.45rem);
+  transform-origin: bottom right;
+}
+
+.professor-subject-action-dropdown.align-start {
+  left: 0;
+  right: auto;
+}
+
+.professor-subject-action-dropdown-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.72rem 0.8rem;
+  border: 1px solid transparent;
+  border-radius: 0.72rem;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.professor-subject-action-dropdown-item:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-primary) 22%, var(--color-border));
+}
+
+.professor-subject-action-dropdown-item.is-primary {
+  color: var(--color-primary);
+}
+
+.professor-subject-action-dropdown-item:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.professor-course-layout-list .professor-course-card {
+  display: flex;
+  grid-template-columns: none;
+}
+
+.professor-course-layout-list .professor-course-header {
+  flex-direction: row;
+  align-items: flex-start;
+}
+
+.professor-course-card {
+  gap: 0.95rem;
+  padding: 1rem;
+  border-radius: 1rem;
+}
+
+.professor-course-header {
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.professor-course-header-main {
+  min-width: 0;
+}
+
+.professor-course-label,
+.professor-block-label {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.professor-course-header h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.professor-course-summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  text-align: right;
+}
+
+.professor-course-summary span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 20%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-bg-soft));
+  padding: 0.3rem 0.7rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.professor-block-list {
+  gap: 0.7rem;
+}
+
+.professor-block-item {
+  padding: 0;
+  overflow: visible;
+  border-radius: 0.9rem;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--color-bg-soft) 86%, var(--color-surface)), var(--color-surface));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.professor-block-item.is-expanded {
+  border-color: color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
+}
+
+.professor-block-toggle {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 0.95rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.professor-block-toggle:hover {
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+}
+
+.professor-block-toggle-main {
+  min-width: 0;
+}
+
+.professor-block-toggle-main strong {
+  display: block;
+  font-size: 0.98rem;
+  color: var(--color-text);
+}
+
+.professor-block-toggle-side {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-shrink: 0;
+}
+
+.professor-block-meta {
+  margin-top: 0.2rem;
+}
+
+.professor-block-metrics {
+  justify-content: flex-end;
+}
+
+.professor-block-metrics span {
+  padding: 0.22rem 0.55rem;
+  font-size: 0.72rem;
+}
+
+.professor-block-chevron {
+  color: var(--color-text-muted);
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.professor-block-chevron.is-expanded {
+  transform: rotate(90deg);
+  color: var(--color-primary);
+}
+
+.professor-subject-list {
+  display: grid;
+  gap: 0.9rem;
+  padding: 0 1rem 1rem;
+  align-items: stretch;
+}
+
+.professor-course-layout-grid .professor-subject-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17.5rem), 1fr));
+  width: 100%;
+  align-content: start;
+}
+
+.professor-course-layout-list .professor-subject-list {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.professor-subject-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  justify-content: space-between;
+  min-height: 100%;
+  padding: 0.95rem;
+  border-radius: 0.95rem;
+  background:
+    linear-gradient(155deg, color-mix(in srgb, var(--color-surface) 92%, white), color-mix(in srgb, var(--color-bg-soft) 78%, var(--color-surface)));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 12%, var(--color-border));
+  box-shadow: 0 14px 24px rgba(15, 23, 42, 0.08);
+}
+
+.professor-course-layout-list .professor-subject-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(220px, 0.8fr);
+  align-items: center;
+}
+
+.professor-subject-card-head {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.professor-subject-code-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.professor-subject-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.88rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--color-text);
+}
+
+.professor-subject-title {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.professor-subject-facts {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.professor-subject-fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.professor-subject-fact svg {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--color-primary) 64%, var(--color-text-muted));
+}
+
+.professor-subject-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.professor-help-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 160;
+  background: rgba(2, 6, 23, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  backdrop-filter: blur(6px);
+}
+
+.professor-help-modal {
+  width: min(540px, 100%);
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 18%, var(--color-border));
+  background: linear-gradient(155deg, var(--color-surface), color-mix(in srgb, var(--color-bg-soft) 88%, var(--color-surface)));
+  box-shadow: 0 24px 48px rgba(2, 6, 23, 0.22);
+  padding: 1.1rem;
+}
+
+.professor-help-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.8rem;
+}
+
+.professor-help-modal-header h3 {
+  margin: 0.15rem 0 0;
+  font-size: 1.08rem;
+  color: var(--color-text);
+}
+
+.professor-help-modal-content {
+  display: grid;
+  gap: 0.8rem;
+  color: var(--color-text-muted);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.professor-help-modal-content p,
+.professor-help-modal-content ul {
+  margin: 0;
+}
+
+.professor-help-modal-content ul {
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.professor-inline-note {
+  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  border-radius: 0.85rem;
+  padding: 0.8rem 0.9rem;
+  font-size: 0.84rem;
+  color: var(--color-text-muted);
+}
+
+.professor-inline-note strong {
+  color: var(--color-text);
+}
+
+@media (max-width: 1180px) {
+  .professor-course-filter-row .professor-course-filter-group {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .professor-course-hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .professor-course-hero-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .professor-course-statbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .professor-course-statbar-item + .professor-course-statbar-item {
+    border-left: none;
+  }
+
+  .professor-course-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .professor-course-layout-list .professor-subject-item {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .professor-course-filter-shell {
+    padding: 0.85rem;
+  }
+
+  .professor-course-filter-row,
+  .professor-course-filter-row .professor-course-filter-group {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .professor-course-filter-row .professor-course-search,
+  .professor-course-filter-row .professor-course-select,
+  .professor-course-filter-row .professor-course-toggle,
+  .professor-course-filter-row .professor-btn {
+    width: 100%;
+  }
+
+  .professor-course-toolbar {
+    align-items: stretch;
+  }
+
+  .professor-course-toolbar-start {
+    justify-content: flex-start;
+  }
+
+  .professor-course-summary,
+  .professor-block-toggle,
+  .professor-block-toggle-side {
+    width: 100%;
+  }
+
+  .professor-block-toggle,
+  .professor-block-toggle-side,
+  .professor-course-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .professor-subject-list,
+  .professor-subject-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .professor-course-hero,
+  .professor-course-card,
+  .professor-help-modal {
+    padding: 0.95rem;
+  }
+
+  .professor-course-statbar {
+    grid-template-columns: 1fr;
+  }
+
+  .professor-subject-code-row {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 1180px) {
+  .professor-course-list-header,
+  .professor-course-list-row {
+    grid-template-columns:
+      minmax(92px, 0.85fr)
+      minmax(220px, 2fr)
+      minmax(160px, 1.2fr)
+      minmax(102px, 0.75fr)
+      minmax(240px, 1.6fr);
+  }
+
+  .professor-course-list-heading-course,
+  .professor-course-list-heading-block,
+  .professor-course-list-cell-course,
+  .professor-course-list-cell-block {
+    display: none;
+  }
+
+  .professor-course-list-inline-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 1024px) {
+  .professor-course-list-header,
+  .professor-course-list-row {
+    grid-template-columns:
+      minmax(88px, 0.9fr)
+      minmax(0, 2fr)
+      minmax(170px, 1.2fr)
+      minmax(102px, 0.72fr)
+      minmax(220px, 1.5fr);
+    gap: 0.75rem;
+  }
+
+  .professor-course-list-heading-room,
+  .professor-course-list-cell-room {
+    display: none;
+  }
+
+  .professor-course-list-mobile-note {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+  }
+
+  .professor-course-list-row {
+    padding: 0.85rem 0.9rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .professor-course-list-header {
+    display: none;
+  }
+
+  .professor-course-list-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.7rem 1rem;
+    align-items: start;
+    padding: 0.9rem;
+  }
+
+  .professor-course-list-cell {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.22rem;
+  }
+
+  .professor-course-list-cell::before {
+    content: attr(data-label);
+    font-size: 0.67rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  .professor-course-list-cell-title,
+  .professor-course-list-cell-actions {
+    grid-column: 1 / -1;
+  }
+
+  .professor-course-list-cell-actions .professor-subject-action-menu {
+    justify-content: flex-start;
+  }
+
+  .professor-course-list-cell-actions .professor-subject-action-dropdown {
+    left: 0;
+    right: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .professor-course-list-row {
+    grid-template-columns: 1fr;
+  }
+
+  .professor-course-list-cell-actions .professor-subject-action-menu {
+    width: 100%;
+  }
+
+  .professor-course-list-cell-actions .professor-subject-action-menu-toggle {
+    width: 100%;
+  }
+
+  .professor-course-list-cell-actions .professor-subject-action-dropdown {
+    left: 0;
+    right: 0;
+    min-width: 0;
+  }
+
 }

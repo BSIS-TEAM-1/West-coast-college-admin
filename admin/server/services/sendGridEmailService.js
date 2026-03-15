@@ -49,7 +49,7 @@ class SendGridEmailService {
     return Boolean(this.apiKey && this.fromEmail)
   }
 
-  async sendEmail({ to, subject, text, html, fromEmail, fromName, replyTo } = {}) {
+  async sendEmail({ to, subject, text, html, fromEmail, fromName, replyTo, attachments = [] } = {}) {
     if (!this.isConfigured()) {
       throw new Error('SendGrid Email is not configured. Set SENDGRID_API_KEY and SENDGRID_FROM_EMAIL.')
     }
@@ -100,6 +100,19 @@ class SendGridEmailService {
 
     if (finalReplyTo) {
       payload.reply_to = { email: finalReplyTo }
+    }
+
+    if (Array.isArray(attachments) && attachments.length > 0) {
+      payload.attachments = attachments
+        .filter(Boolean)
+        .map((attachment) => ({
+          content: String(attachment.content || '').replace(/\s+/g, ''),
+          filename: String(attachment.filename || 'attachment').trim() || 'attachment',
+          type: String(attachment.contentType || 'application/octet-stream').trim() || 'application/octet-stream',
+          disposition: String(attachment.disposition || 'attachment').trim() || 'attachment',
+          ...(attachment.contentId ? { content_id: String(attachment.contentId).trim() } : {})
+        }))
+        .filter((attachment) => attachment.content)
     }
 
     try {

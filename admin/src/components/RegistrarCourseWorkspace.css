@@ -1,0 +1,71 @@
+.registrar-course-workspace-page {
+  gap: 1.1rem;
+}
+
+.registrar-course-workspace-page-hero {
+  align-items: center;
+}
+
+.registrar-course-workspace-overview,
+.registrar-course-workspace-page-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.registrar-course-workspace-overview {
+  grid-template-columns: minmax(320px, 1fr) minmax(380px, 1.2fr);
+}
+
+.registrar-course-workspace-page-grid {
+  grid-template-columns: minmax(340px, 0.96fr) minmax(0, 1.14fr);
+  align-items: start;
+}
+
+.registrar-course-workspace-overview-card {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.registrar-course-workspace-control-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.registrar-course-workspace-control-grid label,
+.registrar-course-workspace-static-field {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+}
+
+.registrar-course-workspace-control-grid select,
+.registrar-course-workspace-static-field input {
+  width: 100%;
+  padding: 0.72rem 0.85rem;
+  font-size: 0.83rem;
+  border-radius: 0.8rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-sizing: border-box;
+}
+
+.registrar-course-workspace-static-field input[readonly] {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-bg-soft) 50%, var(--color-surface));
+}
+
+@media (max-width: 1120px) {
+  .registrar-course-workspace-overview,
+  .registrar-course-workspace-page-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .registrar-course-workspace-control-grid {
+    grid-template-columns: 1fr;
+  }
+}

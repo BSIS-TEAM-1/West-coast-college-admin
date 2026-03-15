@@ -4,12 +4,14 @@ const Enrollment = require('../models/Enrollment');
 const Subject = require('../models/Subject');
 const StudentBlockAssignment = require('../models/StudentBlockAssignment');
 const SectionWaitlist = require('../models/SectionWaitlist');
+const BlockGroup = require('../models/BlockGroup');
 const BlockSection = require('../models/BlockSection');
 const Admin = require('../models/Admin');
 const PDFDocument = require('pdfkit');
 const path = require('path');
 const fs = require('fs');
 const securityMiddleware = require('../securityMiddleware');
+const StudentNumberService = require('../services/studentNumberService');
 
 const STUDENT_MUTABLE_FIELDS = [
   'firstName',
@@ -22,6 +24,7 @@ const STUDENT_MUTABLE_FIELDS = [
   'semester',
   'schoolYear',
   'studentStatus',
+  'lifecycleStatus',
   'enrollmentStatus',
   'corStatus',
   'scholarship',
@@ -52,6 +55,7 @@ const TRIMMED_STUDENT_STRING_FIELDS = new Set([
   'semester',
   'schoolYear',
   'studentStatus',
+  'lifecycleStatus',
   'enrollmentStatus',
   'corStatus',
   'scholarship',
@@ -105,6 +109,29 @@ function normalizeEmergencyContact(emergencyContact) {
 }
 
 class StudentController {
+  static lifecycleStatuses = ['Pending', 'Enrolled', 'Not Enrolled', 'Dropped', 'Inactive', 'Graduated'];
+
+  static deriveLifecycleStatus(student) {
+    const explicit = String(student?.lifecycleStatus || '').trim();
+    if (StudentController.lifecycleStatuses.includes(explicit)) {
+      return explicit;
+    }
+
+    if (student?.isActive === false) return 'Inactive';
+
+    const studentStatus = String(student?.studentStatus || '').trim();
+    const enrollmentStatus = String(student?.enrollmentStatus || '').trim();
+    const corStatus = String(student?.corStatus || '').trim();
+
+    if (studentStatus === 'Dropped' || enrollmentStatus === 'Dropped') return 'Dropped';
+    if (enrollmentStatus === 'Enrolled' || corStatus === 'Verified') return 'Enrolled';
+    if (enrollmentStatus === 'Not Enrolled') {
+      return corStatus === 'Pending' ? 'Pending' : 'Not Enrolled';
+    }
+
+    return 'Pending';
+  }
+
   static async getProfessorAccounts(req, res) {
     try {
       const professors = await Admin.find({
@@ -133,6 +160,574 @@ class StudentController {
       res.status(500).json({
         success: false,
         message: error.message || 'Failed to fetch professor accounts'
+      });
+    }
+  }
+
+  static normalizeProfessorIdentifier(value) {
+    return String(value || '').trim().toLowerCase();
+  }
+
+  static schoolYearFromStartYear(value) {
+    const year = Number(value);
+    if (!Number.isFinite(year) || year < 1000) return '';
+    return `${year}-${year + 1}`;
+  }
+
+  static courseCodeFromValue(value) {
+    const text = String(value ?? '').trim();
+    if (!text) return '';
+    if (/^\d+$/.test(text)) return text;
+
+    const normalized = text.toUpperCase().replace(/\s+/g, '').replace(/_/g, '-');
+    if (normalized.includes('BEED')) return '101';
+    if (normalized.includes('BSED-ENGLISH') || normalized === 'ENGLISH') return '102';
+    if (normalized.includes('BSED-MATH') || normalized === 'MATH' || normalized === 'MATHEMATICS') return '103';
+    if (normalized.includes('BSBA-HRM') || normalized === 'HRM') return '201';
+    return '';
+  }
+
+  static extractBlockGroupMeta(groupName) {
+    const normalized = String(groupName || '')
+      .trim()
+      .replace(/\u2013/g, '-')
+      .toUpperCase();
+    if (!normalized) {
+      return {
+        courseCode: undefined,
+        courseShortLabel: '',
+        courseLabel: '',
+        yearLevel: undefined
+      };
+    }
+
+    const parts = normalized.split('-').filter(Boolean);
+    const courseCode = /^\d+$/.test(parts[0] || '') ? Number(parts[0]) : undefined;
+    const yearLevel = /^\d+$/.test(parts[1] || '') ? Number(parts[1]) : undefined;
+
+    return {
+      courseCode,
+      courseShortLabel: courseCode
+        ? StudentController.courseCodeMap[courseCode] || String(courseCode)
+        : parts[0] || normalized,
+      courseLabel: courseCode
+        ? StudentController.courseLabelMap[courseCode] || (StudentController.courseCodeMap[courseCode] || String(courseCode))
+        : normalized,
+      yearLevel
+    };
+  }
+
+  static formatSectionBlockLabel(sectionCode, courseShortLabel) {
+    const normalizedSection = String(sectionCode || '')
+      .trim()
+      .replace(/\u2013/g, '-')
+      .toUpperCase();
+    const course = String(courseShortLabel || '').trim().toUpperCase();
+    if (!normalizedSection) return 'N/A';
+    if (!course) return normalizedSection;
+
+    const slotMatch = normalizedSection.match(/(?:^|[-\s])(\d+)-?([A-Z])$/);
+    if (slotMatch) {
+      return `${course}-${slotMatch[1]}${slotMatch[2]}`;
+    }
+
+    const parts = normalizedSection.split('-').filter(Boolean);
+    if (parts.length === 1) return `${course}-${parts[0]}`;
+    return `${course}-${parts.slice(1).join('')}`;
+  }
+
+  static async getProfessorCourseLoads(req, res) {
+    try {
+      const semesterFilter = String(req.query.semester || '').trim();
+      const yearFilter = Number(req.query.year);
+      const courseFilter = Number(req.query.course);
+
+      const professorDocs = await Admin.find({
+        accountType: 'professor',
+        status: { $ne: 'inactive' }
+      })
+        .select('_id username displayName uid status')
+        .sort({ displayName: 1, username: 1 })
+        .lean();
+
+      const professorIdentifierMap = new Map();
+      const professorLoads = new Map(
+        professorDocs.map((professor) => {
+          const label = String(professor.displayName || '').trim() || String(professor.username || '').trim() || 'Professor';
+          const professorEntry = {
+            professorId: String(professor._id),
+            username: professor.username || '',
+            displayName: professor.displayName || '',
+            label,
+            uid: professor.uid || '',
+            status: professor.status || 'active',
+            assignments: []
+          };
+
+          [professor.username, professor.displayName, professor.uid, label]
+            .map((value) => StudentController.normalizeProfessorIdentifier(value))
+            .filter(Boolean)
+            .forEach((identifier) => {
+              professorIdentifierMap.set(identifier, professorEntry.professorId);
+            });
+
+          return [professorEntry.professorId, professorEntry];
+        })
+      );
+
+      const buildEmptyResponse = () => ({
+        success: true,
+        data: {
+          professors: Array.from(professorLoads.values()).map((professor) => ({
+            ...professor,
+            totals: { courses: 0, sections: 0, subjects: 0, students: 0 },
+            courseSummaries: []
+          })),
+          stats: {
+            professors: professorLoads.size,
+            assignedSubjects: 0,
+            sectionsCovered: 0,
+            studentsCovered: 0,
+            unassignedSubjects: 0,
+            unmatchedInstructors: 0,
+            orphanedSubjects: 0
+          },
+          unassignedSubjects: [],
+          filterOptions: {
+            semesters: [],
+            years: [],
+            courses: []
+          }
+        }
+      });
+
+      const blockGroupQuery = {};
+      if (semesterFilter) blockGroupQuery.semester = semesterFilter;
+      if (Number.isFinite(yearFilter) && yearFilter > 0) blockGroupQuery.year = yearFilter;
+
+      const rawGroups = await BlockGroup.find(blockGroupQuery)
+        .select('_id name semester year')
+        .sort({ year: -1, semester: 1, name: 1 })
+        .lean();
+
+      const filterOptions = {
+        semesters: Array.from(new Set(rawGroups.map((group) => String(group.semester || '').trim()).filter(Boolean))),
+        years: Array.from(new Set(rawGroups.map((group) => Number(group.year)).filter((value) => Number.isFinite(value)))).sort((a, b) => b - a),
+        courses: Array.from(
+          new Map(
+            rawGroups
+              .map((group) => StudentController.extractBlockGroupMeta(group.name))
+              .filter((meta) => meta.courseCode)
+              .map((meta) => [
+                String(meta.courseCode),
+                {
+                  value: Number(meta.courseCode),
+                  label: meta.courseShortLabel,
+                  fullLabel: meta.courseLabel
+                }
+              ])
+          ).values()
+        ).sort((a, b) => a.label.localeCompare(b.label))
+      };
+
+      if (rawGroups.length === 0) {
+        const payload = buildEmptyResponse();
+        payload.data.filterOptions = filterOptions;
+        return res.json(payload);
+      }
+
+      const blockGroups = rawGroups
+        .map((group) => ({
+          ...group,
+          meta: StudentController.extractBlockGroupMeta(group.name)
+        }))
+        .filter((group) => {
+          if (!Number.isFinite(courseFilter) || courseFilter <= 0) return true;
+          return Number(group.meta.courseCode) === courseFilter;
+        });
+
+      if (blockGroups.length === 0) {
+        const payload = buildEmptyResponse();
+        payload.data.filterOptions = filterOptions;
+        return res.json(payload);
+      }
+
+      const groupIds = blockGroups.map((group) => group._id);
+      const groupById = new Map(blockGroups.map((group) => [String(group._id), group]));
+      const targetEnrollmentPairs = Array.from(
+        new Set(
+          blockGroups
+            .map((group) => {
+              const schoolYear = StudentController.schoolYearFromStartYear(group.year);
+              const semester = String(group.semester || '').trim();
+              return schoolYear && semester ? `${schoolYear}|${semester}` : '';
+            })
+            .filter(Boolean)
+        )
+      );
+      const courseMetaByCode = new Map(
+        filterOptions.courses.map((course) => [String(course.value), course])
+      );
+      const targetCourseCodes = new Set(
+        blockGroups
+          .map((group) => StudentController.courseCodeFromValue(group.meta.courseCode))
+          .filter(Boolean)
+      );
+
+      const sections = await BlockSection.find({ blockGroupId: { $in: groupIds } })
+        .select('_id blockGroupId sectionCode currentPopulation capacity')
+        .lean();
+
+      const sectionById = new Map(sections.map((section) => [String(section._id), section]));
+      const studentAssignments = await StudentBlockAssignment.find({
+        sectionId: { $in: sections.map((section) => section._id) },
+        status: 'ASSIGNED'
+      })
+        .select('studentId sectionId semester year')
+        .lean();
+
+      const relevantAssignments = studentAssignments.filter((assignment) => {
+        const section = sectionById.get(String(assignment.sectionId));
+        if (!section) return false;
+        const group = groupById.get(String(section.blockGroupId));
+        if (!group) return false;
+        return String(assignment.semester || '').trim() === String(group.semester || '').trim()
+          && Number(assignment.year) === Number(group.year);
+      });
+
+      const parseSchoolYearStart = (schoolYearValue) => {
+        const match = String(schoolYearValue || '').trim().match(/^(\d{4})/);
+        return match ? Number(match[1]) : NaN;
+      };
+
+      const assignmentsByStudentId = new Map();
+      relevantAssignments.forEach((assignment) => {
+        const studentId = String(assignment.studentId || '').trim();
+        if (!studentId) return;
+        const list = assignmentsByStudentId.get(studentId) || [];
+        list.push(assignment);
+        assignmentsByStudentId.set(studentId, list);
+      });
+
+      const findAssignmentForEnrollment = (studentIdValue, semesterValue, schoolYearValue) => {
+        const studentId = String(studentIdValue || '').trim();
+        if (!studentId) return null;
+
+        const list = assignmentsByStudentId.get(studentId) || [];
+        if (list.length === 0) return null;
+
+        const semester = String(semesterValue || '').trim();
+        const yearStart = parseSchoolYearStart(schoolYearValue);
+        const strictMatch = list.find((entry) => {
+          const semesterMatch = String(entry.semester || '').trim() === semester;
+          const yearMatch = Number(entry.year || 0) === Number(yearStart || 0);
+          return semesterMatch && yearMatch;
+        });
+        if (strictMatch) return strictMatch;
+
+        if (!Number.isFinite(yearStart)) {
+          return list.find((entry) => String(entry.semester || '').trim() === semester) || null;
+        }
+
+        return null;
+      };
+
+      const studentObjectIds = Array.from(
+        new Set(
+          relevantAssignments
+            .map((assignment) => String(assignment.studentId || '').trim())
+            .filter((studentId) => mongoose.Types.ObjectId.isValid(studentId))
+        )
+      ).map((studentId) => new mongoose.Types.ObjectId(studentId));
+
+      const enrollmentQuery = {
+        status: { $ne: 'Dropped' }
+      };
+      if (targetEnrollmentPairs.length > 0) {
+        enrollmentQuery.$or = targetEnrollmentPairs.map((pair) => {
+          const [schoolYear, semester] = pair.split('|');
+          return { schoolYear, semester };
+        });
+      }
+
+      const enrollmentDocs = await Enrollment.find(enrollmentQuery)
+        .select('studentId schoolYear semester subjects isCurrent createdAt course')
+        .sort({ isCurrent: -1, createdAt: -1 })
+        .lean();
+
+      if (enrollmentDocs.length === 0) {
+        const payload = buildEmptyResponse();
+        payload.data.filterOptions = filterOptions;
+        return res.json(payload);
+      }
+
+      const enrollmentStudentIds = Array.from(
+        new Set(
+          enrollmentDocs
+            .map((enrollment) => String(enrollment.studentId || '').trim())
+            .filter((studentId) => mongoose.Types.ObjectId.isValid(studentId))
+        )
+      );
+      const enrollmentStudentObjectIds = enrollmentStudentIds.map((studentId) => new mongoose.Types.ObjectId(studentId));
+      const students = enrollmentStudentObjectIds.length > 0
+        ? await Student.find({ _id: { $in: enrollmentStudentObjectIds } }).select('_id course').lean()
+        : [];
+      const studentCourseCodeById = new Map(
+        students.map((student) => [String(student._id), String(student.course || '').trim()])
+      );
+
+      const enrollmentByKey = new Map();
+      enrollmentDocs.forEach((enrollment) => {
+        const key = `${String(enrollment.studentId)}|${String(enrollment.schoolYear || '').trim()}|${String(enrollment.semester || '').trim()}`;
+        if (!enrollmentByKey.has(key)) {
+          enrollmentByKey.set(key, enrollment);
+        }
+      });
+
+      const loadBuckets = new Map();
+      const unassignedBuckets = new Map();
+      const orphanedBuckets = new Map();
+
+      relevantAssignments.forEach((assignment) => {
+        const studentId = String(assignment.studentId || '').trim();
+        const section = sectionById.get(String(assignment.sectionId));
+        if (!section) return;
+        const blockGroup = groupById.get(String(section.blockGroupId));
+        if (!blockGroup) return;
+
+        const schoolYear = StudentController.schoolYearFromStartYear(assignment.year);
+        const semester = String(assignment.semester || '').trim();
+        const enrollment = enrollmentByKey.get(`${studentId}|${schoolYear}|${semester}`);
+        if (!enrollment || !Array.isArray(enrollment.subjects)) return;
+
+        enrollment.subjects.forEach((subjectEntry) => {
+          if (String(subjectEntry?.status || '').toLowerCase() === 'dropped') return;
+
+          const instructorRaw = String(subjectEntry?.instructor || '').trim();
+          const normalizedInstructor = StudentController.normalizeProfessorIdentifier(instructorRaw);
+          const subjectId = String(subjectEntry?.subjectId || '').trim() || String(subjectEntry?.code || '').trim();
+          const subjectCode = String(subjectEntry?.code || '').trim() || 'SUBJECT';
+          const sectionSubjectKey = `${String(section._id)}|${subjectId}`;
+          const basePayload = {
+            subjectId,
+            subjectCode,
+            subjectTitle: String(subjectEntry?.title || '').trim() || 'Untitled subject',
+            schedule: String(subjectEntry?.schedule || '').trim() || 'TBA',
+            room: String(subjectEntry?.room || '').trim() || 'TBA',
+            sectionId: String(section._id),
+            sectionCode: String(section.sectionCode || '').trim() || 'N/A',
+            sectionLabel: StudentController.formatSectionBlockLabel(section.sectionCode, blockGroup.meta.courseShortLabel),
+            blockGroupId: String(blockGroup._id),
+            blockGroupName: String(blockGroup.name || '').trim(),
+            semester: String(blockGroup.semester || '').trim(),
+            schoolYear: StudentController.schoolYearFromStartYear(blockGroup.year),
+            courseCode: blockGroup.meta.courseCode || null,
+            courseShortLabel: blockGroup.meta.courseShortLabel || 'N/A',
+            courseLabel: blockGroup.meta.courseLabel || 'N/A',
+            yearLevel: blockGroup.meta.yearLevel || null,
+            units: Number(subjectEntry?.units) || 0
+          };
+
+          const professorId = normalizedInstructor ? professorIdentifierMap.get(normalizedInstructor) : '';
+          if (!professorId) {
+            const bucketKey = `${sectionSubjectKey}|${normalizedInstructor || 'tba'}`;
+            let bucket = unassignedBuckets.get(bucketKey);
+            if (!bucket) {
+              bucket = {
+                ...basePayload,
+                instructor: instructorRaw || 'TBA',
+                studentIds: new Set()
+              };
+              unassignedBuckets.set(bucketKey, bucket);
+            }
+            bucket.studentIds.add(studentId);
+            return;
+          }
+
+          let loadBucket = loadBuckets.get(`${professorId}|${sectionSubjectKey}`);
+          if (!loadBucket) {
+            loadBucket = {
+              ...basePayload,
+              professorId,
+              studentIds: new Set()
+            };
+            loadBuckets.set(`${professorId}|${sectionSubjectKey}`, loadBucket);
+          }
+          loadBucket.studentIds.add(studentId);
+        });
+      });
+
+      Array.from(enrollmentByKey.values()).forEach((enrollment) => {
+        const studentId = String(enrollment.studentId || '').trim();
+        if (!studentId || !Array.isArray(enrollment.subjects)) return;
+
+        const schoolYear = String(enrollment.schoolYear || '').trim();
+        const semester = String(enrollment.semester || '').trim();
+        if (!targetEnrollmentPairs.includes(`${schoolYear}|${semester}`)) return;
+        if (findAssignmentForEnrollment(studentId, semester, schoolYear)) return;
+
+        const courseCode = StudentController.courseCodeFromValue(studentCourseCodeById.get(studentId) || enrollment.course);
+        if (targetCourseCodes.size > 0 && !targetCourseCodes.has(courseCode)) return;
+
+        const courseMeta = courseMetaByCode.get(String(courseCode));
+        const courseShortLabel = courseMeta?.label || courseCode || 'N/A';
+
+        enrollment.subjects.forEach((subjectEntry) => {
+          if (String(subjectEntry?.status || '').toLowerCase() === 'dropped') return;
+
+          const instructorRaw = String(subjectEntry?.instructor || '').trim();
+          const normalizedInstructor = StudentController.normalizeProfessorIdentifier(instructorRaw);
+          const professorId = normalizedInstructor ? professorIdentifierMap.get(normalizedInstructor) : '';
+          if (!professorId) return;
+
+          const subjectId = String(subjectEntry?.subjectId || '').trim() || String(subjectEntry?.code || '').trim();
+          const subjectCode = String(subjectEntry?.code || '').trim() || 'SUBJECT';
+          const bucketKey = `${courseShortLabel}|${schoolYear}|${semester}|${subjectId}|${professorId}`;
+          let bucket = orphanedBuckets.get(bucketKey);
+          if (!bucket) {
+            bucket = {
+              instructor: instructorRaw || 'Professor',
+              subjectCode,
+              subjectTitle: String(subjectEntry?.title || '').trim() || 'Untitled subject',
+              sectionLabel: 'No live block assignment',
+              courseShortLabel,
+              issueType: 'orphaned',
+              studentIds: new Set()
+            };
+            orphanedBuckets.set(bucketKey, bucket);
+          }
+          bucket.studentIds.add(studentId);
+        });
+      });
+
+      loadBuckets.forEach((bucket) => {
+        const professorLoad = professorLoads.get(bucket.professorId);
+        if (!professorLoad) return;
+        professorLoad.assignments.push({
+          subjectId: bucket.subjectId,
+          subjectCode: bucket.subjectCode,
+          subjectTitle: bucket.subjectTitle,
+          schedule: bucket.schedule,
+          room: bucket.room,
+          sectionId: bucket.sectionId,
+          sectionCode: bucket.sectionCode,
+          sectionLabel: bucket.sectionLabel,
+          blockGroupId: bucket.blockGroupId,
+          blockGroupName: bucket.blockGroupName,
+          semester: bucket.semester,
+          schoolYear: bucket.schoolYear,
+          courseCode: bucket.courseCode,
+          courseShortLabel: bucket.courseShortLabel,
+          courseLabel: bucket.courseLabel,
+          yearLevel: bucket.yearLevel,
+          units: bucket.units,
+          studentCount: bucket.studentIds.size
+        });
+      });
+
+      const professors = Array.from(professorLoads.values())
+        .map((professor) => {
+          const assignments = [...professor.assignments].sort((a, b) => {
+            const courseCompare = String(a.courseShortLabel || '').localeCompare(String(b.courseShortLabel || ''));
+            if (courseCompare !== 0) return courseCompare;
+            const sectionCompare = String(a.sectionLabel || '').localeCompare(String(b.sectionLabel || ''));
+            if (sectionCompare !== 0) return sectionCompare;
+            return String(a.subjectCode || '').localeCompare(String(b.subjectCode || ''));
+          });
+
+          const courseSummaryMap = new Map();
+          const sectionIds = new Set();
+          assignments.forEach((assignment) => {
+            sectionIds.add(assignment.sectionId);
+            const courseKey = `${String(assignment.courseCode || '')}|${String(assignment.courseShortLabel || '')}`;
+            const summary = courseSummaryMap.get(courseKey) || {
+              courseCode: assignment.courseCode,
+              label: assignment.courseShortLabel,
+              fullLabel: assignment.courseLabel,
+              sections: new Set(),
+              subjectCount: 0,
+              studentCount: 0
+            };
+            summary.sections.add(assignment.sectionId);
+            summary.subjectCount += 1;
+            summary.studentCount += Number(assignment.studentCount) || 0;
+            courseSummaryMap.set(courseKey, summary);
+          });
+
+          return {
+            ...professor,
+            assignments,
+            totals: {
+              courses: courseSummaryMap.size,
+              sections: sectionIds.size,
+              subjects: assignments.length,
+              students: assignments.reduce((sum, assignment) => sum + (Number(assignment.studentCount) || 0), 0)
+            },
+            courseSummaries: Array.from(courseSummaryMap.values())
+              .map((summary) => ({
+                courseCode: summary.courseCode,
+                label: summary.label,
+                fullLabel: summary.fullLabel,
+                sections: summary.sections.size,
+                subjectCount: summary.subjectCount,
+                studentCount: summary.studentCount
+              }))
+              .sort((a, b) => String(a.label || '').localeCompare(String(b.label || '')))
+          };
+        })
+        .sort((a, b) => {
+          if (b.totals.subjects !== a.totals.subjects) return b.totals.subjects - a.totals.subjects;
+          if (b.totals.students !== a.totals.students) return b.totals.students - a.totals.students;
+          return a.label.localeCompare(b.label);
+        });
+
+      const unassignedSubjects = Array.from(unassignedBuckets.values()).map((bucket) => ({
+        instructor: bucket.instructor,
+        subjectCode: bucket.subjectCode,
+        subjectTitle: bucket.subjectTitle,
+        sectionLabel: bucket.sectionLabel,
+        courseShortLabel: bucket.courseShortLabel,
+        studentCount: bucket.studentIds.size,
+        issueType: bucket.instructor === 'TBA' ? 'tba' : 'unmatched'
+      }));
+      const orphanedSubjects = Array.from(orphanedBuckets.values()).map((bucket) => ({
+        instructor: bucket.instructor,
+        subjectCode: bucket.subjectCode,
+        subjectTitle: bucket.subjectTitle,
+        sectionLabel: bucket.sectionLabel,
+        courseShortLabel: bucket.courseShortLabel,
+        studentCount: bucket.studentIds.size,
+        issueType: 'orphaned'
+      }));
+      const attentionSubjects = [...unassignedSubjects, ...orphanedSubjects];
+
+      const sectionsCovered = new Set();
+      professors.forEach((professor) => {
+        professor.assignments.forEach((assignment) => sectionsCovered.add(assignment.sectionId));
+      });
+
+      res.json({
+        success: true,
+        data: {
+          professors,
+          stats: {
+            professors: professors.length,
+            assignedSubjects: professors.reduce((sum, professor) => sum + professor.totals.subjects, 0),
+            sectionsCovered: sectionsCovered.size,
+            studentsCovered: professors.reduce((sum, professor) => sum + professor.totals.students, 0),
+            unassignedSubjects: unassignedSubjects.filter((entry) => entry.instructor === 'TBA').length,
+            unmatchedInstructors: unassignedSubjects.filter((entry) => entry.instructor !== 'TBA').length,
+            orphanedSubjects: orphanedSubjects.length
+          },
+          unassignedSubjects: attentionSubjects,
+          filterOptions
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching professor course loads:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to fetch professor course loads'
       });
     }
   }
@@ -342,7 +937,8 @@ class StudentController {
       if (!resolvedAssignment?.sectionId) {
         return {
           ...student,
-          section: ''
+          section: '',
+          lifecycleStatus: StudentController.deriveLifecycleStatus(student)
         };
       }
 
@@ -350,13 +946,18 @@ class StudentController {
       if (!sectionCode) {
         return {
           ...student,
-          section: ''
+          section: '',
+          lifecycleStatus: StudentController.deriveLifecycleStatus(student)
         };
       }
 
       return {
         ...student,
-        section: sectionCode
+        section: sectionCode,
+        lifecycleStatus: StudentController.deriveLifecycleStatus({
+          ...student,
+          section: sectionCode
+        })
       };
     });
   }
@@ -447,14 +1048,54 @@ class StudentController {
     if (!set.studentStatus) {
       delete set.studentStatus;
     }
+    if (!set.lifecycleStatus) {
+      delete set.lifecycleStatus;
+    }
     if (!set.corStatus && !forUpdate) {
       set.corStatus = 'Pending';
     }
     if (!set.studentStatus && !forUpdate) {
       set.studentStatus = 'Regular';
     }
-    if (String(set.corStatus || '').trim() === 'Verified') {
+    if (!set.lifecycleStatus && !forUpdate) {
+      set.lifecycleStatus = 'Pending';
+    }
+
+    const requestedLifecycleStatus = String(set.lifecycleStatus || '').trim();
+    if (requestedLifecycleStatus === 'Pending') {
+      if (!set.enrollmentStatus) set.enrollmentStatus = 'Not Enrolled';
+      if (!set.corStatus) set.corStatus = 'Pending';
+      if (set.isActive === undefined) set.isActive = true;
+    } else if (requestedLifecycleStatus === 'Enrolled') {
       set.enrollmentStatus = 'Enrolled';
+      if (set.isActive === undefined) set.isActive = true;
+    } else if (requestedLifecycleStatus === 'Not Enrolled') {
+      set.enrollmentStatus = 'Not Enrolled';
+      if (set.isActive === undefined) set.isActive = true;
+    } else if (requestedLifecycleStatus === 'Dropped') {
+      set.studentStatus = 'Dropped';
+      set.enrollmentStatus = 'Dropped';
+      if (set.isActive === undefined) set.isActive = true;
+    } else if (requestedLifecycleStatus === 'Inactive') {
+      set.isActive = false;
+      if (!set.enrollmentStatus) set.enrollmentStatus = 'Not Enrolled';
+    } else if (requestedLifecycleStatus === 'Graduated') {
+      set.isActive = false;
+      if (!set.enrollmentStatus) set.enrollmentStatus = 'Not Enrolled';
+      if (!set.corStatus) set.corStatus = 'Verified';
+    }
+
+    if (String(set.corStatus || '').trim() === 'Verified') {
+      if (requestedLifecycleStatus !== 'Dropped' && requestedLifecycleStatus !== 'Inactive' && requestedLifecycleStatus !== 'Graduated') {
+        set.enrollmentStatus = 'Enrolled';
+      }
+      if (!requestedLifecycleStatus) {
+        set.lifecycleStatus = 'Enrolled';
+      }
+    }
+
+    if (set.isActive === false && !requestedLifecycleStatus) {
+      set.lifecycleStatus = 'Inactive';
     }
 
     return { set, unset: Array.from(new Set(unset)) };
@@ -601,6 +1242,24 @@ class StudentController {
     }
   }
 
+  static async getNextStudentNumber(req, res) {
+    try {
+      const { course, schoolYear } = req.query;
+      const studentNumber = await StudentNumberService.previewStudentNumber(course, schoolYear);
+
+      res.json({
+        success: true,
+        data: { studentNumber }
+      });
+    } catch (error) {
+      console.error('Error generating student number preview:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to generate student number preview'
+      });
+    }
+  }
+
   static async getStudents(req, res) {
     try {
       const students = await StudentController.getStudentsRecord(req.query);
@@ -675,6 +1334,22 @@ class StudentController {
         return res.status(404).json({
           success: false,
           message: 'Student not found'
+        });
+      }
+
+      const requestedCorStatus = String(req.body?.corStatus || '').trim();
+      const previousCorStatus = String(previous.corStatus || '').trim();
+      const requesterRole = String(req.accountType || '').trim().toLowerCase();
+
+      if (
+        requesterRole === 'registrar' &&
+        requestedCorStatus &&
+        requestedCorStatus !== previousCorStatus &&
+        requestedCorStatus === 'Verified'
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: 'COR approval is only available on the admin side.'
         });
       }
 
@@ -862,6 +1537,155 @@ class StudentController {
     }
   }
 
+  static getDominantValue(valueMap, fallback = 'TBA') {
+    if (!(valueMap instanceof Map) || valueMap.size === 0) return fallback;
+    let topValue = fallback;
+    let topCount = -1;
+    valueMap.forEach((count, value) => {
+      if (count > topCount) {
+        topValue = value;
+        topCount = count;
+      }
+    });
+    return topValue || fallback;
+  }
+
+  static async getSectionEnrollmentContext(sectionId, options = {}) {
+    const section = await BlockSection.findById(sectionId).select('_id sectionCode blockGroupId');
+    if (!section) {
+      const error = new Error('Section not found');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const blockGroup = section.blockGroupId
+      ? await BlockGroup.findById(section.blockGroupId).select('_id name semester year').lean()
+      : null;
+
+    const resolvedSemester = String(options.semester || blockGroup?.semester || '').trim();
+    const resolvedSchoolYear = String(
+      options.schoolYear || StudentController.schoolYearFromStartYear(blockGroup?.year) || ''
+    ).trim();
+
+    const assignmentQuery = {
+      sectionId: section._id,
+      status: 'ASSIGNED'
+    };
+    if (resolvedSemester) assignmentQuery.semester = resolvedSemester;
+    if (resolvedSchoolYear) {
+      const startYear = Number(String(resolvedSchoolYear).split('-')[0]);
+      if (Number.isFinite(startYear) && startYear > 0) assignmentQuery.year = startYear;
+    } else if (blockGroup?.year) {
+      assignmentQuery.year = Number(blockGroup.year);
+    }
+
+    const assignments = await StudentBlockAssignment.find(assignmentQuery).select('studentId semester year').lean();
+    const studentObjectIds = assignments
+      .map((entry) => String(entry.studentId || '').trim())
+      .filter((studentId) => mongoose.Types.ObjectId.isValid(studentId))
+      .map((studentId) => new mongoose.Types.ObjectId(studentId));
+
+    if (studentObjectIds.length === 0) {
+      return {
+        section,
+        blockGroup,
+        resolvedSemester,
+        resolvedSchoolYear,
+        studentObjectIds: [],
+        enrollments: []
+      };
+    }
+
+    const enrollmentQuery = {
+      studentId: { $in: studentObjectIds },
+      status: { $ne: 'Dropped' },
+      isCurrent: true
+    };
+    if (resolvedSchoolYear) enrollmentQuery.schoolYear = resolvedSchoolYear;
+    if (resolvedSemester) enrollmentQuery.semester = resolvedSemester;
+
+    const enrollments = await Enrollment.find(enrollmentQuery).sort({ createdAt: -1 });
+    return {
+      section,
+      blockGroup,
+      resolvedSemester,
+      resolvedSchoolYear,
+      studentObjectIds,
+      enrollments
+    };
+  }
+
+  static async getSectionSubjectAssignments(req, res) {
+    try {
+      const { sectionId } = req.params;
+      const { semester, schoolYear } = req.query;
+      const context = await StudentController.getSectionEnrollmentContext(sectionId, { semester, schoolYear });
+      const assignmentBuckets = new Map();
+
+      context.enrollments.forEach((enrollment) => {
+        const studentId = String(enrollment.studentId || '').trim();
+        (Array.isArray(enrollment.subjects) ? enrollment.subjects : []).forEach((entry) => {
+          if (String(entry?.status || '').toLowerCase() === 'dropped') return;
+
+          const subjectId = String(entry?.subjectId || '').trim();
+          const subjectCode = String(entry?.code || '').trim() || 'SUBJECT';
+          const bucketKey = subjectId || subjectCode;
+          let bucket = assignmentBuckets.get(bucketKey);
+          if (!bucket) {
+            bucket = {
+              subjectId,
+              subjectCode,
+              subjectTitle: String(entry?.title || '').trim() || 'Untitled subject',
+              instructorCounts: new Map(),
+              scheduleCounts: new Map(),
+              roomCounts: new Map(),
+              studentIds: new Set()
+            };
+            assignmentBuckets.set(bucketKey, bucket);
+          }
+
+          const instructor = String(entry?.instructor || '').trim() || 'TBA';
+          const scheduleValue = String(entry?.schedule || '').trim() || 'TBA';
+          const roomValue = String(entry?.room || '').trim() || 'TBA';
+          bucket.instructorCounts.set(instructor, (bucket.instructorCounts.get(instructor) || 0) + 1);
+          bucket.scheduleCounts.set(scheduleValue, (bucket.scheduleCounts.get(scheduleValue) || 0) + 1);
+          bucket.roomCounts.set(roomValue, (bucket.roomCounts.get(roomValue) || 0) + 1);
+          bucket.studentIds.add(studentId);
+        });
+      });
+
+      const assignments = Array.from(assignmentBuckets.values())
+        .map((bucket) => ({
+          subjectId: bucket.subjectId,
+          subjectCode: bucket.subjectCode,
+          subjectTitle: bucket.subjectTitle,
+          instructor: StudentController.getDominantValue(bucket.instructorCounts, 'TBA'),
+          schedule: StudentController.getDominantValue(bucket.scheduleCounts, 'TBA'),
+          room: StudentController.getDominantValue(bucket.roomCounts, 'TBA'),
+          studentCount: bucket.studentIds.size
+        }))
+        .sort((a, b) => a.subjectCode.localeCompare(b.subjectCode));
+
+      res.json({
+        success: true,
+        data: {
+          sectionId: String(context.section._id),
+          sectionCode: context.section.sectionCode,
+          semester: context.resolvedSemester || '',
+          schoolYear: context.resolvedSchoolYear || '',
+          studentCount: context.studentObjectIds.length,
+          assignments
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching section subject assignments:', error);
+      res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.message || 'Failed to fetch section subject assignments'
+      });
+    }
+  }
+
   static async assignSubjectInstructorToSection(req, res) {
     try {
       const { sectionId } = req.params;
@@ -889,13 +1713,8 @@ class StudentController {
         });
       }
 
-      const section = await BlockSection.findById(sectionId).select('_id sectionCode');
-      if (!section) {
-        return res.status(404).json({
-          success: false,
-          message: 'Section not found'
-        });
-      }
+      const context = await StudentController.getSectionEnrollmentContext(sectionId, { semester, schoolYear });
+      const section = context.section;
 
       const subject = await Subject.findById(securityMiddleware.safeObjectId(subjectId)).select('_id code title');
       if (!subject) {
@@ -905,33 +1724,14 @@ class StudentController {
         });
       }
 
-      const assignments = await StudentBlockAssignment.find({
-        sectionId: section._id,
-        status: 'ASSIGNED'
-      }).select('studentId');
-
-      const studentObjectIds = assignments
-        .map((entry) => String(entry.studentId || '').trim())
-        .filter((studentId) => mongoose.Types.ObjectId.isValid(studentId))
-        .map((studentId) => new mongoose.Types.ObjectId(studentId));
-
-      if (studentObjectIds.length === 0) {
+      if (context.studentObjectIds.length === 0) {
         return res.status(400).json({
           success: false,
           message: 'No assigned students found in this section'
         });
       }
 
-      const enrollmentQuery = {
-        studentId: { $in: studentObjectIds },
-        status: { $ne: 'Dropped' },
-        isCurrent: true
-      };
-      if (schoolYear) enrollmentQuery.schoolYear = String(schoolYear).trim();
-      if (semester) enrollmentQuery.semester = String(semester).trim();
-
-      const enrollments = await Enrollment.find(enrollmentQuery).sort({ createdAt: -1 });
-      if (enrollments.length === 0) {
+      if (context.enrollments.length === 0) {
         return res.status(404).json({
           success: false,
           message: 'No matching enrollments found for students in this section'
@@ -944,7 +1744,7 @@ class StudentController {
       const updatedEnrollmentIds = [];
       let matchedSubjects = 0;
 
-      for (const enrollment of enrollments) {
+      for (const enrollment of context.enrollments) {
         let enrollmentChanged = false;
         enrollment.subjects.forEach((entry) => {
           if (String(entry?.subjectId || '') === normalizedSubjectId) {
@@ -973,7 +1773,7 @@ class StudentController {
 
       res.json({
         success: true,
-        message: 'Instructor and schedule assigned successfully',
+        message: req.method === 'PUT' ? 'Instructor assignment updated successfully' : 'Instructor and schedule assigned successfully',
         data: {
           sectionId: String(section._id),
           sectionCode: section.sectionCode,
@@ -992,6 +1792,79 @@ class StudentController {
       res.status(500).json({
         success: false,
         message: error.message || 'Failed to assign instructor to section subject'
+      });
+    }
+  }
+
+  static async clearSubjectInstructorForSection(req, res) {
+    try {
+      const { sectionId, subjectId } = req.params;
+      const context = await StudentController.getSectionEnrollmentContext(sectionId);
+      const subject = await Subject.findById(securityMiddleware.safeObjectId(subjectId)).select('_id code title');
+
+      if (!subject) {
+        return res.status(404).json({
+          success: false,
+          message: 'Subject not found'
+        });
+      }
+
+      if (context.enrollments.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'No matching enrollments found for students in this section'
+        });
+      }
+
+      const normalizedSubjectId = String(subject._id);
+      let updatedEnrollments = 0;
+      let matchedSubjects = 0;
+
+      for (const enrollment of context.enrollments) {
+        let changed = false;
+        enrollment.subjects.forEach((entry) => {
+          if (String(entry?.subjectId || '') === normalizedSubjectId) {
+            entry.instructor = 'TBA';
+            entry.schedule = 'TBA';
+            entry.room = 'TBA';
+            entry.dateModified = new Date();
+            changed = true;
+            matchedSubjects += 1;
+          }
+        });
+
+        if (changed) {
+          enrollment.markModified('subjects');
+          await enrollment.save();
+          updatedEnrollments += 1;
+        }
+      }
+
+      if (updatedEnrollments === 0) {
+        return res.status(404).json({
+          success: false,
+          message: `Subject ${subject.code} is not enrolled in the selected section's current enrollments`
+        });
+      }
+
+      res.json({
+        success: true,
+        message: 'Instructor assignment removed successfully',
+        data: {
+          sectionId: String(context.section._id),
+          sectionCode: context.section.sectionCode,
+          subjectId: normalizedSubjectId,
+          subjectCode: subject.code,
+          subjectTitle: subject.title,
+          updatedEnrollments,
+          matchedSubjectEntries: matchedSubjects
+        }
+      });
+    } catch (error) {
+      console.error('Error clearing section subject instructor:', error);
+      res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.message || 'Failed to clear instructor assignment from section subject'
       });
     }
   }

@@ -1,1207 +1,2479 @@
-import React, { useState, useEffect } from 'react';
-import { Search, Edit, Eye, UserPlus, GraduationCap, X, Check, AlertCircle, FileText as FileTextIcon, ExternalLink, Trash2, MoreHorizontal } from 'lucide-react';
-import { API_URL, getStoredToken } from '../lib/authApi';
-import StudentService from '../lib/studentApi';
-import './StudentManagement.css';
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import {
+  Archive,
+  Blocks,
+  BookOpenCheck,
+  Download,
+  Eye,
+  FileText,
+  History,
+  Layers3,
+  MoreHorizontal,
+  PencilLine,
+  Plus,
+  Search,
+  Users,
+  X
+} from 'lucide-react'
+import { API_URL, getStoredToken } from '../lib/authApi'
+import StudentService from '../lib/studentApi'
+import type { StudentData } from '../lib/studentApi'
+import './StudentManagement.css'
 
-interface Student {
-  _id: string;
-  studentNumber: string;
-  firstName: string;
-  middleName?: string;
-  lastName: string;
-  suffix?: string;
-  course: number;
-  major?: string;
-  yearLevel: number;
-  semester: string;
-  schoolYear: string;
-  studentStatus: string;
-  enrollmentStatus: string;
-  scholarship?: string;
-  corStatus?: 'Pending' | 'Received' | 'Verified';
-  assignedProfessor?: string;
-  schedule?: string;
-  latestGrade?: number;
-  gradeProfessor?: string;
-  gradeDate?: string;
-  email: string;
-  contactNumber: string;
-  address: string;
-  permanentAddress?: string;
-  birthDate?: string;
-  gender?: string;
-  civilStatus?: string;
-  nationality?: string;
-  religion?: string;
+type LifecycleStatus = 'Pending' | 'Enrolled' | 'Not Enrolled' | 'Dropped' | 'Inactive' | 'Graduated'
+type ProfileTab = 'profile' | 'enrollment' | 'subjects' | 'documents' | 'history'
+type Semester = '1st' | '2nd' | 'Summer'
+
+type ManagedStudent = StudentData & {
+  corStatus?: 'Pending' | 'Received' | 'Verified' | string
+  scholarship?: string
+  major?: string
+  birthPlace?: string
+  assignedProfessor?: string
+  latestGrade?: number
+  gradeProfessor?: string
+  gradeDate?: string
+  registrationNumber?: string
   emergencyContact?: {
-    name: string;
-    relationship: string;
-    contactNumber: string;
-    address: string;
-  };
-  isActive: boolean;
-  createdAt: string;
+    name?: string
+    relationship?: string
+    contactNumber?: string
+    address?: string
+  }
 }
 
-interface StudentFormData {
-  firstName: string;
-  middleName: string;
-  lastName: string;
-  suffix: string;
-  course: number;
-  major: string;
-  yearLevel: number;
-  semester: string;
-  schoolYear: string;
-  studentStatus: string;
-  scholarship: string;
-  assignedProfessor: string;
-  schedule: string;
-  latestGrade: string;
-  gradeProfessor: string;
-  gradeDate: string;
-  contactNumber: string;
-  address: string;
-  permanentAddress: string;
-  birthDate: string;
-  gender: string;
-  civilStatus: string;
-  nationality: string;
-  religion: string;
-  emergencyContact: {
-    name: string;
-    relationship: string;
-    contactNumber: string;
-    address: string;
-  };
+type EnrollmentSubject = {
+  subjectId?: string
+  code: string
+  title: string
+  units: number
+  schedule?: string
+  room?: string
+  instructor?: string
+  grade?: number | null
+  status?: string
+  remarks?: string
+  dateEnrolled?: string
+  dateModified?: string
 }
 
-const scholarshipOptions = [
-  'N/A',
-  'CHED Scholarship Programs',
-  'OWWA Scholarship Programs',
-  'DOST-SEI Undergraduate Scholarships',
-  'Tertiary Education Subsidy',
-  'GrabScholar College Scholarship',
-  'SM College Scholarship (SM Foundation)',
-  'Foundation Scholarships'
-];
+type EnrollmentRecord = {
+  _id: string
+  schoolYear: string
+  semester: string
+  yearLevel?: number
+  course?: string
+  status: string
+  isCurrent?: boolean
+  remarks?: string
+  subjects: EnrollmentSubject[]
+  assessment?: {
+    tuitionFee?: number
+    miscFee?: number
+    otherFees?: number
+    totalAmount?: number
+    balance?: number
+    paymentStatus?: string
+  }
+  documents?: Array<{
+    name?: string
+    fileUrl?: string
+    status?: string
+    remarks?: string
+    dateSubmitted?: string
+    dateVerified?: string
+  }>
+  createdAt?: string
+  updatedAt?: string
+}
 
-const formatYearLevel = (level: number | string): string => {
-  const n = Number(level);
-  if (!Number.isFinite(n)) return `${level} Year`;
-  const mod100 = n % 100;
-  if (mod100 >= 11 && mod100 <= 13) return `${n}th Year`;
-  const mod10 = n % 10;
-  if (mod10 === 1) return `${n}st Year`;
-  if (mod10 === 2) return `${n}nd Year`;
-  if (mod10 === 3) return `${n}rd Year`;
-  return `${n}th Year`;
-};
+type SubjectCatalogItem = {
+  _id: string
+  code: string
+  title: string
+  units: number
+  course?: number
+  yearLevel?: number
+  semester?: string
+}
 
-const StudentManagement: React.FC = () => {
-  const [students, setStudents] = useState<Student[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterCourse, setFilterCourse] = useState('');
-  const [filterYearLevel, setFilterYearLevel] = useState('');
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
-  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
-  const [formData, setFormData] = useState<StudentFormData>({
-    firstName: '',
-    middleName: '',
-    lastName: '',
-    suffix: '',
-    course: 101,
-    major: 'General Education',
-    yearLevel: 1,
-    semester: '1st',
-    schoolYear: '2024-2025',
-    studentStatus: 'Regular',
-    scholarship: 'N/A',
-    assignedProfessor: '',
-    schedule: '',
-    latestGrade: '',
-    gradeProfessor: '',
-    gradeDate: '',
-    contactNumber: '',
-    address: '',
-    permanentAddress: '',
-    birthDate: '',
-    gender: '',
-    civilStatus: 'Single',
-    nationality: 'Filipino',
-    religion: '',
-    emergencyContact: {
-      name: '',
-      relationship: '',
-      contactNumber: '',
-      address: ''
-    }
-  });
+type BlockGroup = {
+  _id: string
+  name: string
+  semester: Semester
+  year: number
+}
 
-  const courses = [
-    { value: 101, label: 'Bachelor of Elementary Education (BEED)' },
-    { value: 102, label: 'Bachelor of Secondary Education – Major in English' },
-    { value: 103, label: 'Bachelor of Secondary Education – Major in Mathematics' },
-    { value: 201, label: 'Bachelor of Science in Business Administration – Major in HRM' },
-  ];
+type BlockSection = {
+  _id: string
+  sectionCode: string
+  capacity: number
+  currentPopulation: number
+  status?: string
+  blockGroupId?: string
+}
 
-  const majorOptionsByCourse: Record<number, string[]> = {
-    101: ['General Education'],
-    102: ['English'],
-    103: ['Mathematics'],
-    201: ['HRM'],
-  };
+type StudentFormState = {
+  studentNumber: string
+  firstName: string
+  middleName: string
+  lastName: string
+  suffix: string
+  course: string
+  yearLevel: string
+  semester: Semester
+  schoolYear: string
+  lifecycleStatus: LifecycleStatus
+  studentStatus: string
+  scholarship: string
+  email: string
+  contactNumber: string
+  address: string
+  permanentAddress: string
+  birthDate: string
+  birthPlace: string
+  gender: string
+  civilStatus: string
+  nationality: string
+  religion: string
+  emergencyContactName: string
+  emergencyContactRelationship: string
+  emergencyContactNumber: string
+  emergencyContactAddress: string
+}
 
-  const courseLabel = (value: number | string) =>
-    courses.find(c => c.value === Number(value))?.label ?? String(value);
+type SharedAcademicContext = {
+  sharedCourse: number | null
+  sharedYearLevel: number | null
+  sharedSemester: string
+  sharedSchoolYear: string
+  isSingleCourse: boolean
+  isSingleYearLevel: boolean
+}
 
-  const courseAbbreviation = (value: number | string) => {
-    const codeMap: Record<number, string> = {
-      101: 'BEED',
-      102: 'BSEd-English',
-      103: 'BSEd-Math',
-      201: 'BSBA-HRM'
-    };
-    return codeMap[Number(value)] ?? String(value);
-  };
+const COURSE_OPTIONS = [
+  { value: 101, label: 'BEED', fullLabel: 'Bachelor of Elementary Education (BEED)' },
+  { value: 102, label: 'BSEd-English', fullLabel: 'Bachelor of Secondary Education - Major in English' },
+  { value: 103, label: 'BSEd-Math', fullLabel: 'Bachelor of Secondary Education - Major in Mathematics' },
+  { value: 201, label: 'BSBA-HRM', fullLabel: 'Bachelor of Science in Business Administration - Major in HRM' }
+] as const
 
-  const formatStudentNumberForLogs = (student: Student) => {
-    const studentNo = String(student.studentNumber || '').trim();
-    if (!studentNo) return 'N/A';
+const YEAR_LEVEL_OPTIONS = [1, 2, 3, 4, 5]
+const LIFECYCLE_OPTIONS: LifecycleStatus[] = ['Pending', 'Enrolled', 'Not Enrolled', 'Dropped', 'Inactive', 'Graduated']
+const SEMESTER_OPTIONS: Semester[] = ['1st', '2nd', 'Summer']
 
-    const parts = studentNo.split('-');
-    const normalizedCourse = normalizeCourse(student.course);
+let studentWorkspaceOverlayDepth = 0
+let studentWorkspaceBodyOverflow = ''
+let studentWorkspaceHtmlOverflow = ''
+let studentWorkspaceBodyPaddingRight = ''
+let studentWorkspaceRootHadInert = false
+let studentWorkspaceRootAriaHidden: string | null = null
+let studentWorkspaceRootPointerEvents = ''
+let studentWorkspaceRootUserSelect = ''
 
-    // Handle legacy format like YYYY-103-MATH-XXXXX by removing the alpha course segment.
-    if (parts.length >= 4 && /^[A-Za-z]+$/.test(parts[2])) {
-      return `${parts[0]}-${normalizedCourse}-${parts.slice(3).join('-')}`;
-    }
+function useStudentWorkspaceOverlayLock() {
+  useLayoutEffect(() => {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return undefined
 
-    if (parts.length >= 3) {
-      // Force numeric course code in the course section of the student number.
-      if (parts[1] && /^[A-Za-z]+(?:-[A-Za-z]+)*$/.test(parts[1])) {
-        return `${parts[0]}-${normalizedCourse}-${parts.slice(2).join('-')}`;
+    const { body, documentElement } = document
+    const appRoot = document.getElementById('root')
+
+    if (studentWorkspaceOverlayDepth === 0) {
+      studentWorkspaceBodyOverflow = body.style.overflow
+      studentWorkspaceHtmlOverflow = documentElement.style.overflow
+      studentWorkspaceBodyPaddingRight = body.style.paddingRight
+
+      const scrollbarWidth = Math.max(0, window.innerWidth - documentElement.clientWidth)
+      body.style.overflow = 'hidden'
+      documentElement.style.overflow = 'hidden'
+      body.classList.add('student-workspace-overlay-open')
+      if (scrollbarWidth > 0) {
+        body.style.paddingRight = `${scrollbarWidth}px`
       }
-      return `${parts[0]}-${normalizeCourse(student.course)}-${parts.slice(2).join('-')}`;
+
+      if (appRoot) {
+        studentWorkspaceRootHadInert = appRoot.hasAttribute('inert')
+        studentWorkspaceRootAriaHidden = appRoot.getAttribute('aria-hidden')
+        studentWorkspaceRootPointerEvents = appRoot.style.pointerEvents
+        studentWorkspaceRootUserSelect = appRoot.style.userSelect
+        appRoot.setAttribute('inert', '')
+        appRoot.setAttribute('aria-hidden', 'true')
+        appRoot.style.pointerEvents = 'none'
+        appRoot.style.userSelect = 'none'
+      }
     }
 
-    return studentNo;
-  };
+    studentWorkspaceOverlayDepth += 1
 
-  // Convert course number to number if it's a string
-  const normalizeCourse = (course: number | string): number => {
-    if (typeof course === 'string') {
-      const raw = course.trim();
-      const upper = raw.toUpperCase();
+    return () => {
+      studentWorkspaceOverlayDepth = Math.max(0, studentWorkspaceOverlayDepth - 1)
+      if (studentWorkspaceOverlayDepth === 0) {
+        body.style.overflow = studentWorkspaceBodyOverflow
+        documentElement.style.overflow = studentWorkspaceHtmlOverflow
+        body.style.paddingRight = studentWorkspaceBodyPaddingRight
+        body.classList.remove('student-workspace-overlay-open')
 
-      const aliasMap: Record<string, number> = {
-        BEED: 101,
-        'BSED-ENGLISH': 102,
-        ENGLISH: 102,
-        'BSED-MATH': 103,
-        MATH: 103,
-        MATHEMATICS: 103,
-        'BSBA-HRM': 201,
-        'BSBS-HRM': 201,
-        HRM: 201,
-      };
-      if (aliasMap[upper]) return aliasMap[upper];
+        if (appRoot) {
+          if (studentWorkspaceRootHadInert) {
+            appRoot.setAttribute('inert', '')
+          } else {
+            appRoot.removeAttribute('inert')
+          }
 
-      if (/^\d+$/.test(raw)) return parseInt(raw, 10);
+          if (studentWorkspaceRootAriaHidden === null) {
+            appRoot.removeAttribute('aria-hidden')
+          } else {
+            appRoot.setAttribute('aria-hidden', studentWorkspaceRootAriaHidden)
+          }
 
-      // Try to match by course code or number
-      const found = courses.find(c => {
-        const labelUpper = c.label.toUpperCase();
-        return c.value.toString() === raw || labelUpper.includes(upper);
-      });
-      return found ? found.value : 101;
+          appRoot.style.pointerEvents = studentWorkspaceRootPointerEvents
+          appRoot.style.userSelect = studentWorkspaceRootUserSelect
+        }
+      }
     }
-    return course;
-  };
+  }, [])
+}
 
-  const semesters = ['1st', '2nd', 'Summer'];
+function StudentWorkspaceOverlay({ children }: { children: ReactNode }) {
+  useStudentWorkspaceOverlayLock()
+
+  if (typeof document === 'undefined') return null
+  return createPortal(children, document.body)
+}
+
+function isStudentWorkspaceBackdropTarget(event: { target: EventTarget | null; currentTarget: EventTarget | null }) {
+  return event.target === event.currentTarget
+}
+
+function extractResponseData<T>(payload: unknown): T {
+  if (payload && typeof payload === 'object' && 'data' in payload) {
+    return (payload as { data: T }).data
+  }
+  return payload as T
+}
+
+async function authorizedFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const token = await getStoredToken()
+  if (!token) throw new Error('No authentication token found')
+
+  const response = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers: {
+      ...(init.headers || {}),
+      Authorization: `Bearer ${token}`
+    }
+  })
+
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error((data?.error as string) || (data?.message as string) || `Request failed (${response.status})`)
+  }
+
+  return data as T
+}
+
+function schoolYearFromStartYear(value: number | string) {
+  const startYear = Number(value)
+  return Number.isFinite(startYear) && startYear > 0 ? `${startYear}-${startYear + 1}` : ''
+}
+
+function schoolYearStart(schoolYear: string) {
+  const match = String(schoolYear || '').trim().match(/^(\d{4})-\d{4}$/)
+  return match ? Number(match[1]) : 0
+}
+
+function getDefaultSchoolYear() {
+  const currentYear = new Date().getFullYear()
+  return `${currentYear}-${currentYear + 1}`
+}
+
+function normalizeCourseCode(value: unknown) {
+  const raw = String(value ?? '').trim().toUpperCase()
+  if (!raw) return ''
+  if (/^\d+$/.test(raw)) return raw
+  if (raw.includes('BEED')) return '101'
+  if ((raw.includes('BSED') && raw.includes('ENGLISH')) || raw === 'ENGLISH') return '102'
+  if ((raw.includes('BSED') && raw.includes('MATH')) || raw.includes('MATHEMATICS') || raw === 'MATH') return '103'
+  if ((raw.includes('BSBA') && raw.includes('HRM')) || raw === 'HRM') return '201'
+  return raw
+}
+
+function courseShortLabel(value: unknown) {
+  const normalized = normalizeCourseCode(value)
+  return COURSE_OPTIONS.find((course) => String(course.value) === normalized)?.label || String(value || 'N/A')
+}
+
+function courseFullLabel(value: unknown) {
+  const normalized = normalizeCourseCode(value)
+  return COURSE_OPTIONS.find((course) => String(course.value) === normalized)?.fullLabel || String(value || 'N/A')
+}
+
+function formatStudentNumber(value: unknown, course?: unknown) {
+  const raw = String(value ?? '').trim()
+  const fallbackCourseCode = normalizeCourseCode(course)
+
+  if (!raw) {
+    return fallbackCourseCode ? `0000-${fallbackCourseCode}-00000` : 'N/A'
+  }
+
+  const parts = raw.split('-').map((part) => part.trim()).filter(Boolean)
+  let year = /^\d{4}$/.test(parts[0] || '') ? parts[0] : '0000'
+  let seqPart = [...parts].reverse().find((part) => /^\d+$/.test(part)) || '00000'
+
+  const compactDigits = raw.replace(/\D+/g, '')
+  if (parts.length === 1 && /^\d{8,}$/.test(compactDigits)) {
+    year = compactDigits.slice(0, 4)
+    seqPart = compactDigits.slice(-5)
+  }
+
+  const rawCoursePart = parts.find((part) => /^\d{3}$/.test(part))
+    || parts[1]
+    || parts.find((part) => /[A-Za-z]/.test(part))
+    || ''
+  const courseCode = fallbackCourseCode || normalizeCourseCode(rawCoursePart) || '000'
+  const sequence = seqPart.slice(-5).padStart(5, '0')
+
+  return `${year}-${courseCode}-${sequence}`
+}
+
+function studentNumberDisplay(student: Partial<ManagedStudent>) {
+  return formatStudentNumber(student.studentNumber, student.course)
+}
+
+function formatYearLevel(value: number | string | undefined) {
+  const yearLevel = Number(value)
+  if (!Number.isFinite(yearLevel) || yearLevel <= 0) return 'N/A'
+  if (yearLevel === 1) return '1st Year'
+  if (yearLevel === 2) return '2nd Year'
+  if (yearLevel === 3) return '3rd Year'
+  return `${yearLevel}th Year`
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return 'N/A'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? 'N/A' : date.toLocaleDateString()
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return 'N/A'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? 'N/A' : date.toLocaleString()
+}
+
+function formatCurrency(value?: number) {
+  const amount = Number(value || 0)
+  return new Intl.NumberFormat('en-PH', {
+    style: 'currency',
+    currency: 'PHP',
+    maximumFractionDigits: 2
+  }).format(amount)
+}
+
+function studentDisplayName(student: Partial<ManagedStudent>) {
+  return [student.firstName, student.middleName, student.lastName, student.suffix]
+    .filter((value) => String(value || '').trim())
+    .join(' ')
+}
+
+function normalizeLifecycleStatus(student: Partial<ManagedStudent>): LifecycleStatus {
+  const explicit = String(student.lifecycleStatus || '').trim()
+  if (LIFECYCLE_OPTIONS.includes(explicit as LifecycleStatus)) {
+    return explicit as LifecycleStatus
+  }
+
+  if (student.isActive === false) return 'Inactive'
+  if (String(student.studentStatus || '').trim().toLowerCase() === 'dropped') return 'Dropped'
+  if (String(student.enrollmentStatus || '').trim().toLowerCase() === 'enrolled') return 'Enrolled'
+  if (String(student.corStatus || '').trim().toLowerCase() === 'verified') return 'Enrolled'
+  return 'Pending'
+}
+
+function getSharedAcademicContext(students: ManagedStudent[]): SharedAcademicContext {
+  const courseSet = new Set(students.map((student) => Number(student.course || 0)).filter((value) => Number.isFinite(value) && value > 0))
+  const yearSet = new Set(students.map((student) => Number(student.yearLevel || 0)).filter((value) => Number.isFinite(value) && value > 0))
+  const semesterSet = new Set(students.map((student) => String(student.semester || '').trim()).filter(Boolean))
+  const schoolYearSet = new Set(students.map((student) => String(student.schoolYear || '').trim()).filter(Boolean))
+
+  return {
+    sharedCourse: courseSet.size === 1 ? Array.from(courseSet)[0] : null,
+    sharedYearLevel: yearSet.size === 1 ? Array.from(yearSet)[0] : null,
+    sharedSemester: semesterSet.size === 1 ? Array.from(semesterSet)[0] : '',
+    sharedSchoolYear: schoolYearSet.size === 1 ? Array.from(schoolYearSet)[0] : '',
+    isSingleCourse: courseSet.size <= 1,
+    isSingleYearLevel: yearSet.size <= 1
+  }
+}
+
+function parseBlockGroupMeta(name: string) {
+  const normalized = String(name || '').trim().toUpperCase()
+  const course = normalizeCourseCode(normalized)
+  const yearMatch = normalized.match(/(?:^|-)(\d+)-?[A-Z]?$/)
+  return {
+    course,
+    yearLevel: yearMatch ? Number(yearMatch[1]) : null
+  }
+}
+
+function buildStudentFormState(student?: ManagedStudent): StudentFormState {
+  return {
+    studentNumber: student?.studentNumber || '',
+    firstName: student?.firstName || '',
+    middleName: student?.middleName || '',
+    lastName: student?.lastName || '',
+    suffix: student?.suffix || '',
+    course: String(student?.course || 101),
+    yearLevel: String(student?.yearLevel || 1),
+    semester: (student?.semester as Semester) || '1st',
+    schoolYear: student?.schoolYear || getDefaultSchoolYear(),
+    lifecycleStatus: normalizeLifecycleStatus(student || {}),
+    studentStatus: student?.studentStatus || 'Regular',
+    scholarship: student?.scholarship || 'N/A',
+    email: student?.email || '',
+    contactNumber: student?.contactNumber || '',
+    address: student?.address || '',
+    permanentAddress: student?.permanentAddress || '',
+    birthDate: student?.birthDate ? String(student.birthDate).slice(0, 10) : '',
+    birthPlace: student?.birthPlace || '',
+    gender: student?.gender || '',
+    civilStatus: student?.civilStatus || '',
+    nationality: student?.nationality || 'Filipino',
+    religion: student?.religion || '',
+    emergencyContactName: student?.emergencyContact?.name || '',
+    emergencyContactRelationship: student?.emergencyContact?.relationship || '',
+    emergencyContactNumber: student?.emergencyContact?.contactNumber || '',
+    emergencyContactAddress: student?.emergencyContact?.address || ''
+  }
+}
+
+function buildStudentPayload(formState: StudentFormState) {
+  const payload: Record<string, unknown> = {
+    firstName: formState.firstName.trim(),
+    middleName: formState.middleName.trim(),
+    lastName: formState.lastName.trim(),
+    suffix: formState.suffix.trim(),
+    course: Number(formState.course),
+    yearLevel: Number(formState.yearLevel),
+    semester: formState.semester,
+    schoolYear: formState.schoolYear.trim(),
+    lifecycleStatus: formState.lifecycleStatus,
+    studentStatus: formState.studentStatus.trim() || 'Regular',
+    scholarship: formState.scholarship.trim() || 'N/A',
+    email: formState.email.trim(),
+    contactNumber: formState.contactNumber.trim(),
+    address: formState.address.trim(),
+    permanentAddress: formState.permanentAddress.trim(),
+    birthDate: formState.birthDate || undefined,
+    birthPlace: formState.birthPlace.trim(),
+    gender: formState.gender.trim(),
+    civilStatus: formState.civilStatus.trim(),
+    nationality: formState.nationality.trim(),
+    religion: formState.religion.trim()
+  }
+
+  const emergencyContact = {
+    name: formState.emergencyContactName.trim(),
+    relationship: formState.emergencyContactRelationship.trim(),
+    contactNumber: formState.emergencyContactNumber.trim(),
+    address: formState.emergencyContactAddress.trim()
+  }
+
+  if (Object.values(emergencyContact).some(Boolean)) {
+    payload.emergencyContact = emergencyContact
+  }
+
+  return payload
+}
+
+async function fetchStudentNumberPreview(course: string, schoolYear: string) {
+  const token = await getStoredToken()
+  if (!token) throw new Error('No authentication token found')
+
+  const query = new URLSearchParams({
+    course: String(Number(course) || ''),
+    schoolYear: String(schoolYear || '').trim()
+  })
+
+  const response = await fetch(`${API_URL}/registrar/students/next-number?${query.toString()}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    }
+  })
+
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error((payload?.message as string) || 'Failed to generate student number preview')
+  }
+
+  return String(payload?.data?.studentNumber || '').trim()
+}
+
+function escapeCsv(value: unknown) {
+  const text = String(value ?? '')
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+}
+
+function downloadCsv(filename: string, rows: string[][]) {
+  const csv = rows.map((row) => row.map(escapeCsv).join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  window.URL.revokeObjectURL(url)
+}
+
+function ToneBadge({
+  label,
+  tone
+}: {
+  label: string
+  tone: 'neutral' | 'info' | 'success' | 'warning' | 'danger'
+}) {
+  return <span className={`student-workspace__badge student-workspace__badge--${tone}`}>{label}</span>
+}
+
+function StudentDetailGrid({
+  items
+}: {
+  items: Array<{ label: string; value: ReactNode; span?: 'full' }>
+}) {
+  return (
+    <div className="student-workspace__detail-grid">
+      {items.map((item) => (
+        <article
+          key={item.label}
+          className={`student-workspace__detail-item${item.span === 'full' ? ' student-workspace__detail-item--full' : ''}`}
+        >
+          <span className="student-workspace__detail-label">{item.label}</span>
+          <strong className="student-workspace__detail-value">{item.value}</strong>
+        </article>
+      ))}
+    </div>
+  )
+}
+
+function StudentRowMenu({
+  student,
+  isOpen,
+  onToggle,
+  onClose,
+  onViewProfile,
+  onEnroll,
+  onAssignBlock,
+  onEdit,
+  onViewAcademicRecord,
+  onViewEnrolledSubjects,
+  onViewEnrollmentHistory,
+  onArchive,
+  onDelete
+}: {
+  student: ManagedStudent
+  isOpen: boolean
+  onToggle: () => void
+  onClose: () => void
+  onViewProfile: () => void
+  onEnroll: () => void
+  onAssignBlock: () => void
+  onEdit: () => void
+  onViewAcademicRecord: () => void
+  onViewEnrolledSubjects: () => void
+  onViewEnrollmentHistory: () => void
+  onArchive: () => void
+  onDelete: () => void
+}) {
+  const shellRef = useRef<HTMLDivElement>(null)
+  const [openUpward, setOpenUpward] = useState(false)
 
   useEffect(() => {
-    loadStudents();
-  }, []);
+    if (!isOpen || !shellRef.current) return
+
+    const rect = shellRef.current.getBoundingClientRect()
+    const menuHeight = 280
+    const spaceBelow = window.innerHeight - rect.bottom
+    const spaceAbove = rect.top
+
+    setOpenUpward(spaceBelow < menuHeight && spaceAbove > spaceBelow)
+  }, [isOpen])
 
   useEffect(() => {
-    if (!openActionMenuId) return;
+    if (!isOpen) return
 
     const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest('.student-action-menu')) return;
-      setOpenActionMenuId(null);
-    };
+      const target = event.target as HTMLElement | null
+      if (!target?.closest('.student-workspace__menu-shell')) {
+        onClose()
+      }
+    }
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setOpenActionMenuId(null);
+        onClose()
       }
-    };
+    }
 
-    document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('keydown', handleEscape);
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleEscape)
 
     return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [openActionMenuId]);
-
-  const loadStudents = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const token = await getStoredToken();
-      if (!token) throw new Error('No authentication token found');
-
-      const response = await StudentService.getStudents(token);
-      const normalizedStudents = (response.data || []).map((student: Student) =>
-        student.corStatus === 'Verified' && student.enrollmentStatus !== 'Enrolled'
-          ? { ...student, enrollmentStatus: 'Enrolled' }
-          : student
-      );
-      setStudents(normalizedStudents);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load students');
-    } finally {
-      setLoading(false);
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleEscape)
     }
-  };
+  }, [isOpen, onClose])
 
-  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchTerm(e.target.value);
-  };
+  return (
+    <div ref={shellRef} className="student-workspace__menu-shell">
+      <button
+        type="button"
+        className="student-workspace__menu-trigger"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+        aria-label={`Open actions for ${studentNumberDisplay(student)}`}
+      >
+        <MoreHorizontal size={16} />
+      </button>
 
-  const handleAddStudent = () => {
-    setFormData({
-      firstName: '',
-      middleName: '',
-      lastName: '',
-      suffix: '',
-      course: 101,
-      major: 'General Education',
-      yearLevel: 1,
-      semester: '1st',
-      schoolYear: '2024-2025',
-      studentStatus: 'Regular',
-      scholarship: 'N/A',
-      assignedProfessor: '',
-      schedule: '',
-      latestGrade: '',
-      gradeProfessor: '',
-      gradeDate: '',
-      contactNumber: '',
-      address: '',
-      permanentAddress: '',
-      birthDate: '',
-      gender: '',
-      civilStatus: 'Single',
-      nationality: 'Filipino',
-      religion: '',
-      emergencyContact: {
-        name: '',
-        relationship: '',
-        contactNumber: '',
-        address: ''
-      }
-    });
-    setShowAddModal(true);
-  };
-
-  const handleEditStudent = (student: Student) => {
-    setFormData({
-      firstName: student.firstName,
-      middleName: student.middleName || '',
-      lastName: student.lastName,
-      suffix: student.suffix || '',
-      course: normalizeCourse(student.course),
-      major: student.major || majorOptionsByCourse[normalizeCourse(student.course)]?.[0] || 'General Education',
-      yearLevel: student.yearLevel,
-      semester: student.semester,
-      schoolYear: student.schoolYear,
-      studentStatus: student.studentStatus || 'Regular',
-      scholarship: student.scholarship || 'N/A',
-      assignedProfessor: student.assignedProfessor || '',
-      schedule: student.schedule || '',
-      latestGrade: student.latestGrade?.toString() || '',
-      gradeProfessor: student.gradeProfessor || '',
-      gradeDate: student.gradeDate ? new Date(student.gradeDate).toISOString().slice(0, 10) : '',
-      contactNumber: student.contactNumber,
-      address: student.address,
-      permanentAddress: student.permanentAddress || '',
-      birthDate: student.birthDate ? new Date(student.birthDate).toISOString().slice(0, 10) : '',
-      gender: student.gender || '',
-      civilStatus: student.civilStatus || '',
-      nationality: student.nationality || 'Filipino',
-      religion: student.religion || '',
-      emergencyContact: student.emergencyContact || {
-        name: '',
-        relationship: '',
-        contactNumber: '',
-        address: ''
-      }
-    });
-    setSelectedStudent(student);
-    setShowEditModal(true);
-  };
-
-  const fetchCorBlob = async (student: Student) => {
-    try {
-      const token = await getStoredToken();
-      if (!token) throw new Error('No authentication token found');
-
-      const response = await fetch(`${API_URL}/api/registrar/students/${student._id}/cor`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
-
-      if (!response.ok) {
-        let message = 'Failed to generate COR';
-        try {
-          const data = await response.json();
-          if (data?.message) message = data.message;
-        } catch {
-          // Fallback for non-JSON error responses
-        }
-        throw new Error(message);
-      }
-
-      return response.blob();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to download COR');
-      throw err;
-    }
-  };
-
-  const handleDownloadCor = async (student: Student) => {
-    try {
-      const blob = await fetchCorBlob(student);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `COR-${student.studentNumber}.pdf`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-    } catch {
-      // Error state is already set in fetchCorBlob
-    }
-  };
-
-  const handleViewCor = async (student: Student) => {
-    try {
-      const blob = await fetchCorBlob(student);
-      const url = window.URL.createObjectURL(blob);
-      window.open(url, '_blank', 'noopener');
-    } catch {
-      // Error state is already set in fetchCorBlob
-    }
-  };
-
-  const handleDeleteStudent = async (student: Student) => {
-    const studentName = `${student.firstName} ${student.lastName}`.trim();
-    const confirmed = window.confirm(`Delete student "${studentName}" (${student.studentNumber})? This action cannot be undone.`);
-    if (!confirmed) return;
-
-    try {
-      const token = await getStoredToken();
-      if (!token) throw new Error('No authentication token found');
-
-      await StudentService.deleteStudent(token, student._id);
-      setSelectedStudent((prev) => (prev?._id === student._id ? null : prev));
-      setShowEditModal(false);
-      setShowAddModal(false);
-      setError(null);
-      await loadStudents();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete student');
-    }
-  };
-
-  const handleSubmitStudent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const token = await getStoredToken();
-      if (!token) throw new Error('No authentication token found');
-
-      const normalizedStatus = ['Regular', 'Dropped', 'Returnee', 'Transferee'].includes(formData.studentStatus)
-        ? formData.studentStatus
-        : 'Regular';
-
-      const payload = {
-        ...formData,
-        latestGrade: undefined,
-        gradeProfessor: undefined,
-        gradeDate: undefined,
-        studentStatus: normalizedStatus,
-        civilStatus: formData.civilStatus || 'Single'
-      };
-
-      if (selectedStudent) {
-        // Update existing student
-        await StudentService.updateStudent(token, selectedStudent._id, payload);
-        setShowEditModal(false);
-      } else {
-        // Create new student
-        await StudentService.createStudent(token, payload);
-        setShowAddModal(false);
-      }
-
-      setSelectedStudent(null);
-      loadStudents(); // Reload students list
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save student');
-    }
-  };
-
-  const filteredStudents = students.filter(student => {
-    const matchesSearch = searchTerm === '' ||
-      student.studentNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      student.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      student.lastName.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesCourse = filterCourse === '' || student.course === Number(filterCourse);
-    const matchesYearLevel = filterYearLevel === '' || student.yearLevel.toString() === filterYearLevel;
-
-    return matchesSearch && matchesCourse && matchesYearLevel;
-  });
-
-  const effectiveEnrollmentStatus = (student: Student): string =>
-    student.corStatus === 'Verified' ? 'Enrolled' : student.enrollmentStatus;
-
-  if (loading) {
-    return (
-      <div className="student-management">
-        <div className="student-loading-state">
-          <div className="student-loading-spinner"></div>
-          <p>Loading students...</p>
+      {isOpen ? (
+        <div className={`student-workspace__menu student-workspace__menu--compact${openUpward ? ' student-workspace__menu--upward' : ''}`}>
+          <div className="student-workspace__menu-section">
+            <span className="student-workspace__menu-label">Quick actions</span>
+            <button type="button" onClick={onViewProfile}>
+              <Eye size={14} />
+              View profile
+            </button>
+            <button type="button" onClick={onEnroll}>
+              <BookOpenCheck size={14} />
+              Enroll student
+            </button>
+            <button type="button" onClick={onAssignBlock}>
+              <Blocks size={14} />
+              Assign block
+            </button>
+            <button type="button" onClick={onEdit}>
+              <PencilLine size={14} />
+              Edit student
+            </button>
+          </div>
+          <div className="student-workspace__menu-divider" />
+          <div className="student-workspace__menu-section">
+            <span className="student-workspace__menu-label">More</span>
+            <button type="button" onClick={onViewAcademicRecord}>
+              <FileText size={14} />
+              Academic record
+            </button>
+            <button type="button" onClick={onViewEnrolledSubjects}>
+              <Layers3 size={14} />
+              Enrolled subjects
+            </button>
+            <button type="button" onClick={onViewEnrollmentHistory}>
+              <History size={14} />
+              Enrollment history
+            </button>
+            <button type="button" onClick={onArchive}>
+              <Archive size={14} />
+              Archive student
+            </button>
+            <button type="button" className="student-workspace__menu-item--danger" onClick={onDelete}>
+              <X size={14} />
+              Delete student
+            </button>
+          </div>
         </div>
+      ) : null}
+    </div>
+  )
+}
+
+function StudentProfileDrawer({
+  profileState,
+  onClose,
+  onEdit,
+  onEnroll,
+  onAssignBlock
+}: {
+  profileState: { student: ManagedStudent; tab: ProfileTab } | null
+  onClose: () => void
+  onEdit: (student: ManagedStudent) => void
+  onEnroll: (student: ManagedStudent) => void
+  onAssignBlock: (student: ManagedStudent) => void
+}) {
+  const [activeTab, setActiveTab] = useState<ProfileTab>(profileState?.tab || 'profile')
+  const [student, setStudent] = useState<ManagedStudent | null>(profileState?.student || null)
+  const [currentEnrollment, setCurrentEnrollment] = useState<EnrollmentRecord | null>(null)
+  const [history, setHistory] = useState<EnrollmentRecord[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!profileState) return
+
+    let cancelled = false
+    setActiveTab(profileState.tab)
+    setStudent(profileState.student)
+    setLoading(true)
+    setError('')
+
+    ;(async () => {
+      try {
+        const token = await getStoredToken()
+        if (!token) throw new Error('No authentication token found')
+
+        const studentResponse = await StudentService.getStudentById(token, profileState.student._id)
+        const detailStudent = extractResponseData<ManagedStudent>(studentResponse)
+
+        const historyResponse = await StudentService.getEnrollmentHistory(token, profileState.student._id)
+        const historyRecords = extractResponseData<EnrollmentRecord[]>(historyResponse) || []
+
+        const currentResponse = await StudentService.getCurrentEnrollment(
+          token,
+          profileState.student._id,
+          detailStudent.schoolYear,
+          detailStudent.semester
+        ).catch(() => null)
+
+        if (cancelled) return
+
+        setStudent(detailStudent)
+        setHistory(historyRecords)
+        setCurrentEnrollment(currentResponse ? extractResponseData<EnrollmentRecord>(currentResponse) : null)
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : 'Failed to load student profile')
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [profileState])
+
+  const documentEntries = useMemo(() => {
+    return history.flatMap((record) =>
+      (record.documents || []).map((document, index) => ({
+        id: `${record._id}-document-${index}`,
+        semester: record.semester,
+        schoolYear: record.schoolYear,
+        ...document
+      }))
+    )
+  }, [history])
+
+  if (!profileState) return null
+
+  const activeStudent = student || profileState.student
+  const lifecycleStatus = normalizeLifecycleStatus(activeStudent)
+  const lifecycleTone =
+    lifecycleStatus === 'Enrolled'
+      ? 'success'
+      : lifecycleStatus === 'Pending'
+        ? 'warning'
+        : lifecycleStatus === 'Inactive' || lifecycleStatus === 'Dropped'
+          ? 'danger'
+          : 'info'
+  const corTone = String(activeStudent.corStatus || '').toLowerCase() === 'verified' ? 'success' : 'warning'
+  const headerSummary = [
+    { label: 'Course', value: courseShortLabel(activeStudent.course) },
+    { label: 'Year', value: formatYearLevel(activeStudent.yearLevel) },
+    { label: 'Block', value: activeStudent.section || 'No block assigned' }
+  ]
+  const profileDetails = [
+    { label: 'Student Number', value: studentNumberDisplay(activeStudent) },
+    { label: 'Email', value: activeStudent.email || 'N/A' },
+    { label: 'Contact Number', value: activeStudent.contactNumber || 'N/A' },
+    { label: 'Birth Date', value: formatDate(activeStudent.birthDate) },
+    { label: 'Birth Place', value: activeStudent.birthPlace || 'N/A' },
+    { label: 'Gender', value: activeStudent.gender || 'N/A' },
+    { label: 'Civil Status', value: activeStudent.civilStatus || 'N/A' },
+    { label: 'Nationality', value: activeStudent.nationality || 'N/A' },
+    { label: 'Address', value: activeStudent.address || 'N/A', span: 'full' as const },
+    { label: 'Permanent Address', value: activeStudent.permanentAddress || 'N/A', span: 'full' as const }
+  ]
+  const academicDetails = [
+    { label: 'Course', value: courseFullLabel(activeStudent.course), span: 'full' as const },
+    { label: 'Year Level', value: formatYearLevel(activeStudent.yearLevel) },
+    { label: 'Block', value: activeStudent.section || 'No block assigned' },
+    { label: 'Semester', value: activeStudent.semester || 'N/A' },
+    { label: 'School Year', value: activeStudent.schoolYear || 'N/A' },
+    { label: 'Lifecycle', value: lifecycleStatus },
+    { label: 'Enrollment', value: activeStudent.enrollmentStatus || 'N/A' },
+    { label: 'Scholarship', value: activeStudent.scholarship || 'N/A' }
+  ]
+  const emergencyDetails = [
+    { label: 'Contact Name', value: activeStudent.emergencyContact?.name || 'N/A' },
+    { label: 'Relationship', value: activeStudent.emergencyContact?.relationship || 'N/A' },
+    { label: 'Phone', value: activeStudent.emergencyContact?.contactNumber || 'N/A' },
+    { label: 'Address', value: activeStudent.emergencyContact?.address || 'N/A', span: 'full' as const }
+  ]
+
+  return (
+    <StudentWorkspaceOverlay>
+      <div
+        className="student-workspace__drawer-shell"
+        role="dialog"
+        aria-modal="true"
+        onPointerDown={(event) => {
+          if (isStudentWorkspaceBackdropTarget(event)) {
+            onClose()
+          }
+        }}
+      >
+      <div className="student-workspace__drawer-overlay" aria-hidden="true" />
+      <aside className="student-workspace__drawer">
+        <header className="student-workspace__drawer-header">
+          <div className="student-workspace__drawer-heading">
+            <span className="student-workspace__eyebrow">Student Profile</span>
+            <h2>{studentDisplayName(activeStudent)}</h2>
+            <div className="student-workspace__drawer-summary" aria-label="Student summary">
+              {headerSummary.map((item) => (
+                <div key={item.label} className="student-workspace__drawer-summary-item">
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+          <button type="button" className="student-workspace__ghost-button" onClick={onClose} aria-label="Close drawer">
+            <X size={18} />
+          </button>
+        </header>
+
+        <div className="student-workspace__drawer-status-row" aria-label="Student status">
+          <ToneBadge label={lifecycleStatus} tone={lifecycleTone} />
+          <ToneBadge label={`COR ${activeStudent.corStatus || 'Pending'}`} tone={corTone} />
+        </div>
+
+        <div className="student-workspace__drawer-action-row">
+          <button type="button" className="student-workspace__ghost-button" onClick={() => onEdit(activeStudent)}>
+            <PencilLine size={16} />
+            Edit
+          </button>
+          <button type="button" className="student-workspace__primary-button" onClick={() => onEnroll(activeStudent)}>
+            <BookOpenCheck size={16} />
+            Enroll
+          </button>
+          <button type="button" className="student-workspace__secondary-button" onClick={() => onAssignBlock(activeStudent)}>
+            <Blocks size={16} />
+            Assign Block
+          </button>
+        </div>
+
+        <nav className="student-workspace__tabs student-workspace__drawer-tabs" aria-label="Student profile tabs">
+          {([
+            ['profile', 'Profile'],
+            ['enrollment', 'Enrollment'],
+            ['subjects', 'Subjects'],
+            ['documents', 'Documents'],
+            ['history', 'History']
+          ] as Array<[ProfileTab, string]>).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={`student-workspace__tab ${activeTab === value ? 'student-workspace__tab--active' : ''}`}
+              onClick={() => setActiveTab(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="student-workspace__drawer-content">
+          {loading ? <div className="student-workspace__empty-state">Loading student record...</div> : null}
+          {!loading && error ? <div className="student-workspace__empty-state">{error}</div> : null}
+
+          {!loading && !error && activeTab === 'profile' ? (
+            <div className="student-workspace__profile-grid">
+              <section className="student-workspace__profile-card">
+                <div className="student-workspace__profile-card-header">
+                  <h3>Profile</h3>
+                  <p>Personal identity and contact details for registrar review.</p>
+                </div>
+                <StudentDetailGrid items={profileDetails} />
+              </section>
+
+              <section className="student-workspace__profile-card">
+                <div className="student-workspace__profile-card-header">
+                  <h3>Academic Snapshot</h3>
+                  <p>Current registrar-facing academic placement and enrollment context.</p>
+                </div>
+                <StudentDetailGrid items={academicDetails} />
+              </section>
+
+              <section className="student-workspace__profile-card">
+                <div className="student-workspace__profile-card-header">
+                  <h3>Emergency Contact</h3>
+                  <p>Primary family or guardian contact details on file.</p>
+                </div>
+                <StudentDetailGrid items={emergencyDetails} />
+              </section>
+            </div>
+          ) : null}
+
+          {!loading && !error && activeTab === 'enrollment' ? (
+            <div className="student-workspace__profile-stack">
+              <section className="student-workspace__profile-card">
+                <h3>Current enrollment</h3>
+                {currentEnrollment ? (
+                  <div className="student-workspace__enrollment-summary">
+                    <div><span>Term</span><strong>{currentEnrollment.semester} · {currentEnrollment.schoolYear}</strong></div>
+                    <div><span>Status</span><strong>{currentEnrollment.status}</strong></div>
+                    <div><span>Total subjects</span><strong>{currentEnrollment.subjects?.length || 0}</strong></div>
+                    <div><span>Payment</span><strong>{currentEnrollment.assessment?.paymentStatus || 'N/A'}</strong></div>
+                    <div><span>Total assessment</span><strong>{formatCurrency(currentEnrollment.assessment?.totalAmount)}</strong></div>
+                    <div><span>Balance</span><strong>{formatCurrency(currentEnrollment.assessment?.balance)}</strong></div>
+                  </div>
+                ) : (
+                  <div className="student-workspace__empty-state student-workspace__empty-state--inline">
+                    No active enrollment record for the current term.
+                  </div>
+                )}
+              </section>
+
+              <section className="student-workspace__profile-card">
+                <h3>Enrollment history</h3>
+                {history.length ? (
+                  <div className="student-workspace__history-list">
+                    {history.map((record) => (
+                      <article key={record._id} className="student-workspace__history-item">
+                        <div>
+                          <strong>{record.semester} · {record.schoolYear}</strong>
+                          <p>{record.status} · {record.subjects?.length || 0} subjects</p>
+                        </div>
+                        <span>{formatDate(record.createdAt)}</span>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="student-workspace__empty-state student-workspace__empty-state--inline">
+                    No enrollment history yet.
+                  </div>
+                )}
+              </section>
+            </div>
+          ) : null}
+
+          {!loading && !error && activeTab === 'subjects' ? (
+            <section className="student-workspace__profile-card">
+              <h3>Enrolled subjects</h3>
+              {currentEnrollment?.subjects?.length ? (
+                <div className="student-workspace__subject-list">
+                  {currentEnrollment.subjects.map((subject) => (
+                    <article key={`${subject.code}-${subject.title}`} className="student-workspace__subject-row">
+                      <div>
+                        <strong>{subject.code}</strong>
+                        <p>{subject.title}</p>
+                      </div>
+                      <div>
+                        <span>{subject.schedule || 'TBA'}</span>
+                        <small>{subject.room || 'TBA'} · {subject.instructor || 'TBA'}</small>
+                      </div>
+                      <ToneBadge label={subject.status || 'Enrolled'} tone="info" />
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="student-workspace__empty-state student-workspace__empty-state--inline">
+                  No enrolled subjects for the active term.
+                </div>
+              )}
+            </section>
+          ) : null}
+
+          {!loading && !error && activeTab === 'documents' ? (
+            <section className="student-workspace__profile-card">
+              <h3>Documents</h3>
+              {documentEntries.length ? (
+                <div className="student-workspace__document-list">
+                  {documentEntries.map((document) => (
+                    <article key={document.id} className="student-workspace__document-row">
+                      <div>
+                        <strong>{document.name || 'Enrollment document'}</strong>
+                        <p>{document.semester} · {document.schoolYear}</p>
+                      </div>
+                      <div>
+                        <span>{document.status || 'Submitted'}</span>
+                        <small>{formatDate(document.dateSubmitted)}</small>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="student-workspace__empty-state student-workspace__empty-state--inline">
+                  No document tracking entries recorded yet.
+                </div>
+              )}
+            </section>
+          ) : null}
+
+          {!loading && !error && activeTab === 'history' ? (
+            <section className="student-workspace__profile-card">
+              <h3>Lifecycle history</h3>
+              <div className="student-workspace__history-list">
+                <article className="student-workspace__history-item">
+                  <div>
+                    <strong>Student record created</strong>
+                    <p>{studentNumberDisplay(activeStudent)} · {courseShortLabel(activeStudent.course)}</p>
+                  </div>
+                  <span>{formatDateTime(activeStudent.createdAt)}</span>
+                </article>
+                {history.map((record) => (
+                  <article key={record._id} className="student-workspace__history-item">
+                    <div>
+                      <strong>{record.status}</strong>
+                      <p>{record.semester} · {record.schoolYear} · {record.subjects?.length || 0} subjects</p>
+                    </div>
+                    <span>{formatDateTime(record.updatedAt || record.createdAt)}</span>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </div>
+      </aside>
       </div>
-    );
+    </StudentWorkspaceOverlay>
+  )
+}
+
+function StudentFormModal({
+  mode,
+  student,
+  onClose,
+  onSaved
+}: {
+  mode: 'create' | 'edit'
+  student?: ManagedStudent
+  onClose: () => void
+  onSaved: (message: string) => Promise<void> | void
+}) {
+  const [formState, setFormState] = useState<StudentFormState>(() => buildStudentFormState(student))
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [studentNumberPreview, setStudentNumberPreview] = useState(
+    mode === 'edit' ? buildStudentFormState(student).studentNumber : ''
+  )
+  const [studentNumberPreviewLoading, setStudentNumberPreviewLoading] = useState(mode === 'create')
+
+  useEffect(() => {
+    setFormState(buildStudentFormState(student))
+    setError('')
+  }, [student])
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (mode === 'edit') {
+      setStudentNumberPreview(formState.studentNumber)
+      setStudentNumberPreviewLoading(false)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    const course = String(formState.course || '').trim()
+    const schoolYear = String(formState.schoolYear || '').trim()
+    if (!course || !/^\d{4}-\d{4}$/.test(schoolYear)) {
+      setStudentNumberPreview('')
+      setStudentNumberPreviewLoading(false)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    setStudentNumberPreviewLoading(true)
+
+    ;(async () => {
+      try {
+        const nextStudentNumber = await fetchStudentNumberPreview(course, schoolYear)
+        if (!cancelled) {
+          setStudentNumberPreview(nextStudentNumber)
+        }
+      } catch {
+        if (!cancelled) {
+          setStudentNumberPreview('')
+        }
+      } finally {
+        if (!cancelled) {
+          setStudentNumberPreviewLoading(false)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [mode, formState.course, formState.schoolYear, formState.studentNumber])
+
+  const handleChange = (field: keyof StudentFormState, value: string) => {
+    setFormState((current) => ({
+      ...current,
+      [field]: value
+    }))
+  }
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setSubmitting(true)
+    setError('')
+
+    try {
+      const token = await getStoredToken()
+      if (!token) throw new Error('No authentication token found')
+
+      const payload = buildStudentPayload(formState)
+      if (mode === 'create') {
+        const response = await StudentService.createStudent(token, payload)
+        const createdStudent = extractResponseData<ManagedStudent>(response)
+        const createdMessage = createdStudent?.studentNumber
+          ? `Student record created successfully. Student No: ${formatStudentNumber(createdStudent.studentNumber, createdStudent.course)}.`
+          : 'Student record created successfully.'
+        await onSaved(createdMessage)
+      } else if (student?._id) {
+        await StudentService.updateStudent(token, student._id, payload)
+        await onSaved('Student record updated successfully.')
+      }
+      onClose()
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Failed to save student record')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
-    <div className="student-management">
-      <div className="student-management-header">
-        <div className="header-info">
-          <h2 className="section-title">Student Management</h2>
-          <p className="section-description">Manage student admissions, enrollment, and academic records</p>
-        </div>
-        <button type="button" className="add-student-btn" onClick={handleAddStudent}>
-          <UserPlus size={16} />
-          Add New Student
-        </button>
-      </div>
-
-      {error && (
-        <div className="error-message">
-          <AlertCircle size={16} />
-          {error}
-        </div>
-      )}
-
-      <div className="student-filters">
-        <div className="search-box">
-          <Search size={16} />
-          <input
-            type="text"
-            placeholder="Search students by name, student number, or email..."
-            value={searchTerm}
-            onChange={handleSearch}
-          />
-        </div>
-
-        <div className="filter-selects">
-          <select value={filterCourse} onChange={(e) => setFilterCourse(e.target.value)}>
-            <option value="">All Courses</option>
-            {courses.map(course => (
-              <option key={course.value} value={course.value}>{course.label}</option>
-            ))}
-          </select>
-
-          <select value={filterYearLevel} onChange={(e) => setFilterYearLevel(e.target.value)}>
-            <option value="">All Year Levels</option>
-            {[1, 2, 3, 4, 5].map(level => (
-              <option key={level} value={level.toString()}>{formatYearLevel(level)}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div className="student-table-container">
-        <table className="student-table">
-          <thead>
-            <tr>
-              <th>Student Number</th>
-              <th>Name</th>
-              <th>Course</th>
-              <th>Year Level</th>
-              <th>Status</th>
-              <th>COR</th>
-              <th>Contact</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredStudents.map(student => (
-              <tr key={student._id}>
-                <td className="student-number">{formatStudentNumberForLogs(student)}</td>
-                <td className="student-name">
-                  {student.firstName} {student.middleName} {student.lastName} {student.suffix}
-                </td>
-                <td>{courseAbbreviation(normalizeCourse(student.course))}</td>
-                <td>{formatYearLevel(student.yearLevel)}</td>
-                <td>
-                  <span className={`status-badge ${effectiveEnrollmentStatus(student).toLowerCase().replace(' ', '-')}`}>
-                    {effectiveEnrollmentStatus(student)}
-                  </span>
-                </td>
-                <td>
-                  <span className={`status-badge cor-${(student.corStatus || 'Pending').toLowerCase()}`}>
-                    {student.corStatus || 'Pending'}
-                  </span>
-                </td>
-                <td>{student.contactNumber}</td>
-                <td className="actions-cell">
-                  <div className="student-action-menu">
-                    <button
-                      type="button"
-                      className={`action-menu-toggle ${openActionMenuId === student._id ? 'open' : ''}`}
-                      onClick={() => setOpenActionMenuId((current) => current === student._id ? null : student._id)}
-                      aria-haspopup="menu"
-                      aria-expanded={openActionMenuId === student._id}
-                    >
-                      <span>Actions</span>
-                      <MoreHorizontal size={16} />
-                    </button>
-
-                    {openActionMenuId === student._id && (
-                      <div className="action-dropdown" role="menu" aria-label={`Actions for ${student.firstName} ${student.lastName}`}>
-                        <button
-                          type="button"
-                          className="action-dropdown-item view"
-                          onClick={() => {
-                            setSelectedStudent(student);
-                            setOpenActionMenuId(null);
-                          }}
-                        >
-                          <Eye size={14} />
-                          View Details
-                        </button>
-                        <button
-                          type="button"
-                          className="action-dropdown-item edit"
-                          onClick={() => {
-                            handleEditStudent(student);
-                            setOpenActionMenuId(null);
-                          }}
-                        >
-                          <Edit size={14} />
-                          Edit Student
-                        </button>
-                        <button
-                          type="button"
-                          className="action-dropdown-item cor"
-                          onClick={() => {
-                            void handleDownloadCor(student);
-                            setOpenActionMenuId(null);
-                          }}
-                        >
-                          <FileTextIcon size={14} />
-                          Download COR
-                        </button>
-                        <button
-                          type="button"
-                          className="action-dropdown-item view-cor"
-                          onClick={() => {
-                            void handleViewCor(student);
-                            setOpenActionMenuId(null);
-                          }}
-                        >
-                          <ExternalLink size={14} />
-                          View COR
-                        </button>
-                        <button
-                          type="button"
-                          className="action-dropdown-item delete"
-                          onClick={() => {
-                            void handleDeleteStudent(student);
-                            setOpenActionMenuId(null);
-                          }}
-                        >
-                          <Trash2 size={14} />
-                          Delete Student
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {filteredStudents.length === 0 && (
-          <div className="no-students">
-            <GraduationCap size={48} />
-            <h3>No Students Found</h3>
-            <p>
-              {students.length === 0
-                ? "No students have been added yet. Click 'Add New Student' to get started."
-                : "No students match your search criteria. Try adjusting your filters."
-              }
-            </p>
+    <StudentWorkspaceOverlay>
+      <div
+        className="student-workspace__modal-shell"
+        role="dialog"
+        aria-modal="true"
+        onPointerDown={(event) => {
+          if (isStudentWorkspaceBackdropTarget(event)) {
+            onClose()
+          }
+        }}
+      >
+      <div className="student-workspace__modal-overlay" aria-hidden="true" />
+      <div className="student-workspace__modal">
+        <header className="student-workspace__modal-header">
+          <div>
+            <span className="student-workspace__eyebrow">{mode === 'create' ? 'Create student' : 'Edit student'}</span>
+            <h2>{mode === 'create' ? 'Add Student Record' : `Update ${studentDisplayName(student || {})}`}</h2>
           </div>
-        )}
-      </div>
-
-      {/* Add Student Modal */}
-      {showAddModal && (
-        <StudentFormModal
-          title="Add New Student"
-          formData={formData}
-          setFormData={setFormData}
-          onSubmit={handleSubmitStudent}
-          onClose={() => setShowAddModal(false)}
-          courses={courses}
-          majorOptionsByCourse={majorOptionsByCourse}
-          semesters={semesters}
-        />
-      )}
-
-      {/* Edit Student Modal */}
-      {showEditModal && (
-        <StudentFormModal
-          title="Edit Student"
-          formData={formData}
-          setFormData={setFormData}
-          onSubmit={handleSubmitStudent}
-          onClose={() => setShowEditModal(false)}
-          courses={courses}
-          majorOptionsByCourse={majorOptionsByCourse}
-          semesters={semesters}
-        />
-      )}
-
-      {/* Student Details Modal */}
-      {selectedStudent && !showAddModal && !showEditModal && (
-        <StudentDetailsModal
-          student={selectedStudent}
-          onClose={() => setSelectedStudent(null)}
-          onEdit={() => handleEditStudent(selectedStudent)}
-          courseLabel={courseLabel}
-          normalizeCourse={normalizeCourse}
-        />
-      )}
-    </div>
-  );
-};
-
-// Student Form Modal Component
-interface StudentFormModalProps {
-  title: string;
-  formData: StudentFormData;
-  setFormData: (data: StudentFormData) => void;
-  onSubmit: (e: React.FormEvent) => void;
-  onClose: () => void;
-  courses: { value: number; label: string; }[];
-  majorOptionsByCourse: Record<number, string[]>;
-  semesters: string[];
-}
-
-const StudentFormModal: React.FC<StudentFormModalProps> = ({
-  title,
-  formData,
-  setFormData,
-  onSubmit,
-  onClose,
-  courses,
-  majorOptionsByCourse,
-  semesters
-}) => {
-  const majorOptions = majorOptionsByCourse[Number(formData.course)] || ['General Education'];
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    if (name === 'course') {
-      const courseNumber = Number(value);
-      const courseMajorOptions = majorOptionsByCourse[courseNumber] || ['General Education'];
-      const nextMajor = courseMajorOptions.includes(formData.major) ? formData.major : courseMajorOptions[0];
-      setFormData({ ...formData, course: courseNumber, major: nextMajor });
-      return;
-    }
-    setFormData({ ...formData, [name]: value });
-  };
-
-  const handleEmergencyContactChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData({
-      ...formData,
-      emergencyContact: { ...formData.emergencyContact, [name]: value }
-    });
-  };
-
-  return (
-    <div className="modal-overlay">
-      <div className="modal-content student-modal">
-        <div className="modal-header">
-          <h3>{title}</h3>
-          <button type="button" className="close-btn" onClick={onClose}>
-            <X size={20} />
+          <button type="button" className="student-workspace__ghost-button" onClick={onClose} aria-label="Close">
+            <X size={18} />
           </button>
-        </div>
+        </header>
 
-        <form onSubmit={onSubmit} className="student-form">
-          <div className="form-grid">
-            {/* Personal Information */}
-            <div className="form-section">
-              <h4>Personal Information</h4>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>First Name <span className="required-asterisk">*</span></label>
-                  <input
-                    type="text"
-                    name="firstName"
-                    value={formData.firstName}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Middle Name</label>
-                  <input
-                    type="text"
-                    name="middleName"
-                    value={formData.middleName}
-                    onChange={handleChange}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Last Name <span className="required-asterisk">*</span></label>
-                  <input
-                    type="text"
-                    name="lastName"
-                    value={formData.lastName}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Suffix</label>
-                  <input
-                    type="text"
-                    name="suffix"
-                    value={formData.suffix}
-                    onChange={handleChange}
-                    placeholder="Jr., Sr., III"
-                  />
-                </div>
-              </div>
-
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Contact Number <span className="required-asterisk">*</span></label>
-                  <input
-                    type="tel"
-                    name="contactNumber"
-                    value={formData.contactNumber}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Address <span className="required-asterisk">*</span></label>
-                  <input
-                    type="text"
-                    name="address"
-                    value={formData.address}
-                    onChange={handleChange}
-                    required
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Academic Information */}
-            <div className="form-section">
-              <h4>Academic Information</h4>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Course <span className="required-asterisk">*</span></label>
-                  <select
-                    name="course"
-                    value={formData.course}
-                    onChange={handleChange}
-                    required
-                  >
-                    <option value="">Select Course</option>
-                    {courses.map(course => (
-                      <option key={course.value} value={course.value}>{course.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Year Level <span className="required-asterisk">*</span></label>
-                  <select
-                    name="yearLevel"
-                    value={formData.yearLevel}
-                    onChange={(e) => setFormData({ ...formData, yearLevel: parseInt(e.target.value) })}
-                    required
-                  >
-                    {[1, 2, 3, 4, 5].map(level => (
-                      <option key={level} value={level}>{formatYearLevel(level)}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Major <span className="required-asterisk">*</span></label>
-                  <select
-                    name="major"
-                    value={formData.major}
-                    onChange={handleChange}
-                    required
-                  >
-                    {majorOptions.map((major) => (
-                      <option key={major} value={major}>{major}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-            <div className="form-row">
-              <div className="form-group">
-                <label>Semester <span className="required-asterisk">*</span></label>
-                <select
-                  name="semester"
-                    value={formData.semester}
-                    onChange={handleChange}
-                    required
-                  >
-                    {semesters.map(semester => (
-                      <option key={semester} value={semester}>{semester}</option>
-                    ))}
-                  </select>
-                </div>
-              <div className="form-group">
-                <label>School Year <span className="required-asterisk">*</span></label>
+        <form className="student-workspace__form" onSubmit={handleSubmit}>
+          <div className="student-workspace__modal-body">
+          <section className="student-workspace__form-section">
+            <h3>Identity</h3>
+            <div className="student-workspace__form-grid student-workspace__form-grid--four">
+              <label>
+                <span>Student Number</span>
                 <input
-                  type="text"
-                  name="schoolYear"
-                    value={formData.schoolYear}
-                    onChange={handleChange}
-                    placeholder="2024-2025"
-                    required
-                  />
-                </div>
-              <div className="form-group">
-                <label>Student Status <span className="required-asterisk">*</span></label>
-                <select
-                  name="studentStatus"
-                  value={formData.studentStatus}
-                  onChange={handleChange}
-                  required
-                >
-                  <option value="Regular">Regular</option>
-                  <option value="Dropped">Dropped</option>
-                  <option value="Returnee">Returnee</option>
-                  <option value="Transferee">Transferee</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label>Scholarship</label>
-                <select
-                  name="scholarship"
-                  value={formData.scholarship}
-                  onChange={handleChange}
-                >
-                  {scholarshipOptions.map((option) => (
-                    <option key={option} value={option}>{option}</option>
+                  value={
+                    mode === 'create'
+                      ? studentNumberPreviewLoading
+                        ? 'Generating student number...'
+                        : studentNumberPreview || 'Student number unavailable'
+                      : formatStudentNumber(formState.studentNumber, formState.course)
+                  }
+                  readOnly
+                  aria-readonly="true"
+                />
+              </label>
+              <label>
+                <span>First Name</span>
+                <input value={formState.firstName} onChange={(event) => handleChange('firstName', event.target.value)} required />
+              </label>
+              <label>
+                <span>Middle Name</span>
+                <input value={formState.middleName} onChange={(event) => handleChange('middleName', event.target.value)} />
+              </label>
+              <label>
+                <span>Last Name</span>
+                <input value={formState.lastName} onChange={(event) => handleChange('lastName', event.target.value)} required />
+              </label>
+            </div>
+          </section>
+
+          <section className="student-workspace__form-section">
+            <h3>Academic setup</h3>
+            <div className="student-workspace__form-grid student-workspace__form-grid--four">
+              <label>
+                <span>Course</span>
+                <select value={formState.course} onChange={(event) => handleChange('course', event.target.value)}>
+                  {COURSE_OPTIONS.map((course) => (
+                    <option key={course.value} value={course.value}>{course.fullLabel}</option>
                   ))}
                 </select>
-              </div>
-              </div>
+              </label>
+              <label>
+                <span>Year Level</span>
+                <select value={formState.yearLevel} onChange={(event) => handleChange('yearLevel', event.target.value)}>
+                  {YEAR_LEVEL_OPTIONS.map((yearLevel) => (
+                    <option key={yearLevel} value={yearLevel}>{formatYearLevel(yearLevel)}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Semester</span>
+                <select value={formState.semester} onChange={(event) => handleChange('semester', event.target.value)}>
+                  {SEMESTER_OPTIONS.map((semester) => (
+                    <option key={semester} value={semester}>{semester}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>School Year</span>
+                <input value={formState.schoolYear} onChange={(event) => handleChange('schoolYear', event.target.value)} required pattern="\d{4}-\d{4}" />
+              </label>
+              <label>
+                <span>Lifecycle Status</span>
+                <select value={formState.lifecycleStatus} onChange={(event) => handleChange('lifecycleStatus', event.target.value)}>
+                  {LIFECYCLE_OPTIONS.map((status) => (
+                    <option key={status} value={status}>{status}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Student Status</span>
+                <select value={formState.studentStatus} onChange={(event) => handleChange('studentStatus', event.target.value)}>
+                  {['Regular', 'Dropped', 'Returnee', 'Transferee'].map((status) => (
+                    <option key={status} value={status}>{status}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Scholarship</span>
+                <input value={formState.scholarship} onChange={(event) => handleChange('scholarship', event.target.value)} />
+              </label>
+              <label>
+                <span>Suffix</span>
+                <input value={formState.suffix} onChange={(event) => handleChange('suffix', event.target.value)} />
+              </label>
             </div>
+          </section>
 
-          {/* Additional Information */}
-          <div className="form-section">
-            <h4>Additional Information</h4>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Birth Date</label>
-                  <input
-                    type="date"
-                    name="birthDate"
-                    value={formData.birthDate}
-                    onChange={handleChange}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Sex <span className="required-asterisk">*</span></label>
-                  <select
-                    name="gender"
-                    value={formData.gender}
-                    onChange={handleChange}
-                    required
-                  >
-                    <option value="">Select Sex</option>
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Civil Status</label>
-                  <select
-                    name="civilStatus"
-                    value={formData.civilStatus}
-                    onChange={handleChange}
-                  >
-                    <option value="Single">Single</option>
-                    <option value="Married">Married</option>
-                    <option value="Widowed">Widowed</option>
-                    <option value="Separated">Separated</option>
-                    <option value="Divorced">Divorced</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Nationality</label>
-                  <input
-                    type="text"
-                    name="nationality"
-                    value={formData.nationality}
-                    onChange={handleChange}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Religion</label>
-                  <input
-                    type="text"
-                    name="religion"
-                    value={formData.religion}
-                    onChange={handleChange}
-                  />
-                </div>
-              </div>
+          <section className="student-workspace__form-section">
+            <h3>Contact</h3>
+            <div className="student-workspace__form-grid student-workspace__form-grid--four">
+              <label>
+                <span>Email</span>
+                <input type="email" value={formState.email} onChange={(event) => handleChange('email', event.target.value)} />
+              </label>
+              <label>
+                <span>Contact Number</span>
+                <input value={formState.contactNumber} onChange={(event) => handleChange('contactNumber', event.target.value)} required />
+              </label>
+              <label className="student-workspace__field-span-2">
+                <span>Address</span>
+                <input value={formState.address} onChange={(event) => handleChange('address', event.target.value)} required />
+              </label>
+              <label className="student-workspace__field-span-2">
+                <span>Permanent Address</span>
+                <input value={formState.permanentAddress} onChange={(event) => handleChange('permanentAddress', event.target.value)} />
+              </label>
             </div>
+          </section>
 
-            {/* Emergency Contact */}
-            <div className="form-section">
-              <h4>Emergency Contact</h4>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Contact Name</label>
-                  <input
-                    type="text"
-                    name="name"
-                    value={formData.emergencyContact.name}
-                    onChange={handleEmergencyContactChange}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Relationship</label>
-                  <input
-                    type="text"
-                    name="relationship"
-                    value={formData.emergencyContact.relationship}
-                    onChange={handleEmergencyContactChange}
-                  />
-                </div>
-              </div>
-
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Contact Number</label>
-                  <input
-                    type="tel"
-                    name="contactNumber"
-                    value={formData.emergencyContact.contactNumber}
-                    onChange={handleEmergencyContactChange}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Address</label>
-                  <input
-                    type="text"
-                    name="address"
-                    value={formData.emergencyContact.address}
-                    onChange={handleEmergencyContactChange}
-                  />
-                </div>
-              </div>
+          <section className="student-workspace__form-section">
+            <h3>Background</h3>
+            <div className="student-workspace__form-grid student-workspace__form-grid--four">
+              <label>
+                <span>Birth Date</span>
+                <input type="date" value={formState.birthDate} onChange={(event) => handleChange('birthDate', event.target.value)} />
+              </label>
+              <label>
+                <span>Birth Place</span>
+                <input value={formState.birthPlace} onChange={(event) => handleChange('birthPlace', event.target.value)} />
+              </label>
+              <label>
+                <span>Gender</span>
+                <select value={formState.gender} onChange={(event) => handleChange('gender', event.target.value)}>
+                  <option value="">Select</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                  <option value="Prefer not to say">Prefer not to say</option>
+                </select>
+              </label>
+              <label>
+                <span>Civil Status</span>
+                <select value={formState.civilStatus} onChange={(event) => handleChange('civilStatus', event.target.value)}>
+                  <option value="">Select</option>
+                  <option value="Single">Single</option>
+                  <option value="Married">Married</option>
+                  <option value="Widowed">Widowed</option>
+                  <option value="Separated">Separated</option>
+                  <option value="Divorced">Divorced</option>
+                </select>
+              </label>
+              <label>
+                <span>Nationality</span>
+                <input value={formState.nationality} onChange={(event) => handleChange('nationality', event.target.value)} />
+              </label>
+              <label>
+                <span>Religion</span>
+                <input value={formState.religion} onChange={(event) => handleChange('religion', event.target.value)} />
+              </label>
             </div>
+          </section>
+
+          <section className="student-workspace__form-section">
+            <h3>Emergency contact</h3>
+            <div className="student-workspace__form-grid student-workspace__form-grid--four">
+              <label>
+                <span>Name</span>
+                <input value={formState.emergencyContactName} onChange={(event) => handleChange('emergencyContactName', event.target.value)} />
+              </label>
+              <label>
+                <span>Relationship</span>
+                <input value={formState.emergencyContactRelationship} onChange={(event) => handleChange('emergencyContactRelationship', event.target.value)} />
+              </label>
+              <label>
+                <span>Contact Number</span>
+                <input value={formState.emergencyContactNumber} onChange={(event) => handleChange('emergencyContactNumber', event.target.value)} />
+              </label>
+              <label>
+                <span>Address</span>
+                <input value={formState.emergencyContactAddress} onChange={(event) => handleChange('emergencyContactAddress', event.target.value)} />
+              </label>
+            </div>
+          </section>
+
+          {error ? <div className="student-workspace__message student-workspace__message--error">{error}</div> : null}
           </div>
 
-          <div className="form-actions">
-            <button type="button" className="cancel-btn" onClick={onClose}>
+          <footer className="student-workspace__modal-actions">
+            <button type="button" className="student-workspace__ghost-button" onClick={onClose} disabled={submitting}>
               Cancel
             </button>
-            <button type="submit" className="submit-btn">
-              <Check size={16} />
-              {title.includes('Add') ? 'Create Student' : 'Update Student'}
+            <button type="submit" className="student-workspace__primary-button" disabled={submitting}>
+              {submitting ? 'Saving...' : mode === 'create' ? 'Create student' : 'Save changes'}
             </button>
-          </div>
+          </footer>
         </form>
       </div>
-    </div>
-  );
-};
-
-// Student Details Modal Component
-interface StudentDetailsModalProps {
-  student: Student;
-  onClose: () => void;
-  onEdit: () => void;
-  courseLabel: (value: number | string) => string;
-  normalizeCourse: (course: number | string) => number;
+      </div>
+    </StudentWorkspaceOverlay>
+  )
 }
 
-const StudentDetailsModal: React.FC<StudentDetailsModalProps> = ({ student, onClose, onEdit, courseLabel, normalizeCourse }) => {
+function EnrollmentModal({
+  students,
+  onClose,
+  onSaved
+}: {
+  students: ManagedStudent[]
+  onClose: () => void
+  onSaved: (message: string) => Promise<void> | void
+}) {
+  const academicContext = useMemo(() => getSharedAcademicContext(students), [students])
+  const [schoolYear, setSchoolYear] = useState(academicContext.sharedSchoolYear || getDefaultSchoolYear())
+  const [semester, setSemester] = useState<Semester>((academicContext.sharedSemester as Semester) || '1st')
+  const [subjects, setSubjects] = useState<SubjectCatalogItem[]>([])
+  const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([])
+  const [loadingSubjects, setLoadingSubjects] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (!academicContext.sharedCourse || !academicContext.sharedYearLevel) {
+      setSubjects([])
+      return
+    }
+
+    setLoadingSubjects(true)
+    setError('')
+
+    ;(async () => {
+      try {
+        const query = new URLSearchParams({
+          course: String(academicContext.sharedCourse),
+          yearLevel: String(academicContext.sharedYearLevel),
+          semester
+        })
+        const response = await authorizedFetch<{ success: boolean; data: SubjectCatalogItem[] }>(`/registrar/subjects?${query.toString()}`)
+        if (!cancelled) {
+          setSubjects(response.data || [])
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : 'Failed to load subjects')
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingSubjects(false)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [academicContext.sharedCourse, academicContext.sharedYearLevel, semester])
+
+  const toggleSubject = (subjectId: string) => {
+    setSelectedSubjectIds((current) =>
+      current.includes(subjectId) ? current.filter((value) => value !== subjectId) : [...current, subjectId]
+    )
+  }
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setSubmitting(true)
+    setError('')
+
+    try {
+      const token = await getStoredToken()
+      if (!token) throw new Error('No authentication token found')
+
+      let successCount = 0
+      const failures: string[] = []
+
+      for (const student of students) {
+        try {
+          await StudentService.enrollStudent(token, student._id, {
+            schoolYear,
+            semester,
+            subjectIds: selectedSubjectIds
+          })
+          const currentLifecycle = normalizeLifecycleStatus(student)
+          await StudentService.updateStudent(token, student._id, {
+            schoolYear,
+            semester,
+            lifecycleStatus: ['Dropped', 'Inactive', 'Graduated'].includes(currentLifecycle) ? currentLifecycle : 'Enrolled'
+          })
+          successCount += 1
+        } catch (studentError) {
+          failures.push(`${studentNumberDisplay(student)}: ${studentError instanceof Error ? studentError.message : 'Failed'}`)
+        }
+      }
+
+      await onSaved(
+        failures.length
+          ? `Enrollment completed for ${successCount} student(s). ${failures.length} record(s) need attention.`
+          : `Enrollment completed for ${successCount} student(s).`
+      )
+      onClose()
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Failed to process enrollment')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   return (
-    <div className="modal-overlay">
-      <div className="modal-content student-details-modal">
-        <div className="modal-header">
-          <h3>Student Details</h3>
-          <button className="close-btn" onClick={onClose}>
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="student-details-content">
-          <div className="student-header">
-            <div className="student-avatar">
-              <GraduationCap size={32} />
-            </div>
-            <div className="student-basic-info">
-              <p className="student-number">{student.studentNumber}</p>
-              <h4>{student.firstName} {student.middleName} {student.lastName} {student.suffix}</h4>
-              <p className="student-program">
-                {courseLabel(normalizeCourse(student.course))} (Course No.: {normalizeCourse(student.course)}) - {formatYearLevel(student.yearLevel)}
-              </p>
-              {student.assignedProfessor && (
-                <p className="student-program">Professor: {student.assignedProfessor}</p>
-              )}
-              {student.schedule && (
-                <p className="student-program">Schedule: {student.schedule}</p>
-              )}
-            </div>
+    <StudentWorkspaceOverlay>
+      <div
+        className="student-workspace__modal-shell"
+        role="dialog"
+        aria-modal="true"
+        onPointerDown={(event) => {
+          if (isStudentWorkspaceBackdropTarget(event)) {
+            onClose()
+          }
+        }}
+      >
+      <div className="student-workspace__modal-overlay" aria-hidden="true" />
+      <div className="student-workspace__modal student-workspace__modal--wide">
+        <header className="student-workspace__modal-header">
+          <div>
+            <span className="student-workspace__eyebrow">Enrollment control</span>
+            <h2>Enroll {students.length === 1 ? studentDisplayName(students[0]) : `${students.length} selected students`}</h2>
+            <p className="student-workspace__modal-subcopy">
+              Select the term and subject set to create enrollment records for the current batch.
+            </p>
           </div>
-          <button className="edit-btn" onClick={onEdit}>
-            <Edit size={16} />
-            Edit
+          <button type="button" className="student-workspace__ghost-button" onClick={onClose} aria-label="Close">
+            <X size={18} />
           </button>
+        </header>
 
-          <div className="details-grid">
-            <div className="detail-section">
-              <h5>Personal Information</h5>
-              <div className="detail-item">
-                <label>Email:</label>
-                <span>{student.email}</span>
-              </div>
-              <div className="detail-item">
-                <label>Contact Number:</label>
-                <span>{student.contactNumber}</span>
-              </div>
-              <div className="detail-item">
-                <label>Address:</label>
-                <span>{student.address}</span>
-              </div>
-              {student.birthDate && (
-                <div className="detail-item">
-                  <label>Birth Date:</label>
-                  <span>{new Date(student.birthDate).toLocaleDateString()}</span>
-                </div>
-              )}
-              {student.gender && (
-                <div className="detail-item">
-                  <label>Gender:</label>
-                  <span>{student.gender}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="detail-section">
-              <h5>Academic Information</h5>
-              <div className="detail-item">
-                <label>Course:</label>
-                <span>{courseLabel(normalizeCourse(student.course))} (Course No.: {normalizeCourse(student.course)})</span>
-              </div>
-              <div className="detail-item">
-                <label>Year Level:</label>
-                <span>{formatYearLevel(student.yearLevel)}</span>
-              </div>
-              <div className="detail-item">
-                <label>Semester:</label>
-                <span>{student.semester}</span>
-              </div>
-              <div className="detail-item">
-                <label>School Year:</label>
-                <span>{student.schoolYear}</span>
-              </div>
-              <div className="detail-item">
-                <label>Student Status:</label>
-                <span>{student.studentStatus}</span>
-              </div>
-              <div className="detail-item">
-                <label>Scholarship:</label>
-                <span>{student.scholarship || 'N/A'}</span>
-              </div>
-              <div className="detail-item">
-                <label>Enrollment Status:</label>
-                <span>{student.corStatus === 'Verified' ? 'Enrolled' : student.enrollmentStatus}</span>
-              </div>
-            </div>
-
-            <div className="detail-section">
-              <h5>Grades / Outputs</h5>
-              <div className="detail-item">
-                <label>Latest COR Status:</label>
-                <span>{student.corStatus || 'Pending'}</span>
-              </div>
-              <div className="detail-item">
-                <label>Most Recent Term:</label>
-                <span>{student.semester} • {student.schoolYear}</span>
-              </div>
-            </div>
-
-            {student.emergencyContact && (
-              <div className="detail-section">
-                <h5>Emergency Contact</h5>
-                <div className="detail-item">
-                  <label>Name:</label>
-                  <span>{student.emergencyContact.name}</span>
-                </div>
-                <div className="detail-item">
-                  <label>Relationship:</label>
-                  <span>{student.emergencyContact.relationship}</span>
-                </div>
-                <div className="detail-item">
-                  <label>Contact Number:</label>
-                  <span>{student.emergencyContact.contactNumber}</span>
-                </div>
-                <div className="detail-item">
-                  <label>Address:</label>
-                  <span>{student.emergencyContact.address}</span>
-                </div>
-              </div>
-            )}
+        <form className="student-workspace__form" onSubmit={handleSubmit}>
+          <div className="student-workspace__modal-body">
+          <div className="student-workspace__selection-summary">
+            {students.map((student) => (
+              <span key={student._id} className="student-workspace__selection-chip">
+                {studentNumberDisplay(student)} · {studentDisplayName(student)}
+              </span>
+            ))}
           </div>
-        </div>
+
+          <div className="student-workspace__form-grid student-workspace__form-grid--three">
+            <label>
+              <span>School Year</span>
+              <input value={schoolYear} onChange={(event) => setSchoolYear(event.target.value)} required pattern="\d{4}-\d{4}" />
+            </label>
+            <label>
+              <span>Semester</span>
+              <select value={semester} onChange={(event) => setSemester(event.target.value as Semester)}>
+                {SEMESTER_OPTIONS.map((value) => (
+                  <option key={value} value={value}>{value}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Academic context</span>
+              <input
+                value={
+                  academicContext.sharedCourse && academicContext.sharedYearLevel
+                    ? `${courseShortLabel(academicContext.sharedCourse)} · ${formatYearLevel(academicContext.sharedYearLevel)}`
+                    : 'Mixed academic contexts'
+                }
+                readOnly
+              />
+            </label>
+          </div>
+
+          {!academicContext.sharedCourse || !academicContext.sharedYearLevel ? (
+            <div className="student-workspace__message student-workspace__message--error">
+              Bulk enrollment only works when the selected students share the same course and year level.
+            </div>
+          ) : null}
+
+          <section className="student-workspace__form-section">
+            <div className="student-workspace__section-heading">
+              <div>
+                <h3>Subjects</h3>
+                <p>Pick the subjects that should appear on the enrollment record.</p>
+              </div>
+              <span>{selectedSubjectIds.length} selected</span>
+            </div>
+
+            {loadingSubjects ? <div className="student-workspace__empty-state student-workspace__empty-state--inline">Loading subjects...</div> : null}
+
+            {!loadingSubjects && subjects.length ? (
+              <div className="student-workspace__subject-picker">
+                {subjects.map((subject) => {
+                  const selected = selectedSubjectIds.includes(subject._id)
+                  return (
+                    <button
+                      key={subject._id}
+                      type="button"
+                      className={`student-workspace__subject-option ${selected ? 'student-workspace__subject-option--selected' : ''}`}
+                      onClick={() => toggleSubject(subject._id)}
+                    >
+                      <div>
+                        <strong>{subject.code}</strong>
+                        <p>{subject.title}</p>
+                      </div>
+                      <span>{subject.units} units</span>
+                    </button>
+                  )
+                })}
+              </div>
+            ) : null}
+
+            {!loadingSubjects && !subjects.length ? (
+              <div className="student-workspace__empty-state student-workspace__empty-state--inline">
+                No active subjects match the selected course, year level, and semester.
+              </div>
+            ) : null}
+          </section>
+
+          {error ? <div className="student-workspace__message student-workspace__message--error">{error}</div> : null}
+          </div>
+
+          <footer className="student-workspace__modal-actions">
+            <button type="button" className="student-workspace__ghost-button" onClick={onClose} disabled={submitting}>
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="student-workspace__primary-button"
+              disabled={submitting || !selectedSubjectIds.length || !academicContext.sharedCourse || !academicContext.sharedYearLevel}
+            >
+              {submitting ? 'Processing...' : 'Create enrollment'}
+            </button>
+          </footer>
+        </form>
       </div>
-    </div>
-  );
-};
+      </div>
+    </StudentWorkspaceOverlay>
+  )
+}
 
-export default StudentManagement;
+function BlockAssignmentModal({
+  students,
+  onClose,
+  onSaved
+}: {
+  students: ManagedStudent[]
+  onClose: () => void
+  onSaved: (message: string) => Promise<void> | void
+}) {
+  const academicContext = useMemo(() => getSharedAcademicContext(students), [students])
+  const [groups, setGroups] = useState<BlockGroup[]>([])
+  const [sectionsByGroupId, setSectionsByGroupId] = useState<Record<string, BlockSection[]>>({})
+  const [selectedGroupId, setSelectedGroupId] = useState('')
+  const [selectedSectionId, setSelectedSectionId] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+
+    ;(async () => {
+      setLoading(true)
+      setError('')
+
+      try {
+        const fetchedGroups = await authorizedFetch<BlockGroup[]>('/api/blocks/groups')
+        const compatibleGroups = fetchedGroups.filter((group) => {
+          const parsed = parseBlockGroupMeta(group.name)
+          const matchesCourse = !academicContext.sharedCourse || !parsed.course || parsed.course === String(academicContext.sharedCourse)
+          const matchesYear = !academicContext.sharedYearLevel || !parsed.yearLevel || parsed.yearLevel === academicContext.sharedYearLevel
+          return matchesCourse && matchesYear
+        })
+
+        const sectionResponses = await Promise.all(
+          compatibleGroups.map(async (group) => {
+            try {
+              const sections = await authorizedFetch<BlockSection[]>(`/api/blocks/groups/${group._id}/sections`)
+              return [group._id, sections] as const
+            } catch {
+              return [group._id, []] as const
+            }
+          })
+        )
+
+        if (cancelled) return
+
+        const sectionLookup = Object.fromEntries(sectionResponses)
+        setGroups(compatibleGroups)
+        setSectionsByGroupId(sectionLookup)
+
+        const firstGroupId = compatibleGroups[0]?._id || ''
+        setSelectedGroupId(firstGroupId)
+        setSelectedSectionId(sectionLookup[firstGroupId]?.[0]?._id || '')
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : 'Failed to load block groups')
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [academicContext.sharedCourse, academicContext.sharedYearLevel])
+
+  useEffect(() => {
+    if (!selectedGroupId) return
+    const sections = sectionsByGroupId[selectedGroupId] || []
+    if (!sections.some((section) => section._id === selectedSectionId)) {
+      setSelectedSectionId(sections[0]?._id || '')
+    }
+  }, [sectionsByGroupId, selectedGroupId, selectedSectionId])
+
+  const availableSections = sectionsByGroupId[selectedGroupId] || []
+  const selectedGroup = groups.find((group) => group._id === selectedGroupId) || null
+  const currentSections = new Map(
+    Object.values(sectionsByGroupId)
+      .flat()
+      .map((section) => [String(section.sectionCode || '').trim().toUpperCase(), section])
+  )
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!selectedGroup || !selectedSectionId) return
+
+    setSubmitting(true)
+    setError('')
+
+    try {
+      const token = await getStoredToken()
+      if (!token) throw new Error('No authentication token found')
+
+      const targetSchoolYear = schoolYearFromStartYear(selectedGroup.year)
+      const targetSection = availableSections.find((section) => section._id === selectedSectionId)
+      if (!targetSection) throw new Error('Select a valid section before assigning students.')
+
+      let assignedCount = 0
+      const failures: string[] = []
+
+      for (const student of students) {
+        try {
+          const currentSectionCode = String(student.section || '').trim().toUpperCase()
+          const currentSection = currentSections.get(currentSectionCode)
+
+          if (currentSection && currentSection._id !== targetSection._id) {
+            try {
+              await authorizedFetch(`/api/blocks/sections/${currentSection._id}/students/${student._id}`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  semester: student.semester,
+                  year: schoolYearStart(student.schoolYear)
+                })
+              })
+            } catch (unassignError) {
+              const message = unassignError instanceof Error ? unassignError.message : 'Failed to remove current block'
+              if (!message.toLowerCase().includes('not assigned')) {
+                throw unassignError
+              }
+            }
+          }
+
+          if (!currentSection || currentSection._id !== targetSection._id) {
+            const assignmentResponse = await authorizedFetch<{ status?: string }>(
+              '/api/blocks/assign-student',
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  studentId: student._id,
+                  sectionId: targetSection._id,
+                  semester: selectedGroup.semester,
+                  year: selectedGroup.year
+                })
+              }
+            )
+
+            if (assignmentResponse.status === 'OVER_CAPACITY') {
+              throw new Error(`${targetSection.sectionCode} is already at capacity.`)
+            }
+          }
+
+          await StudentService.updateStudent(token, student._id, {
+            semester: selectedGroup.semester,
+            schoolYear: targetSchoolYear
+          })
+          assignedCount += 1
+        } catch (studentError) {
+          failures.push(`${studentNumberDisplay(student)}: ${studentError instanceof Error ? studentError.message : 'Failed'}`)
+        }
+      }
+
+      await onSaved(
+        failures.length
+          ? `Block assignment finished for ${assignedCount} student(s). ${failures.length} record(s) need attention.`
+          : `Assigned ${assignedCount} student(s) to ${targetSection.sectionCode}.`
+      )
+      onClose()
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Failed to assign block')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <StudentWorkspaceOverlay>
+      <div
+        className="student-workspace__modal-shell"
+        role="dialog"
+        aria-modal="true"
+        onPointerDown={(event) => {
+          if (isStudentWorkspaceBackdropTarget(event)) {
+            onClose()
+          }
+        }}
+      >
+      <div className="student-workspace__modal-overlay" aria-hidden="true" />
+      <div className="student-workspace__modal student-workspace__modal--wide">
+        <header className="student-workspace__modal-header">
+          <div>
+            <span className="student-workspace__eyebrow">Block assignment</span>
+            <h2>Assign {students.length === 1 ? studentDisplayName(students[0]) : `${students.length} selected students`}</h2>
+            <p className="student-workspace__modal-subcopy">
+              Pick a compatible block group and section. Changing an existing block will clear the current linked block load before the new assignment is applied.
+            </p>
+          </div>
+          <button type="button" className="student-workspace__ghost-button" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </header>
+
+        <form className="student-workspace__form" onSubmit={handleSubmit}>
+          <div className="student-workspace__modal-body">
+          <div className="student-workspace__selection-summary">
+            {students.map((student) => (
+              <span key={student._id} className="student-workspace__selection-chip">
+                {studentNumberDisplay(student)} · {studentDisplayName(student)} · {student.section || 'No block'}
+              </span>
+            ))}
+          </div>
+
+          <div className="student-workspace__form-grid student-workspace__form-grid--two">
+            <label>
+              <span>Block Group</span>
+              <select value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)} disabled={loading || !groups.length}>
+                {groups.map((group) => (
+                  <option key={group._id} value={group._id}>
+                    {group.name} · {group.semester} · {schoolYearFromStartYear(group.year)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Section</span>
+              <select value={selectedSectionId} onChange={(event) => setSelectedSectionId(event.target.value)} disabled={loading || !availableSections.length}>
+                {availableSections.map((section) => (
+                  <option key={section._id} value={section._id}>
+                    {section.sectionCode} · {section.currentPopulation}/{section.capacity}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {loading ? <div className="student-workspace__empty-state student-workspace__empty-state--inline">Loading block groups...</div> : null}
+
+          {!loading && !groups.length ? (
+            <div className="student-workspace__message student-workspace__message--error">
+              No compatible block groups were found for the selected student batch.
+            </div>
+          ) : null}
+
+          {!loading && availableSections.length ? (
+            <section className="student-workspace__form-section">
+              <div className="student-workspace__section-heading">
+                <div>
+                  <h3>Available sections</h3>
+                  <p>Choose the section that should own the selected students.</p>
+                </div>
+              </div>
+              <div className="student-workspace__subject-picker">
+                {availableSections.map((section) => {
+                  const selected = section._id === selectedSectionId
+                  return (
+                    <button
+                      key={section._id}
+                      type="button"
+                      className={`student-workspace__subject-option ${selected ? 'student-workspace__subject-option--selected' : ''}`}
+                      onClick={() => setSelectedSectionId(section._id)}
+                    >
+                      <div>
+                        <strong>{section.sectionCode}</strong>
+                        <p>{selectedGroup?.name || 'Selected block group'}</p>
+                      </div>
+                      <span>{section.currentPopulation}/{section.capacity}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+          ) : null}
+
+          {error ? <div className="student-workspace__message student-workspace__message--error">{error}</div> : null}
+          </div>
+
+          <footer className="student-workspace__modal-actions">
+            <button type="button" className="student-workspace__ghost-button" onClick={onClose} disabled={submitting}>
+              Cancel
+            </button>
+            <button type="submit" className="student-workspace__primary-button" disabled={submitting || !selectedGroupId || !selectedSectionId}>
+              {submitting ? 'Assigning...' : 'Assign block'}
+            </button>
+          </footer>
+        </form>
+      </div>
+      </div>
+    </StudentWorkspaceOverlay>
+  )
+}
+
+export default function StudentManagement() {
+  const headerCheckboxRef = useRef<HTMLInputElement | null>(null)
+  const [students, setStudents] = useState<ManagedStudent[]>([])
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [courseFilter, setCourseFilter] = useState('all')
+  const [yearFilter, setYearFilter] = useState('all')
+  const [lifecycleFilter, setLifecycleFilter] = useState<'all' | LifecycleStatus>('all')
+  const [blockFilter, setBlockFilter] = useState<'all' | 'assigned' | 'unassigned'>('all')
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([])
+  const [actionMenuStudentId, setActionMenuStudentId] = useState<string | null>(null)
+  const [profileState, setProfileState] = useState<{ student: ManagedStudent; tab: ProfileTab } | null>(null)
+  const [formModal, setFormModal] = useState<{ mode: 'create' | 'edit'; student?: ManagedStudent } | null>(null)
+  const [enrollmentStudents, setEnrollmentStudents] = useState<ManagedStudent[] | null>(null)
+  const [blockAssignmentStudents, setBlockAssignmentStudents] = useState<ManagedStudent[] | null>(null)
+  const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
+  const [busyStudentIds, setBusyStudentIds] = useState<string[]>([])
+  const deferredSearch = useDeferredValue(searchTerm)
+
+  const loadStudents = async (mode: 'initial' | 'refresh' = 'initial') => {
+    if (mode === 'initial') {
+      setLoading(true)
+    } else {
+      setRefreshing(true)
+    }
+
+    try {
+      const token = await getStoredToken()
+      if (!token) throw new Error('No authentication token found')
+
+      const response = await StudentService.getStudents(token)
+      const records = (extractResponseData<ManagedStudent[]>(response) || []).map((student) => ({
+        ...student,
+        lifecycleStatus: normalizeLifecycleStatus(student)
+      }))
+
+      setStudents(records)
+      setSelectedStudentIds((current) => current.filter((id) => records.some((student) => student._id === id)))
+    } catch (loadError) {
+      setMessage({
+        tone: 'error',
+        text: loadError instanceof Error ? loadError.message : 'Failed to load students'
+      })
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }
+
+  useEffect(() => {
+    loadStudents()
+  }, [])
+
+  const filteredStudents = useMemo(() => {
+    const query = deferredSearch.trim().toLowerCase()
+
+    return students
+      .filter((student) => {
+        const lifecycleStatus = normalizeLifecycleStatus(student)
+        if (courseFilter !== 'all' && String(student.course) !== courseFilter) return false
+        if (yearFilter !== 'all' && String(student.yearLevel) !== yearFilter) return false
+        if (lifecycleFilter !== 'all' && lifecycleStatus !== lifecycleFilter) return false
+        if (blockFilter === 'assigned' && !String(student.section || '').trim()) return false
+        if (blockFilter === 'unassigned' && String(student.section || '').trim()) return false
+
+        if (!query) return true
+
+        const searchableText = [
+          student.studentNumber,
+          studentNumberDisplay(student),
+          studentDisplayName(student),
+          courseShortLabel(student.course),
+          student.email,
+          student.contactNumber,
+          student.section,
+          lifecycleStatus
+        ]
+          .join(' ')
+          .toLowerCase()
+
+        return searchableText.includes(query)
+      })
+      .sort((left, right) => {
+        const lastNameComparison = String(left.lastName || '').localeCompare(String(right.lastName || ''))
+        if (lastNameComparison !== 0) return lastNameComparison
+        return String(left.firstName || '').localeCompare(String(right.firstName || ''))
+      })
+  }, [blockFilter, courseFilter, deferredSearch, lifecycleFilter, students, yearFilter])
+
+  const selectedStudents = useMemo(
+    () => students.filter((student) => selectedStudentIds.includes(student._id)),
+    [selectedStudentIds, students]
+  )
+
+  const stats = useMemo(() => {
+    const totalStudents = students.length
+    const pendingEnrollment = students.filter((student) => normalizeLifecycleStatus(student) === 'Pending').length
+    const activeStudents = students.filter((student) => student.isActive !== false && !['Inactive', 'Dropped', 'Graduated'].includes(normalizeLifecycleStatus(student))).length
+    const inactiveStudents = students.filter((student) => normalizeLifecycleStatus(student) === 'Inactive' || student.isActive === false).length
+    const graduatingStudents = students.filter((student) => Number(student.yearLevel) >= 4 && normalizeLifecycleStatus(student) !== 'Graduated').length
+    return { totalStudents, pendingEnrollment, activeStudents, inactiveStudents, graduatingStudents }
+  }, [students])
+
+  const courseOptions = useMemo(() => {
+    const values = Array.from(new Set(students.map((student) => normalizeCourseCode(student.course)).filter(Boolean)))
+    return COURSE_OPTIONS.filter((course) => values.includes(String(course.value)))
+  }, [students])
+
+  const yearLevelOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        students
+          .map((student) => Number(student.yearLevel))
+          .filter((value) => Number.isFinite(value) && value > 0)
+      )
+    ).sort((left, right) => left - right)
+  }, [students])
+
+  const visibleStudentIds = filteredStudents.map((student) => student._id)
+  const allVisibleSelected = visibleStudentIds.length > 0 && visibleStudentIds.every((id) => selectedStudentIds.includes(id))
+  const someVisibleSelected = visibleStudentIds.some((id) => selectedStudentIds.includes(id))
+
+  useEffect(() => {
+    if (headerCheckboxRef.current) {
+      headerCheckboxRef.current.indeterminate = someVisibleSelected && !allVisibleSelected
+    }
+  }, [allVisibleSelected, someVisibleSelected])
+
+  const toggleStudentSelection = (studentId: string) => {
+    setSelectedStudentIds((current) =>
+      current.includes(studentId) ? current.filter((value) => value !== studentId) : [...current, studentId]
+    )
+  }
+
+  const toggleVisibleSelection = () => {
+    setSelectedStudentIds((current) => {
+      if (allVisibleSelected) {
+        return current.filter((id) => !visibleStudentIds.includes(id))
+      }
+
+      return Array.from(new Set([...current, ...visibleStudentIds]))
+    })
+  }
+
+  const withBusyStudent = async (studentId: string, action: () => Promise<void>) => {
+    setBusyStudentIds((current) => (current.includes(studentId) ? current : [...current, studentId]))
+    try {
+      await action()
+    } finally {
+      setBusyStudentIds((current) => current.filter((value) => value !== studentId))
+    }
+  }
+
+  const openProfile = (student: ManagedStudent, tab: ProfileTab = 'profile') => {
+    setProfileState({ student, tab })
+  }
+
+  const openEnrollmentWorkflow = (targets: ManagedStudent[]) => {
+    if (!targets.length) {
+      setMessage({ tone: 'error', text: 'Select at least one student before opening enrollment controls.' })
+      return
+    }
+
+    const context = getSharedAcademicContext(targets)
+    if (targets.length > 1 && (!context.isSingleCourse || !context.isSingleYearLevel)) {
+      setMessage({
+        tone: 'error',
+        text: 'Bulk enrollment requires students from the same course and year level.'
+      })
+      return
+    }
+
+    setEnrollmentStudents(targets)
+  }
+
+  const openBlockAssignmentWorkflow = (targets: ManagedStudent[]) => {
+    if (!targets.length) {
+      setMessage({ tone: 'error', text: 'Select at least one student before opening block assignment.' })
+      return
+    }
+
+    const context = getSharedAcademicContext(targets)
+    if (targets.length > 1 && (!context.isSingleCourse || !context.isSingleYearLevel)) {
+      setMessage({
+        tone: 'error',
+        text: 'Bulk block assignment requires students from the same course and year level.'
+      })
+      return
+    }
+
+    setBlockAssignmentStudents(targets)
+  }
+
+  const handleLifecycleChange = async (student: ManagedStudent, lifecycleStatus: LifecycleStatus) => {
+    setActionMenuStudentId(null)
+    await withBusyStudent(student._id, async () => {
+      try {
+        const token = await getStoredToken()
+        if (!token) throw new Error('No authentication token found')
+        await StudentService.updateStudent(token, student._id, { lifecycleStatus })
+        await loadStudents('refresh')
+        setMessage({ tone: 'success', text: `${studentNumberDisplay(student)} moved to ${lifecycleStatus}.` })
+      } catch (updateError) {
+        setMessage({
+          tone: 'error',
+          text: updateError instanceof Error ? updateError.message : 'Failed to update lifecycle status'
+        })
+      }
+    })
+  }
+
+  const handleArchiveStudent = async (student: ManagedStudent) => {
+    if (!window.confirm(`Archive ${studentDisplayName(student)}?`)) return
+
+    await withBusyStudent(student._id, async () => {
+      try {
+        const token = await getStoredToken()
+        if (!token) throw new Error('No authentication token found')
+        await StudentService.updateStudent(token, student._id, { lifecycleStatus: 'Inactive' })
+        await loadStudents('refresh')
+        setMessage({ tone: 'success', text: `${studentNumberDisplay(student)} archived successfully.` })
+      } catch (archiveError) {
+        setMessage({
+          tone: 'error',
+          text: archiveError instanceof Error ? archiveError.message : 'Failed to archive student'
+        })
+      }
+    })
+  }
+
+  const handleDeleteStudent = async (student: ManagedStudent) => {
+    if (!window.confirm(`Delete ${studentDisplayName(student)} from the student registry?`)) return
+
+    await withBusyStudent(student._id, async () => {
+      try {
+        const token = await getStoredToken()
+        if (!token) throw new Error('No authentication token found')
+        await StudentService.deleteStudent(token, student._id)
+        await loadStudents('refresh')
+        setMessage({ tone: 'success', text: `${studentNumberDisplay(student)} removed from the registry.` })
+      } catch (deleteError) {
+        setMessage({
+          tone: 'error',
+          text: deleteError instanceof Error ? deleteError.message : 'Failed to delete student'
+        })
+      }
+    })
+  }
+
+  const handleExportSelected = () => {
+    if (!selectedStudents.length) {
+      setMessage({ tone: 'error', text: 'Select students before exporting.' })
+      return
+    }
+
+    const rows = [
+      ['Student Number', 'Name', 'Course', 'Year Level', 'Block', 'Lifecycle', 'COR Status', 'Email', 'Contact'],
+      ...selectedStudents.map((student) => [
+        studentNumberDisplay(student),
+        studentDisplayName(student),
+        courseShortLabel(student.course),
+        formatYearLevel(student.yearLevel),
+        student.section || '',
+        normalizeLifecycleStatus(student),
+        student.corStatus || 'Pending',
+        student.email || '',
+        student.contactNumber || ''
+      ])
+    ]
+
+    downloadCsv(`student-management-${new Date().toISOString().slice(0, 10)}.csv`, rows)
+    setMessage({ tone: 'success', text: `Exported ${selectedStudents.length} selected student(s).` })
+  }
+
+  return (
+    <>
+      <section className="student-workspace">
+        <header className="student-workspace__header">
+          <div className="student-workspace__heading">
+            <span className="student-workspace__eyebrow">Registrar workspace</span>
+            <h1>Student Management</h1>
+            <p>Manage lifecycle status, enrollment control, block assignment, and student records from one registrar workspace.</p>
+          </div>
+
+          <div className="student-workspace__header-actions">
+            <button type="button" className="student-workspace__secondary-button" onClick={() => loadStudents('refresh')} disabled={refreshing}>
+              <History size={16} />
+              {refreshing ? 'Refreshing...' : 'Refresh'}
+            </button>
+            <button type="button" className="student-workspace__primary-button" onClick={() => setFormModal({ mode: 'create' })}>
+              <Plus size={16} />
+              Add Student
+            </button>
+          </div>
+        </header>
+
+        <div className="student-workspace__stats">
+          <article className="student-workspace__stat-card">
+            <span>Total students</span>
+            <strong>{stats.totalStudents}</strong>
+            <small>Registrar roster</small>
+          </article>
+          <article className="student-workspace__stat-card">
+            <span>Pending enrollment</span>
+            <strong>{stats.pendingEnrollment}</strong>
+            <small>Needs registrar action</small>
+          </article>
+          <article className="student-workspace__stat-card">
+            <span>Active students</span>
+            <strong>{stats.activeStudents}</strong>
+            <small>Operational records</small>
+          </article>
+          <article className="student-workspace__stat-card">
+            <span>Inactive students</span>
+            <strong>{stats.inactiveStudents}</strong>
+            <small>Archived or paused</small>
+          </article>
+          <article className="student-workspace__stat-card">
+            <span>Graduating students</span>
+            <strong>{stats.graduatingStudents}</strong>
+            <small>Final year focus</small>
+          </article>
+        </div>
+
+        {message ? (
+          <div className={`student-workspace__message student-workspace__message--${message.tone}`}>
+            {message.text}
+          </div>
+        ) : null}
+
+        <section className="student-workspace__controls-card">
+          <div className="student-workspace__filters">
+            <label className="student-workspace__search">
+              <Search size={16} />
+              <input
+                type="search"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Search student number, name, course, block, or email"
+              />
+            </label>
+
+            <label>
+              <span>Course</span>
+              <select value={courseFilter} onChange={(event) => setCourseFilter(event.target.value)}>
+                <option value="all">All courses</option>
+                {courseOptions.map((course) => (
+                  <option key={course.value} value={course.value}>{course.label}</option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>Year Level</span>
+              <select value={yearFilter} onChange={(event) => setYearFilter(event.target.value)}>
+                <option value="all">All year levels</option>
+                {yearLevelOptions.map((yearLevel) => (
+                  <option key={yearLevel} value={yearLevel}>{formatYearLevel(yearLevel)}</option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>Lifecycle</span>
+              <select value={lifecycleFilter} onChange={(event) => setLifecycleFilter(event.target.value as 'all' | LifecycleStatus)}>
+                <option value="all">All lifecycle states</option>
+                {LIFECYCLE_OPTIONS.map((status) => (
+                  <option key={status} value={status}>{status}</option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>Block</span>
+              <select value={blockFilter} onChange={(event) => setBlockFilter(event.target.value as 'all' | 'assigned' | 'unassigned')}>
+                <option value="all">All students</option>
+                <option value="assigned">Assigned block</option>
+                <option value="unassigned">No block</option>
+              </select>
+            </label>
+          </div>
+
+          {selectedStudents.length ? (
+            <div className="student-workspace__bulk-actions">
+              <div>
+                <span className="student-workspace__eyebrow">Bulk actions</span>
+                <strong>{selectedStudents.length} selected</strong>
+              </div>
+
+              <div className="student-workspace__bulk-buttons">
+                <button type="button" className="student-workspace__secondary-button" onClick={() => openEnrollmentWorkflow(selectedStudents)}>
+                  <BookOpenCheck size={16} />
+                  Bulk enroll
+                </button>
+                <button type="button" className="student-workspace__secondary-button" onClick={() => openBlockAssignmentWorkflow(selectedStudents)}>
+                  <Blocks size={16} />
+                  Bulk assign block
+                </button>
+                <button type="button" className="student-workspace__secondary-button" onClick={handleExportSelected}>
+                  <Download size={16} />
+                  Export selected
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </section>
+
+        <section className="student-workspace__table-card">
+          <header className="student-workspace__section-heading">
+            <div>
+              <h2>Student registry</h2>
+              <p>Click a row to open the student profile drawer. Use the lifecycle selector and actions menu for registrar operations.</p>
+            </div>
+            <span>{filteredStudents.length} visible</span>
+          </header>
+
+          {loading ? (
+            <div className="student-workspace__empty-state">Loading student records...</div>
+          ) : filteredStudents.length ? (
+            <div className="student-workspace__table-shell">
+              <table className="student-workspace__table">
+                <thead>
+                  <tr>
+                    <th>
+                      <input
+                        ref={headerCheckboxRef}
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={toggleVisibleSelection}
+                        aria-label="Select visible students"
+                      />
+                    </th>
+                    <th>Student</th>
+                    <th>Course</th>
+                    <th>Year</th>
+                    <th>Block</th>
+                    <th>Lifecycle</th>
+                    <th>COR</th>
+                    <th>Contact</th>
+                    <th className="student-workspace__actions-column">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredStudents.map((student) => {
+                    const lifecycleStatus = normalizeLifecycleStatus(student)
+                    const isBusy = busyStudentIds.includes(student._id)
+                    return (
+                      <tr key={student._id} className={selectedStudentIds.includes(student._id) ? 'student-workspace__row--selected' : ''} onClick={() => openProfile(student)}>
+                        <td onClick={(event) => event.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedStudentIds.includes(student._id)}
+                            onChange={() => toggleStudentSelection(student._id)}
+                            aria-label={`Select ${studentNumberDisplay(student)}`}
+                          />
+                        </td>
+                        <td>
+                          <div className="student-workspace__student-cell">
+                            <strong>{studentDisplayName(student)}</strong>
+                            <span>{studentNumberDisplay(student)}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="student-workspace__meta-cell">
+                            <strong>{courseShortLabel(student.course)}</strong>
+                            <span>{courseFullLabel(student.course)}</span>
+                          </div>
+                        </td>
+                        <td>{formatYearLevel(student.yearLevel)}</td>
+                        <td>
+                          {student.section ? (
+                            <div className="student-workspace__meta-cell">
+                              <strong>{student.section}</strong>
+                            </div>
+                          ) : (
+                            <span className="student-workspace__muted">No block</span>
+                          )}
+                        </td>
+                        <td onClick={(event) => event.stopPropagation()}>
+                          <label className="student-workspace__status-control">
+                            <select
+                              value={lifecycleStatus}
+                              onChange={(event) => handleLifecycleChange(student, event.target.value as LifecycleStatus)}
+                              disabled={isBusy}
+                            >
+                              {LIFECYCLE_OPTIONS.map((status) => (
+                                <option key={status} value={status}>{status}</option>
+                              ))}
+                            </select>
+                          </label>
+                        </td>
+                        <td>
+                          <ToneBadge
+                            label={student.corStatus || 'Pending'}
+                            tone={String(student.corStatus || '').toLowerCase() === 'verified' ? 'success' : 'warning'}
+                          />
+                        </td>
+                        <td>
+                          <div className="student-workspace__meta-cell">
+                            <strong>{student.contactNumber || 'N/A'}</strong>
+                            <span>{student.email || 'No email'}</span>
+                          </div>
+                        </td>
+                        <td className="student-workspace__actions-column" onClick={(event) => event.stopPropagation()}>
+                          <StudentRowMenu
+                            student={student}
+                            isOpen={actionMenuStudentId === student._id}
+                            onToggle={() => setActionMenuStudentId((current) => (current === student._id ? null : student._id))}
+                            onClose={() => setActionMenuStudentId(null)}
+                            onViewProfile={() => openProfile(student, 'profile')}
+                            onEnroll={() => openEnrollmentWorkflow([student])}
+                            onAssignBlock={() => openBlockAssignmentWorkflow([student])}
+                            onEdit={() => setFormModal({ mode: 'edit', student })}
+                            onViewAcademicRecord={() => openProfile(student, 'enrollment')}
+                            onViewEnrolledSubjects={() => openProfile(student, 'subjects')}
+                            onViewEnrollmentHistory={() => openProfile(student, 'history')}
+                            onArchive={() => handleArchiveStudent(student)}
+                            onDelete={() => handleDeleteStudent(student)}
+                          />
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="student-workspace__empty-state">
+              <Users size={24} />
+              <div>
+                <strong>No students match the current filters.</strong>
+                <p>Adjust the search or lifecycle filters to widen the roster.</p>
+              </div>
+            </div>
+          )}
+        </section>
+      </section>
+
+      <StudentProfileDrawer
+        profileState={profileState}
+        onClose={() => setProfileState(null)}
+        onEdit={(student) => setFormModal({ mode: 'edit', student })}
+        onEnroll={(student) => openEnrollmentWorkflow([student])}
+        onAssignBlock={(student) => openBlockAssignmentWorkflow([student])}
+      />
+
+      {formModal ? (
+        <StudentFormModal
+          mode={formModal.mode}
+          student={formModal.student}
+          onClose={() => setFormModal(null)}
+          onSaved={async (text) => {
+            await loadStudents('refresh')
+            setMessage({ tone: 'success', text })
+          }}
+        />
+      ) : null}
+
+      {enrollmentStudents ? (
+        <EnrollmentModal
+          students={enrollmentStudents}
+          onClose={() => setEnrollmentStudents(null)}
+          onSaved={async (text) => {
+            await loadStudents('refresh')
+            setSelectedStudentIds([])
+            setMessage({ tone: 'success', text })
+          }}
+        />
+      ) : null}
+
+      {blockAssignmentStudents ? (
+        <BlockAssignmentModal
+          students={blockAssignmentStudents}
+          onClose={() => setBlockAssignmentStudents(null)}
+          onSaved={async (text) => {
+            await loadStudents('refresh')
+            setSelectedStudentIds([])
+            setMessage({ tone: 'success', text })
+          }}
+        />
+      ) : null}
+    </>
+  )
+}

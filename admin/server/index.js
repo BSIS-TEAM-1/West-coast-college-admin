@@ -540,6 +540,18 @@ app.get('/api/professor/assigned-blocks', authMiddleware, async (req, res) => {
       )
     )
 
+    const studentObjectIds = studentIds
+      .filter((value) => mongoose.Types.ObjectId.isValid(value))
+      .map((value) => new mongoose.Types.ObjectId(value))
+
+    const students = studentObjectIds.length > 0
+      ? await Student.find({ _id: { $in: studentObjectIds } }).select('_id course').lean()
+      : []
+
+    const studentCourseCodeById = new Map(
+      students.map((student) => [String(student._id), normalizeText(student.course)])
+    )
+
     const assignments = await StudentBlockAssignment.find({
       studentId: { $in: studentIds },
       status: 'ASSIGNED'
@@ -573,6 +585,10 @@ app.get('/api/professor/assigned-blocks', authMiddleware, async (req, res) => {
     const sectionCodeById = new Map(
       sections.map((section) => [String(section._id), normalizeText(section.sectionCode) || 'Unknown Block'])
     )
+    const isInvalidProfessorSectionCode = (value) => {
+      const normalized = normalizeText(value).toLowerCase()
+      return !normalized || normalized.includes('unassigned') || normalized.includes('unknown')
+    }
 
     const findAssignmentForEnrollment = (studentId, semesterValue, schoolYearValue) => {
       const list = assignmentsByStudentId.get(studentId) || []
@@ -587,10 +603,15 @@ app.get('/api/professor/assigned-blocks', authMiddleware, async (req, res) => {
       })
       if (strictMatch) return strictMatch
 
-      const semesterMatch = list.find((entry) => normalizeText(entry.semester) === semester)
-      if (semesterMatch) return semesterMatch
+      // Do not fall back to unrelated section assignments when the school year
+      // no longer matches. That creates fake "unassigned" or stale professor
+      // loads after a registrar removes a student from a block.
+      if (!Number.isFinite(yearStart)) {
+        const semesterMatch = list.find((entry) => normalizeText(entry.semester) === semester)
+        if (semesterMatch) return semesterMatch
+      }
 
-      return list[0]
+      return null
     }
 
     const instructorMatchesProfessor = (instructorValue) => {
@@ -607,8 +628,9 @@ app.get('/api/professor/assigned-blocks', authMiddleware, async (req, res) => {
 
       const assignment = findAssignmentForEnrollment(studentId, enrollment.semester, enrollment.schoolYear)
       const sectionId = assignment ? normalizeText(assignment.sectionId) : ''
-      const sectionCode = sectionCodeById.get(sectionId) || (sectionId ? 'Unknown Block' : 'Unassigned Block')
-      const courseCode = normalizeText(enrollment.course) || 'Unspecified'
+      const sectionCode = sectionCodeById.get(sectionId)
+      if (!sectionId || !sectionCode || isInvalidProfessorSectionCode(sectionCode)) return
+      const courseCode = studentCourseCodeById.get(studentId) || normalizeText(enrollment.course) || 'Unspecified'
       const semester = normalizeText(enrollment.semester) || 'N/A'
       const schoolYear = normalizeText(enrollment.schoolYear) || 'N/A'
       const yearLevel = Number(enrollment.yearLevel || 0) || null
@@ -2738,12 +2760,7 @@ app.post('/api/admin/accounts', authMiddleware, requireAdminRole, securityMiddle
   }
   try {
     const { username, displayName, accountType, password, uid } = req.body
-    
-    console.log('username:', username, 'typeof:', typeof username)
-    console.log('displayName:', displayName, 'typeof:', typeof displayName)
-    console.log('accountType:', accountType, 'typeof:', typeof accountType)
-    console.log('uid:', uid, 'typeof:', typeof uid)
-    
+
     // Check if username already exists
     const existingUsername = await Admin.findOne({ username: username.trim().toLowerCase() })
     if (existingUsername) {
@@ -2763,7 +2780,13 @@ app.post('/api/admin/accounts', authMiddleware, requireAdminRole, securityMiddle
     // Create new account
     const newAccount = new Admin({
       username: username.trim().toLowerCase(),
-      displayName: displayName || (accountType === 'admin' ? 'Administrator' : 'Registrar'),
+      displayName: displayName || (
+        accountType === 'admin'
+          ? 'Administrator'
+          : accountType === 'professor'
+            ? 'Professor'
+            : 'Registrar'
+      ),
       accountType,
       password,
       uid,
