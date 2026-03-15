@@ -967,7 +967,13 @@ export default function RegistrarCourseManagement({ onOpenStudents, onOpenReport
                                   <span data-label="Block">{assignment.sectionLabel}</span>
                                   <span data-label="Schedule">{assignment.schedule}</span>
                                   <span data-label="Room">{assignment.room}</span>
-                                  <span data-label="Students" className="registrar-course-subject-students">{assignment.studentCount}</span>
+                                  <span data-label="Students" className="registrar-course-subject-students">
+                                    {(() => {
+                                      // Get section to find actual block student count (currentPopulation)
+                                      const section = sections.find((s) => s._id === assignment.sectionId)
+                                      return section?.currentPopulation ?? assignment.studentCount
+                                    })()}
+                                  </span>
                                   <div data-label="Actions" className="registrar-course-subject-actions">
                                     <button
                                       className="registrar-btn registrar-btn-secondary"
@@ -1143,7 +1149,7 @@ export default function RegistrarCourseManagement({ onOpenStudents, onOpenReport
                     <article key={assignment.subjectId} className="registrar-course-manager-item">
                       <div className="registrar-course-assignment-row-head">
                         <div><strong>{assignment.subjectCode}</strong><span>{assignment.subjectTitle}</span></div>
-                        <span className="registrar-course-assignment-chip">{assignment.studentCount} students</span>
+                        <span className="registrar-course-assignment-chip">{selectedSection.currentPopulation} students</span>
                       </div>
                       <div className="registrar-course-assignment-row-meta">
                         <span>{assignment.instructor}</span>

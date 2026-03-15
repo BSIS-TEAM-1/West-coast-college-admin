@@ -9,6 +9,7 @@ import { API_URL } from '../lib/authApi'
 import Announcements from './Announcements'
 import AnnouncementDetail from './AnnouncementDetail'
 import PersonalDetails from './PersonalDetails'
+import CorGeneration from './CorGeneration'
 import StudentManagement from '../components/StudentManagement'
 import RegistrarCourseManagement from '../components/RegistrarCourseManagement'
 import RegistrarCourseWorkspace, { type RegistrarCourseWorkspaceSelection } from '../components/RegistrarCourseWorkspace'
@@ -60,7 +61,7 @@ type BlockWorkspaceSelection = {
   initialSectionId?: string | null
 }
 
-type RegistrarView = 'dashboard' | 'students' | 'courses' | 'course-workspace' | 'block-management' | 'view-blocks' | 'block-workspace' | 'assign-subject' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details'
+type RegistrarView = 'dashboard' | 'students' | 'courses' | 'course-workspace' | 'block-management' | 'view-blocks' | 'block-workspace' | 'assign-subject' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
 
 type RegistrarDashboardProps = {
   username: string
@@ -88,6 +89,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
   const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string | null>(null)
   const [blockWorkspaceSelection, setBlockWorkspaceSelection] = useState<BlockWorkspaceSelection | null>(null)
   const [courseWorkspaceSelection, setCourseWorkspaceSelection] = useState<RegistrarCourseWorkspaceSelection | null>(null)
+  const [selectedStudentForCor, setSelectedStudentForCor] = useState<string | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -158,7 +160,10 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
   const renderContent = () => {
     switch (view) {
       case 'students':
-        return <StudentManagement />
+        return <StudentManagement onViewCor={(studentId) => {
+          setSelectedStudentForCor(studentId)
+          setView('cor-docs')
+        }} />
       case 'courses':
         return (
           <RegistrarCourseManagement
@@ -207,6 +212,8 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
         />
       case 'personal-details':
         return <PersonalDetails onBack={() => setView('profile')} />
+      case 'cor-docs':
+        return <CorGeneration studentId={selectedStudentForCor} onBack={() => setView('students')} />
       default:
         return <RegistrarHome announcements={announcements} onAnnouncementClick={handleAnnouncementClick} setView={setView} />
     }
