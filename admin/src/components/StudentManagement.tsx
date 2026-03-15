@@ -569,6 +569,7 @@ function StudentRowMenu({
   onViewAcademicRecord,
   onViewEnrolledSubjects,
   onViewEnrollmentHistory,
+  onViewCor,
   onArchive,
   onDelete
 }: {
@@ -583,6 +584,7 @@ function StudentRowMenu({
   onViewAcademicRecord: () => void
   onViewEnrolledSubjects: () => void
   onViewEnrollmentHistory: () => void
+  onViewCor: () => void
   onArchive: () => void
   onDelete: () => void
 }) {
@@ -672,6 +674,10 @@ function StudentRowMenu({
             <button type="button" onClick={onViewEnrollmentHistory}>
               <History size={14} />
               Enrollment history
+            </button>
+            <button type="button" onClick={onViewCor}>
+              <FileText size={14} />
+              View COR
             </button>
             <button type="button" onClick={onArchive}>
               <Archive size={14} />
@@ -1892,7 +1898,7 @@ function BlockAssignmentModal({
   )
 }
 
-export default function StudentManagement() {
+export default function StudentManagement({ onViewCor }: { onViewCor?: (studentId: string) => void } = {}) {
   const headerCheckboxRef = useRef<HTMLInputElement | null>(null)
   const [students, setStudents] = useState<ManagedStudent[]>([])
   const [loading, setLoading] = useState(true)
@@ -2140,6 +2146,37 @@ export default function StudentManagement() {
         })
       }
     })
+  }
+
+  const handleViewCor = async (student: ManagedStudent) => {
+    setActionMenuStudentId(null)
+    setMessage(null)
+    try {
+      const token = await getStoredToken()
+      if (!token) throw new Error('No authentication token found')
+
+      const response = await fetch(`${API_URL}/api/registrar/students/${student._id}/cor`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.message || `Failed to load COR: ${response.status}`)
+      }
+
+      const blob = await response.blob()
+      if (blob.size === 0) {
+        throw new Error('COR document is empty')
+      }
+
+      const url = window.URL.createObjectURL(blob)
+      window.open(url, '_blank', 'noopener')
+    } catch (corError) {
+      setMessage({
+        tone: 'error',
+        text: corError instanceof Error ? corError.message : 'Failed to load COR'
+      })
+    }
   }
 
   const handleExportSelected = () => {
@@ -2409,6 +2446,7 @@ export default function StudentManagement() {
                             onViewAcademicRecord={() => openProfile(student, 'enrollment')}
                             onViewEnrolledSubjects={() => openProfile(student, 'subjects')}
                             onViewEnrollmentHistory={() => openProfile(student, 'history')}
+                            onViewCor={() => handleViewCor(student)}
                             onArchive={() => handleArchiveStudent(student)}
                             onDelete={() => handleDeleteStudent(student)}
                           />

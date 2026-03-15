@@ -67,6 +67,7 @@ interface ProfessorAssignedBlock {
 
 interface ProfessorAssignedCourse {
   courseCode: string
+  courseName?: string
   blocks: ProfessorAssignedBlock[]
 }
 
@@ -3253,23 +3254,76 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
     return list.filter((day, index, arr) => arr.indexOf(day) === index)
   }
 
-  const normalizeCourseCode = (value: string | number) => {
-    const raw = String(value || '').trim().toUpperCase()
-    if (!raw) return 'COURSE'
-    if (/^\d+$/.test(raw)) return raw
-    if (raw.includes('BEED') || raw.includes('ELEMENTARY EDUCATION')) return 'BEED'
-    if (raw.includes('BSIS') || raw.includes('INFORMATION SYSTEMS')) return 'BSIS'
-    if (raw.includes('BSIT') || raw.includes('INFORMATION TECHNOLOGY')) return 'BSIT'
-    if (raw.includes('BSED') || raw.includes('SECONDARY EDUCATION') || raw.includes('ENGLISH EDUCATION')) return 'BSED'
+  const normalizeCourseCode = (courseCode: string) => {
+    const normalized = String(courseCode || '').trim().toUpperCase().replace(/\s+/g, '')
+    if (!normalized) return ''
+    if (/^\d{3,5}$/.test(normalized)) return normalized
+    if (normalized.includes('BEED')) return '101'
+    if (
+      normalized.includes('BSED-ENGLISH')
+      || normalized === 'ENGLISH'
+      || (normalized.includes('SECONDARYEDUCATION') && normalized.includes('ENGLISH'))
+    ) return '102'
+    if (
+      normalized.includes('BSED-MATH')
+      || normalized === 'MATH'
+      || normalized === 'MATHEMATICS'
+      || (normalized.includes('SECONDARYEDUCATION') && (normalized.includes('MATH') || normalized.includes('MATHEMATICS')))
+    ) return '103'
+    if (normalized.includes('BSBA-HRM') || normalized === 'HRM' || (normalized.includes('BSBA') && normalized.includes('HRM'))) return '201'
+    return normalized.slice(0, 3) || 'COURSE'
+  }
+
+  const toCourseDisplayLabel = (course: ProfessorAssignedCourse | string | number) => {
+    // If it's a course object with a name, use that
+    if (typeof course === 'object' && course !== null) {
+      if (course.courseName) return course.courseName
+      // Fall back to courseCode mapping
+      return toCourseDisplayLabel(course.courseCode)
+    }
+    
+    const raw = String(course ?? '').trim()
+    if (!raw) return 'N/A'
+
+    const normalized = raw.toUpperCase().replace(/\s+/g, '').replace(/_/g, '-')
+    const labelByCode: Record<string, string> = {
+      '101': 'BEED',
+      '102': 'BSED-ENGLISH',
+      '103': 'BSED-MATH',
+      '201': 'BSBA-HRM'
+    }
+
+    if (labelByCode[normalized]) return labelByCode[normalized]
+    if (normalized.includes('BEED')) return 'BEED'
+    if (normalized.includes('BSED-ENGLISH') || normalized === 'ENGLISH') return 'BSED-ENGLISH'
+    if (normalized.includes('BSED-MATH') || normalized === 'MATH' || normalized === 'MATHEMATICS') return 'BSED-MATH'
+    if (normalized.includes('BSBA-HRM') || normalized === 'HRM') return 'BSBA-HRM'
     return raw
   }
 
+  const getSectionSuffix = (sectionCode: string) => {
+    const text = String(sectionCode || '').trim()
+    if (!text) return 'TBA'
+    const parts = text.split('-').map((part) => part.trim()).filter(Boolean)
+    if (parts.length >= 2) {
+      const last = parts[parts.length - 1]
+      const prev = parts[parts.length - 2]
+
+      // Convert patterns like "101-1-A" or "1-A" into "1A"
+      if (/^\d+$/.test(prev) && /^[A-Za-z]+$/.test(last)) {
+        return `${prev}${last.toUpperCase()}`
+      }
+
+      return last.toUpperCase()
+    }
+
+    return text.toUpperCase()
+  }
+
   const formatSectionCode = (courseCode: string, sectionCode: string) => {
-    const course = normalizeCourseCode(courseCode)
-    const section = String(sectionCode || '').trim().replace(/\s+/g, '')
-    if (!section) return `${course}-UNASSIGNED`
-    if (/^[A-Za-z]/.test(section)) return section
-    return `${course}-${section}`
+    const displayCourseCode = toCourseDisplayLabel(courseCode)
+    const sectionSuffix = getSectionSuffix(sectionCode)
+    return String(`${displayCourseCode}-${sectionSuffix}`)
   }
 
   const getRoomParts = (value: string) => {
@@ -4160,8 +4214,8 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
                   {nextClass ? (
                     <div className="professor-schedule-next">
                       <strong>Next upcoming class</strong>
-                      <div>{nextClass.subjectCode} - {nextClass.subjectTitle}</div>
-                      <span>{nextClass.blockCode} • {formatDuration(nextClass)}</span>
+                      <div>{nextClass.subjectCode}</div>
+                      <span>{String(nextClass.blockCode)} • {formatDuration(nextClass)}</span>
                     </div>
                   ) : (
                     <div className="professor-schedule-empty">No upcoming class found.</div>

@@ -805,7 +805,11 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                   <span>Actions</span>
                 </div>
                 <div className="registrar-course-subject-body">
-                  {selectedProfessorCourseAssignments.map((assignment) => (
+                  {selectedProfessorCourseAssignments.map((assignment) => {
+                    // Get section to find actual block student count (currentPopulation)
+                    const section = sections.find((s) => s._id === assignment.sectionId)
+                    const blockStudentCount = section?.currentPopulation ?? assignment.studentCount
+                    return (
                     <div key={`${assignment.sectionId}-${assignment.subjectId}`} className="registrar-course-subject-row" role="row">
                       <div className="registrar-course-subject-main" data-label="Subject">
                         <strong>{assignment.subjectCode}</strong>
@@ -814,7 +818,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                       <span data-label="Block">{assignment.sectionLabel}</span>
                       <span data-label="Schedule">{assignment.schedule}</span>
                       <span data-label="Room">{assignment.room}</span>
-                      <span data-label="Students" className="registrar-course-subject-students">{assignment.studentCount}</span>
+                      <span data-label="Students" className="registrar-course-subject-students">{blockStudentCount}</span>
                       <div data-label="Actions" className="registrar-course-subject-actions">
                         <button className="registrar-btn registrar-btn-secondary" onClick={() => handleEditProfessorCourseAssignment(assignment)} disabled={assigning}>
                           Edit
@@ -824,7 +828,8 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                         </button>
                       </div>
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             ) : (
@@ -864,7 +869,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                     <article key={assignment.subjectId} className="registrar-course-manager-item">
                       <div className="registrar-course-assignment-row-head">
                         <div><strong>{assignment.subjectCode}</strong><span>{assignment.subjectTitle}</span></div>
-                        <span className="registrar-course-assignment-chip">{assignment.studentCount} students</span>
+                        <span className="registrar-course-assignment-chip">{selectedSection.currentPopulation} students</span>
                       </div>
                       <div className="registrar-course-assignment-row-meta">
                         <span>{assignment.instructor}</span>
