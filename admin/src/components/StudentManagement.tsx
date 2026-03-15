@@ -416,6 +416,25 @@ function parseBlockGroupMeta(name: string) {
   }
 }
 
+function formatBlockDisplay(section: string | undefined): string {
+  if (!section) return 'Unassigned'
+  // Convert "101-1-A" to "BEED-1A" format
+  let formatted = String(section).trim().replace(/-(\d+)-([A-Z])$/i, '-$1$2')
+  
+  // Convert numeric course codes back to string labels
+  const parts = formatted.split('-')
+  if (parts.length >= 2 && /^\d{3}$/.test(parts[0])) {
+    const courseLabel = courseShortLabel(parts[0])
+    // Only replace if it's not just the number itself
+    if (courseLabel !== parts[0] && courseLabel !== 'N/A') {
+      parts[0] = courseLabel
+      formatted = parts.join('-')
+    }
+  }
+  
+  return formatted
+}
+
 function buildStudentFormState(student?: ManagedStudent): StudentFormState {
   return {
     studentNumber: student?.studentNumber || '',
@@ -532,30 +551,11 @@ function ToneBadge({
   tone
 }: {
   label: string
-  tone: 'neutral' | 'info' | 'success' | 'warning' | 'danger'
+  tone: 'neutral' | 'info' | 'success' | 'warning' | 'danger' | 'accent'
 }) {
   return <span className={`student-workspace__badge student-workspace__badge--${tone}`}>{label}</span>
 }
 
-function StudentDetailGrid({
-  items
-}: {
-  items: Array<{ label: string; value: ReactNode; span?: 'full' }>
-}) {
-  return (
-    <div className="student-workspace__detail-grid">
-      {items.map((item) => (
-        <article
-          key={item.label}
-          className={`student-workspace__detail-item${item.span === 'full' ? ' student-workspace__detail-item--full' : ''}`}
-        >
-          <span className="student-workspace__detail-label">{item.label}</span>
-          <strong className="student-workspace__detail-value">{item.value}</strong>
-        </article>
-      ))}
-    </div>
-  )
-}
 
 function StudentRowMenu({
   student,
@@ -569,7 +569,6 @@ function StudentRowMenu({
   onViewAcademicRecord,
   onViewEnrolledSubjects,
   onViewEnrollmentHistory,
-  onViewCor,
   onArchive,
   onDelete
 }: {
@@ -584,7 +583,6 @@ function StudentRowMenu({
   onViewAcademicRecord: () => void
   onViewEnrolledSubjects: () => void
   onViewEnrollmentHistory: () => void
-  onViewCor: () => void
   onArchive: () => void
   onDelete: () => void
 }) {
@@ -674,10 +672,6 @@ function StudentRowMenu({
             <button type="button" onClick={onViewEnrollmentHistory}>
               <History size={14} />
               Enrollment history
-            </button>
-            <button type="button" onClick={onViewCor}>
-              <FileText size={14} />
-              View COR
             </button>
             <button type="button" onClick={onArchive}>
               <Archive size={14} />
@@ -781,49 +775,16 @@ function StudentProfileDrawer({
     lifecycleStatus === 'Enrolled'
       ? 'success'
       : lifecycleStatus === 'Pending'
-        ? 'warning'
+        ? 'accent'
         : lifecycleStatus === 'Inactive' || lifecycleStatus === 'Dropped'
           ? 'danger'
           : 'info'
-  const corTone = String(activeStudent.corStatus || '').toLowerCase() === 'verified' ? 'success' : 'warning'
-  const headerSummary = [
-    { label: 'Course', value: courseShortLabel(activeStudent.course) },
-    { label: 'Year', value: formatYearLevel(activeStudent.yearLevel) },
-    { label: 'Block', value: activeStudent.section || 'No block assigned' }
-  ]
-  const profileDetails = [
-    { label: 'Student Number', value: studentNumberDisplay(activeStudent) },
-    { label: 'Email', value: activeStudent.email || 'N/A' },
-    { label: 'Contact Number', value: activeStudent.contactNumber || 'N/A' },
-    { label: 'Birth Date', value: formatDate(activeStudent.birthDate) },
-    { label: 'Birth Place', value: activeStudent.birthPlace || 'N/A' },
-    { label: 'Gender', value: activeStudent.gender || 'N/A' },
-    { label: 'Civil Status', value: activeStudent.civilStatus || 'N/A' },
-    { label: 'Nationality', value: activeStudent.nationality || 'N/A' },
-    { label: 'Address', value: activeStudent.address || 'N/A', span: 'full' as const },
-    { label: 'Permanent Address', value: activeStudent.permanentAddress || 'N/A', span: 'full' as const }
-  ]
-  const academicDetails = [
-    { label: 'Course', value: courseFullLabel(activeStudent.course), span: 'full' as const },
-    { label: 'Year Level', value: formatYearLevel(activeStudent.yearLevel) },
-    { label: 'Block', value: activeStudent.section || 'No block assigned' },
-    { label: 'Semester', value: activeStudent.semester || 'N/A' },
-    { label: 'School Year', value: activeStudent.schoolYear || 'N/A' },
-    { label: 'Lifecycle', value: lifecycleStatus },
-    { label: 'Enrollment', value: activeStudent.enrollmentStatus || 'N/A' },
-    { label: 'Scholarship', value: activeStudent.scholarship || 'N/A' }
-  ]
-  const emergencyDetails = [
-    { label: 'Contact Name', value: activeStudent.emergencyContact?.name || 'N/A' },
-    { label: 'Relationship', value: activeStudent.emergencyContact?.relationship || 'N/A' },
-    { label: 'Phone', value: activeStudent.emergencyContact?.contactNumber || 'N/A' },
-    { label: 'Address', value: activeStudent.emergencyContact?.address || 'N/A', span: 'full' as const }
-  ]
+  const corTone = String(activeStudent.corStatus || '').toLowerCase() === 'verified' ? 'success' : 'accent'
 
   return (
     <StudentWorkspaceOverlay>
       <div
-        className="student-workspace__drawer-shell"
+        className="student-workspace__modal-shell"
         role="dialog"
         aria-modal="true"
         onPointerDown={(event) => {
@@ -832,218 +793,287 @@ function StudentProfileDrawer({
           }
         }}
       >
-      <div className="student-workspace__drawer-overlay" aria-hidden="true" />
-      <aside className="student-workspace__drawer">
-        <header className="student-workspace__drawer-header">
-          <div className="student-workspace__drawer-heading">
-            <span className="student-workspace__eyebrow">Student Profile</span>
-            <h2>{studentDisplayName(activeStudent)}</h2>
-            <div className="student-workspace__drawer-summary" aria-label="Student summary">
-              {headerSummary.map((item) => (
-                <div key={item.label} className="student-workspace__drawer-summary-item">
-                  <span>{item.label}</span>
-                  <strong>{item.value}</strong>
+        <div className="student-workspace__modal-overlay" aria-hidden="true" />
+        <div className="student-workspace__profile-modal">
+          {/* Header Section */}
+          <header className="student-workspace__profile-header">
+            <div className="student-workspace__profile-header-top">
+              <div className="student-workspace__profile-title">
+                <h2>{studentDisplayName(activeStudent)}</h2>
+                <div className="student-workspace__profile-summary">
+                  <span>Course: <strong>{courseShortLabel(activeStudent.course)}</strong></span>
+                  <span>Year: <strong>{formatYearLevel(activeStudent.yearLevel)}</strong></span>
+                  <span>Block: <strong>{formatBlockDisplay(activeStudent.section)}</strong></span>
                 </div>
-              ))}
+              </div>
+              <button type="button" className="student-workspace__profile-close" onClick={onClose} aria-label="Close profile">
+                <X size={20} />
+              </button>
+            </div>
+          </header>
+
+          {/* Status and Action Row */}
+          <div className="student-workspace__profile-status-row">
+            <div className="student-workspace__profile-badges">
+              <ToneBadge label={lifecycleStatus} tone={lifecycleTone} />
+              <ToneBadge label={`COR ${activeStudent.corStatus || 'Pending'}`} tone={corTone} />
+            </div>
+            <div className="student-workspace__profile-actions">
+              <button type="button" className="student-workspace__ghost-button" onClick={() => onEdit(activeStudent)}>
+                <PencilLine size={16} />
+                Edit
+              </button>
+              <button type="button" className="student-workspace__primary-button" onClick={() => onEnroll(activeStudent)}>
+                <BookOpenCheck size={16} />
+                Enroll
+              </button>
+              <button type="button" className="student-workspace__secondary-button" onClick={() => onAssignBlock(activeStudent)}>
+                <Blocks size={16} />
+                Assign Block
+              </button>
             </div>
           </div>
-          <button type="button" className="student-workspace__ghost-button" onClick={onClose} aria-label="Close drawer">
-            <X size={18} />
-          </button>
-        </header>
 
-        <div className="student-workspace__drawer-status-row" aria-label="Student status">
-          <ToneBadge label={lifecycleStatus} tone={lifecycleTone} />
-          <ToneBadge label={`COR ${activeStudent.corStatus || 'Pending'}`} tone={corTone} />
-        </div>
+          {/* Tabs Navigation */}
+          <nav className="student-workspace__profile-tabs" aria-label="Student profile tabs">
+            {([
+              ['profile', 'Profile'],
+              ['enrollment', 'Enrollment'],
+              ['subjects', 'Subjects'],
+              ['documents', 'Documents'],
+              ['history', 'History']
+            ] as Array<[ProfileTab, string]>).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={activeTab === value ? 'student-workspace__tab--active' : ''}
+                onClick={() => setActiveTab(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
 
-        <div className="student-workspace__drawer-action-row">
-          <button type="button" className="student-workspace__ghost-button" onClick={() => onEdit(activeStudent)}>
-            <PencilLine size={16} />
-            Edit
-          </button>
-          <button type="button" className="student-workspace__primary-button" onClick={() => onEnroll(activeStudent)}>
-            <BookOpenCheck size={16} />
-            Enroll
-          </button>
-          <button type="button" className="student-workspace__secondary-button" onClick={() => onAssignBlock(activeStudent)}>
-            <Blocks size={16} />
-            Assign Block
-          </button>
-        </div>
+          {/* Content Area */}
+          <div className="student-workspace__profile-content">
+            {loading ? <div className="student-workspace__empty-state">Loading student record...</div> : null}
+            {!loading && error ? <div className="student-workspace__empty-state">{error}</div> : null}
 
-        <nav className="student-workspace__tabs student-workspace__drawer-tabs" aria-label="Student profile tabs">
-          {([
-            ['profile', 'Profile'],
-            ['enrollment', 'Enrollment'],
-            ['subjects', 'Subjects'],
-            ['documents', 'Documents'],
-            ['history', 'History']
-          ] as Array<[ProfileTab, string]>).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              className={`student-workspace__tab ${activeTab === value ? 'student-workspace__tab--active' : ''}`}
-              onClick={() => setActiveTab(value)}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
+            {!loading && !error && activeTab === 'profile' ? (
+              <div className="student-workspace__profile-grid-two-col">
+                {/* Left Column - Personal Information */}
+                <section className="student-workspace__profile-section">
+                  <h3>Personal Information</h3>
+                  <p>Identity and contact details</p>
+                  <div className="student-workspace__detail-list">
+                    <div className="student-workspace__detail-item-new">
+                      <span className="label">Student Number</span>
+                      <span className="value">{studentNumberDisplay(activeStudent)}</span>
+                    </div>
+                    <div className="student-workspace__detail-item-new">
+                      <span className="label">Email</span>
+                      <span className="value">{activeStudent.email || 'N/A'}</span>
+                    </div>
+                    <div className="student-workspace__detail-item-new">
+                      <span className="label">Contact Number</span>
+                      <span className="value">{activeStudent.contactNumber || 'N/A'}</span>
+                    </div>
+                    <div className="student-workspace__detail-item-new">
+                      <span className="label">Address</span>
+                      <span className="value">{activeStudent.address || 'N/A'}</span>
+                    </div>
+                    <div className="student-workspace__detail-item-new">
+                      <span className="label">Birth Date</span>
+                      <span className="value">{formatDate(activeStudent.birthDate)}</span>
+                    </div>
+                    <div className="student-workspace__detail-item-new">
+                      <span className="label">Gender</span>
+                      <span className="value">{activeStudent.gender || 'N/A'}</span>
+                    </div>
+                  </div>
+                </section>
 
-        <div className="student-workspace__drawer-content">
-          {loading ? <div className="student-workspace__empty-state">Loading student record...</div> : null}
-          {!loading && error ? <div className="student-workspace__empty-state">{error}</div> : null}
-
-          {!loading && !error && activeTab === 'profile' ? (
-            <div className="student-workspace__profile-grid">
-              <section className="student-workspace__profile-card">
-                <div className="student-workspace__profile-card-header">
-                  <h3>Profile</h3>
-                  <p>Personal identity and contact details for registrar review.</p>
-                </div>
-                <StudentDetailGrid items={profileDetails} />
-              </section>
-
-              <section className="student-workspace__profile-card">
-                <div className="student-workspace__profile-card-header">
+                {/* Right Column - Academic Snapshot */}
+                <section className="student-workspace__profile-section">
                   <h3>Academic Snapshot</h3>
-                  <p>Current registrar-facing academic placement and enrollment context.</p>
-                </div>
-                <StudentDetailGrid items={academicDetails} />
-              </section>
-
-              <section className="student-workspace__profile-card">
-                <div className="student-workspace__profile-card-header">
-                  <h3>Emergency Contact</h3>
-                  <p>Primary family or guardian contact details on file.</p>
-                </div>
-                <StudentDetailGrid items={emergencyDetails} />
-              </section>
-            </div>
-          ) : null}
-
-          {!loading && !error && activeTab === 'enrollment' ? (
-            <div className="student-workspace__profile-stack">
-              <section className="student-workspace__profile-card">
-                <h3>Current enrollment</h3>
-                {currentEnrollment ? (
-                  <div className="student-workspace__enrollment-summary">
-                    <div><span>Term</span><strong>{currentEnrollment.semester} · {currentEnrollment.schoolYear}</strong></div>
-                    <div><span>Status</span><strong>{currentEnrollment.status}</strong></div>
-                    <div><span>Total subjects</span><strong>{currentEnrollment.subjects?.length || 0}</strong></div>
-                    <div><span>Payment</span><strong>{currentEnrollment.assessment?.paymentStatus || 'N/A'}</strong></div>
-                    <div><span>Total assessment</span><strong>{formatCurrency(currentEnrollment.assessment?.totalAmount)}</strong></div>
-                    <div><span>Balance</span><strong>{formatCurrency(currentEnrollment.assessment?.balance)}</strong></div>
+                  <p>Current academic placement</p>
+                  <div className="student-workspace__detail-list">
+                    <div className="student-workspace__detail-item-new">
+                      <span className="label">Course</span>
+                      <span className="value">{courseFullLabel(activeStudent.course)}</span>
+                    </div>
+                    <div className="student-workspace__detail-item-new">
+                      <span className="label">Year Level</span>
+                      <span className="value">{formatYearLevel(activeStudent.yearLevel)}</span>
+                    </div>
+                    <div className="student-workspace__detail-item-new">
+                      <span className="label">Block</span>
+                      <span className="value">{formatBlockDisplay(activeStudent.section)}</span>
+                    </div>
+                    <div className="student-workspace__detail-item-new">
+                      <span className="label">Semester</span>
+                      <span className="value">{activeStudent.semester || 'N/A'}</span>
+                    </div>
+                    <div className="student-workspace__detail-item-new">
+                      <span className="label">School Year</span>
+                      <span className="value">{activeStudent.schoolYear || 'N/A'}</span>
+                    </div>
+                    <div className="student-workspace__detail-item-new">
+                      <span className="label">Lifecycle Status</span>
+                      <span className="value">{lifecycleStatus}</span>
+                    </div>
+                    <div className="student-workspace__detail-item-new">
+                      <span className="label">Enrollment Status</span>
+                      <span className="value">{activeStudent.enrollmentStatus || 'N/A'}</span>
+                    </div>
+                    <div className="student-workspace__detail-item-new">
+                      <span className="label">Scholarship</span>
+                      <span className="value">{activeStudent.scholarship || 'N/A'}</span>
+                    </div>
                   </div>
-                ) : (
-                  <div className="student-workspace__empty-state student-workspace__empty-state--inline">
-                    No active enrollment record for the current term.
-                  </div>
-                )}
-              </section>
+                </section>
+              </div>
+            ) : null}
 
-              <section className="student-workspace__profile-card">
-                <h3>Enrollment history</h3>
-                {history.length ? (
-                  <div className="student-workspace__history-list">
-                    {history.map((record) => (
-                      <article key={record._id} className="student-workspace__history-item">
+            {!loading && !error && activeTab === 'enrollment' ? (
+              <div className="student-workspace__profile-stack">
+                <section className="student-workspace__profile-section">
+                  <h3>Current Enrollment</h3>
+                  {currentEnrollment ? (
+                    <div className="student-workspace__detail-list">
+                      <div className="student-workspace__detail-item-new">
+                        <span className="label">Term</span>
+                        <span className="value">{currentEnrollment.semester} · {currentEnrollment.schoolYear}</span>
+                      </div>
+                      <div className="student-workspace__detail-item-new">
+                        <span className="label">Status</span>
+                        <span className="value">{currentEnrollment.status}</span>
+                      </div>
+                      <div className="student-workspace__detail-item-new">
+                        <span className="label">Total Subjects</span>
+                        <span className="value">{currentEnrollment.subjects?.length || 0}</span>
+                      </div>
+                      <div className="student-workspace__detail-item-new">
+                        <span className="label">Payment Status</span>
+                        <span className="value">{currentEnrollment.assessment?.paymentStatus || 'N/A'}</span>
+                      </div>
+                      <div className="student-workspace__detail-item-new">
+                        <span className="label">Total Assessment</span>
+                        <span className="value">{formatCurrency(currentEnrollment.assessment?.totalAmount)}</span>
+                      </div>
+                      <div className="student-workspace__detail-item-new">
+                        <span className="label">Balance</span>
+                        <span className="value">{formatCurrency(currentEnrollment.assessment?.balance)}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="student-workspace__empty-state student-workspace__empty-state--inline">
+                      No active enrollment record for the current term.
+                    </div>
+                  )}
+                </section>
+
+                <section className="student-workspace__profile-section">
+                  <h3>Enrollment History</h3>
+                  {history.length ? (
+                    <div className="student-workspace__history-list">
+                      {history.map((record) => (
+                        <article key={record._id} className="student-workspace__history-item">
+                          <div>
+                            <strong>{record.semester} · {record.schoolYear}</strong>
+                            <p>{record.status} · {record.subjects?.length || 0} subjects</p>
+                          </div>
+                          <span>{formatDate(record.createdAt)}</span>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="student-workspace__empty-state student-workspace__empty-state--inline">
+                      No enrollment history yet.
+                    </div>
+                  )}
+                </section>
+              </div>
+            ) : null}
+
+            {!loading && !error && activeTab === 'subjects' ? (
+              <section className="student-workspace__profile-section">
+                <h3>Enrolled Subjects</h3>
+                {currentEnrollment?.subjects?.length ? (
+                  <div className="student-workspace__subject-list">
+                    {currentEnrollment.subjects.map((subject) => (
+                      <article key={`${subject.code}-${subject.title}`} className="student-workspace__subject-row">
                         <div>
-                          <strong>{record.semester} · {record.schoolYear}</strong>
-                          <p>{record.status} · {record.subjects?.length || 0} subjects</p>
+                          <strong>{subject.code}</strong>
+                          <p>{subject.title}</p>
                         </div>
-                        <span>{formatDate(record.createdAt)}</span>
+                        <div>
+                          <span>{subject.schedule || 'TBA'}</span>
+                          <small>{subject.room || 'TBA'} · {subject.instructor || 'TBA'}</small>
+                        </div>
+                        <ToneBadge label={subject.status || 'Enrolled'} tone="info" />
                       </article>
                     ))}
                   </div>
                 ) : (
                   <div className="student-workspace__empty-state student-workspace__empty-state--inline">
-                    No enrollment history yet.
+                    No enrolled subjects for the active term.
                   </div>
                 )}
               </section>
-            </div>
-          ) : null}
+            ) : null}
 
-          {!loading && !error && activeTab === 'subjects' ? (
-            <section className="student-workspace__profile-card">
-              <h3>Enrolled subjects</h3>
-              {currentEnrollment?.subjects?.length ? (
-                <div className="student-workspace__subject-list">
-                  {currentEnrollment.subjects.map((subject) => (
-                    <article key={`${subject.code}-${subject.title}`} className="student-workspace__subject-row">
-                      <div>
-                        <strong>{subject.code}</strong>
-                        <p>{subject.title}</p>
-                      </div>
-                      <div>
-                        <span>{subject.schedule || 'TBA'}</span>
-                        <small>{subject.room || 'TBA'} · {subject.instructor || 'TBA'}</small>
-                      </div>
-                      <ToneBadge label={subject.status || 'Enrolled'} tone="info" />
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div className="student-workspace__empty-state student-workspace__empty-state--inline">
-                  No enrolled subjects for the active term.
-                </div>
-              )}
-            </section>
-          ) : null}
-
-          {!loading && !error && activeTab === 'documents' ? (
-            <section className="student-workspace__profile-card">
-              <h3>Documents</h3>
-              {documentEntries.length ? (
-                <div className="student-workspace__document-list">
-                  {documentEntries.map((document) => (
-                    <article key={document.id} className="student-workspace__document-row">
-                      <div>
-                        <strong>{document.name || 'Enrollment document'}</strong>
-                        <p>{document.semester} · {document.schoolYear}</p>
-                      </div>
-                      <div>
-                        <span>{document.status || 'Submitted'}</span>
-                        <small>{formatDate(document.dateSubmitted)}</small>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div className="student-workspace__empty-state student-workspace__empty-state--inline">
-                  No document tracking entries recorded yet.
-                </div>
-              )}
-            </section>
-          ) : null}
-
-          {!loading && !error && activeTab === 'history' ? (
-            <section className="student-workspace__profile-card">
-              <h3>Lifecycle history</h3>
-              <div className="student-workspace__history-list">
-                <article className="student-workspace__history-item">
-                  <div>
-                    <strong>Student record created</strong>
-                    <p>{studentNumberDisplay(activeStudent)} · {courseShortLabel(activeStudent.course)}</p>
+            {!loading && !error && activeTab === 'documents' ? (
+              <section className="student-workspace__profile-section">
+                <h3>Documents</h3>
+                {documentEntries.length ? (
+                  <div className="student-workspace__document-list">
+                    {documentEntries.map((document) => (
+                      <article key={document.id} className="student-workspace__document-row">
+                        <div>
+                          <strong>{document.name || 'Enrollment document'}</strong>
+                          <p>{document.semester} · {document.schoolYear}</p>
+                        </div>
+                        <div>
+                          <span>{document.status || 'Submitted'}</span>
+                          <small>{formatDate(document.dateSubmitted)}</small>
+                        </div>
+                      </article>
+                    ))}
                   </div>
-                  <span>{formatDateTime(activeStudent.createdAt)}</span>
-                </article>
-                {history.map((record) => (
-                  <article key={record._id} className="student-workspace__history-item">
+                ) : (
+                  <div className="student-workspace__empty-state student-workspace__empty-state--inline">
+                    No document tracking entries recorded yet.
+                  </div>
+                )}
+              </section>
+            ) : null}
+
+            {!loading && !error && activeTab === 'history' ? (
+              <section className="student-workspace__profile-section">
+                <h3>Lifecycle History</h3>
+                <div className="student-workspace__history-list">
+                  <article className="student-workspace__history-item">
                     <div>
-                      <strong>{record.status}</strong>
-                      <p>{record.semester} · {record.schoolYear} · {record.subjects?.length || 0} subjects</p>
+                      <strong>Student record created</strong>
+                      <p>{studentNumberDisplay(activeStudent)} · {courseShortLabel(activeStudent.course)}</p>
                     </div>
-                    <span>{formatDateTime(record.updatedAt || record.createdAt)}</span>
+                    <span>{formatDateTime(activeStudent.createdAt)}</span>
                   </article>
-                ))}
-              </div>
-            </section>
-          ) : null}
+                  {history.map((record) => (
+                    <article key={record._id} className="student-workspace__history-item">
+                      <div>
+                        <strong>{record.status}</strong>
+                        <p>{record.semester} · {record.schoolYear} · {record.subjects?.length || 0} subjects</p>
+                      </div>
+                      <span>{formatDateTime(record.updatedAt || record.createdAt)}</span>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+          </div>
         </div>
-      </aside>
       </div>
     </StudentWorkspaceOverlay>
   )
@@ -1898,7 +1928,7 @@ function BlockAssignmentModal({
   )
 }
 
-export default function StudentManagement({ onViewCor }: { onViewCor?: (studentId: string) => void } = {}) {
+export default function StudentManagement() {
   const headerCheckboxRef = useRef<HTMLInputElement | null>(null)
   const [students, setStudents] = useState<ManagedStudent[]>([])
   const [loading, setLoading] = useState(true)
@@ -2148,36 +2178,6 @@ export default function StudentManagement({ onViewCor }: { onViewCor?: (studentI
     })
   }
 
-  const handleViewCor = async (student: ManagedStudent) => {
-    setActionMenuStudentId(null)
-    setMessage(null)
-    try {
-      const token = await getStoredToken()
-      if (!token) throw new Error('No authentication token found')
-
-      const response = await fetch(`${API_URL}/api/registrar/students/${student._id}/cor`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.message || `Failed to load COR: ${response.status}`)
-      }
-
-      const blob = await response.blob()
-      if (blob.size === 0) {
-        throw new Error('COR document is empty')
-      }
-
-      const url = window.URL.createObjectURL(blob)
-      window.open(url, '_blank', 'noopener')
-    } catch (corError) {
-      setMessage({
-        tone: 'error',
-        text: corError instanceof Error ? corError.message : 'Failed to load COR'
-      })
-    }
-  }
 
   const handleExportSelected = () => {
     if (!selectedStudents.length) {
@@ -2232,7 +2232,7 @@ export default function StudentManagement({ onViewCor }: { onViewCor?: (studentI
             <strong>{stats.totalStudents}</strong>
             <small>Registrar roster</small>
           </article>
-          <article className="student-workspace__stat-card">
+          <article className="student-workspace__stat-card student-workspace__stat-card--pending">
             <span>Pending enrollment</span>
             <strong>{stats.pendingEnrollment}</strong>
             <small>Needs registrar action</small>
@@ -2402,7 +2402,7 @@ export default function StudentManagement({ onViewCor }: { onViewCor?: (studentI
                         <td>
                           {student.section ? (
                             <div className="student-workspace__meta-cell">
-                              <strong>{student.section}</strong>
+                              <strong>{formatBlockDisplay(student.section)}</strong>
                             </div>
                           ) : (
                             <span className="student-workspace__muted">No block</span>
@@ -2424,7 +2424,7 @@ export default function StudentManagement({ onViewCor }: { onViewCor?: (studentI
                         <td>
                           <ToneBadge
                             label={student.corStatus || 'Pending'}
-                            tone={String(student.corStatus || '').toLowerCase() === 'verified' ? 'success' : 'warning'}
+                            tone={String(student.corStatus || '').toLowerCase() === 'verified' ? 'success' : 'accent'}
                           />
                         </td>
                         <td>
@@ -2446,7 +2446,6 @@ export default function StudentManagement({ onViewCor }: { onViewCor?: (studentI
                             onViewAcademicRecord={() => openProfile(student, 'enrollment')}
                             onViewEnrolledSubjects={() => openProfile(student, 'subjects')}
                             onViewEnrollmentHistory={() => openProfile(student, 'history')}
-                            onViewCor={() => handleViewCor(student)}
                             onArchive={() => handleArchiveStudent(student)}
                             onDelete={() => handleDeleteStudent(student)}
                           />
