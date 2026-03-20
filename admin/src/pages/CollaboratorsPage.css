@@ -69,18 +69,30 @@
   border: 1px solid var(--color-border);
   color: var(--color-text);
   background: transparent;
-  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease,
+    box-shadow 150ms ease;
 }
 
-.collaborators-btn-ghost:hover {
+.collaborators-btn-ghost:hover,
+.collaborators-btn-ghost:focus-visible {
+  transform: translateY(-1px);
   color: var(--color-on-primary);
   background: var(--color-primary);
   border-color: var(--color-primary);
 }
 
+.collaborators-btn-ghost:active {
+  transform: translateY(0);
+}
+
 .collaborators-btn-ghost:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
   outline-offset: 2px;
+  box-shadow: none;
 }
 
 .collaborators-main {
@@ -139,6 +151,24 @@
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+
+.collaborators-card:hover,
+.collaborators-card:focus-visible {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--color-text) 11%, transparent);
+}
+
+.collaborators-card:hover {
+  background: color-mix(in srgb, var(--color-surface) 88%, var(--color-primary-subtle));
+}
+
+.collaborators-card:focus-visible,
+.collaborators-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 50%, transparent);
+  outline-offset: 2px;
 }
 
 .collaborators-card-image {
@@ -312,7 +342,7 @@
   flex-direction: column;
   justify-content: center;
   gap: 0.25rem;
-  transition: transform 140ms ease, box-shadow 140ms ease;
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease, background-color 140ms ease;
 }
 
 .collaborators-tree-card-image {
@@ -325,15 +355,115 @@
   background: color-mix(in srgb, var(--color-primary-subtle) 20%, var(--color-surface));
 }
 
-.collaborators-tree-card:hover {
+.collaborators-tree-card:hover,
+.collaborators-tree-card:focus-visible {
   transform: translateY(-1px);
   box-shadow: 0 6px 24px color-mix(in srgb, var(--color-text) 10%, transparent);
+  border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
+}
+
+.collaborators-tree-card:hover {
+  background: color-mix(in srgb, var(--color-surface) 90%, var(--color-bg) 10%);
+}
+
+.collaborators-brand:hover,
+.collaborators-brand:focus-visible {
+  color: var(--color-primary);
 }
 
 .collaborators-tree-node--depth-0 .collaborators-tree-card {
   max-width: 24rem;
   border-color: color-mix(in srgb, var(--color-border) 35%, var(--color-primary));
   background: color-mix(in srgb, var(--color-bg) 82%, var(--color-primary-subtle));
+}
+
+[data-theme='light'] .collaborators-page {
+  background:
+    radial-gradient(140% 120% at 90% -10%, color-mix(in srgb, var(--color-primary) 18%, transparent), transparent 52%),
+    radial-gradient(130% 110% at 5% 10%, color-mix(in srgb, #1d4ed8 12%, transparent), transparent 48%),
+    #f5f5f7;
+}
+
+[data-theme='light'] .collaborators-header,
+[data-theme='light'] .collaborators-hero,
+[data-theme='light'] .collaborators-card,
+[data-theme='light'] .collaborators-tree-section {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.12);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+[data-theme='light'] .collaborators-brand,
+[data-theme='light'] .collaborators-card h2,
+[data-theme='light'] .collaborators-tree-title,
+[data-theme='light'] .collaborators-hero h1,
+[data-theme='light'] .collaborators-tree-name {
+  color: #0f172a;
+}
+
+[data-theme='light'] .collaborators-kicker,
+[data-theme='light'] .collaborators-card p,
+[data-theme='light'] .collaborators-role,
+[data-theme='light'] .collaborators-tree-label,
+[data-theme='light'] .collaborators-tree-intro,
+[data-theme='light'] .collaborators-tree-contribution {
+  color: #334155;
+}
+
+[data-theme='light'] .collaborators-btn-ghost {
+  color: #1e293b;
+  border-color: rgba(15, 23, 42, 0.2);
+}
+
+[data-theme='light'] .collaborators-btn-ghost:hover,
+[data-theme='light'] .collaborators-btn-ghost:focus-visible {
+  background: #eef2ff;
+  color: #3730a3;
+  border-color: #a5b4fc;
+  box-shadow: 0 10px 24px rgba(79, 70, 229, 0.22);
+}
+
+[data-theme='light'] .collaborators-card:hover {
+  background: #ffffff;
+}
+
+[data-theme='light'] .collaborators-tree-card {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='light'] .collaborators-tree-card:hover,
+[data-theme='light'] .collaborators-tree-card:focus-visible {
+  background: #ffffff;
+}
+
+[data-theme='light'] .collaborators-tree-node--depth-0 .collaborators-tree-card {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.16);
+}
+
+[data-theme='dark'] .collaborators-page {
+  background:
+    radial-gradient(140% 120% at 90% -10%, color-mix(in srgb, var(--color-primary-subtle) 32%, transparent), transparent 52%),
+    radial-gradient(130% 110% at 5% 10%, color-mix(in srgb, var(--color-primary-subtle) 24%, transparent), transparent 48%),
+    var(--color-bg);
+}
+
+[data-theme='dark'] .collaborators-header,
+[data-theme='dark'] .collaborators-hero,
+[data-theme='dark'] .collaborators-card,
+[data-theme='dark'] .collaborators-tree-section {
+  background: linear-gradient(155deg, rgba(20, 20, 20, 0.88), rgba(38, 38, 38, 0.72));
+  border-color: color-mix(in srgb, var(--color-border) 78%, transparent);
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--color-text) 20%, transparent);
+}
+
+[data-theme='dark'] .collaborators-tree-card:hover,
+[data-theme='dark'] .collaborators-tree-card:focus-visible,
+[data-theme='dark'] .collaborators-card:hover,
+[data-theme='dark'] .collaborators-card:focus-visible {
+  background: color-mix(in srgb, var(--color-surface) 84%, var(--color-primary-subtle));
+  border-color: color-mix(in srgb, var(--color-primary) 52%, var(--color-border));
 }
 
 .collaborators-tree-node--depth-1 .collaborators-tree-card {

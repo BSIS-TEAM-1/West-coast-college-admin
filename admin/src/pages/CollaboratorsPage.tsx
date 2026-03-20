@@ -44,8 +44,8 @@ const foundingDigitalMembers = [
 ]
 
 const collaboratorsTree: CollaboratorTreeNode = {
-  name: 'Lorenze Niño F. Prepotente',
-  role: 'ICT Project Team Leader ',
+  name: 'Lorenze Nino F. Prepotente',
+  role: 'ICT Project Team Leader',
   image: '/Logo.jpg',
   children: [
     {
@@ -150,11 +150,11 @@ export default function CollaboratorsPage({ onBack }: CollaboratorsPageProps) {
       <main className="collaborators-main" id="top">
         <section className="collaborators-hero">
           <p className="collaborators-kicker">Founding Digital Team</p>
-          <h1>About the Website Foundation</h1>
+          <h1>About the Digital Foundation</h1>
           <p>
-            The West Coast College portal was created by a dedicated digital team to support secure
-            enrollment and academic service operations. This page records the founding digital members
-            and their contributions to the initial platform build.
+            The West Coast College portal was established by a dedicated digital team to support secure
+            enrollment processes and academic services. This page documents the founding contributors
+            and their roles in the platform build.
           </p>
         </section>
 
