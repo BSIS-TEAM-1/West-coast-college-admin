@@ -11,9 +11,8 @@ The West Coast College Admin system is a comprehensive administrative platform b
 
 ### **Input**
 - **Data Requirements**
-  - Student, faculty, staff, and admin account records
+  - Student, faculty, staff, and registrar/admin account information
   - Academic and enrollment data
-  - Announcements, documents, and audit/security logs
 - **Design Requirements**
   - Secure authentication and role-based access
   - Responsive, user-friendly admin interface
