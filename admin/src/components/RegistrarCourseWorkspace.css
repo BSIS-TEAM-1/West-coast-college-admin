@@ -17,7 +17,7 @@
 }
 
 .registrar-course-workspace-page-grid {
-  grid-template-columns: minmax(340px, 0.96fr) minmax(0, 1.14fr);
+  grid-template-columns: minmax(340px, 0.96fr) minmax(380px, 1.14fr);
   align-items: start;
 }
 
@@ -55,6 +55,17 @@
 .registrar-course-workspace-static-field input[readonly] {
   color: var(--color-text);
   background: color-mix(in srgb, var(--color-bg-soft) 50%, var(--color-surface));
+}
+
+/* Focused Load panel specific styles */
+.registrar-course-support-stack .registrar-course-detail-card:first-child {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.registrar-course-support-stack .registrar-course-detail-card:first-child .registrar-course-subject-table {
+  width: 100%;
+  min-width: 0;
 }
 
 @media (max-width: 1120px) {

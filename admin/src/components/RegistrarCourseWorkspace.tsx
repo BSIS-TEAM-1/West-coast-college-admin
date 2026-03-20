@@ -801,7 +801,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                   <span>Block</span>
                   <span>Schedule</span>
                   <span>Room</span>
-                  <span>Students</span>
                   <span>Actions</span>
                 </div>
                 <div className="registrar-course-subject-body">
@@ -818,14 +817,20 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                       <span data-label="Block">{assignment.sectionLabel}</span>
                       <span data-label="Schedule">{assignment.schedule}</span>
                       <span data-label="Room">{assignment.room}</span>
-                      <span data-label="Students" className="registrar-course-subject-students">{blockStudentCount}</span>
                       <div data-label="Actions" className="registrar-course-subject-actions">
-                        <button className="registrar-btn registrar-btn-secondary" onClick={() => handleEditProfessorCourseAssignment(assignment)} disabled={assigning}>
-                          Edit
-                        </button>
-                        <button className="registrar-btn registrar-course-danger-btn" onClick={() => void handleDeleteProfessorCourseAssignment(assignment)} disabled={assigning}>
-                          Unassign
-                        </button>
+                        <select onChange={(e) => {
+                          const value = e.target.value
+                          if (value === 'edit') {
+                            handleEditProfessorCourseAssignment(assignment)
+                          } else if (value === 'unassign') {
+                            void handleDeleteProfessorCourseAssignment(assignment)
+                          }
+                          e.target.value = '' // Reset to placeholder
+                        }} disabled={assigning}>
+                          <option value="">...</option>
+                          <option value="edit">Edit</option>
+                          <option value="unassign">Unassign</option>
+                        </select>
                       </div>
                     </div>
                     )
