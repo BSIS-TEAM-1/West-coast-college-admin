@@ -805,9 +805,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                 </div>
                 <div className="registrar-course-subject-body">
                   {selectedProfessorCourseAssignments.map((assignment) => {
-                    // Get section to find actual block student count (currentPopulation)
-                    const section = sections.find((s) => s._id === assignment.sectionId)
-                    const blockStudentCount = section?.currentPopulation ?? assignment.studentCount
                     return (
                     <div key={`${assignment.sectionId}-${assignment.subjectId}`} className="registrar-course-subject-row" role="row">
                       <div className="registrar-course-subject-main" data-label="Subject">
