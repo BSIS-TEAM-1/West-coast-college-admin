@@ -16,6 +16,7 @@ import AboutPage from './pages/AboutPage'
 import TermsPolicyPage from './pages/TermsPolicyPage'
 import CookiePolicyPage from './pages/CookiePolicyPage'
 import CookieSystemPage from './pages/CookieSystemPage'
+import CollaboratorsPage from './pages/CollaboratorsPage'
 import Dashboard from './pages/Dashboard'
 import RegistrarDashboard from './pages/RegistrarDashboard'
 import ProfessorDashboard from './pages/ProfessorDashboard.tsx'
@@ -42,6 +43,7 @@ function App() {
   const [showTermsPolicyPage, setShowTermsPolicyPage] = useState(false)
   const [showCookiePolicyPage, setShowCookiePolicyPage] = useState(false)
   const [showCookieSystemPage, setShowCookieSystemPage] = useState(false)
+  const [showCollaboratorsPage, setShowCollaboratorsPage] = useState(false)
   const [showApplicantMaintenance, setShowApplicantMaintenance] = useState(false)
   const [loginError, setLoginError] = useState<string | undefined>(undefined)
   const [loginLoading, setLoginLoading] = useState(false)
@@ -90,6 +92,7 @@ function App() {
           setShowTermsPolicyPage(false)
           setShowCookiePolicyPage(false)
           setShowCookieSystemPage(false)
+          setShowCollaboratorsPage(false)
         }
       } finally {
         if (mounted) {
@@ -169,6 +172,7 @@ function App() {
       setShowTermsPolicyPage(false)
       setShowCookiePolicyPage(false)
       setShowCookieSystemPage(false)
+      setShowCollaboratorsPage(false)
       setShowApplicantMaintenance(false)
       setLoginError(undefined)
       setLoginLoading(false)
@@ -282,7 +286,17 @@ function App() {
   }
 
   if (showAboutPage) {
-    return <AboutPage onBack={() => setShowAboutPage(false)} />
+    return (
+      <AboutPage onBack={() => setShowAboutPage(false)} />
+    )
+  }
+
+  if (showCollaboratorsPage) {
+    return (
+      <CollaboratorsPage
+        onBack={() => setShowCollaboratorsPage(false)}
+      />
+    )
   }
 
   if (showApplicantMaintenance) {
@@ -302,6 +316,7 @@ function App() {
         setShowCookiePolicyPage(false)
         setShowCookieSystemPage(false)
         setShowTermsPolicyPage(false)
+        setShowCollaboratorsPage(false)
         setShowApplicantMaintenance(false)
         setShowAboutPage(true)
       }}
@@ -310,6 +325,7 @@ function App() {
         setShowCookiePolicyPage(false)
         setShowCookieSystemPage(false)
         setShowAboutPage(false)
+        setShowCollaboratorsPage(false)
         setShowApplicantMaintenance(false)
         setShowTermsPolicyPage(true)
       }}
@@ -318,6 +334,7 @@ function App() {
         setShowAboutPage(false)
         setShowTermsPolicyPage(false)
         setShowCookieSystemPage(false)
+        setShowCollaboratorsPage(false)
         setShowApplicantMaintenance(false)
         setShowCookiePolicyPage(true)
       }}
@@ -326,6 +343,7 @@ function App() {
         setShowCookiePolicyPage(false)
         setShowAboutPage(false)
         setShowTermsPolicyPage(false)
+        setShowCollaboratorsPage(false)
         setShowApplicantMaintenance(false)
         setShowCookieSystemPage(true)
       }}
@@ -334,6 +352,7 @@ function App() {
         setShowCookieSystemPage(false)
         setShowAboutPage(false)
         setShowTermsPolicyPage(false)
+        setShowCollaboratorsPage(false)
         setShowApplicantMaintenance(false)
         setShowSignIn(true)
         setLoginError(undefined)
@@ -344,7 +363,17 @@ function App() {
         setShowCookieSystemPage(false)
         setShowAboutPage(false)
         setShowTermsPolicyPage(false)
+        setShowCollaboratorsPage(false)
         setShowApplicantMaintenance(true)
+      }}
+      onOpenCollaborators={() => {
+        setShowSignIn(false)
+        setShowCookiePolicyPage(false)
+        setShowCookieSystemPage(false)
+        setShowTermsPolicyPage(false)
+        setShowCollaboratorsPage(true)
+        setShowApplicantMaintenance(false)
+        setShowAboutPage(false)
       }}
     />
   )

@@ -485,26 +485,27 @@
   border: 1px solid color-mix(in srgb, var(--color-border) 84%, transparent);
   border-radius: 0.95rem;
   background: color-mix(in srgb, var(--color-bg-soft) 36%, var(--color-surface));
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: visible;
+  width: 100%;
 }
 
 .registrar-course-subject-head,
 .registrar-course-subject-row {
   display: grid;
-  grid-template-columns: minmax(200px, 1.6fr) minmax(120px, 0.9fr) minmax(128px, 0.95fr) minmax(96px, 0.8fr) minmax(70px, 0.5fr) minmax(164px, 1fr);
-  gap: 0.75rem;
+  grid-template-columns: 38% 18% 20% 14% 10%;
+  gap: 0.3rem;
   align-items: start;
+  min-width: 0;
 }
 
 .registrar-course-subject-head {
-  padding: 0.72rem 0.95rem;
+  padding: 0.4rem 0.5rem;
   background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
   border-bottom: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
 }
 
 .registrar-course-subject-head span {
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -516,8 +517,8 @@
 }
 
 .registrar-course-subject-row {
-  padding: 0.85rem 0.95rem;
-  font-size: 0.81rem;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.8125rem;
   color: var(--color-text-secondary);
 }
 
@@ -535,10 +536,11 @@
 .registrar-course-subject-students {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   font-weight: 700;
   color: var(--color-text);
   white-space: nowrap;
+  text-align: center;
 }
 
 .registrar-course-subject-main {
@@ -548,7 +550,7 @@
 
 .registrar-course-subject-main strong {
   color: var(--color-text);
-  font-size: 0.84rem;
+  font-size: 0.78rem;
 }
 
 .registrar-course-subject-main span {
@@ -559,12 +561,17 @@
 .registrar-course-subject-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 0.5rem;
-  flex-wrap: wrap;
 }
 
-.registrar-course-subject-actions .registrar-btn {
-  min-width: 74px;
+.registrar-course-subject-actions select {
+  min-width: 60px;
+  padding: 0.2rem 0.3rem;
+  font-size: 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.3rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
 }
 
 @container (max-width: 980px) {
@@ -964,7 +971,8 @@
 
   .registrar-course-subject-head,
   .registrar-course-subject-row {
-    grid-template-columns: minmax(180px, 1.2fr) minmax(120px, 0.8fr) minmax(130px, 0.92fr) minmax(96px, 0.72fr) minmax(74px, 0.52fr) minmax(156px, 0.95fr);
+    grid-template-columns: 35% 17% 19% 13% 16%;
+    gap: 0.25rem;
   }
 }
 

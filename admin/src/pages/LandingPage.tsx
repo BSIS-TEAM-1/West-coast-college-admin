@@ -12,6 +12,7 @@ type LandingPageProps = {
   onOpenTermsPolicy: () => void
   onOpenCookiePolicy: () => void
   onOpenCookieSystem: () => void
+  onOpenCollaborators: () => void
   onOpenSignIn: () => void
   onOpenApplicantMaintenance: () => void
 }
@@ -249,6 +250,7 @@ export default function LandingPage({
   onOpenTermsPolicy,
   onOpenCookiePolicy,
   onOpenCookieSystem,
+  onOpenCollaborators,
   onOpenSignIn,
   onOpenApplicantMaintenance
 }: LandingPageProps) {
@@ -551,6 +553,13 @@ export default function LandingPage({
           <a href="#top">Home</a>
           <a href="#about">Vision &amp; Mission</a>
           <a href="#contact">Campus Video</a>
+          <button
+            type="button"
+            className="landing-footer-cookie-link"
+            onClick={onOpenCollaborators}
+          >
+            Collaborators
+          </button>
           <button
             type="button"
             className="landing-footer-cookie-link"
