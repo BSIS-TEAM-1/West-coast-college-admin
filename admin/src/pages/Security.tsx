@@ -1208,26 +1208,26 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
               ) : auditLogs.length === 0 ? (
                 <div className="no-logs">No audit logs found</div>
               ) : (
-                <div className="audit-logs-container">
-                  <div className="logs-header">
+                <div className="security-audit-logs-container">
+                  <div className="security-audit-logs-header">
                     <span>Timestamp</span>
                     <span>Action</span>
                     <span>User</span>
                     <span>Status</span>
                     <span>Description</span>
                   </div>
-                  <div className="logs-list">
+                  <div className="security-audit-logs-list">
                     {auditLogs.map((log) => (
-                      <div key={log._id} className="log-entry">
-                        <span className="timestamp" data-label="Timestamp">
+                      <div key={log._id} className="security-audit-log-row">
+                        <span className="security-audit-log-timestamp" data-label="Timestamp">
                           {new Date(log.createdAt).toLocaleString()}
                         </span>
-                        <span className="action" data-label="Action">{log.action}</span>
-                        <span className="user" data-label="User">{log.performedBy?.username || 'System'}</span>
-                        <span className={`status ${log.status.toLowerCase()}`} data-label="Status">
-                          <span className="status-pill">{log.status}</span>
+                        <span className="security-audit-log-action" data-label="Action">{log.action}</span>
+                        <span className="security-audit-log-user" data-label="User">{log.performedBy?.username || 'System'}</span>
+                        <span className={`security-audit-log-status security-audit-log-status-${log.status.toLowerCase()}`} data-label="Status">
+                          <span className="security-audit-log-status-pill">{log.status}</span>
                         </span>
-                        <span className="description" data-label="Description">{log.description}</span>
+                        <span className="security-audit-log-description" data-label="Description">{log.description}</span>
                       </div>
                     ))}
                   </div>

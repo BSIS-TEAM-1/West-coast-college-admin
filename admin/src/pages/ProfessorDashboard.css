@@ -1125,6 +1125,34 @@
   background: color-mix(in srgb, var(--color-bg-soft) 48%, transparent);
 }
 
+.professor-table input[type='number'],
+.professor-table input[type='text'] {
+  width: 100%;
+  min-width: 120px;
+  border: 1px solid var(--color-border);
+  border-radius: 0.45rem;
+  padding: 0.45rem 0.55rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.82rem;
+}
+
+.professor-table input[type='number'] {
+  min-width: 84px;
+}
+
+.professor-grade-cell {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 170px;
+}
+
+.professor-grade-cell-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
 .professor-table-actions {
   display: inline-flex;
   flex-wrap: wrap;
