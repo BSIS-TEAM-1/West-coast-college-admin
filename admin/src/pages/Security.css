@@ -1091,7 +1091,8 @@ div.security-actions-grid > div.action-card:hover h3 {
   flex-direction: column;
 }
 
-.audit-logs-container {
+.security-audit-logs-container {
+  --security-audit-columns: minmax(170px, 1.35fr) minmax(130px, 1fr) minmax(150px, 1.1fr) minmax(110px, 0.85fr) minmax(220px, 2fr);
   max-height: 60vh;
   overflow: hidden;
   display: flex;
@@ -1099,26 +1100,28 @@ div.security-actions-grid > div.action-card:hover h3 {
   flex: 1;
 }
 
-.logs-header {
+.security-audit-logs-header {
   display: grid;
-  grid-template-columns: 180px 120px 150px 100px 1fr;
+  grid-template-columns: var(--security-audit-columns);
   background: #1e293b;
   padding: 1rem;
   font-weight: 600;
   color: #cbd5e1;
   border-bottom: 1px solid #334155;
   font-size: 0.875rem;
+  gap: 0.75rem;
+  align-items: center;
 }
 
-.logs-list {
+.security-audit-logs-list {
   overflow-y: auto;
   max-height: 50vh;
   flex: 1;
 }
 
-.log-entry {
+.security-audit-log-row {
   display: grid;
-  grid-template-columns: 180px 120px 150px 1fr;
+  grid-template-columns: var(--security-audit-columns);
   padding: 0.75rem 1rem;
   border-bottom: 1px solid #334155;
   font-size: 0.875rem;
@@ -1128,11 +1131,15 @@ div.security-actions-grid > div.action-card:hover h3 {
   gap: 0.5rem;
 }
 
-.log-entry:hover {
+.security-audit-log-row:hover {
   background: #1e293b;
 }
 
-.log-entry .timestamp {
+.security-audit-log-row > span {
+  min-width: 0;
+}
+
+.security-audit-log-timestamp {
   color: #94a3b8;
   font-family: 'Monaco', 'Courier New', monospace;
   font-size: 0.8rem;
@@ -1141,7 +1148,7 @@ div.security-actions-grid > div.action-card:hover h3 {
   text-overflow: ellipsis;
 }
 
-.log-entry .action {
+.security-audit-log-action {
   font-weight: 600;
   color: #e2e8f0;
   white-space: nowrap;
@@ -1149,23 +1156,23 @@ div.security-actions-grid > div.action-card:hover h3 {
   text-overflow: ellipsis;
 }
 
-.log-entry .user {
+.security-audit-log-user {
   color: #94a3b8;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.log-entry .status {
+.security-audit-log-status {
   font-weight: 600;
   text-transform: uppercase;
   font-size: 0.75rem;
   white-space: nowrap;
   min-width: 0;
-  justify-self: center;
+  justify-self: start;
 }
 
-.log-entry .status .status-pill {
+.security-audit-log-status-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1174,22 +1181,26 @@ div.security-actions-grid > div.action-card:hover h3 {
   min-width: fit-content;
 }
 
-.log-entry .status.success .status-pill {
+.security-audit-log-status-success .security-audit-log-status-pill {
   background: #10b981;
   color: white;
 }
 
-.log-entry .status.failed .status-pill {
+.security-audit-log-status-failed .security-audit-log-status-pill {
   background: #ef4444;
   color: white;
 }
 
-.log-entry .description {
+.security-audit-log-status-partial .security-audit-log-status-pill {
+  background: #f59e0b;
+  color: white;
+}
+
+.security-audit-log-description {
   color: #cbd5e1;
-  grid-column: 5 / -1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .no-logs {
@@ -1451,16 +1462,16 @@ div.security-actions-grid > div.action-card:hover h3 {
     padding: 1rem;
   }
 
-  .audit-logs-modal .logs-header {
+  .audit-logs-modal .security-audit-logs-header {
     display: none;
   }
 
-  .audit-logs-modal .logs-list {
+  .audit-logs-modal .security-audit-logs-list {
     max-height: none;
     padding: 0.5rem;
   }
 
-  .audit-logs-modal .log-entry {
+  .audit-logs-modal .security-audit-log-row {
     grid-template-columns: 1fr;
     gap: 0.75rem;
     padding: 1rem;
@@ -1469,11 +1480,11 @@ div.security-actions-grid > div.action-card:hover h3 {
     margin-bottom: 0.75rem;
   }
 
-  .audit-logs-modal .log-entry .timestamp,
-  .audit-logs-modal .log-entry .action,
-  .audit-logs-modal .log-entry .user,
-  .audit-logs-modal .log-entry .status,
-  .audit-logs-modal .log-entry .description {
+  .audit-logs-modal .security-audit-log-timestamp,
+  .audit-logs-modal .security-audit-log-action,
+  .audit-logs-modal .security-audit-log-user,
+  .audit-logs-modal .security-audit-log-status,
+  .audit-logs-modal .security-audit-log-description {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
@@ -1484,20 +1495,20 @@ div.security-actions-grid > div.action-card:hover h3 {
     min-width: 0;
   }
 
-  .audit-logs-modal .log-entry .status {
+  .audit-logs-modal .security-audit-log-status {
     justify-self: stretch;
     text-align: right;
   }
 
-  .audit-logs-modal .log-entry .description {
+  .audit-logs-modal .security-audit-log-description {
     grid-column: auto;
   }
 
-  .audit-logs-modal .log-entry .timestamp::before,
-  .audit-logs-modal .log-entry .action::before,
-  .audit-logs-modal .log-entry .user::before,
-  .audit-logs-modal .log-entry .status::before,
-  .audit-logs-modal .log-entry .description::before {
+  .audit-logs-modal .security-audit-log-timestamp::before,
+  .audit-logs-modal .security-audit-log-action::before,
+  .audit-logs-modal .security-audit-log-user::before,
+  .audit-logs-modal .security-audit-log-status::before,
+  .audit-logs-modal .security-audit-log-description::before {
     content: attr(data-label);
     color: #94a3b8;
     font-size: 0.72rem;

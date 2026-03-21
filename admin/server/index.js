@@ -736,6 +736,400 @@ app.get('/api/professor/assigned-blocks', authMiddleware, async (req, res) => {
   }
 })
 
+function normalizeProfessorRouteText(value) {
+  return String(value || '').trim()
+}
+
+function escapeProfessorRouteRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function parseProfessorRouteSchoolYearStart(schoolYearValue) {
+  const match = String(schoolYearValue || '').trim().match(/^(\d{4})\s*-\s*\d{4}$/)
+  return match ? Number(match[1]) : null
+}
+
+async function getProfessorRouteAccess(adminId) {
+  const professor = await Admin.findById(adminId)
+    .select('_id username displayName uid accountType status')
+    .lean()
+
+  if (!professor) {
+    const error = new Error('Professor account not found.')
+    error.statusCode = 404
+    throw error
+  }
+
+  const professorIdentifiers = Array.from(
+    new Set(
+      [professor.displayName, professor.username, professor.uid]
+        .map(normalizeProfessorRouteText)
+        .filter(Boolean)
+    )
+  )
+
+  if (professorIdentifiers.length === 0) {
+    const error = new Error('Professor identifiers are not configured.')
+    error.statusCode = 400
+    throw error
+  }
+
+  const exactIdentifierPatterns = professorIdentifiers.map(
+    (value) => new RegExp(`^\\s*${escapeProfessorRouteRegExp(value)}\\s*$`, 'i')
+  )
+
+  return {
+    professor,
+    professorIdentifiers,
+    exactIdentifierPatterns,
+    instructorMatchesProfessor(instructorValue) {
+      const normalized = normalizeProfessorRouteText(instructorValue)
+      if (!normalized || /^TBA$/i.test(normalized)) return false
+      return exactIdentifierPatterns.some((pattern) => pattern.test(normalized))
+    }
+  }
+}
+
+// GET /api/professor/sections/:sectionId/subjects/:subjectId/students
+// Returns the class roster for a specific assigned subject, including grades stored on enrollment subjects.
+app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+
+  if (String(req.accountType || '').toLowerCase() !== 'professor') {
+    return res.status(403).json({ error: 'Forbidden. Professor access required.' })
+  }
+
+  const { sectionId, subjectId } = req.params
+  const semester = normalizeProfessorRouteText(req.query.semester)
+  const schoolYear = normalizeProfessorRouteText(req.query.schoolYear)
+
+  if (!mongoose.Types.ObjectId.isValid(sectionId) || !mongoose.Types.ObjectId.isValid(subjectId)) {
+    return res.status(400).json({ error: 'Invalid section id or subject id.' })
+  }
+
+  try {
+    const access = await getProfessorRouteAccess(req.adminId)
+    const section = await BlockSection.findById(sectionId)
+      .select('_id sectionCode')
+      .lean()
+
+    if (!section) {
+      return res.status(404).json({ error: 'Section not found.' })
+    }
+
+    const yearStart = parseProfessorRouteSchoolYearStart(schoolYear)
+    const assignmentQuery = {
+      sectionId: new mongoose.Types.ObjectId(sectionId),
+      status: 'ASSIGNED'
+    }
+    if (semester) assignmentQuery.semester = semester
+    if (Number.isFinite(yearStart)) assignmentQuery.year = yearStart
+
+    let assignments = await StudentBlockAssignment.find(assignmentQuery)
+      .select('studentId assignedAt semester year')
+      .sort({ assignedAt: 1 })
+      .lean()
+
+    if (assignments.length === 0 && (semester || Number.isFinite(yearStart))) {
+      assignments = await StudentBlockAssignment.find({
+        sectionId: new mongoose.Types.ObjectId(sectionId),
+        status: 'ASSIGNED'
+      })
+        .select('studentId assignedAt semester year')
+        .sort({ assignedAt: 1 })
+        .lean()
+    }
+
+    const studentIds = Array.from(
+      new Set(
+        assignments
+          .map((assignment) => normalizeProfessorRouteText(assignment.studentId))
+          .filter((value) => mongoose.Types.ObjectId.isValid(value))
+      )
+    )
+
+    if (studentIds.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          section: {
+            sectionId: String(section._id),
+            sectionCode: normalizeProfessorRouteText(section.sectionCode)
+          },
+          subject: {
+            subjectId: String(subjectId)
+          },
+          totals: {
+            assignedStudents: 0,
+            matchedStudents: 0
+          },
+          students: []
+        }
+      })
+    }
+
+    const studentObjectIds = studentIds.map((value) => new mongoose.Types.ObjectId(value))
+    const students = await Student.find({ _id: { $in: studentObjectIds } })
+      .select('_id studentNumber firstName middleName lastName suffix yearLevel studentStatus course email contactNumber corStatus')
+      .lean()
+
+    const studentsById = new Map(
+      students.map((student) => [String(student._id), student])
+    )
+
+    const enrollmentQuery = {
+      studentId: { $in: studentObjectIds },
+      status: { $nin: ['Dropped', 'Cancelled'] },
+      subjects: {
+        $elemMatch: {
+          subjectId: new mongoose.Types.ObjectId(subjectId),
+          status: { $ne: 'Dropped' },
+          instructor: { $in: access.exactIdentifierPatterns }
+        }
+      }
+    }
+    if (semester) enrollmentQuery.semester = semester
+    if (schoolYear) enrollmentQuery.schoolYear = schoolYear
+
+    const enrollments = await Enrollment.find(enrollmentQuery)
+      .select('_id studentId studentNumber schoolYear semester subjects isCurrent createdAt updatedAt')
+      .sort({ isCurrent: -1, createdAt: -1 })
+      .lean()
+
+    const subjectRows = enrollments
+      .map((enrollment) => {
+        const studentId = String(enrollment.studentId || '')
+        const student = studentsById.get(studentId)
+        if (!student) return null
+
+        const matchedEntry = (Array.isArray(enrollment.subjects) ? enrollment.subjects : []).find((entry) => {
+          if (String(entry?.subjectId || '') !== String(subjectId)) return false
+          if (String(entry?.status || '').toLowerCase() === 'dropped') return false
+          return access.instructorMatchesProfessor(entry?.instructor)
+        })
+
+        if (!matchedEntry) return null
+
+        return {
+          _id: String(student._id),
+          enrollmentId: String(enrollment._id),
+          subjectEntryId: String(matchedEntry._id || ''),
+          studentNumber: String(student.studentNumber || enrollment.studentNumber || '').trim(),
+          firstName: normalizeProfessorRouteText(student.firstName),
+          middleName: normalizeProfessorRouteText(student.middleName),
+          lastName: normalizeProfessorRouteText(student.lastName),
+          suffix: normalizeProfessorRouteText(student.suffix),
+          yearLevel: Number(student.yearLevel || 0) || null,
+          studentStatus: normalizeProfessorRouteText(student.studentStatus) || 'Active',
+          course: student.course,
+          email: normalizeProfessorRouteText(student.email),
+          contactNumber: normalizeProfessorRouteText(student.contactNumber),
+          corStatus: normalizeProfessorRouteText(student.corStatus) || 'Pending',
+          currentGrade: matchedEntry.grade ?? null,
+          remarks: normalizeProfessorRouteText(matchedEntry.remarks),
+          subjectStatus: normalizeProfessorRouteText(matchedEntry.status) || 'Enrolled',
+          classSubjectCode: normalizeProfessorRouteText(matchedEntry.code),
+          classSubjectTitle: normalizeProfessorRouteText(matchedEntry.title),
+          gradeUpdatedAt: matchedEntry.dateModified || enrollment.updatedAt || enrollment.createdAt || null
+        }
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        const lastNameCompare = String(a.lastName || '').localeCompare(String(b.lastName || ''))
+        if (lastNameCompare !== 0) return lastNameCompare
+        return String(a.firstName || '').localeCompare(String(b.firstName || ''))
+      })
+
+    const subjectMeta = subjectRows[0]
+      ? {
+          subjectId: String(subjectId),
+          code: subjectRows[0].classSubjectCode || '',
+          title: subjectRows[0].classSubjectTitle || ''
+        }
+      : {
+          subjectId: String(subjectId),
+          code: '',
+          title: ''
+        }
+
+    return res.json({
+      success: true,
+      data: {
+        section: {
+          sectionId: String(section._id),
+          sectionCode: normalizeProfessorRouteText(section.sectionCode)
+        },
+        subject: subjectMeta,
+        totals: {
+          assignedStudents: studentIds.length,
+          matchedStudents: subjectRows.length
+        },
+        students: subjectRows
+      }
+    })
+  } catch (error) {
+    console.error('Error fetching professor subject roster:', error)
+    return res.status(error.statusCode || 500).json({
+      error: error.message || 'Failed to fetch subject roster.'
+    })
+  }
+})
+
+// PUT /api/professor/sections/:sectionId/subjects/:subjectId/students/:studentId/grade
+// Updates one student's grade entry for the selected subject in the selected term.
+app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studentId/grade', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+
+  if (String(req.accountType || '').toLowerCase() !== 'professor') {
+    return res.status(403).json({ error: 'Forbidden. Professor access required.' })
+  }
+
+  const { sectionId, subjectId, studentId } = req.params
+  const semester = normalizeProfessorRouteText(req.body?.semester)
+  const schoolYear = normalizeProfessorRouteText(req.body?.schoolYear)
+  const remarks = normalizeProfessorRouteText(req.body?.remarks)
+  const hasGradeField = Object.prototype.hasOwnProperty.call(req.body || {}, 'grade')
+  const rawGrade = hasGradeField ? req.body.grade : null
+  const normalizedGrade = rawGrade === null || String(rawGrade).trim() === ''
+    ? null
+    : Number(rawGrade)
+
+  if (
+    !mongoose.Types.ObjectId.isValid(sectionId)
+    || !mongoose.Types.ObjectId.isValid(subjectId)
+    || !mongoose.Types.ObjectId.isValid(studentId)
+  ) {
+    return res.status(400).json({ error: 'Invalid section id, subject id, or student id.' })
+  }
+
+  if (normalizedGrade !== null && (!Number.isFinite(normalizedGrade) || normalizedGrade < 1 || normalizedGrade > 5)) {
+    return res.status(400).json({ error: 'Grade must be a number from 1.0 to 5.0, or blank.' })
+  }
+
+  try {
+    const access = await getProfessorRouteAccess(req.adminId)
+    const yearStart = parseProfessorRouteSchoolYearStart(schoolYear)
+    const assignmentQuery = {
+      sectionId: new mongoose.Types.ObjectId(sectionId),
+      studentId: String(studentId).trim(),
+      status: 'ASSIGNED'
+    }
+    if (semester) assignmentQuery.semester = semester
+    if (Number.isFinite(yearStart)) assignmentQuery.year = yearStart
+
+    let assignment = await StudentBlockAssignment.findOne(assignmentQuery)
+      .select('_id studentId sectionId semester year')
+      .lean()
+
+    if (!assignment && (semester || Number.isFinite(yearStart))) {
+      assignment = await StudentBlockAssignment.findOne({
+        sectionId: new mongoose.Types.ObjectId(sectionId),
+        studentId: String(studentId).trim(),
+        status: 'ASSIGNED'
+      })
+        .select('_id studentId sectionId semester year')
+        .lean()
+    }
+
+    if (!assignment) {
+      return res.status(404).json({ error: 'Student is not assigned to this class section.' })
+    }
+
+    const enrollmentQuery = {
+      studentId: new mongoose.Types.ObjectId(studentId),
+      status: { $nin: ['Dropped', 'Cancelled'] },
+      subjects: {
+        $elemMatch: {
+          subjectId: new mongoose.Types.ObjectId(subjectId),
+          status: { $ne: 'Dropped' },
+          instructor: { $in: access.exactIdentifierPatterns }
+        }
+      }
+    }
+    if (semester) enrollmentQuery.semester = semester
+    if (schoolYear) enrollmentQuery.schoolYear = schoolYear
+
+    let enrollment = await Enrollment.findOne(enrollmentQuery)
+      .sort({ isCurrent: -1, createdAt: -1 })
+
+    if (!enrollment && (semester || schoolYear)) {
+      enrollment = await Enrollment.findOne({
+        studentId: new mongoose.Types.ObjectId(studentId),
+        status: { $nin: ['Dropped', 'Cancelled'] },
+        subjects: {
+          $elemMatch: {
+            subjectId: new mongoose.Types.ObjectId(subjectId),
+            status: { $ne: 'Dropped' },
+            instructor: { $in: access.exactIdentifierPatterns }
+          }
+        }
+      })
+        .sort({ isCurrent: -1, createdAt: -1 })
+    }
+
+    if (!enrollment) {
+      return res.status(404).json({ error: 'No matching enrolled subject was found for this student.' })
+    }
+
+    const matchedEntry = enrollment.subjects.find((entry) => {
+      if (String(entry?.subjectId || '') !== String(subjectId)) return false
+      if (String(entry?.status || '').toLowerCase() === 'dropped') return false
+      return access.instructorMatchesProfessor(entry?.instructor)
+    })
+
+    if (!matchedEntry) {
+      return res.status(404).json({ error: 'The selected subject is not assigned to your account for this student.' })
+    }
+
+    matchedEntry.grade = normalizedGrade
+    matchedEntry.remarks = remarks
+    matchedEntry.dateModified = new Date()
+    enrollment.updatedBy = req.adminId
+    enrollment.markModified('subjects')
+    await enrollment.save()
+
+    const student = await Student.findById(studentId)
+      .select('_id studentNumber firstName middleName lastName suffix yearLevel studentStatus course email contactNumber corStatus')
+      .lean()
+
+    return res.json({
+      success: true,
+      message: 'Grade updated successfully.',
+      data: {
+        _id: String(student?._id || studentId),
+        enrollmentId: String(enrollment._id),
+        subjectEntryId: String(matchedEntry._id || ''),
+        studentNumber: normalizeProfessorRouteText(student?.studentNumber || enrollment.studentNumber),
+        firstName: normalizeProfessorRouteText(student?.firstName),
+        middleName: normalizeProfessorRouteText(student?.middleName),
+        lastName: normalizeProfessorRouteText(student?.lastName),
+        suffix: normalizeProfessorRouteText(student?.suffix),
+        yearLevel: Number(student?.yearLevel || 0) || null,
+        studentStatus: normalizeProfessorRouteText(student?.studentStatus) || 'Active',
+        course: student?.course,
+        email: normalizeProfessorRouteText(student?.email),
+        contactNumber: normalizeProfessorRouteText(student?.contactNumber),
+        corStatus: normalizeProfessorRouteText(student?.corStatus) || 'Pending',
+        currentGrade: matchedEntry.grade ?? null,
+        remarks: normalizeProfessorRouteText(matchedEntry.remarks),
+        subjectStatus: normalizeProfessorRouteText(matchedEntry.status) || 'Enrolled',
+        classSubjectCode: normalizeProfessorRouteText(matchedEntry.code),
+        classSubjectTitle: normalizeProfessorRouteText(matchedEntry.title),
+        gradeUpdatedAt: matchedEntry.dateModified || enrollment.updatedAt || new Date()
+      }
+    })
+  } catch (error) {
+    console.error('Error updating professor grade:', error)
+    return res.status(error.statusCode || 500).json({
+      error: error.message || 'Failed to update grade.'
+    })
+  }
+})
+
 async function authMiddleware(req, res, next) {
   const auth = req.headers.authorization
   const token = auth && auth.startsWith('Bearer ') ? auth.slice(7) : null
@@ -3100,7 +3494,10 @@ app.get('/api/announcements/:id', async (req, res) => {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
-    const announcement = await Announcement.findById(req.params.id)
+    const announcement = await Announcement.findOne({
+      _id: req.params.id,
+      isActive: true
+    })
       .populate('createdBy', 'username displayName')
     
     if (!announcement) {
