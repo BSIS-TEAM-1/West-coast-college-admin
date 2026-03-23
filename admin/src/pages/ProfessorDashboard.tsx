@@ -4,6 +4,7 @@ import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
 import { getProfile, getStoredToken } from '../lib/authApi'
+import { fetchWithAutoReconnect, isAbortRequestError, isNetworkRequestError } from '../lib/network'
 import type { ProfileResponse } from '../lib/authApi'
 import { API_URL } from '../lib/authApi'
 import AnnouncementDetail from './AnnouncementDetail'
@@ -186,11 +187,18 @@ const PROFESSOR_NAV_ITEMS: { id: ProfessorView; label: string; icon: any }[] = [
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
 ]
 
+const buildReconnectMessage = (resourceLabel: string) => (
+  typeof navigator !== 'undefined' && navigator.onLine === false
+    ? `Internet connection lost. Reconnecting and reloading ${resourceLabel} automatically.`
+    : `Connection is unstable. Retrying ${resourceLabel}.`
+)
+
 export default function ProfessorDashboard({ username, onLogout, onProfileUpdated }: ProfessorDashboardProps) {
   const [view, setView] = useState<ProfessorView>('dashboard')
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [profile, setProfile] = useState<ProfileResponse | null>(null)
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
+  const [announcementsLoading, setAnnouncementsLoading] = useState(false)
   const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string | null>(null)
   const [assignedCourses, setAssignedCourses] = useState<ProfessorAssignedCourse[]>([])
   const [coursesLoading, setCoursesLoading] = useState(false)
@@ -199,22 +207,28 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
   const [selectedRosterClassKey, setSelectedRosterClassKey] = useState('')
   const [selectedRosterFocus, setSelectedRosterFocus] = useState<'students' | 'attendance'>('students')
   const [selectedGradeClassKey, setSelectedGradeClassKey] = useState('')
+  const [isOffline, setIsOffline] = useState(() => (
+    typeof navigator !== 'undefined' ? navigator.onLine === false : false
+  ))
   
   // Animation refs
   const dashboardRef = useRef<HTMLDivElement>(null)
   const quickActionsRef = useRef<HTMLDivElement>(null)
   const newsSectionRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    const controller = new AbortController()
-    
-    getProfile()
-      .then(setProfile)
-      .catch(() => {
-        // Fallback handled in JSX
-      })
+  const loadProfile = async () => {
+    try {
+      const nextProfile = await getProfile()
+      setProfile(nextProfile)
+    } catch (error) {
+      if (!isNetworkRequestError(error)) {
+        console.error('Failed to load professor profile:', error)
+      }
+    }
+  }
 
-    return () => controller.abort()
+  useEffect(() => {
+    void loadProfile()
   }, [])
 
   // Animation effects
@@ -324,6 +338,32 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
     }
   }, [isSidebarOpen])
 
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOffline(false)
+      void loadProfile()
+
+      if (view === 'dashboard') {
+        void fetchAnnouncements()
+      }
+
+      if (view === 'courses' || view === 'students' || view === 'grades' || view === 'schedule' || view === 'subject-detail') {
+        void fetchAssignedCourses()
+      }
+    }
+
+    const handleOffline = () => {
+      setIsOffline(true)
+    }
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [view])
+
   const handleProfileUpdated = (profile: ProfileResponse) => {
     setProfile(profile)
     onProfileUpdated?.(profile)
@@ -331,16 +371,24 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
 
   const fetchAnnouncements = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/announcements?targetAudience=faculty`)
-      
+      setAnnouncementsLoading(true)
+
+      const response = await fetchWithAutoReconnect(`${API_URL}/api/announcements?targetAudience=faculty`)
+
       if (!response.ok) {
         throw new Error(`Failed to fetch announcements: ${response.status}`)
       }
-      
+
       const data = await response.json().catch(() => [])
       setAnnouncements(Array.isArray(data) ? data.filter(isVisibleProfessorAnnouncement) : [])
     } catch (error) {
+      if (isAbortRequestError(error)) {
+        return
+      }
+
       console.error('Failed to fetch announcements:', error)
+    } finally {
+      setAnnouncementsLoading(false)
     }
   }
 
@@ -356,7 +404,7 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
         return
       }
 
-      const response = await fetch(`${API_URL}/api/professor/assigned-blocks`, {
+      const response = await fetchWithAutoReconnect(`${API_URL}/api/professor/assigned-blocks`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -386,9 +434,19 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
         .filter((course: ProfessorAssignedCourse) => course.blocks.length > 0)
       setAssignedCourses(visibleCourses)
     } catch (error) {
+      if (isAbortRequestError(error)) {
+        return
+      }
+
       console.error('Failed to fetch professor assigned blocks:', error)
+      const fallbackMessage = error instanceof Error ? error.message : 'Failed to load assigned blocks.'
+      if (isNetworkRequestError(error)) {
+        setCoursesError(buildReconnectMessage('your teaching assignments'))
+        return
+      }
+
       setAssignedCourses([])
-      setCoursesError(error instanceof Error ? error.message : 'Failed to load assigned blocks.')
+      setCoursesError(fallbackMessage)
     } finally {
       setCoursesLoading(false)
     }
@@ -482,7 +540,15 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
           />
         )
       default:
-        return <ProfessorHome announcements={announcements} onAnnouncementClick={handleAnnouncementClick} quickActionsRef={quickActionsRef} newsSectionRef={newsSectionRef} />
+        return (
+          <ProfessorHome
+            announcements={announcements}
+            announcementsLoading={announcementsLoading}
+            onAnnouncementClick={handleAnnouncementClick}
+            quickActionsRef={quickActionsRef}
+            newsSectionRef={newsSectionRef}
+          />
+        )
     }
   }
 
@@ -582,6 +648,12 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
           onMenuToggle={() => setIsSidebarOpen((prev) => !prev)}
         />
         <main className="professor-dashboard-main">
+          {isOffline ? (
+            <div className="professor-network-banner" role="status" aria-live="polite">
+              <AlertCircle size={16} />
+              <span>Internet connection lost. Reconnecting automatically while keeping your current screen active.</span>
+            </div>
+          ) : null}
           {renderContent()}
         </main>
       </div>
@@ -592,12 +664,13 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
 // Placeholder Components
 interface ProfessorHomeProps {
   announcements: Announcement[]
+  announcementsLoading: boolean
   onAnnouncementClick: (announcement: Announcement) => void
   quickActionsRef: React.RefObject<HTMLDivElement | null>
   newsSectionRef: React.RefObject<HTMLDivElement | null>
 }
 
-function ProfessorHome({ announcements, onAnnouncementClick, quickActionsRef, newsSectionRef }: ProfessorHomeProps) {
+function ProfessorHome({ announcements, announcementsLoading, onAnnouncementClick, quickActionsRef, newsSectionRef }: ProfessorHomeProps) {
   const getTypeIcon = (type: string) => {
     switch (type) {
       case 'urgent': return <AlertTriangle size={12} />
@@ -651,7 +724,12 @@ function ProfessorHome({ announcements, onAnnouncementClick, quickActionsRef, ne
             <h3>Latest Announcements</h3>
           </div>
           
-          {activeAnnouncements.length > 0 ? (
+          {announcementsLoading && activeAnnouncements.length === 0 ? (
+            <div className="professor-news-loading" role="status" aria-live="polite">
+              <div className="professor-news-loading-spinner" />
+              <p>Loading announcements and reconnecting if needed...</p>
+            </div>
+          ) : activeAnnouncements.length > 0 ? (
             <div className="dashboard-announcements-container">
               {activeAnnouncements.map((announcement) => {
                 const media = announcement.media?.[0]
@@ -1280,6 +1358,7 @@ function ProfessorSubjectDetail({ detail, onBack }: ProfessorSubjectDetailProps)
 
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
 
     const fetchSubjectStudents = async () => {
       if (!detail?.sectionId) {
@@ -1299,11 +1378,12 @@ function ProfessorSubjectDetail({ detail, onBack }: ProfessorSubjectDetailProps)
           return
         }
 
-        const response = await fetch(`${API_URL}/api/blocks/sections/${detail.sectionId}/students`, {
+        const response = await fetchWithAutoReconnect(`${API_URL}/api/blocks/sections/${detail.sectionId}/students`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
-          }
+          },
+          signal: controller.signal
         })
 
         if (!response.ok) {
@@ -1316,10 +1396,20 @@ function ProfessorSubjectDetail({ detail, onBack }: ProfessorSubjectDetailProps)
           setStudents(list)
         }
       } catch (error) {
+        if (isAbortRequestError(error)) {
+          return
+        }
+
         console.error('Failed to fetch subject students:', error)
         if (!cancelled) {
-          setStudents([])
-          setStudentsError(error instanceof Error ? error.message : 'Failed to load students.')
+          if (!isNetworkRequestError(error)) {
+            setStudents([])
+          }
+          setStudentsError(
+            isNetworkRequestError(error)
+              ? buildReconnectMessage('the student list')
+              : (error instanceof Error ? error.message : 'Failed to load students.')
+          )
         }
       } finally {
         if (!cancelled) {
@@ -1329,7 +1419,10 @@ function ProfessorSubjectDetail({ detail, onBack }: ProfessorSubjectDetailProps)
     }
 
     void fetchSubjectStudents()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
   }, [detail?.sectionId])
 
   const formatStudentName = (student: ProfessorAssignedStudent) => {
@@ -2557,6 +2650,7 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
 
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
 
     const fetchStudents = async () => {
       if (rosterTargets.length === 0) {
@@ -2585,11 +2679,12 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
               }).toString()}`
             : `${API_URL}/api/blocks/sections/${target.sectionId}/students`
 
-          const response = await fetch(endpoint, {
+          const response = await fetchWithAutoReconnect(endpoint, {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
-            }
+            },
+            signal: controller.signal
           })
 
           if (!response.ok) {
@@ -2650,9 +2745,19 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
           setCurrentPage(1)
         }
       } catch (error) {
+        if (isAbortRequestError(error)) {
+          return
+        }
+
         if (!cancelled) {
-          setStudents([])
-          setStudentsError(error instanceof Error ? error.message : 'Failed to load students for selected class.')
+          if (!isNetworkRequestError(error)) {
+            setStudents([])
+          }
+          setStudentsError(
+            isNetworkRequestError(error)
+              ? buildReconnectMessage('the student roster')
+              : (error instanceof Error ? error.message : 'Failed to load students for selected class.')
+          )
         }
       } finally {
         if (!cancelled) {
@@ -2664,6 +2769,7 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
     void fetchStudents()
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [rosterTargets, selectedClass])
 
@@ -3216,6 +3322,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
 
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
 
     const fetchStudents = async () => {
       if (!selectedClass) {
@@ -3240,13 +3347,14 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
           schoolYear: selectedClass.schoolYear
         })
 
-        const response = await fetch(
+        const response = await fetchWithAutoReconnect(
           `${API_URL}/api/professor/sections/${selectedClass.sectionId}/subjects/${selectedClass.subjectId}/students?${query.toString()}`,
           {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
-            }
+            },
+            signal: controller.signal
           }
         )
 
@@ -3293,9 +3401,19 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
           setCurrentPage(1)
         }
       } catch (loadError) {
+        if (isAbortRequestError(loadError)) {
+          return
+        }
+
         if (!cancelled) {
-          setStudents([])
-          setStudentsError(loadError instanceof Error ? loadError.message : 'Failed to load class grades.')
+          if (!isNetworkRequestError(loadError)) {
+            setStudents([])
+          }
+          setStudentsError(
+            isNetworkRequestError(loadError)
+              ? buildReconnectMessage('class grades')
+              : (loadError instanceof Error ? loadError.message : 'Failed to load class grades.')
+          )
         }
       } finally {
         if (!cancelled) {
@@ -3307,6 +3425,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
     void fetchStudents()
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [selectedClass])
 
@@ -3454,7 +3573,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
         throw new Error('You are not logged in.')
       }
 
-      const response = await fetch(
+      const response = await fetchWithAutoReconnect(
         `${API_URL}/api/professor/sections/${selectedClass.sectionId}/subjects/${selectedClass.subjectId}/students/${student._id}/grade`,
         {
           method: 'PUT',
@@ -3501,7 +3620,11 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
       setMessage(`Published grade for ${getName(student)}.`)
     } catch (saveError) {
       setMessageTone('error')
-      setMessage(saveError instanceof Error ? saveError.message : 'Failed to save grade.')
+      setMessage(
+        isNetworkRequestError(saveError)
+          ? buildReconnectMessage('the grade update')
+          : (saveError instanceof Error ? saveError.message : 'Failed to save grade.')
+      )
     } finally {
       setSavingStudentIds((current) => current.filter((value) => value !== student._id))
     }
@@ -4444,11 +4567,14 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
 
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
 
     const loadEvents = async () => {
       try {
         setEventLoading(true)
-        const response = await fetch(`${API_URL}/api/announcements?targetAudience=faculty`)
+        const response = await fetchWithAutoReconnect(`${API_URL}/api/announcements?targetAudience=faculty`, {
+          signal: controller.signal
+        })
 
         if (!response.ok) {
           setEvents(mergeEventSources([...philippineHolidayEvents]))
@@ -4486,6 +4612,18 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
         if (!cancelled) {
           setEvents(mergeEventSources([...philippineHolidayEvents, ...mapped]))
         }
+      } catch (error) {
+        if (isAbortRequestError(error)) {
+          return
+        }
+
+        if (!cancelled) {
+          setEvents((current) => (
+            current.length > 0
+              ? current
+              : mergeEventSources([...philippineHolidayEvents])
+          ))
+        }
       } finally {
         if (!cancelled) {
           setEventLoading(false)
@@ -4497,6 +4635,7 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
 
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [philippineHolidayEvents])
 

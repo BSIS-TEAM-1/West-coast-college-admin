@@ -191,6 +191,19 @@
   background: var(--color-bg-soft);
 }
 
+.professor-network-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid color-mix(in srgb, #f59e0b 38%, var(--color-border));
+  border-radius: 0.85rem;
+  background: color-mix(in srgb, #fef3c7 75%, var(--color-surface));
+  color: #92400e;
+  box-shadow: 0 10px 24px rgba(146, 64, 14, 0.08);
+}
+
 .professor-sidebar-backdrop {
   position: fixed;
   inset: 0;
@@ -413,6 +426,39 @@
   font-size: 0.875rem;
   color: var(--color-text-muted);
   margin: 0;
+}
+
+.professor-news-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 2.5rem 1rem;
+  border: 1px dashed var(--color-border);
+  border-radius: 0.85rem;
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  text-align: center;
+}
+
+.professor-news-loading p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.professor-news-loading-spinner {
+  width: 2rem;
+  height: 2rem;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 999px;
+  animation: professor-spinner-spin 0.8s linear infinite;
+}
+
+@keyframes professor-spinner-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Dashboard Announcements - Exact match with RegistrarDashboard */
