@@ -9,6 +9,7 @@ import {
   getProfile,
   logout
 } from './lib/authApi'
+import { isNetworkRequestError, sleep, waitForOnline } from './lib/network'
 import { applyThemePreference, getStoredTheme, moveThemePreferencesToScope, setActiveThemeScope } from './lib/theme'
 import Login from './pages/Login'
 import LandingPage from './pages/LandingPage'
@@ -48,6 +49,7 @@ function App() {
   const [loginError, setLoginError] = useState<string | undefined>(undefined)
   const [loginLoading, setLoginLoading] = useState(false)
   const [sessionBootstrapping, setSessionBootstrapping] = useState(true)
+  const [sessionReconnectMessage, setSessionReconnectMessage] = useState('')
 
   const finalizeLogin = useCallback(async (token: string, username: string) => {
     setStoredToken(token)
@@ -71,33 +73,56 @@ function App() {
         return
       }
 
-      try {
-        const profile = await getProfile()
-        if (!mounted) return
+      while (mounted) {
+        try {
+          const profile = await getProfile()
+          if (!mounted) return
 
-        setActiveThemeScope(profile.username)
-        applyThemePreference(getStoredTheme(profile.username), { persist: false, scope: profile.username })
-        setUser({ username: profile.username, accountType: profile.accountType })
-      } catch (error) {
-        await clearStoredToken()
-        if (!mounted) return
+          setSessionReconnectMessage('')
+          setActiveThemeScope(profile.username)
+          applyThemePreference(getStoredTheme(profile.username), { persist: false, scope: profile.username })
+          setUser({ username: profile.username, accountType: profile.accountType })
+          break
+        } catch (error) {
+          if (isNetworkRequestError(error)) {
+            if (!mounted) return
 
-        setActiveThemeScope(null)
-        applyThemePreference(getStoredTheme(null), { persist: false, scope: null })
-        const message = error instanceof Error ? error.message : 'Your session has ended. Please sign in again.'
-        if (isAuthSessionError(message)) {
-          setLoginError(message)
-          setShowSignIn(false)
-          setShowAboutPage(false)
-          setShowTermsPolicyPage(false)
-          setShowCookiePolicyPage(false)
-          setShowCookieSystemPage(false)
-          setShowCollaboratorsPage(false)
+            setSessionReconnectMessage(
+              navigator.onLine
+                ? 'Connection is unstable. Retrying your session...'
+                : 'Internet connection lost. Reconnecting automatically...'
+            )
+
+            if (!navigator.onLine) {
+              await waitForOnline()
+            } else {
+              await sleep(1500)
+            }
+            continue
+          }
+
+          await clearStoredToken()
+          if (!mounted) return
+
+          setSessionReconnectMessage('')
+          setActiveThemeScope(null)
+          applyThemePreference(getStoredTheme(null), { persist: false, scope: null })
+          const message = error instanceof Error ? error.message : 'Your session has ended. Please sign in again.'
+          if (isAuthSessionError(message)) {
+            setLoginError(message)
+            setShowSignIn(false)
+            setShowAboutPage(false)
+            setShowTermsPolicyPage(false)
+            setShowCookiePolicyPage(false)
+            setShowCookieSystemPage(false)
+            setShowCollaboratorsPage(false)
+          }
+          break
         }
-      } finally {
-        if (mounted) {
-          setSessionBootstrapping(false)
-        }
+      }
+
+      if (mounted) {
+        setSessionBootstrapping(false)
       }
     }
 
@@ -251,7 +276,12 @@ function App() {
   if (sessionBootstrapping) {
     return (
       <div className="app-loading" aria-label="Loading">
-        <div className="app-loading-spinner" />
+        <div className="app-loading-content">
+          <div className="app-loading-spinner" />
+          {sessionReconnectMessage ? (
+            <p className="app-loading-text">{sessionReconnectMessage}</p>
+          ) : null}
+        </div>
       </div>
     )
   }
