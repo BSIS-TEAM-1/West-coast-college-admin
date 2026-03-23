@@ -347,7 +347,7 @@ export default function LandingPage({
       <div className="landing-shell">
         <section className="landing-content" id="top">
           <div className="landing-brand">
-            <img src="/Logo.jpg" alt="West Coast College" className="landing-logo" />
+            <img src="/logo-bg-removed.png" alt="West Coast College" className="landing-logo" />
             <p className="landing-kicker">West Coast College</p>
           </div>
           <h1 className="landing-title">A Developing Higher Education Institution in the Bicol Region</h1>
@@ -363,7 +363,7 @@ export default function LandingPage({
 
         <aside className="landing-image-wrap" aria-label="Campus hero image">
           <img
-            src="/logo-header.jpg"
+            src="/logo-bg-removed.png"
             alt="West Coast College campus visual"
             className="landing-hero-image"
           />
