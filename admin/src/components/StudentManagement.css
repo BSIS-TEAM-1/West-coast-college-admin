@@ -165,26 +165,26 @@ body.student-workspace-overlay-open #root * {
   color: var(--color-text, #f8fafc);
 }
 
-/* Pending enrollment card - uses theme accent color */
+/* Pending enrollment card follows the active accent token set */
 .student-workspace__stat-card--pending {
-  border-color: color-mix(in srgb, var(--theme-accent-base, var(--color-primary)) 30%, var(--student-border));
+  border-color: color-mix(in srgb, var(--color-primary) 34%, var(--student-border));
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--theme-accent-base, var(--color-primary)) 8%, var(--student-surface)),
+    color-mix(in srgb, var(--color-primary) 12%, var(--student-surface)),
     var(--student-surface-soft)
   );
 }
 
 .student-workspace__stat-card--pending span {
-  color: color-mix(in srgb, var(--theme-accent-base, var(--color-primary)) 85%, var(--student-text-soft));
+  color: color-mix(in srgb, var(--color-primary-on-surface, var(--color-primary)) 76%, var(--student-text-soft));
 }
 
 .student-workspace__stat-card--pending strong {
-  color: var(--theme-accent-base, var(--color-primary));
+  color: var(--color-primary-on-surface, var(--color-primary));
 }
 
 .student-workspace__stat-card--pending small {
-  color: color-mix(in srgb, var(--theme-accent-base, var(--color-primary)) 60%, var(--student-text-soft));
+  color: color-mix(in srgb, var(--color-primary-on-surface, var(--color-primary)) 58%, var(--student-text-soft));
 }
 
 .student-workspace__controls-card,
@@ -362,10 +362,10 @@ body.student-workspace-overlay-open #root * {
   display: grid;
   min-width: 220px;
   padding: 0.45rem;
-  border: 1px solid var(--student-border);
+  border: 1px solid #d7dee8;
   border-radius: 1rem;
-  background: color-mix(in srgb, var(--student-surface-strong) 96%, white 4%);
-  box-shadow: 0 24px 44px rgba(15, 23, 42, 0.22);
+  background: #ffffff;
+  box-shadow: 0 24px 44px rgba(15, 23, 42, 0.16);
 }
 
 .student-workspace__menu--compact {
@@ -388,14 +388,14 @@ body.student-workspace-overlay-open #root * {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--student-text-soft);
+  color: #64748b;
   opacity: 0.85;
 }
 
 .student-workspace__menu-divider {
   height: 1px;
   margin: 0.35rem 0.25rem;
-  background: color-mix(in srgb, var(--student-border) 60%, transparent);
+  background: #e2e8f0;
 }
 
 .student-workspace__menu--compact button {
@@ -407,7 +407,7 @@ body.student-workspace-overlay-open #root * {
   border: 0;
   border-radius: 0.75rem;
   background: transparent;
-  color: var(--color-text, #f8fafc);
+  color: #0f172a;
   font: inherit;
   font-size: 0.82rem;
   text-align: left;
@@ -416,12 +416,16 @@ body.student-workspace-overlay-open #root * {
 }
 
 .student-workspace__menu--compact button:hover {
-  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  background: #f8fafc;
 }
 
 .student-workspace__menu--compact button svg {
   flex-shrink: 0;
   opacity: 0.75;
+}
+
+.student-workspace__menu-item--danger {
+  color: #b91c1c !important;
 }
 
 .student-workspace__menu--upward {

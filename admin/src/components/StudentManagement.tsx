@@ -563,6 +563,7 @@ function StudentRowMenu({
   onToggle,
   onClose,
   onViewProfile,
+  onViewCor,
   onEnroll,
   onAssignBlock,
   onEdit,
@@ -577,6 +578,7 @@ function StudentRowMenu({
   onToggle: () => void
   onClose: () => void
   onViewProfile: () => void
+  onViewCor: () => void
   onEnroll: () => void
   onAssignBlock: () => void
   onEdit: () => void
@@ -702,6 +704,10 @@ function StudentRowMenu({
             <button type="button" onClick={onViewProfile}>
               <Eye size={14} />
               View profile
+            </button>
+            <button type="button" onClick={onViewCor}>
+              <FileText size={14} />
+              View COR
             </button>
             <button type="button" onClick={onEnroll}>
               <BookOpenCheck size={14} />
@@ -2237,6 +2243,43 @@ export default function StudentManagement() {
     })
   }
 
+  const handleViewCor = async (student: ManagedStudent) => {
+    setActionMenuStudentId(null)
+
+    await withBusyStudent(student._id, async () => {
+      try {
+        const token = await getStoredToken()
+        if (!token) throw new Error('No authentication token found')
+
+        const response = await fetch(`${API_URL}/api/registrar/students/${student._id}/cor`, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        })
+
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          throw new Error((data?.error as string) || (data?.message as string) || 'Failed to view COR')
+        }
+
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        window.open(url, '_blank', 'noopener')
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 30000)
+
+        setMessage({
+          tone: 'success',
+          text: `COR opened for ${studentNumberDisplay(student)}.`
+        })
+      } catch (viewError) {
+        setMessage({
+          tone: 'error',
+          text: viewError instanceof Error ? viewError.message : 'Failed to view COR'
+        })
+      }
+    })
+  }
+
 
   const handleExportSelected = () => {
     if (!selectedStudents.length) {
@@ -2499,6 +2542,7 @@ export default function StudentManagement() {
                             onToggle={() => setActionMenuStudentId((current) => (current === student._id ? null : student._id))}
                             onClose={() => setActionMenuStudentId(null)}
                             onViewProfile={() => openProfile(student, 'profile')}
+                            onViewCor={() => void handleViewCor(student)}
                             onEnroll={() => openEnrollmentWorkflow([student])}
                             onAssignBlock={() => openBlockAssignmentWorkflow([student])}
                             onEdit={() => setFormModal({ mode: 'edit', student })}

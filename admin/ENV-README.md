@@ -14,6 +14,8 @@
 - Keep API keys only in local `.env` files and never hardcode them in source code
 - The React app reads `.env.development` / `.env.production` automatically through Vite
 - The Express server reads `admin/.env`, so copy the matching file into `.env` for local server runs
+- Deployment platforms such as Render do not read `admin/.env.production` from this repo automatically; set the same variables in the service environment instead
+- If production shows `Email verification service is not configured for login verification.`, the running service is missing a complete email provider configuration at runtime
 
 ## Semaphore SMS
 - Add these variables in `admin/.env` (or your deployment environment):
