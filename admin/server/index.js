@@ -51,6 +51,14 @@ const semaphoreSmsService = new SemaphoreSmsService()
 const smsApiPhService = new SmsApiPhService()
 const verificationEmailService = new VerificationEmailService()
 
+console.log('Verification email service status:', {
+  configured: verificationEmailService.isConfigured(),
+  providerPriority: verificationEmailService.providerPriority,
+  gmailApiConfigured: verificationEmailService.gmailApiService.isConfigured(),
+  semaphoreConfigured: verificationEmailService.semaphoreService.isConfigured(),
+  sendGridConfigured: verificationEmailService.sendGridService.isConfigured()
+})
+
 // Schedule automatic backups (every 6 hours)
 setInterval(async () => {
   console.log('Running scheduled backup...');

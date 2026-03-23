@@ -13,3 +13,13 @@ services:
         value: YOUR_MONGODB_URI_HERE
       - key: JWT_SECRET
         value: YOUR_JWT_SECRET_HERE
+      - key: VERIFICATION_EMAIL_PROVIDER_PRIORITY
+        value: gmail-api
+      - key: GMAIL_CLIENT_ID
+        value: YOUR_GMAIL_CLIENT_ID_HERE
+      - key: GMAIL_CLIENT_SECRET
+        value: YOUR_GMAIL_CLIENT_SECRET_HERE
+      - key: GMAIL_REFRESH_TOKEN
+        value: YOUR_GMAIL_REFRESH_TOKEN_HERE
+      - key: GMAIL_SENDER_EMAIL
+        value: YOUR_GMAIL_SENDER_EMAIL_HERE
