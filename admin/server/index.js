@@ -1801,6 +1801,23 @@ async function beginLoginEmailVerification({ admin, deviceId, authProvider }) {
     return null
   }
 
+  // Keep username/password login available even when email-based login
+  // verification is enabled for the account.
+  if (authProvider !== 'google') {
+    if (
+      admin.loginEmailVerificationCodeHash
+      || admin.loginEmailVerificationExpiresAt
+      || admin.loginEmailVerificationChallengeHash
+      || admin.loginEmailVerificationDeviceId
+      || admin.loginEmailVerificationAuthProvider
+    ) {
+      clearLoginEmailVerificationState(admin)
+      await admin.save()
+    }
+
+    return null
+  }
+
   if (!admin.emailVerified || !isValidEmailAddress(normalizedEmail)) {
     const error = new Error('Login email verification is enabled, but no verified email address is available for this account.')
     error.statusCode = 400

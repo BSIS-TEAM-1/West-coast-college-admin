@@ -587,17 +587,65 @@ function StudentRowMenu({
   onDelete: () => void
 }) {
   const shellRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const [openUpward, setOpenUpward] = useState(false)
+  const [menuPosition, setMenuPosition] = useState<{
+    left: number
+    top?: number
+    bottom?: number
+    maxHeight: number
+  }>({
+    left: 16,
+    top: 16,
+    maxHeight: 320
+  })
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isOpen || !shellRef.current) return
 
-    const rect = shellRef.current.getBoundingClientRect()
-    const menuHeight = 280
-    const spaceBelow = window.innerHeight - rect.bottom
-    const spaceAbove = rect.top
+    const viewportPadding = 16
+    const verticalGap = 10
+    const preferredMenuHeight = 320
+    const minimumMenuHeight = 140
+    const minimumMenuWidth = 200
 
-    setOpenUpward(spaceBelow < menuHeight && spaceAbove > spaceBelow)
+    const updateMenuPosition = () => {
+      if (!shellRef.current) return
+
+      const rect = shellRef.current.getBoundingClientRect()
+      const measuredMenuWidth = Math.max(menuRef.current?.offsetWidth ?? 0, minimumMenuWidth)
+      const maxLeft = Math.max(viewportPadding, window.innerWidth - measuredMenuWidth - viewportPadding)
+      const left = Math.min(Math.max(rect.right - measuredMenuWidth, viewportPadding), maxLeft)
+      const spaceBelow = window.innerHeight - rect.bottom - viewportPadding
+      const spaceAbove = rect.top - viewportPadding
+      const shouldOpenUpward = spaceBelow < preferredMenuHeight && spaceAbove > spaceBelow
+      const availableHeight = shouldOpenUpward ? spaceAbove : spaceBelow
+      const maxHeight = Math.max(minimumMenuHeight, Math.min(preferredMenuHeight, availableHeight - verticalGap))
+
+      setOpenUpward(shouldOpenUpward)
+      setMenuPosition(
+        shouldOpenUpward
+          ? {
+              left,
+              bottom: Math.max(viewportPadding, window.innerHeight - rect.top + verticalGap),
+              maxHeight
+            }
+          : {
+              left,
+              top: Math.max(viewportPadding, rect.bottom + verticalGap),
+              maxHeight
+            }
+      )
+    }
+
+    updateMenuPosition()
+    window.addEventListener('resize', updateMenuPosition)
+    window.addEventListener('scroll', updateMenuPosition, true)
+
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition)
+      window.removeEventListener('scroll', updateMenuPosition, true)
+    }
   }, [isOpen])
 
   useEffect(() => {
@@ -605,7 +653,7 @@ function StudentRowMenu({
 
     const handlePointerDown = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null
-      if (!target?.closest('.student-workspace__menu-shell')) {
+      if (!target?.closest('.student-workspace__menu-shell') && !target?.closest('.student-workspace__menu--portal')) {
         onClose()
       }
     }
@@ -637,8 +685,18 @@ function StudentRowMenu({
         <MoreHorizontal size={16} />
       </button>
 
-      {isOpen ? (
-        <div className={`student-workspace__menu student-workspace__menu--compact${openUpward ? ' student-workspace__menu--upward' : ''}`}>
+      {isOpen && typeof document !== 'undefined'
+        ? createPortal(
+        <div
+          ref={menuRef}
+          className={`student-workspace__menu student-workspace__menu--compact student-workspace__menu--portal${openUpward ? ' student-workspace__menu--upward' : ''}`}
+          style={{
+            left: `${menuPosition.left}px`,
+            top: menuPosition.top === undefined ? undefined : `${menuPosition.top}px`,
+            bottom: menuPosition.bottom === undefined ? undefined : `${menuPosition.bottom}px`,
+            maxHeight: `${menuPosition.maxHeight}px`
+          }}
+        >
           <div className="student-workspace__menu-section">
             <span className="student-workspace__menu-label">Quick actions</span>
             <button type="button" onClick={onViewProfile}>
@@ -682,7 +740,8 @@ function StudentRowMenu({
               Delete student
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       ) : null}
     </div>
   )
@@ -773,7 +832,7 @@ function StudentProfileDrawer({
   const lifecycleStatus = normalizeLifecycleStatus(activeStudent)
   const lifecycleTone =
     lifecycleStatus === 'Enrolled'
-      ? 'success'
+      ? 'accent'
       : lifecycleStatus === 'Pending'
         ? 'accent'
         : lifecycleStatus === 'Inactive' || lifecycleStatus === 'Dropped'
@@ -920,7 +979,7 @@ function StudentProfileDrawer({
                     </div>
                     <div className="student-workspace__detail-item-new">
                       <span className="label">Lifecycle Status</span>
-                      <span className="value">{lifecycleStatus}</span>
+                      <span className="value student-workspace__detail-value--lifecycle">{lifecycleStatus}</span>
                     </div>
                     <div className="student-workspace__detail-item-new">
                       <span className="label">Enrollment Status</span>

@@ -127,7 +127,7 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
 
   const canEnableLoginEmailVerification = Boolean(profile?.emailVerified && profile?.email);
   const loginEmailVerificationHint = canEnableLoginEmailVerification
-    ? `A 6-digit code will be sent to ${profile?.email} every time you sign in.`
+    ? `A 6-digit code will be sent to ${profile?.email} during email-based sign-in verification.`
     : 'Verify an email address on your profile first before enabling login email verification.';
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -489,7 +489,7 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
               <div className="settings-section-header">
                 <div>
                   <h3 className="settings-section-title">Access Control</h3>
-                  <p className="settings-section-desc">Control whether sign-in requires a verification code.</p>
+                  <p className="settings-section-desc">Control whether email-based sign-in verification requires a code.</p>
                 </div>
               </div>
 

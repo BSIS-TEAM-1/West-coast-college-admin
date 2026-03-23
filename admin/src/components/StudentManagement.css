@@ -429,6 +429,15 @@ body.student-workspace-overlay-open #root * {
   bottom: calc(100% + 0.65rem);
 }
 
+.student-workspace__menu--portal {
+  position: fixed;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  z-index: 4100;
+  max-width: calc(100vw - 2rem);
+}
+
 .student-workspace__message {
   padding: 0.95rem 1rem;
   border: 1px solid transparent;
@@ -673,6 +682,13 @@ body.student-workspace-overlay-open #root * {
   gap: 0.5rem;
 }
 
+.student-workspace__profile-badges > .student-workspace__badge--success:first-child {
+  background: var(--color-primary-subtle);
+  border-color: color-mix(in srgb, var(--color-primary) 28%, transparent);
+  color: var(--color-primary-on-surface);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
 .student-workspace__profile-actions {
   display: flex;
   flex-wrap: wrap;
@@ -817,6 +833,10 @@ body.student-workspace-overlay-open #root * {
   font-weight: 500;
   line-height: 1.4;
   overflow-wrap: anywhere;
+}
+
+[data-theme="dark"] .student-workspace__detail-value--lifecycle {
+  color: var(--color-text-bold);
 }
 
 @media (max-width: 960px) {
