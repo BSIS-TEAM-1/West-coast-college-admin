@@ -3742,9 +3742,9 @@
 }
 
 .report-status-pill-enrolled {
-  border-color: color-mix(in srgb, #16a34a 55%, var(--color-border));
-  background: color-mix(in srgb, #16a34a 12%, transparent);
-  color: #166534;
+  border-color: color-mix(in srgb, var(--theme-accent-base, var(--color-primary)) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--theme-accent-base, var(--color-primary)) 12%, transparent);
+  color: var(--color-primary-on-surface);
 }
 
 .report-status-pill-pending {
