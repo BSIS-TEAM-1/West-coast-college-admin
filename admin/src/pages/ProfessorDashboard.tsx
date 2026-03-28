@@ -7,6 +7,7 @@ import { getProfile, getStoredToken } from '../lib/authApi'
 import { fetchWithAutoReconnect, isAbortRequestError, isNetworkRequestError } from '../lib/network'
 import type { ProfileResponse } from '../lib/authApi'
 import { API_URL } from '../lib/authApi'
+import { normalizeAnnouncementAudience } from '../lib/announcementAudience'
 import AnnouncementDetail from './AnnouncementDetail'
 import PersonalDetails from './PersonalDetails'
 import './ProfessorDashboard.css'
@@ -16,7 +17,7 @@ interface Announcement {
   title: string
   message: string
   type: 'info' | 'warning' | 'urgent' | 'maintenance'
-  targetAudience: string
+  targetAudience: string | string[]
   isActive: boolean
   isArchived?: boolean
   isPinned: boolean
@@ -62,7 +63,10 @@ const isVisibleProfessorAnnouncement = (value: any): value is Announcement => {
   const expiry = new Date(rawExpiry)
   if (Number.isNaN(expiry.getTime())) return true
 
-  return expiry.getTime() > Date.now()
+  if (expiry.getTime() <= Date.now()) return false
+
+  const audiences = normalizeAnnouncementAudience(value.targetAudience)
+  return audiences.includes('all') || audiences.includes('professor')
 }
 
 interface ProfessorAssignedSubject {
@@ -373,7 +377,7 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
     try {
       setAnnouncementsLoading(true)
 
-      const response = await fetchWithAutoReconnect(`${API_URL}/api/announcements?targetAudience=faculty`)
+      const response = await fetchWithAutoReconnect(`${API_URL}/api/announcements?targetAudience=professor`)
 
       if (!response.ok) {
         throw new Error(`Failed to fetch announcements: ${response.status}`)
@@ -529,6 +533,7 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
         return <AnnouncementDetail 
           announcementId={selectedAnnouncementId!} 
           onBack={handleBackFromDetail}
+          viewerAudience="professor"
         />
       case 'personal-details':
         return <PersonalDetails onBack={() => setView('profile')} />
@@ -4572,7 +4577,7 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
     const loadEvents = async () => {
       try {
         setEventLoading(true)
-        const response = await fetchWithAutoReconnect(`${API_URL}/api/announcements?targetAudience=faculty`, {
+        const response = await fetchWithAutoReconnect(`${API_URL}/api/announcements?targetAudience=professor`, {
           signal: controller.signal
         })
 

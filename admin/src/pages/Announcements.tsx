@@ -5,6 +5,16 @@ import {
   CheckCircle, XCircle, Archive, RefreshCw, Upload, X, Send
 } from 'lucide-react'
 import { getStoredToken, clearStoredToken, API_URL, getProfile, type ProfileResponse } from '../lib/authApi'
+import {
+  audienceOptions,
+  DEFAULT_ANNOUNCEMENT_AUDIENCE,
+  getAnnouncementAudienceLabels,
+  normalizeAnnouncementAudience,
+  serializeAnnouncementAudienceForApi,
+  toggleAnnouncementAudience,
+  type AnnouncementAudience,
+  type AnnouncementAudienceSelection,
+} from '../lib/announcementAudience'
 import './Announcements.css'
 
 interface Announcement {
@@ -12,7 +22,7 @@ interface Announcement {
   title: string
   message: string
   type: 'info' | 'warning' | 'urgent' | 'maintenance'
-  targetAudience: string
+  targetAudience: AnnouncementAudienceSelection
   isActive: boolean
   isPinned: boolean
   isArchived?: boolean
@@ -48,20 +58,27 @@ interface AnnouncementsProps {
   onNavigate?: (view: string, announcementId?: string) => void
 }
 
-const audienceOptions = [
-  { value: 'all', label: 'All users' },
-  { value: 'students', label: 'Students' },
-  { value: 'faculty', label: 'Faculty' },
-  { value: 'staff', label: 'Staff' },
-  { value: 'admin', label: 'Admins' },
-]
-
 const MAX_TITLE_LENGTH = 200
 const MAX_MESSAGE_LENGTH = 500
 const MAX_IMAGE_FILE_BYTES = 5 * 1024 * 1024
 const MAX_VIDEO_FILE_BYTES = 8 * 1024 * 1024
 const MAX_MEDIA_TOTAL_BYTES = 20 * 1024 * 1024
 const MAX_MEDIA_FILES = 6
+
+const createDefaultAnnouncementDraft = (): Partial<Announcement> => ({
+  title: '',
+  message: '',
+  type: 'info',
+  targetAudience: [...DEFAULT_ANNOUNCEMENT_AUDIENCE],
+  isActive: true,
+  isPinned: false,
+  media: []
+})
+
+const normalizeAnnouncementRecord = (value: any): Announcement => ({
+  ...value,
+  targetAudience: normalizeAnnouncementAudience(value?.targetAudience),
+})
 
 export default function Announcements({ onNavigate }: AnnouncementsProps) {
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
@@ -75,19 +92,11 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
   const [showEditForm, setShowEditForm] = useState(false)
   const [mediaFiles, setMediaFiles] = useState<File[]>([])
   const [isDragging, setIsDragging] = useState(false)
-    const [imagePreviews, setImagePreviews] = useState<{[key: string]: string}>({})
+  const [imagePreviews, setImagePreviews] = useState<{[key: string]: string}>({})
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [savingEdit, setSavingEdit] = useState(false)
   const [savingCreate, setSavingCreate] = useState(false)
-  const [newAnnouncement, setNewAnnouncement] = useState<Partial<Announcement>>({
-    title: '',
-    message: '',
-    type: 'info',
-    targetAudience: 'all',
-    isActive: true,
-    isPinned: false,
-    media: []
-  })
+  const [newAnnouncement, setNewAnnouncement] = useState<Partial<Announcement>>(createDefaultAnnouncementDraft())
   const [currentUser, setCurrentUser] = useState<ProfileResponse | null>(null)
 
   // Helper function to escape HTML entities
@@ -152,7 +161,11 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
         console.error('Failed to parse announcements response')
         return {}
       })
-      setAnnouncements(data.announcements || [])
+      setAnnouncements(
+        Array.isArray(data.announcements)
+          ? data.announcements.map(normalizeAnnouncementRecord)
+          : []
+      )
       setLoading(false)
     } catch (error) {
       console.error('Failed to fetch announcements:', error)
@@ -176,7 +189,10 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
   }
 
   const handleEditAnnouncement = (announcement: Announcement) => {
-    setEditingAnnouncement(announcement)
+    setEditingAnnouncement({
+      ...announcement,
+      targetAudience: normalizeAnnouncementAudience(announcement.targetAudience),
+    })
     setShowEditForm(true)
     setMediaFiles([]) // Reset media files for new edit session
   }
@@ -201,10 +217,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
         title: trimmedTitle,
         message: trimmedMessage,
         type: updatedAnnouncement.type || 'info',
-        targetAudience:
-          updatedAnnouncement.targetAudience && audienceOptions.some(a => a.value === updatedAnnouncement.targetAudience)
-            ? updatedAnnouncement.targetAudience
-            : 'all',
+        targetAudience: serializeAnnouncementAudienceForApi(updatedAnnouncement.targetAudience),
         isPinned: Boolean(updatedAnnouncement.isPinned),
         // If saving as draft, force isActive to false
         isActive: saveAsDraft ? false : (updatedAnnouncement.isActive ?? editingAnnouncement.isActive)
@@ -231,7 +244,8 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       if (!response.ok) {
         const details = Array.isArray(responseData?.details) ? responseData.details.join(', ') : ''
         const suffix = details ? ` Details: ${details}` : ''
-        throw new Error(responseData?.error || responseData?.message || `Failed to update announcement (${response.status})` + suffix)
+        const baseMessage = responseData?.error || responseData?.message || `Failed to update announcement (${response.status})`
+        throw new Error(`${baseMessage}${suffix}`)
       }
       
       // Refresh announcements list
@@ -257,15 +271,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
   const handleCreateAnnouncement = () => {
     setShowCreateForm(true)
     setMediaFiles([])
-    setNewAnnouncement({
-      title: '',
-      message: '',
-      type: 'info',
-      targetAudience: 'all',
-      isActive: true,
-      isPinned: false,
-      media: []
-    })
+    setNewAnnouncement(createDefaultAnnouncementDraft())
   }
 
   const handleSaveNewAnnouncement = async (saveAsDraft = false) => {
@@ -282,29 +288,25 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       // Upload media files first
       const newMedia = await uploadMediaFiles(mediaFiles)
 
-    const allMedia = newMedia.map((m) => ({
-      ...m,
-      fileSize: (m as any).fileSize ?? 0,
-    })) as NonNullable<Announcement['media']>
+      const allMedia = newMedia.map((m) => ({
+        ...m,
+        fileSize: (m as any).fileSize ?? 0,
+      })) as NonNullable<Announcement['media']>
 
-    const token = await getStoredToken()
-    const response = await fetch(`${API_URL}/api/admin/announcements`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
+      const token = await getStoredToken()
+      const response = await fetch(`${API_URL}/api/admin/announcements`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
-      body: JSON.stringify({
-        title: trimmedTitle,
-        message: trimmedMessage,
-        type: newAnnouncement.type || 'info',
-        isPinned: Boolean(newAnnouncement.isPinned),
-        // Normalize targetAudience to allowed enum values
-        targetAudience:
-          newAnnouncement.targetAudience && audienceOptions.some(a => a.value === newAnnouncement.targetAudience)
-            ? newAnnouncement.targetAudience
-            : 'all',
+        body: JSON.stringify({
+          title: trimmedTitle,
+          message: trimmedMessage,
+          type: newAnnouncement.type || 'info',
+          isPinned: Boolean(newAnnouncement.isPinned),
+          targetAudience: serializeAnnouncementAudienceForApi(newAnnouncement.targetAudience),
           media: allMedia
         })
       })
@@ -313,7 +315,8 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       if (!response.ok) {
         const details = Array.isArray(responseData?.details) ? responseData.details.join(', ') : ''
         const suffix = details ? ` Details: ${details}` : ''
-        throw new Error(responseData?.error || responseData?.message || `Failed to create announcement (${response.status})` + suffix)
+        const baseMessage = responseData?.error || responseData?.message || `Failed to create announcement (${response.status})`
+        throw new Error(`${baseMessage}${suffix}`)
       }
       
       // Backend workaround: If we saved as draft but backend returned isActive: true, fix it
@@ -341,15 +344,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
       // Refresh announcements list
       await fetchAnnouncements()
       setShowCreateForm(false)
-      setNewAnnouncement({
-        title: '',
-        message: '',
-        type: 'info',
-        targetAudience: 'all',
-        isActive: true,
-        isPinned: false,
-        media: []
-      })
+      setNewAnnouncement(createDefaultAnnouncementDraft())
       setMediaFiles([])
     } catch (error) {
       console.error('Failed to create announcement:', error)
@@ -361,15 +356,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
 
   const handleCancelCreate = () => {
     setShowCreateForm(false)
-    setNewAnnouncement({
-      title: '',
-      message: '',
-      type: 'info',
-      targetAudience: 'all',
-      isActive: true,
-      isPinned: false,
-      media: []
-    })
+    setNewAnnouncement(createDefaultAnnouncementDraft())
     setMediaFiles([])
   }
 
@@ -500,6 +487,45 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
     if (text.length <= maxLength) return text
     return `${text.slice(0, maxLength).trimEnd()}...`
   }
+
+  const renderAudienceTags = (value: AnnouncementAudienceSelection) => (
+    <div className="audience-chip-list">
+      {getAnnouncementAudienceLabels(value).map((label) => (
+        <span key={label} className="audience-chip">
+          {label}
+        </span>
+      ))}
+    </div>
+  )
+
+  const renderAudienceSelector = (
+    value: AnnouncementAudienceSelection,
+    onChange: (nextValue: AnnouncementAudienceSelection) => void
+  ) => (
+    <>
+      <div className="audience-selector" role="group" aria-label="Target audience">
+        {audienceOptions.map((option) => {
+          const isSelected = value.includes(option.value)
+          return (
+            <label
+              key={option.value}
+              className="audience-selector-option"
+            >
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => onChange(toggleAnnouncementAudience(value, option.value as AnnouncementAudience))}
+              />
+              <span>{option.label}</span>
+            </label>
+          )
+        })}
+      </div>
+      <p className="audience-selector-hint">
+        Choose one or more audiences. Selecting All users clears the specific groups.
+      </p>
+    </>
+  )
 
   const filteredAnnouncements = announcements.filter(announcement => {
     const matchesSearch = announcement.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -837,21 +863,13 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
               
               <div className="form-group">
                 <label>Target Audience</label>
-                <select
-                  value={editingAnnouncement.targetAudience}
-                  onChange={(e) =>
-                    setEditingAnnouncement({
-                      ...editingAnnouncement,
-                      targetAudience: e.target.value,
-                    })
-                  }
-                >
-                  {audienceOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                {renderAudienceSelector(
+                  editingAnnouncement.targetAudience,
+                  (targetAudience) => setEditingAnnouncement({
+                    ...editingAnnouncement,
+                    targetAudience,
+                  })
+                )}
               </div>
               
               <div className="form-group">
@@ -1080,21 +1098,13 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
               
               <div className="form-group">
                 <label>Target Audience</label>
-                <select
-                  value={newAnnouncement.targetAudience || 'all'}
-                  onChange={(e) =>
-                    setNewAnnouncement({
-                      ...newAnnouncement,
-                      targetAudience: e.target.value,
-                    })
-                  }
-                >
-                  {audienceOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                {renderAudienceSelector(
+                  normalizeAnnouncementAudience(newAnnouncement.targetAudience),
+                  (targetAudience) => setNewAnnouncement({
+                    ...newAnnouncement,
+                    targetAudience,
+                  })
+                )}
               </div>
               
               <div className="form-group horizontal-checkboxes">
@@ -1287,8 +1297,8 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                     </span>
                   </div>
                   <div className="table-audience">
-                    <Users size={14} />
-                    {announcement.targetAudience}
+                    <Users size={14} className="table-audience-icon" />
+                    {renderAudienceTags(announcement.targetAudience)}
                   </div>
                   <div className="table-status">
                     <span className={`status-badge ${announcement.isActive ? 'published' : announcement.isArchived ? 'archived' : 'draft'}`}>

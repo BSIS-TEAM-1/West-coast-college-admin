@@ -118,7 +118,6 @@ const normalizeAccentColor = (value: string | null): ThemeAccentColor | null => 
 
   return trimmed.toLowerCase()
 }
-
 const hexToRgb = (hexColor: ThemeAccentColor): RgbColor => ({
   r: Number.parseInt(hexColor.slice(1, 3), 16),
   g: Number.parseInt(hexColor.slice(3, 5), 16),

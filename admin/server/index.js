@@ -30,6 +30,7 @@ const Announcement = require('./models/Announcement')
 const AuditLog = require('./models/AuditLog')
 const AuthToken = require('./models/AuthToken')
 const Document = require('./models/Document')
+const DocumentFolder = require('./models/DocumentFolder')
 const Backup = require('./models/Backup')
 const BlockedIP = require('./models/BlockedIP')
 const SecurityScan = require('./models/SecurityScan')
@@ -38,6 +39,7 @@ const Enrollment = require('./models/Enrollment')
 const BlockSection = require('./models/BlockSection')
 const StudentBlockAssignment = require('./models/StudentBlockAssignment')
 const BackupSystem = require('./backup')
+const { getAnnouncementAudienceQueryValues, normalizeAnnouncementAudience, validateAnnouncementAudience } = require('./announcementAudience')
 const SemaphoreSmsService = require('./services/semaphoreSmsService')
 const SmsApiPhService = require('./services/smsApiPhService')
 const VerificationEmailService = require('./services/verificationEmailService')
@@ -83,6 +85,7 @@ const UPLOADS_ROOT_DIR = path.join(__dirname, 'uploads')
 const DOCUMENT_UPLOADS_DIR = path.join(UPLOADS_ROOT_DIR, 'documents')
 const DOCUMENT_MANAGEMENT_ROLES = ['admin', 'registrar']
 const requireAdminOrRegistrarRole = requireAnyRole(...DOCUMENT_MANAGEMENT_ROLES)
+const ARCHIVE_ACTOR_POPULATE = 'username displayName avatar avatarMimeType'
 const parsedPhoneVerificationTtlMs = Number(process.env.PHONE_VERIFICATION_CODE_TTL_MS)
 const PHONE_VERIFICATION_CODE_TTL_MS = Number.isFinite(parsedPhoneVerificationTtlMs) && parsedPhoneVerificationTtlMs > 0
   ? parsedPhoneVerificationTtlMs
@@ -401,6 +404,248 @@ async function deleteStoredUpload(relativePath) {
       throw error
     }
   }
+}
+
+function escapeRegex(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function sanitizeFolderForAudit(folder) {
+  if (!folder) return null
+  const source = folder.toObject ? folder.toObject() : folder
+
+  return {
+    _id: source._id,
+    name: source.name,
+    segmentType: source.segmentType,
+    segmentValue: source.segmentValue,
+    description: source.description,
+    parentFolder: source.parentFolder,
+    createdBy: source.createdBy,
+    updatedBy: source.updatedBy,
+    createdAt: source.createdAt,
+    updatedAt: source.updatedAt
+  }
+}
+
+async function ensureFolderExists(folderId) {
+  if (!folderId) {
+    return null
+  }
+
+  const folder = await DocumentFolder.findById(folderId)
+  if (!folder) {
+    const error = new Error('Selected folder was not found.')
+    error.statusCode = 400
+    throw error
+  }
+
+  return folder
+}
+
+async function ensureUniqueFolderName(name, parentFolderId, excludeFolderId = null) {
+  const normalizedName = String(name || '').trim()
+  if (!normalizedName) {
+    const error = new Error('Folder name is required.')
+    error.statusCode = 400
+    throw error
+  }
+
+  const duplicateQuery = {
+    parentFolder: parentFolderId || null,
+    name: { $regex: `^${escapeRegex(normalizedName)}$`, $options: 'i' }
+  }
+
+  if (excludeFolderId) {
+    duplicateQuery._id = { $ne: excludeFolderId }
+  }
+
+  const duplicateFolder = await DocumentFolder.findOne(duplicateQuery).select('_id')
+
+  if (duplicateFolder) {
+    const error = new Error('A folder with the same name already exists in this location.')
+    error.statusCode = 409
+    throw error
+  }
+}
+
+const DOCUMENT_TYPE_FOLDER_RESTRICTIONS = [
+  { matchValues: ['PDF'], label: 'PDF', allowedTypes: ['PDF'] },
+  { matchValues: ['DOC', 'DOCX', 'DOCS', 'WORD', 'DOCUMENT'], label: 'DOC or DOCX', allowedTypes: ['DOC', 'DOCX'] },
+  { matchValues: ['XLS', 'XLSX', 'SPREADSHEET'], label: 'XLS, XLSX, or CSV', allowedTypes: ['XLS', 'XLSX', 'CSV'] },
+  { matchValues: ['PPT', 'PPTX', 'PRESENTATION'], label: 'PPT or PPTX', allowedTypes: ['PPT', 'PPTX'] },
+  { matchValues: ['PNG'], label: 'PNG', allowedTypes: ['PNG'] },
+  { matchValues: ['JPG', 'JPEG'], label: 'JPG or JPEG', allowedTypes: ['JPG', 'JPEG'] },
+  { matchValues: ['IMAGE'], label: 'image', allowedTypes: ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'SVG'] },
+  { matchValues: ['TXT', 'TEXT'], label: 'TXT', allowedTypes: ['TXT'] },
+  { matchValues: ['CSV'], label: 'CSV', allowedTypes: ['CSV'] },
+  { matchValues: ['ZIP', 'ARCHIVE'], label: 'ZIP', allowedTypes: ['ZIP'] }
+]
+
+function normalizeDocumentFileType(value) {
+  const cleanedValue = String(value || '').replace(/^\./, '').trim()
+  if (!cleanedValue) {
+    return 'File'
+  }
+
+  const normalizedValue = cleanedValue.toUpperCase()
+  return normalizedValue === 'JPG' ? 'JPEG' : normalizedValue
+}
+
+function getDocumentFileTypeFromMetadata({ originalFileName, fileName, mimeType }) {
+  const nameCandidates = [originalFileName, fileName]
+
+  for (const candidateName of nameCandidates) {
+    const extension = String(candidateName || '').split('.').pop()
+    if (extension && extension !== candidateName) {
+      return normalizeDocumentFileType(extension)
+    }
+  }
+
+  if (String(mimeType || '').startsWith('image/')) return 'Image'
+  if (String(mimeType || '').includes('pdf')) return 'PDF'
+  if (String(mimeType || '').includes('spreadsheet') || String(mimeType || '').includes('excel') || String(mimeType || '').includes('csv')) return 'Spreadsheet'
+  if (String(mimeType || '').includes('word') || String(mimeType || '').includes('document')) return 'Document'
+  return 'File'
+}
+
+function resolveFolderDocumentTypeRestriction(segmentValue) {
+  const normalizedSegmentValue = normalizeDocumentFileType(segmentValue)
+  if (!normalizedSegmentValue || normalizedSegmentValue === 'File') {
+    return null
+  }
+
+  return DOCUMENT_TYPE_FOLDER_RESTRICTIONS.find((entry) => entry.matchValues.includes(normalizedSegmentValue)) || null
+}
+
+async function getFolderDocumentTypeRestriction(folder) {
+  let currentFolder = folder
+
+  while (currentFolder) {
+    if (currentFolder.segmentType === 'DOCUMENT_TYPE') {
+      const restriction = resolveFolderDocumentTypeRestriction(currentFolder.segmentValue || currentFolder.name)
+      if (restriction) {
+        return restriction
+      }
+    }
+
+    const parentFolderId = currentFolder.parentFolder?._id || currentFolder.parentFolder || null
+    if (!parentFolderId) {
+      break
+    }
+
+    currentFolder = await DocumentFolder.findById(parentFolderId)
+      .select('name segmentType segmentValue parentFolder')
+      .lean()
+  }
+
+  return null
+}
+
+async function assertDocumentMatchesFolderRestriction(folder, documentMetadata) {
+  if (!folder) {
+    return
+  }
+
+  const restriction = await getFolderDocumentTypeRestriction(folder)
+  if (!restriction) {
+    return
+  }
+
+  const fileType = getDocumentFileTypeFromMetadata(documentMetadata)
+  if (restriction.allowedTypes.includes(fileType)) {
+    return
+  }
+
+  const error = new Error(`Only ${restriction.label} files can be uploaded in this folder.`)
+  error.statusCode = 400
+  throw error
+}
+
+async function collectFolderBranchIds(rootFolderId) {
+  const discoveredIds = [String(rootFolderId)]
+  const queue = [String(rootFolderId)]
+
+  while (queue.length > 0) {
+    const batch = queue.splice(0, queue.length)
+    const childFolders = await DocumentFolder.find({
+      parentFolder: { $in: batch }
+    }).select('_id').lean()
+
+    childFolders.forEach((childFolder) => {
+      const childId = String(childFolder._id)
+      if (discoveredIds.includes(childId)) return
+      discoveredIds.push(childId)
+      queue.push(childId)
+    })
+  }
+
+  return discoveredIds
+}
+
+async function getFolderBranchDetails(rootFolderId) {
+  const folderIds = await collectFolderBranchIds(rootFolderId)
+  const documents = await Document.find({
+    folderId: { $in: folderIds }
+  }).select('_id title filePath').lean()
+
+  return {
+    folderIds,
+    childFolderCount: Math.max(0, folderIds.length - 1),
+    documents
+  }
+}
+
+async function withFolderCounts(folders) {
+  if (!Array.isArray(folders) || folders.length === 0) {
+    return []
+  }
+
+  const folderIds = folders.map((folder) => folder._id)
+  const [documentCounts, childFolderCounts] = await Promise.all([
+    Document.aggregate([
+      { $match: { folderId: { $in: folderIds } } },
+      {
+        $group: {
+          _id: '$folderId',
+          count: { $sum: 1 },
+          totalSize: { $sum: '$fileSize' }
+        }
+      }
+    ]),
+    DocumentFolder.aggregate([
+      { $match: { parentFolder: { $in: folderIds } } },
+      {
+        $group: {
+          _id: '$parentFolder',
+          count: { $sum: 1 }
+        }
+      }
+    ])
+  ])
+
+  const documentCountMap = new Map(
+    documentCounts.map((entry) => [String(entry._id), {
+      count: Number(entry.count) || 0,
+      totalSize: Number(entry.totalSize) || 0
+    }])
+  )
+  const childFolderCountMap = new Map(
+    childFolderCounts.map((entry) => [String(entry._id), Number(entry.count) || 0])
+  )
+
+  return folders.map((folder) => {
+    const folderObject = folder.toObject ? folder.toObject() : folder
+    const folderId = String(folderObject._id)
+    const documentCountEntry = documentCountMap.get(folderId)
+
+    return {
+      ...folderObject,
+      directDocumentCount: documentCountEntry?.count || 0,
+      directChildFolderCount: childFolderCountMap.get(folderId) || 0,
+      directStorageBytes: documentCountEntry?.totalSize || 0
+    }
+  })
 }
 
 // Serve frontend static files
@@ -1312,6 +1557,7 @@ function auditObject(obj, resourceType) {
     return {
       _id: o._id,
       title: o.title,
+      folderId: o.folderId,
       fileName: o.fileName,
       originalFileName: o.originalFileName,
       mimeType: o.mimeType,
@@ -3425,6 +3671,13 @@ function validateAnnouncementPayload(payload = {}, { isUpdate = false } = {}) {
     }
   }
 
+  if (hasOwn(payload, 'targetAudience')) {
+    const audienceValidationError = validateAnnouncementAudience(payload.targetAudience)
+    if (audienceValidationError) {
+      details.push(audienceValidationError)
+    }
+  }
+
   if (hasOwn(payload, 'media') && payload.media !== undefined) {
     if (!Array.isArray(payload.media)) {
       details.push('Media must be an array.')
@@ -3496,9 +3749,13 @@ app.get('/api/announcements', async (req, res) => {
     const filter = { isActive: true }
     
     if (targetAudience && targetAudience !== 'all') {
+      const audienceQueryValues = getAnnouncementAudienceQueryValues(targetAudience)
+      const scopedAudienceValues = audienceQueryValues.length > 0
+        ? audienceQueryValues
+        : [String(targetAudience)]
       filter.$or = [
         { targetAudience: 'all' },
-        { targetAudience }
+        ...scopedAudienceValues.map((audience) => ({ targetAudience: audience }))
       ]
     }
 
@@ -3519,10 +3776,24 @@ app.get('/api/announcements/:id', async (req, res) => {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
-    const announcement = await Announcement.findOne({
+    const filter = {
       _id: req.params.id,
       isActive: true
-    })
+    }
+    const { targetAudience } = req.query
+
+    if (targetAudience && targetAudience !== 'all') {
+      const audienceQueryValues = getAnnouncementAudienceQueryValues(targetAudience)
+      const scopedAudienceValues = audienceQueryValues.length > 0
+        ? audienceQueryValues
+        : [String(targetAudience)]
+      filter.$or = [
+        { targetAudience: 'all' },
+        ...scopedAudienceValues.map((audience) => ({ targetAudience: audience }))
+      ]
+    }
+
+    const announcement = await Announcement.findOne(filter)
       .populate('createdBy', 'username displayName')
     
     if (!announcement) {
@@ -3547,7 +3818,12 @@ app.get('/api/admin/announcements', authMiddleware, requireAdminOrRegistrarRole,
     const filter = {}
     
     if (type) filter.type = type
-    if (targetAudience) filter.targetAudience = targetAudience
+    if (targetAudience) {
+      const audienceQueryValues = getAnnouncementAudienceQueryValues(targetAudience)
+      filter.targetAudience = audienceQueryValues.length > 0
+        ? { $in: audienceQueryValues }
+        : targetAudience
+    }
     if (status) filter.isActive = status === 'active'
 
     const announcements = await Announcement.find(filter)
@@ -3588,12 +3864,13 @@ app.post('/api/admin/announcements', authMiddleware, requireAdminOrRegistrarRole
     const normalizedTitle = String(title || '').trim()
     const normalizedMessage = String(message || '').trim()
     const normalizedMedia = Array.isArray(media) ? normalizeAnnouncementMedia(media) : []
+    const normalizedTargetAudience = normalizeAnnouncementAudience(targetAudience)
 
     const announcement = new Announcement({
       title: normalizedTitle,
       message: normalizedMessage,
       type: type || 'info',
-      targetAudience: targetAudience || 'all',
+      targetAudience: normalizedTargetAudience,
       expiresAt: expiresAt ? new Date(expiresAt) : undefined,
       isPinned: isPinned || false,
       media: normalizedMedia,
@@ -3656,7 +3933,7 @@ app.put('/api/admin/announcements/:id', authMiddleware, requireAdminOrRegistrarR
     if (title !== undefined) announcement.title = String(title ?? '').trim()
     if (message !== undefined) announcement.message = String(message ?? '').trim()
     if (type !== undefined) announcement.type = type
-    if (targetAudience !== undefined) announcement.targetAudience = targetAudience
+    if (targetAudience !== undefined) announcement.targetAudience = normalizeAnnouncementAudience(targetAudience)
     if (expiresAt !== undefined) announcement.expiresAt = new Date(expiresAt)
     if (isPinned !== undefined) announcement.isPinned = isPinned
     if (isActive !== undefined) announcement.isActive = isActive
@@ -3871,6 +4148,226 @@ app.get('/api/admin/audit-logs/stats', authMiddleware, requireAdminRole, async (
 
 // ==================== DOCUMENTS ====================
 
+// GET /api/admin/document-folders - list archive folders
+app.get('/api/admin/document-folders', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.documentFolders.query), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+
+  try {
+    const { parentId, search } = req.query
+    const filter = {}
+
+    if (parentId) {
+      filter.parentFolder = parentId
+    }
+
+    if (search) {
+      filter.$or = [
+        { name: { $regex: escapeRegex(search), $options: 'i' } },
+        { segmentValue: { $regex: escapeRegex(search), $options: 'i' } }
+      ]
+    }
+
+    const folders = await DocumentFolder.find(filter)
+      .populate('createdBy', ARCHIVE_ACTOR_POPULATE)
+      .populate('updatedBy', ARCHIVE_ACTOR_POPULATE)
+      .populate('parentFolder', 'name segmentType segmentValue parentFolder')
+      .sort({ parentFolder: 1, name: 1 })
+      .lean()
+
+    res.json({
+      folders: await withFolderCounts(folders),
+      total: folders.length
+    })
+  } catch (err) {
+    console.error('Get document folders error:', err.message)
+    res.status(500).json({ error: 'Failed to load document folders.' })
+  }
+})
+
+// POST /api/admin/document-folders - create folder
+app.post('/api/admin/document-folders', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.documentFolders.create), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+
+  try {
+    const {
+      name,
+      segmentType = 'CUSTOM',
+      segmentValue = '',
+      description = '',
+      parentFolderId = null
+    } = req.body
+
+    const parentFolder = await ensureFolderExists(parentFolderId)
+    await ensureUniqueFolderName(name, parentFolder?._id || null)
+
+    const folder = new DocumentFolder({
+      name,
+      segmentType,
+      segmentValue,
+      description,
+      parentFolder: parentFolder?._id || null,
+      createdBy: req.adminId
+    })
+
+    await folder.save()
+    await folder.populate('createdBy', ARCHIVE_ACTOR_POPULATE)
+    await folder.populate('parentFolder', 'name segmentType segmentValue parentFolder')
+
+    const hydratedFolder = (await withFolderCounts([folder]))[0]
+
+    await logAudit(
+      'CREATE',
+      'DOCUMENT',
+      folder._id.toString(),
+      `Folder: ${folder.name}`,
+      `Created document folder: ${folder.name}`,
+      req.adminId,
+      req.accountType,
+      null,
+      sanitizeFolderForAudit(folder),
+      'SUCCESS',
+      'LOW'
+    )
+
+    res.status(201).json({
+      message: 'Folder created successfully.',
+      folder: hydratedFolder
+    })
+  } catch (err) {
+    console.error('Create document folder error:', err.message)
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to create folder.' })
+  }
+})
+
+// PUT /api/admin/document-folders/:id - rename/update folder
+app.put('/api/admin/document-folders/:id', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware({
+  body: securityMiddleware.schemas.documentFolders.update.body,
+  params: Joi.object({ id: securityMiddleware.schemas.objectId })
+}), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+
+  try {
+    const folder = await DocumentFolder.findById(req.params.id)
+    if (!folder) {
+      return res.status(404).json({ error: 'Folder not found.' })
+    }
+
+    const previousValue = sanitizeFolderForAudit(folder)
+    const { name, segmentType, segmentValue, description } = req.body
+
+    if (name && name.trim() !== folder.name) {
+      await ensureUniqueFolderName(name, folder.parentFolder, folder._id)
+      folder.name = name
+    }
+
+    if (segmentType) folder.segmentType = segmentType
+    if (segmentValue !== undefined) folder.segmentValue = segmentValue
+    if (description !== undefined) folder.description = description
+    folder.updatedBy = req.adminId
+
+    await folder.save()
+    await folder.populate('createdBy', ARCHIVE_ACTOR_POPULATE)
+    await folder.populate('updatedBy', ARCHIVE_ACTOR_POPULATE)
+    await folder.populate('parentFolder', 'name segmentType segmentValue parentFolder')
+
+    const hydratedFolder = (await withFolderCounts([folder]))[0]
+
+    await logAudit(
+      'UPDATE',
+      'DOCUMENT',
+      folder._id.toString(),
+      `Folder: ${folder.name}`,
+      `Updated document folder: ${folder.name}`,
+      req.adminId,
+      req.accountType,
+      previousValue,
+      sanitizeFolderForAudit(folder),
+      'SUCCESS',
+      'LOW'
+    )
+
+    res.json({
+      message: 'Folder updated successfully.',
+      folder: hydratedFolder
+    })
+  } catch (err) {
+    console.error('Update document folder error:', err.message)
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to update folder.' })
+  }
+})
+
+// DELETE /api/admin/document-folders/:id - delete folder, optionally cascading
+app.delete('/api/admin/document-folders/:id', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware({
+  params: Joi.object({ id: securityMiddleware.schemas.objectId }),
+  query: Joi.object({ force: Joi.boolean().optional() })
+}), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+
+  try {
+    const folder = await DocumentFolder.findById(req.params.id)
+    if (!folder) {
+      return res.status(404).json({ error: 'Folder not found.' })
+    }
+
+    const { folderIds, childFolderCount, documents } = await getFolderBranchDetails(folder._id)
+    const forceDelete = req.query.force === true
+
+    if (!forceDelete && (childFolderCount > 0 || documents.length > 0)) {
+      return res.status(409).json({
+        error: 'Folder still contains archived items.',
+        details: {
+          childFolderCount,
+          documentCount: documents.length
+        }
+      })
+    }
+
+    for (const document of documents) {
+      await deleteStoredUpload(document.filePath)
+    }
+
+    if (documents.length > 0) {
+      await Document.deleteMany({ _id: { $in: documents.map((document) => document._id) } })
+    }
+
+    await DocumentFolder.deleteMany({ _id: { $in: folderIds } })
+
+    await logAudit(
+      'DELETE',
+      'DOCUMENT',
+      folder._id.toString(),
+      `Folder: ${folder.name}`,
+      `Deleted document folder: ${folder.name}`,
+      req.adminId,
+      req.accountType,
+      sanitizeFolderForAudit(folder),
+      {
+        deletedFolderCount: folderIds.length,
+        deletedDocumentCount: documents.length
+      },
+      'SUCCESS',
+      'HIGH'
+    )
+
+    res.json({
+      message: 'Folder deleted successfully.',
+      deletedFolderCount: folderIds.length,
+      deletedDocumentCount: documents.length
+    })
+  } catch (err) {
+    console.error('Delete document folder error:', err.message)
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to delete folder.' })
+  }
+})
+
 // GET /api/documents - get public documents
 app.get('/api/documents', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.documents.query), async (req, res) => {
   if (!dbReady) {
@@ -3894,7 +4391,7 @@ app.get('/api/documents', securityMiddleware.inputValidationMiddleware(securityM
     }
 
     const documents = await Document.find(filter)
-      .populate('createdBy', 'username displayName')
+      .populate('createdBy', ARCHIVE_ACTOR_POPULATE)
       .sort({ updatedAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit)
@@ -3919,28 +4416,62 @@ app.get('/api/admin/documents', authMiddleware, requireAdminOrRegistrarRole, sec
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
-    const { category, status, search, page, limit } = req.query
+    const {
+      category,
+      status,
+      search,
+      page,
+      limit,
+      folderId,
+      includeUnfoldered,
+      visibility = 'all',
+      sortBy = 'updatedAt',
+      sortOrder = 'desc'
+    } = req.query
     const pageInt = Math.max(1, parseInt(page, 10) || 1)
     const limitInt = Math.max(1, Math.min(100, parseInt(limit, 10) || 20))
-    let conditions = {}
-    
-    if (category) conditions.category = category
-    if (status) conditions.status = status
+    const filter = {}
+    const sortField = ['updatedAt', 'createdAt', 'title', 'fileSize', 'category'].includes(String(sortBy))
+      ? String(sortBy)
+      : 'updatedAt'
+    const sortDirection = sortOrder === 'asc' ? 1 : -1
 
-    const filter = securityMiddleware.buildSafeQuery(conditions)
-    
+    if (category) filter.category = category
+    if (status) filter.status = status
+    if (folderId) {
+      filter.folderId = folderId
+    } else if (includeUnfoldered === true) {
+      filter.folderId = null
+    }
+    if (visibility === 'public') {
+      filter.isPublic = true
+    } else if (visibility === 'restricted') {
+      filter.isPublic = false
+    }
     if (search) {
       filter.$text = { $search: search }
     }
 
-    const documents = await Document.find(filter)
-      .populate('createdBy', 'username displayName')
-      .populate('updatedBy', 'username displayName')
-      .sort({ updatedAt: -1 })
-      .limit(limitInt)
-      .skip((pageInt - 1) * limitInt)
-    
-    const total = await Document.countDocuments(filter)
+    const projection = search ? { score: { $meta: 'textScore' } } : null
+    const sort = search
+      ? { score: { $meta: 'textScore' }, [sortField]: sortDirection }
+      : { [sortField]: sortDirection }
+
+    if (sortField !== 'updatedAt') {
+      sort.updatedAt = -1
+    }
+
+    const [documents, total] = await Promise.all([
+      Document.find(filter, projection || undefined)
+        .populate('folderId', 'name segmentType segmentValue parentFolder')
+        .populate('createdBy', ARCHIVE_ACTOR_POPULATE)
+        .populate('updatedBy', ARCHIVE_ACTOR_POPULATE)
+        .sort(sort)
+        .limit(limitInt)
+        .skip((pageInt - 1) * limitInt)
+        .lean(),
+      Document.countDocuments(filter)
+    ])
     
     res.json({
       documents,
@@ -3954,6 +4485,32 @@ app.get('/api/admin/documents', authMiddleware, requireAdminOrRegistrarRole, sec
   }
 })
 
+// GET /api/admin/documents/:id - get one document (admin)
+app.get('/api/admin/documents/:id', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware({
+  params: Joi.object({ id: securityMiddleware.schemas.objectId })
+}), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+
+  try {
+    const document = await Document.findById(req.params.id)
+      .populate('folderId', 'name segmentType segmentValue parentFolder')
+      .populate('createdBy', ARCHIVE_ACTOR_POPULATE)
+      .populate('updatedBy', ARCHIVE_ACTOR_POPULATE)
+      .lean()
+
+    if (!document) {
+      return res.status(404).json({ error: 'Document not found.' })
+    }
+
+    res.json({ document })
+  } catch (err) {
+    console.error('Get admin document error:', err.message)
+    res.status(500).json({ error: 'Failed to load document.' })
+  }
+})
+
 // POST /api/admin/documents - upload new document
 app.post('/api/admin/documents', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.documents.create), async (req, res) => {
   if (!dbReady) {
@@ -3962,10 +4519,16 @@ app.post('/api/admin/documents', authMiddleware, requireAdminOrRegistrarRole, se
   let storedFilePath = ''
   try {
     const { 
-      title, description, category, subcategory, fileName, originalFileName, 
+      title, description, category, subcategory, folderId, fileName, originalFileName, 
       mimeType, fileSize, fileData, version, isPublic, allowedRoles, tags,
       effectiveDate, expiryDate, status
     } = req.body
+    const selectedFolder = await ensureFolderExists(folderId)
+    await assertDocumentMatchesFolderRestriction(selectedFolder, {
+      originalFileName: originalFileName || fileName,
+      fileName,
+      mimeType
+    })
     const persistedFile = await persistDocumentUpload({
       originalFileName: originalFileName || fileName,
       fileData,
@@ -3979,6 +4542,7 @@ app.post('/api/admin/documents', authMiddleware, requireAdminOrRegistrarRole, se
       description,
       category,
       subcategory,
+      folderId: selectedFolder?._id || null,
       fileName: persistedFile.fileName,
       originalFileName,
       mimeType,
@@ -3995,7 +4559,8 @@ app.post('/api/admin/documents', authMiddleware, requireAdminOrRegistrarRole, se
     })
 
     await document.save()
-    await document.populate('createdBy', 'username displayName')
+    await document.populate('folderId', 'name segmentType segmentValue parentFolder')
+    await document.populate('createdBy', ARCHIVE_ACTOR_POPULATE)
 
     // Log the action
     await logAudit(
@@ -4007,7 +4572,7 @@ app.post('/api/admin/documents', authMiddleware, requireAdminOrRegistrarRole, se
       req.adminId,
       req.accountType,
       null,
-      document.toObject(),
+      auditObject(document, 'DOCUMENT'),
       'SUCCESS',
       'MEDIUM'
     )
@@ -4035,19 +4600,28 @@ app.put('/api/admin/documents/:id', authMiddleware, requireAdminOrRegistrarRole,
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
-    const { title, description, category, subcategory, isPublic, allowedRoles, tags, effectiveDate, expiryDate, status } = req.body
+    const { title, description, category, subcategory, folderId, isPublic, allowedRoles, tags, effectiveDate, expiryDate, status } = req.body
     
     const document = await Document.findById(req.params.id)
     if (!document) {
       return res.status(404).json({ error: 'Document not found.' })
     }
 
-    const oldValue = document.toObject()
+    const oldValue = auditObject(document, 'DOCUMENT')
+    const selectedFolder = folderId === undefined ? undefined : await ensureFolderExists(folderId)
+    if (folderId !== undefined) {
+      await assertDocumentMatchesFolderRestriction(selectedFolder, {
+        originalFileName: document.originalFileName,
+        fileName: document.fileName,
+        mimeType: document.mimeType
+      })
+    }
     
     if (title) document.title = title
     if (description !== undefined) document.description = description
     if (category) document.category = category
     if (subcategory !== undefined) document.subcategory = subcategory
+    if (folderId !== undefined) document.folderId = selectedFolder?._id || null
     if (isPublic !== undefined) document.isPublic = isPublic
     if (allowedRoles !== undefined) document.allowedRoles = allowedRoles
     if (tags !== undefined) document.tags = tags
@@ -4057,8 +4631,9 @@ app.put('/api/admin/documents/:id', authMiddleware, requireAdminOrRegistrarRole,
     document.updatedBy = req.adminId
 
     await document.save()
-    await document.populate('createdBy', 'username displayName')
-    await document.populate('updatedBy', 'username displayName')
+    await document.populate('folderId', 'name segmentType segmentValue parentFolder')
+    await document.populate('createdBy', ARCHIVE_ACTOR_POPULATE)
+    await document.populate('updatedBy', ARCHIVE_ACTOR_POPULATE)
 
     // Log the action
     await logAudit(
@@ -4070,7 +4645,7 @@ app.put('/api/admin/documents/:id', authMiddleware, requireAdminOrRegistrarRole,
       req.adminId,
       req.accountType,
       oldValue,
-      document.toObject(),
+      auditObject(document, 'DOCUMENT'),
       'SUCCESS',
       'MEDIUM'
     )

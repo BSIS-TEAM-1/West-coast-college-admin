@@ -1,6 +1,8 @@
 const mongoose = require('mongoose');
 const Joi = require('joi');
 
+const { ANNOUNCEMENT_AUDIENCES, validateAnnouncementAudience } = require('./announcementAudience');
+
 const ACCOUNT_TYPES = ['admin', 'registrar', 'professor'];
 const DOCUMENT_CATEGORIES = [
   'POLICY',
@@ -14,6 +16,7 @@ const DOCUMENT_CATEGORIES = [
 ];
 const DOCUMENT_STATUSES = ['DRAFT', 'ACTIVE', 'ARCHIVED', 'SUPERSEDED'];
 const DOCUMENT_ALLOWED_ROLES = ['admin', 'registrar', 'faculty', 'staff', 'student'];
+const DOCUMENT_FOLDER_SEGMENT_TYPES = ['DOCUMENT_TYPE', 'DEPARTMENT', 'DATE', 'CUSTOM'];
 const STUDENT_COURSES = [101, 102, 103, 201];
 const STUDENT_SEMESTERS = ['1st', '2nd', 'Summer'];
 const STUDENT_STATUSES = ['Regular', 'Dropped', 'Returnee', 'Transferee'];
@@ -38,6 +41,18 @@ const accountUidSchema = Joi.string().trim().pattern(/^1\d{11,12}$/);
 const schoolYearSchema = Joi.string().pattern(/^\d{4}-\d{4}$/);
 const nonEmptyTrimmedString = (max = 254) => Joi.string().trim().min(1).max(max);
 const optionalTrimmedString = (max = 254) => Joi.string().trim().max(max).allow('');
+const announcementAudienceSchema = Joi.alternatives().try(
+  Joi.string().valid(...ANNOUNCEMENT_AUDIENCES),
+  Joi.array().min(1).max(ANNOUNCEMENT_AUDIENCES.length).items(
+    Joi.string().valid(...ANNOUNCEMENT_AUDIENCES)
+  ).unique()
+).custom((value, helpers) => {
+  const validationError = validateAnnouncementAudience(value);
+  if (validationError) {
+    return helpers.message(validationError);
+  }
+  return value;
+});
 const studentEmergencyContactSchema = Joi.object({
   name: optionalTrimmedString(254).optional(),
   relationship: optionalTrimmedString(254).optional(),
@@ -355,7 +370,7 @@ const schemas = {
         title: Joi.string().trim().min(1).max(200).required(),
         message: Joi.string().trim().min(1).max(500).required(),
         type: Joi.string().valid('info', 'warning', 'urgent', 'maintenance').optional(),
-        targetAudience: Joi.string().valid('all', 'students', 'faculty', 'staff', 'admin').optional(),
+        targetAudience: announcementAudienceSchema.optional(),
         expiresAt: Joi.date().optional(),
         isPinned: Joi.boolean().optional(),
         media: Joi.array().max(6).items(
@@ -376,7 +391,7 @@ const schemas = {
         title: Joi.string().trim().min(1).max(200).optional(),
         message: Joi.string().trim().min(1).max(500).optional(),
         type: Joi.string().valid('info', 'warning', 'urgent', 'maintenance').optional(),
-        targetAudience: Joi.string().valid('all', 'students', 'faculty', 'staff', 'admin').optional(),
+        targetAudience: announcementAudienceSchema.optional(),
         expiresAt: Joi.date().optional(),
         isPinned: Joi.boolean().optional(),
         isArchived: Joi.boolean().optional(),
@@ -472,6 +487,7 @@ const schemas = {
         description: Joi.string().trim().max(1000).optional(),
         category: Joi.string().uppercase().valid(...DOCUMENT_CATEGORIES).required(),
         subcategory: Joi.string().trim().max(100).allow('').optional(),
+        folderId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
         fileName: Joi.string().trim().min(1).max(254).required(),
         originalFileName: Joi.string().trim().min(1).max(254).required(),
         mimeType: Joi.string().trim().min(1).max(100).required(),
@@ -492,6 +508,10 @@ const schemas = {
         description: Joi.string().trim().max(1000).optional(),
         category: Joi.string().uppercase().valid(...DOCUMENT_CATEGORIES).optional(),
         subcategory: Joi.string().trim().max(100).allow('').optional(),
+        folderId: Joi.alternatives().try(
+          Joi.string().pattern(/^[0-9a-fA-F]{24}$/),
+          Joi.valid(null)
+        ).optional(),
         isPublic: Joi.boolean().optional(),
         allowedRoles: Joi.array().items(Joi.string().valid(...DOCUMENT_ALLOWED_ROLES)).optional(),
         tags: Joi.array().items(Joi.string().trim().max(50)).optional(),
@@ -504,9 +524,42 @@ const schemas = {
       query: Joi.object({
         category: Joi.string().uppercase().valid(...DOCUMENT_CATEGORIES).optional(),
         status: Joi.string().valid(...DOCUMENT_STATUSES).optional(),
+        folderId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
+        includeUnfoldered: Joi.boolean().optional(),
+        visibility: Joi.string().valid('all', 'public', 'restricted').optional(),
         search: Joi.string().trim().max(100).optional(),
         page: Joi.number().integer().min(1).optional(),
-        limit: Joi.number().integer().min(1).max(100).optional()
+        limit: Joi.number().integer().min(1).max(100).optional(),
+        sortBy: Joi.string().valid('updatedAt', 'createdAt', 'title', 'fileSize', 'category').optional(),
+        sortOrder: Joi.string().valid('asc', 'desc').optional()
+      })
+    }
+  },
+
+  documentFolders: {
+    create: {
+      body: Joi.object({
+        name: Joi.string().trim().min(1).max(120).required(),
+        segmentType: Joi.string().valid(...DOCUMENT_FOLDER_SEGMENT_TYPES).optional(),
+        segmentValue: Joi.string().trim().max(120).allow('').optional(),
+        description: Joi.string().trim().max(300).allow('').optional(),
+        parentFolderId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).allow(null).optional()
+      })
+    },
+    update: {
+      body: Joi.object({
+        name: Joi.string().trim().min(1).max(120).optional(),
+        segmentType: Joi.string().valid(...DOCUMENT_FOLDER_SEGMENT_TYPES).optional(),
+        segmentValue: Joi.string().trim().max(120).allow('').optional(),
+        description: Joi.string().trim().max(300).allow('').optional()
+      }).min(1)
+    },
+    query: {
+      query: Joi.object({
+        parentId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
+        search: Joi.string().trim().max(120).optional(),
+        includeCounts: Joi.boolean().optional(),
+        force: Joi.boolean().optional()
       })
     }
   },

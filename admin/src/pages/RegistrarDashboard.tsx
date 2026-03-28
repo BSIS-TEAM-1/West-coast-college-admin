@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Video, Users, Blocks, Pencil, Trash2, Check, X } from 'lucide-react'
+import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Video, Users, Blocks, Pencil, Trash2, Check, X, FolderOpen } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
@@ -10,6 +10,7 @@ import Announcements from './Announcements'
 import AnnouncementDetail from './AnnouncementDetail'
 import PersonalDetails from './PersonalDetails'
 import CorGeneration from './CorGeneration'
+import DocumentManagement from './DocumentManagement'
 import StudentManagement from '../components/StudentManagement'
 import RegistrarCourseManagement from '../components/RegistrarCourseManagement'
 import RegistrarCourseWorkspace, { type RegistrarCourseWorkspaceSelection } from '../components/RegistrarCourseWorkspace'
@@ -21,7 +22,7 @@ interface Announcement {
   title: string
   message: string
   type: 'info' | 'warning' | 'urgent' | 'maintenance'
-  targetAudience: string
+  targetAudience: string | string[]
   isActive: boolean
   isPinned: boolean
   expiresAt: string
@@ -61,7 +62,7 @@ type BlockWorkspaceSelection = {
   initialSectionId?: string | null
 }
 
-type RegistrarView = 'dashboard' | 'students' | 'courses' | 'course-workspace' | 'block-management' | 'view-blocks' | 'block-workspace' | 'assign-subject' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
+type RegistrarView = 'dashboard' | 'students' | 'courses' | 'course-workspace' | 'block-management' | 'view-blocks' | 'block-workspace' | 'assign-subject' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
 
 type RegistrarDashboardProps = {
   username: string
@@ -75,6 +76,7 @@ const REGISTRAR_NAV_ITEMS: { id: RegistrarView; label: string; icon: any }[] = [
   { id: 'block-management', label: 'Block Management', icon: Blocks },
   { id: 'assign-subject', label: 'Assign Subject', icon: Users },
   { id: 'courses', label: 'Professor Loads', icon: BookOpen },
+  { id: 'documents', label: 'Document Archive', icon: FolderOpen },
   { id: 'announcements', label: 'Announcements', icon: Bell },
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'profile', label: 'Profile', icon: User },
@@ -184,6 +186,8 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
         return <BlockWorkspace selection={blockWorkspaceSelection} onBack={() => setView('view-blocks')} />
       case 'assign-subject':
         return <AssignSubjectPage />
+      case 'documents':
+        return <DocumentManagement onNavigate={(viewName) => setView(viewName)} />
       case 'reports':
         return <ReportsDashboard />
       case 'profile':
@@ -361,6 +365,11 @@ function RegistrarHome({ announcements, onAnnouncementClick, setView }: Registra
             <FileText size={32} className="quick-action-icon" />
             <h3>Reports</h3>
             <p>Generate enrollment and academic reports</p>
+          </div>
+          <div className="quick-action-card" onClick={() => setView('documents')} style={{ cursor: 'pointer' }}>
+            <FolderOpen size={32} className="quick-action-icon" />
+            <h3>Document Archive</h3>
+            <p>Browse folders, upload files, and manage registrar documents</p>
           </div>
         </div>
 
