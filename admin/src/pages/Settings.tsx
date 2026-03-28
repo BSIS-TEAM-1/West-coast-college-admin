@@ -411,6 +411,7 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
                 </button>
               </div>
             </div>
+
           </div>
         </section>
 

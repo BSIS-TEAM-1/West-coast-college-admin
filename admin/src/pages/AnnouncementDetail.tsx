@@ -4,6 +4,12 @@ import {
   Share2, Eye, MessageSquare, Heart, Users, Copy, Play, Video
 } from 'lucide-react'
 import { getStoredToken, API_URL } from '../lib/authApi'
+import {
+  type AnnouncementAudience,
+  getAnnouncementAudienceLabels,
+  normalizeAnnouncementAudience,
+  type AnnouncementAudienceSelection,
+} from '../lib/announcementAudience'
 import './AnnouncementDetail.css'
 
 interface Announcement {
@@ -11,7 +17,7 @@ interface Announcement {
   title: string
   message: string
   type: 'info' | 'warning' | 'urgent' | 'maintenance'
-  targetAudience: string
+  targetAudience: AnnouncementAudienceSelection
   isActive: boolean
   isPinned: boolean
   expiresAt: string
@@ -46,9 +52,10 @@ interface Announcement {
 interface AnnouncementDetailProps {
   announcementId: string
   onBack: () => void
+  viewerAudience?: AnnouncementAudience
 }
 
-export default function AnnouncementDetail({ announcementId, onBack }: AnnouncementDetailProps) {
+export default function AnnouncementDetail({ announcementId, onBack, viewerAudience }: AnnouncementDetailProps) {
   const [announcement, setAnnouncement] = useState<Announcement | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -58,7 +65,7 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
     if (announcementId) {
       fetchAnnouncement(announcementId)
     }
-  }, [announcementId])
+  }, [announcementId, viewerAudience])
 
   useEffect(() => {
     setSelectedMediaIndex(0)
@@ -67,8 +74,13 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
   const fetchAnnouncement = async (announcementId: string) => {
     try {
       setLoading(true)
+      setError(null)
       const token = await getStoredToken()
-      const response = await fetch(`${API_URL}/api/announcements/${announcementId}`, {
+      const query = new URLSearchParams()
+      if (viewerAudience) {
+        query.set('targetAudience', viewerAudience)
+      }
+      const response = await fetch(`${API_URL}/api/announcements/${announcementId}${query.size > 0 ? `?${query.toString()}` : ''}`, {
         headers: {
           Authorization: `Bearer ${token}`
         }
@@ -86,7 +98,16 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
       }
 
       const data = await response.json()
-      setAnnouncement(data)
+      const normalizedAudience = normalizeAnnouncementAudience(data?.targetAudience)
+      if (viewerAudience && !normalizedAudience.includes('all') && !normalizedAudience.includes(viewerAudience)) {
+        setError('Announcement not found')
+        setAnnouncement(null)
+        return
+      }
+      setAnnouncement({
+        ...data,
+        targetAudience: normalizedAudience,
+      })
     } catch (err) {
       console.error('Failed to fetch announcement:', err)
       setError('Failed to load announcement')
@@ -251,7 +272,14 @@ export default function AnnouncementDetail({ announcementId, onBack }: Announcem
               <div className="footer-info">
                 <div className="info-item">
                   <Users size={16} />
-                  <span>Audience: {announcement.targetAudience}</span>
+                  <span>Audience:</span>
+                  <div className="detail-audience-pills">
+                    {getAnnouncementAudienceLabels(announcement.targetAudience).map((label) => (
+                      <span key={label} className="detail-audience-pill">
+                        {label}
+                      </span>
+                    ))}
+                  </div>
                 </div>
                 {announcement.expiresAt && (
                   <div className="info-item expiry">

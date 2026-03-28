@@ -25,6 +25,11 @@ const documentSchema = new mongoose.Schema({
     trim: true,
     maxlength: 100
   },
+  folderId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'DocumentFolder',
+    default: null
+  },
   fileName: {
     type: String,
     required: true
@@ -106,6 +111,7 @@ documentSchema.index({ category: 1, status: 1 })
 documentSchema.index({ tags: 1 })
 documentSchema.index({ isPublic: 1, status: 1 })
 documentSchema.index({ createdBy: 1, createdAt: -1 })
+documentSchema.index({ folderId: 1, updatedAt: -1 })
 documentSchema.index({ title: 'text', description: 'text' })
 
 // Virtual to check if document is currently effective

@@ -1,5 +1,7 @@
 const mongoose = require('mongoose')
 
+const { ANNOUNCEMENT_AUDIENCES, normalizeAnnouncementAudience, validateAnnouncementAudience } = require('../announcementAudience')
+
 const announcementSchema = new mongoose.Schema({
   title: {
     type: String,
@@ -19,9 +21,16 @@ const announcementSchema = new mongoose.Schema({
     default: 'info'
   },
   targetAudience: {
-    type: String,
-    enum: ['all', 'students', 'faculty', 'staff', 'admin'],
-    default: 'all'
+    type: [{
+      type: String,
+      enum: ANNOUNCEMENT_AUDIENCES
+    }],
+    default: ['all'],
+    set: (value) => normalizeAnnouncementAudience(value),
+    validate: {
+      validator: (value) => !validateAnnouncementAudience(value),
+      message: 'Target audience must contain valid audience values.'
+    }
   },
   isActive: {
     type: Boolean,
@@ -81,6 +90,11 @@ const announcementSchema = new mongoose.Schema({
   }]
 }, {
   timestamps: true,
+})
+
+announcementSchema.pre('validate', function(next) {
+  this.targetAudience = normalizeAnnouncementAudience(this.targetAudience)
+  next()
 })
 
 // Index for active announcements that haven't expired

@@ -233,7 +233,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
           ) : view === 'audit-logs' ? (
             <AuditLogs />
           ) : view === 'documents' ? (
-            <DocumentManagement />
+            <DocumentManagement onNavigate={(viewName) => setView(viewName)} />
           ) : view === 'cor-docs' ? (
             <CorGeneration />
           ) : view === 'announcement-detail' ? (

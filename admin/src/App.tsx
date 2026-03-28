@@ -22,8 +22,16 @@ import Dashboard from './pages/Dashboard'
 import RegistrarDashboard from './pages/RegistrarDashboard'
 import ProfessorDashboard from './pages/ProfessorDashboard.tsx'
 import Maintenance from './pages/Maintenance'
+import DocumentViewerRoute from './pages/DocumentViewerRoute'
 import './App.css'
 import type { LoginFlowResponse, LoginResponse, ProfileResponse } from './lib/authApi'
+
+const DOCUMENT_VIEWER_ROUTE_PATTERN = /^\/document-viewer\/([^/]+)\/?$/
+
+const getDocumentViewerIdFromPath = (pathname: string): string | null => {
+  const match = pathname.match(DOCUMENT_VIEWER_ROUTE_PATTERN)
+  return match ? decodeURIComponent(match[1]) : null
+}
 
 const isAuthSessionError = (message: string): boolean => {
   const normalized = String(message || '').toLowerCase()
@@ -39,6 +47,7 @@ const isAuthSessionError = (message: string): boolean => {
 
 function App() {
   const [user, setUser] = useState<{ username: string; accountType: string } | null>(null)
+  const [documentViewerId, setDocumentViewerId] = useState<string | null>(() => getDocumentViewerIdFromPath(window.location.pathname))
   const [showSignIn, setShowSignIn] = useState(false)
   const [showAboutPage, setShowAboutPage] = useState(false)
   const [showTermsPolicyPage, setShowTermsPolicyPage] = useState(false)
@@ -61,6 +70,15 @@ function App() {
     setUser({ username, accountType: profile.accountType })
     setShowApplicantMaintenance(false)
     setShowSignIn(false)
+  }, [])
+
+  useEffect(() => {
+    const syncDocumentViewerRoute = () => {
+      setDocumentViewerId(getDocumentViewerIdFromPath(window.location.pathname))
+    }
+
+    window.addEventListener('popstate', syncDocumentViewerRoute)
+    return () => window.removeEventListener('popstate', syncDocumentViewerRoute)
   }, [])
 
   useEffect(() => {
@@ -199,9 +217,26 @@ function App() {
       setShowCookieSystemPage(false)
       setShowCollaboratorsPage(false)
       setShowApplicantMaintenance(false)
+      setDocumentViewerId(null)
       setLoginError(undefined)
       setLoginLoading(false)
     }
+  }, [])
+
+  const handleCloseDocumentViewer = useCallback(() => {
+    if (!getDocumentViewerIdFromPath(window.location.pathname)) {
+      setDocumentViewerId(null)
+      return
+    }
+
+    if (window.history.length > 1) {
+      window.history.back()
+      return
+    }
+
+    window.history.replaceState({}, '', '/')
+    setDocumentViewerId(null)
+    window.dispatchEvent(new PopStateEvent('popstate'))
   }, [])
 
   const handleProfileUpdated = useCallback((profile: ProfileResponse) => {
@@ -245,32 +280,35 @@ function App() {
   }, [user])
 
   if (user) {
-    // Show different dashboard based on account type
-    if (user.accountType === 'registrar') {
-      return (
-        <RegistrarDashboard
-          username={user.username}
-          onLogout={handleLogout}
-          onProfileUpdated={handleProfileUpdated}
-        />
-      )
+    const canPreviewDocuments = user.accountType === 'admin' || user.accountType === 'registrar'
+
+    if (documentViewerId && canPreviewDocuments) {
+      return <DocumentViewerRoute documentId={documentViewerId} onClose={handleCloseDocumentViewer} />
     }
-    if (user.accountType === 'professor') {
-      return (
-        <ProfessorDashboard
-          username={user.username}
-          onLogout={handleLogout}
-          onProfileUpdated={handleProfileUpdated}
-        />
-      )
-    }
-    return (
-      <Dashboard
-        username={user.username}
-        onLogout={handleLogout}
-        onProfileUpdated={handleProfileUpdated}
-      />
-    )
+
+    return user.accountType === 'registrar'
+      ? (
+          <RegistrarDashboard
+            username={user.username}
+            onLogout={handleLogout}
+            onProfileUpdated={handleProfileUpdated}
+          />
+        )
+      : user.accountType === 'professor'
+        ? (
+            <ProfessorDashboard
+              username={user.username}
+              onLogout={handleLogout}
+              onProfileUpdated={handleProfileUpdated}
+            />
+          )
+        : (
+            <Dashboard
+              username={user.username}
+              onLogout={handleLogout}
+              onProfileUpdated={handleProfileUpdated}
+            />
+          )
   }
 
   if (sessionBootstrapping) {

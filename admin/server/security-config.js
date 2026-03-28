@@ -40,7 +40,7 @@ function buildContentSecurityPolicyValue() {
     "img-src 'self' data: blob: https://accounts.google.com https://www.google.com https://www.gstatic.com",
     "font-src 'self' data: https://fonts.gstatic.com",
     `connect-src ${connectSrc.join(' ')}`,
-    "frame-src 'self' https://accounts.google.com https://www.google.com https://recaptcha.google.com",
+    "frame-src 'self' blob: https://accounts.google.com https://www.google.com https://recaptcha.google.com",
     "frame-ancestors 'none'"
   ].join('; ') + ';'
 }
@@ -102,7 +102,7 @@ const securityConfig = {
       'img-src': "'self' data: blob: https://accounts.google.com https://www.google.com https://www.gstatic.com - Allow images from same origin, data URLs, and Google identity/reCAPTCHA assets",
       'font-src': "'self' data: - Allow fonts from same origin and data URLs",
       'connect-src': "'self' https://accounts.google.com https://www.google.com https://www.gstatic.com https://oauth2.googleapis.com (plus ws/wss localhost in development only) - Allow API calls and Google identity/reCAPTCHA API calls",
-      'frame-src': "'self' https://accounts.google.com https://www.google.com https://recaptcha.google.com - Allow embedded Google identity and reCAPTCHA frames",
+      'frame-src': "'self' blob: https://accounts.google.com https://www.google.com https://recaptcha.google.com - Allow embedded local document previews, Google identity, and reCAPTCHA frames",
       'frame-ancestors': "'none' - Prevent site from being embedded in any frame"
     }
   },
