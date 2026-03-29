@@ -98,6 +98,15 @@ const parsedLoginEmailVerificationTtlMs = Number(process.env.LOGIN_EMAIL_VERIFIC
 const LOGIN_EMAIL_VERIFICATION_CODE_TTL_MS = Number.isFinite(parsedLoginEmailVerificationTtlMs) && parsedLoginEmailVerificationTtlMs > 0
   ? parsedLoginEmailVerificationTtlMs
   : EMAIL_VERIFICATION_CODE_TTL_MS
+const parsedArchiveBinRetentionDays = Number(process.env.ARCHIVE_BIN_RETENTION_DAYS || 30)
+const ARCHIVE_BIN_RETENTION_DAYS = Number.isFinite(parsedArchiveBinRetentionDays) && parsedArchiveBinRetentionDays > 0
+  ? Math.max(30, Math.floor(parsedArchiveBinRetentionDays))
+  : 30
+const ARCHIVE_BIN_RETENTION_MS = ARCHIVE_BIN_RETENTION_DAYS * 24 * 60 * 60 * 1000
+const parsedArchiveBinCleanupIntervalMs = Number(process.env.ARCHIVE_BIN_CLEANUP_INTERVAL_MS)
+const ARCHIVE_BIN_CLEANUP_INTERVAL_MS = Number.isFinite(parsedArchiveBinCleanupIntervalMs) && parsedArchiveBinCleanupIntervalMs > 0
+  ? parsedArchiveBinCleanupIntervalMs
+  : 60 * 60 * 1000
 
 // Hide Express server information
 app.disable('x-powered-by')
@@ -423,9 +432,25 @@ function sanitizeFolderForAudit(folder) {
     parentFolder: source.parentFolder,
     createdBy: source.createdBy,
     updatedBy: source.updatedBy,
+    isTrashed: source.isTrashed,
+    trashedAt: source.trashedAt,
+    trashedBy: source.trashedBy,
     createdAt: source.createdAt,
     updatedAt: source.updatedAt
   }
+}
+
+function applyTrashedFilter(target, trashed = 'exclude') {
+  if (trashed === 'only') {
+    target.isTrashed = true
+    return target
+  }
+
+  if (trashed !== 'include') {
+    target.isTrashed = { $ne: true }
+  }
+
+  return target
 }
 
 async function ensureFolderExists(folderId) {
@@ -433,7 +458,10 @@ async function ensureFolderExists(folderId) {
     return null
   }
 
-  const folder = await DocumentFolder.findById(folderId)
+  const folder = await DocumentFolder.findOne({
+    _id: folderId,
+    isTrashed: { $ne: true }
+  })
   if (!folder) {
     const error = new Error('Selected folder was not found.')
     error.statusCode = 400
@@ -453,7 +481,8 @@ async function ensureUniqueFolderName(name, parentFolderId, excludeFolderId = nu
 
   const duplicateQuery = {
     parentFolder: parentFolderId || null,
-    name: { $regex: `^${escapeRegex(normalizedName)}$`, $options: 'i' }
+    name: { $regex: `^${escapeRegex(normalizedName)}$`, $options: 'i' },
+    isTrashed: { $ne: true }
   }
 
   if (excludeFolderId) {
@@ -466,6 +495,32 @@ async function ensureUniqueFolderName(name, parentFolderId, excludeFolderId = nu
     const error = new Error('A folder with the same name already exists in this location.')
     error.statusCode = 409
     throw error
+  }
+}
+
+async function assertFolderCanMove(folderId, nextParentFolder) {
+  if (!nextParentFolder) {
+    return
+  }
+
+  const normalizedFolderId = String(folderId)
+  let cursorFolder = nextParentFolder
+
+  while (cursorFolder) {
+    if (String(cursorFolder._id) === normalizedFolderId) {
+      const error = new Error('A folder cannot be moved into itself or one of its subfolders.')
+      error.statusCode = 400
+      throw error
+    }
+
+    const parentFolderId = cursorFolder.parentFolder?._id || cursorFolder.parentFolder || null
+    if (!parentFolderId) {
+      break
+    }
+
+    cursorFolder = await DocumentFolder.findById(parentFolderId)
+      .select('_id parentFolder')
+      .lean()
   }
 }
 
@@ -596,15 +651,94 @@ async function getFolderBranchDetails(rootFolderId) {
   }
 }
 
-async function withFolderCounts(folders) {
+function getArchiveBinExpirationCutoff(referenceTime = Date.now()) {
+  return new Date(referenceTime - ARCHIVE_BIN_RETENTION_MS)
+}
+
+async function permanentlyDeleteStoredDocuments(documents) {
+  for (const document of documents) {
+    await deleteStoredUpload(document.filePath)
+  }
+
+  if (documents.length > 0) {
+    await Document.deleteMany({ _id: { $in: documents.map((document) => document._id) } })
+  }
+
+  return documents.length
+}
+
+async function permanentlyDeleteFolderBranch(rootFolderId) {
+  const { folderIds, documents } = await getFolderBranchDetails(rootFolderId)
+  await permanentlyDeleteStoredDocuments(documents)
+  await DocumentFolder.deleteMany({ _id: { $in: folderIds } })
+
+  return {
+    deletedFolderCount: folderIds.length,
+    deletedDocumentCount: documents.length
+  }
+}
+
+async function purgeExpiredArchiveBinItems() {
+  if (!dbReady) {
+    return
+  }
+
+  const cutoffDate = getArchiveBinExpirationCutoff()
+  let deletedFolderCount = 0
+  let deletedDocumentCount = 0
+
+  const expiredFolders = await DocumentFolder.find({
+    isTrashed: true,
+    trashedAt: { $lte: cutoffDate }
+  })
+    .select('_id parentFolder')
+    .lean()
+
+  const expiredFolderIdSet = new Set(expiredFolders.map((folder) => String(folder._id)))
+  const rootExpiredFolders = expiredFolders.filter((folder) => {
+    const parentId = folder.parentFolder ? String(folder.parentFolder) : null
+    return !parentId || !expiredFolderIdSet.has(parentId)
+  })
+
+  for (const folder of rootExpiredFolders) {
+    const result = await permanentlyDeleteFolderBranch(folder._id)
+    deletedFolderCount += result.deletedFolderCount
+    deletedDocumentCount += result.deletedDocumentCount
+  }
+
+  const remainingTrashedFolderIds = await DocumentFolder.find({ isTrashed: true }).distinct('_id')
+  const expiredStandaloneDocuments = await Document.find({
+    isTrashed: true,
+    trashedAt: { $lte: cutoffDate },
+    $or: [
+      { folderId: null },
+      { folderId: { $nin: remainingTrashedFolderIds } }
+    ]
+  })
+    .select('_id title filePath')
+    .lean()
+
+  deletedDocumentCount += await permanentlyDeleteStoredDocuments(expiredStandaloneDocuments)
+
+  if (deletedFolderCount > 0 || deletedDocumentCount > 0) {
+    console.log(
+      `[archive-bin] Purged expired items older than ${ARCHIVE_BIN_RETENTION_DAYS} days: ` +
+      `${deletedFolderCount} folder(s), ${deletedDocumentCount} document(s).`
+    )
+  }
+}
+
+async function withFolderCounts(folders, trashed = 'exclude') {
   if (!Array.isArray(folders) || folders.length === 0) {
     return []
   }
 
   const folderIds = folders.map((folder) => folder._id)
+  const documentMatch = applyTrashedFilter({ folderId: { $in: folderIds } }, trashed)
+  const childFolderMatch = applyTrashedFilter({ parentFolder: { $in: folderIds } }, trashed)
   const [documentCounts, childFolderCounts] = await Promise.all([
     Document.aggregate([
-      { $match: { folderId: { $in: folderIds } } },
+      { $match: documentMatch },
       {
         $group: {
           _id: '$folderId',
@@ -614,7 +748,7 @@ async function withFolderCounts(folders) {
       }
     ]),
     DocumentFolder.aggregate([
-      { $match: { parentFolder: { $in: folderIds } } },
+      { $match: childFolderMatch },
       {
         $group: {
           _id: '$parentFolder',
@@ -1564,6 +1698,9 @@ function auditObject(obj, resourceType) {
       fileSize: o.fileSize,
       category: o.category,
       status: o.status,
+      isTrashed: o.isTrashed,
+      trashedAt: o.trashedAt,
+      trashedBy: o.trashedBy,
       createdBy: o.createdBy,
       createdAt: o.createdAt
     }
@@ -1615,6 +1752,9 @@ mongoose.connect(uri)
   .then(() => {
     dbReady = true
     console.log('MongoDB connected')
+    void purgeExpiredArchiveBinItems().catch((error) => {
+      console.error('Archive bin startup cleanup error:', error)
+    })
     
     // Migration: Update existing admin accounts with new fields
     migrateExistingAccounts()
@@ -1655,6 +1795,11 @@ async function cleanupExpiredTokens() {
 
 // Schedule token cleanup every hour
 setInterval(cleanupExpiredTokens, 60 * 60 * 1000)
+setInterval(() => {
+  void purgeExpiredArchiveBinItems().catch((error) => {
+    console.error('Archive bin cleanup error:', error)
+  })
+}, ARCHIVE_BIN_CLEANUP_INTERVAL_MS)
 
 // Migration function for existing accounts
 async function migrateExistingAccounts() {
@@ -4155,8 +4300,8 @@ app.get('/api/admin/document-folders', authMiddleware, requireAdminOrRegistrarRo
   }
 
   try {
-    const { parentId, search } = req.query
-    const filter = {}
+    const { parentId, search, trashed = 'exclude' } = req.query
+    const filter = applyTrashedFilter({}, trashed)
 
     if (parentId) {
       filter.parentFolder = parentId
@@ -4177,7 +4322,7 @@ app.get('/api/admin/document-folders', authMiddleware, requireAdminOrRegistrarRo
       .lean()
 
     res.json({
-      folders: await withFolderCounts(folders),
+      folders: await withFolderCounts(folders, trashed),
       total: folders.length
     })
   } catch (err) {
@@ -4253,22 +4398,34 @@ app.put('/api/admin/document-folders/:id', authMiddleware, requireAdminOrRegistr
   }
 
   try {
-    const folder = await DocumentFolder.findById(req.params.id)
+    const folder = await DocumentFolder.findOne({
+      _id: req.params.id,
+      isTrashed: { $ne: true }
+    })
     if (!folder) {
       return res.status(404).json({ error: 'Folder not found.' })
     }
 
     const previousValue = sanitizeFolderForAudit(folder)
-    const { name, segmentType, segmentValue, description } = req.body
+    const { name, segmentType, segmentValue, description, parentFolderId } = req.body
+    const nextParentFolder = parentFolderId === undefined ? undefined : await ensureFolderExists(parentFolderId)
+    const resolvedParentFolderId = nextParentFolder?._id || null
+    const resolvedName = name && name.trim() ? name.trim() : folder.name
+    const isMovingFolder = parentFolderId !== undefined && String(folder.parentFolder || '') !== String(resolvedParentFolderId || '')
 
-    if (name && name.trim() !== folder.name) {
-      await ensureUniqueFolderName(name, folder.parentFolder, folder._id)
-      folder.name = name
+    if (isMovingFolder) {
+      await assertFolderCanMove(folder._id, nextParentFolder || null)
+    }
+
+    if ((name && name.trim() !== folder.name) || isMovingFolder) {
+      await ensureUniqueFolderName(resolvedName, resolvedParentFolderId, folder._id)
+      folder.name = resolvedName
     }
 
     if (segmentType) folder.segmentType = segmentType
     if (segmentValue !== undefined) folder.segmentValue = segmentValue
     if (description !== undefined) folder.description = description
+    if (parentFolderId !== undefined) folder.parentFolder = resolvedParentFolderId
     folder.updatedBy = req.adminId
 
     await folder.save()
@@ -4320,7 +4477,7 @@ app.delete('/api/admin/document-folders/:id', authMiddleware, requireAdminOrRegi
     const { folderIds, childFolderCount, documents } = await getFolderBranchDetails(folder._id)
     const forceDelete = req.query.force === true
 
-    if (!forceDelete && (childFolderCount > 0 || documents.length > 0)) {
+    if (!folder.isTrashed && !forceDelete && (childFolderCount > 0 || documents.length > 0)) {
       return res.status(409).json({
         error: 'Folder still contains archived items.',
         details: {
@@ -4330,37 +4487,86 @@ app.delete('/api/admin/document-folders/:id', authMiddleware, requireAdminOrRegi
       })
     }
 
-    for (const document of documents) {
-      await deleteStoredUpload(document.filePath)
+    if (folder.isTrashed) {
+      const result = await permanentlyDeleteFolderBranch(folder._id)
+
+      await logAudit(
+        'DELETE',
+        'DOCUMENT',
+        folder._id.toString(),
+        `Folder: ${folder.name}`,
+        `Permanently deleted document folder from archive bin: ${folder.name}`,
+        req.adminId,
+        req.accountType,
+        sanitizeFolderForAudit(folder),
+        {
+          permanentlyDeleted: true,
+          deletedFolderCount: result.deletedFolderCount,
+          deletedDocumentCount: result.deletedDocumentCount
+        },
+        'SUCCESS',
+        'HIGH'
+      )
+
+      return res.json({
+        message: 'Folder permanently deleted from Archive Bin.',
+        deletedFolderCount: result.deletedFolderCount,
+        deletedDocumentCount: result.deletedDocumentCount,
+        permanentlyDeleted: true
+      })
     }
 
+    const trashedAt = new Date()
     if (documents.length > 0) {
-      await Document.deleteMany({ _id: { $in: documents.map((document) => document._id) } })
+      await Document.updateMany(
+        { _id: { $in: documents.map((document) => document._id) } },
+        {
+          $set: {
+            isTrashed: true,
+            trashedAt,
+            trashedBy: req.adminId,
+            updatedBy: req.adminId
+          }
+        }
+      )
     }
 
-    await DocumentFolder.deleteMany({ _id: { $in: folderIds } })
+    await DocumentFolder.updateMany(
+      { _id: { $in: folderIds } },
+      {
+        $set: {
+          isTrashed: true,
+          trashedAt,
+          trashedBy: req.adminId,
+          updatedBy: req.adminId
+        }
+      }
+    )
 
     await logAudit(
       'DELETE',
       'DOCUMENT',
       folder._id.toString(),
       `Folder: ${folder.name}`,
-      `Deleted document folder: ${folder.name}`,
+      `Moved document folder to archive bin: ${folder.name}`,
       req.adminId,
       req.accountType,
       sanitizeFolderForAudit(folder),
       {
+        movedToArchiveBin: true,
+        trashedAt,
         deletedFolderCount: folderIds.length,
         deletedDocumentCount: documents.length
       },
       'SUCCESS',
-      'HIGH'
+      'MEDIUM'
     )
 
     res.json({
-      message: 'Folder deleted successfully.',
+      message: 'Folder moved to Archive Bin.',
       deletedFolderCount: folderIds.length,
-      deletedDocumentCount: documents.length
+      deletedDocumentCount: documents.length,
+      movedToTrash: true
     })
   } catch (err) {
     console.error('Delete document folder error:', err.message)
@@ -4375,7 +4581,7 @@ app.get('/api/documents', securityMiddleware.inputValidationMiddleware(securityM
   }
   try {
     const { category, search, page = 1, limit = 10 } = req.query
-    const filter = { isPublic: true, status: 'ACTIVE' }
+    const filter = { isPublic: true, status: 'ACTIVE', isTrashed: { $ne: true } }
 
     if (category !== undefined) {
       if (typeof category !== 'string') {
@@ -4424,13 +4630,15 @@ app.get('/api/admin/documents', authMiddleware, requireAdminOrRegistrarRole, sec
       limit,
       folderId,
       includeUnfoldered,
+      trashed = 'exclude',
+      trashRootOnly,
       visibility = 'all',
       sortBy = 'updatedAt',
       sortOrder = 'desc'
     } = req.query
     const pageInt = Math.max(1, parseInt(page, 10) || 1)
     const limitInt = Math.max(1, Math.min(100, parseInt(limit, 10) || 20))
-    const filter = {}
+    const filter = applyTrashedFilter({}, trashed)
     const sortField = ['updatedAt', 'createdAt', 'title', 'fileSize', 'category'].includes(String(sortBy))
       ? String(sortBy)
       : 'updatedAt'
@@ -4450,6 +4658,19 @@ app.get('/api/admin/documents', authMiddleware, requireAdminOrRegistrarRole, sec
     }
     if (search) {
       filter.$text = { $search: search }
+    }
+
+    if (trashed === 'only' && trashRootOnly === true && !folderId) {
+      const trashedFolderIds = await DocumentFolder.find({ isTrashed: true }).distinct('_id')
+      filter.$and = [
+        ...(Array.isArray(filter.$and) ? filter.$and : []),
+        {
+          $or: [
+            { folderId: null },
+            { folderId: { $nin: trashedFolderIds } }
+          ]
+        }
+      ]
     }
 
     const projection = search ? { score: { $meta: 'textScore' } } : null
@@ -4602,7 +4823,10 @@ app.put('/api/admin/documents/:id', authMiddleware, requireAdminOrRegistrarRole,
   try {
     const { title, description, category, subcategory, folderId, isPublic, allowedRoles, tags, effectiveDate, expiryDate, status } = req.body
     
-    const document = await Document.findById(req.params.id)
+    const document = await Document.findOne({
+      _id: req.params.id,
+      isTrashed: { $ne: true }
+    })
     if (!document) {
       return res.status(404).json({ error: 'Document not found.' })
     }
@@ -4717,25 +4941,54 @@ app.delete('/api/admin/documents/:id', authMiddleware, requireAdminOrRegistrarRo
       return res.status(404).json({ error: 'Document not found.' })
     }
 
-    await deleteStoredUpload(document.filePath)
-    await Document.findByIdAndDelete(req.params.id)
+    if (document.isTrashed) {
+      await permanentlyDeleteStoredDocuments([{ _id: document._id, title: document.title, filePath: document.filePath }])
 
-    // Log the action
+      await logAudit(
+        'DELETE',
+        'DOCUMENT',
+        document._id.toString(),
+        document.title,
+        `Permanently deleted document from archive bin: ${document.title}`,
+        req.adminId,
+        req.accountType,
+        document.toObject(),
+        { permanentlyDeleted: true },
+        'SUCCESS',
+        'HIGH'
+      )
+
+      return res.json({
+        message: 'Document permanently deleted from Archive Bin.',
+        permanentlyDeleted: true
+      })
+    }
+
+    const oldValue = auditObject(document, 'DOCUMENT')
+    document.isTrashed = true
+    document.trashedAt = new Date()
+    document.trashedBy = req.adminId
+    document.updatedBy = req.adminId
+    await document.save()
+
     await logAudit(
       'DELETE',
       'DOCUMENT',
       document._id.toString(),
       document.title,
-      `Deleted document: ${document.title}`,
+      `Moved document to archive bin: ${document.title}`,
       req.adminId,
       req.accountType,
-      document.toObject(),
-      null,
+      oldValue,
+      auditObject(document, 'DOCUMENT'),
       'SUCCESS',
-      'HIGH'
+      'MEDIUM'
     )
 
-    res.json({ message: 'Document deleted successfully.' })
+    res.json({
+      message: 'Document moved to Archive Bin.',
+      movedToTrash: true
+    })
   } catch (err) {
     console.error('Delete document error:', err.message)
     res.status(500).json({ error: 'Failed to delete document.' })

@@ -526,6 +526,8 @@ const schemas = {
         status: Joi.string().valid(...DOCUMENT_STATUSES).optional(),
         folderId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
         includeUnfoldered: Joi.boolean().optional(),
+        trashed: Joi.string().valid('exclude', 'only', 'include').optional(),
+        trashRootOnly: Joi.boolean().optional(),
         visibility: Joi.string().valid('all', 'public', 'restricted').optional(),
         search: Joi.string().trim().max(100).optional(),
         page: Joi.number().integer().min(1).optional(),
@@ -551,13 +553,15 @@ const schemas = {
         name: Joi.string().trim().min(1).max(120).optional(),
         segmentType: Joi.string().valid(...DOCUMENT_FOLDER_SEGMENT_TYPES).optional(),
         segmentValue: Joi.string().trim().max(120).allow('').optional(),
-        description: Joi.string().trim().max(300).allow('').optional()
+        description: Joi.string().trim().max(300).allow('').optional(),
+        parentFolderId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).allow(null).optional()
       }).min(1)
     },
     query: {
       query: Joi.object({
         parentId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
         search: Joi.string().trim().max(120).optional(),
+        trashed: Joi.string().valid('exclude', 'only', 'include').optional(),
         includeCounts: Joi.boolean().optional(),
         force: Joi.boolean().optional()
       })

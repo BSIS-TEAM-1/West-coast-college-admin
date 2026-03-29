@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import React, { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from 'react'
 import {
   Bell,
   CircleHelp,
@@ -41,6 +41,7 @@ import {
   updateArchiveDocument,
   updateDocumentFolder,
   uploadArchiveDocument,
+  type ArchiveTrashedFilter,
   type ArchiveDocument,
   type ArchiveFolder,
   type DocumentCategory,
@@ -100,10 +101,19 @@ type BreadcrumbItem = {
   onSelect?: () => void
 }
 
+type EntryDestination = {
+  label: string
+  targetFolderId: string | null
+  workspaceView: ArchiveWorkspaceView
+}
+
 const PAGE_SIZE = 40
+const ARCHIVE_BIN_RETENTION_DAYS = 30
 const RESTRICTED_ROLES = ['admin', 'registrar']
-const DEFAULT_STORAGE_LIMIT_BYTES = 15 * 1024 * 1024 * 1024
+const DEFAULT_STORAGE_LIMIT_BYTES = 10 * 1024 * 1024 * 1024
 const PREMIUM_STORAGE_LIMIT_BYTES = 1024 * 1024 * 1024 * 1024
+const ARCHIVE_DRAG_MIME = 'application/x-wcc-archive-entry'
+const DRAG_CLICK_SUPPRESSION_MS = 220
 
 const DOCUMENT_CATEGORY_OPTIONS: Array<{ value: DocumentCategory; label: string }> = [
   { value: 'POLICY', label: 'Policy' },
@@ -167,14 +177,17 @@ const documentRequestCache = new Map<string, Promise<{
   total: number
 }>>()
 
-function dedupedListDocumentFolders(cacheToken = 0): Promise<{ folders: ArchiveFolder[]; total: number }> {
-  const requestKey = `all-folders:${cacheToken}`
+function dedupedListDocumentFolders(
+  options: { search?: string; trashed?: ArchiveTrashedFilter } = {},
+  cacheToken = 0
+): Promise<{ folders: ArchiveFolder[]; total: number }> {
+  const requestKey = JSON.stringify({ options, cacheToken })
   const existingRequest = folderRequestCache.get(requestKey)
   if (existingRequest) {
     return existingRequest
   }
 
-  const request = listDocumentFolders().finally(() => {
+  const request = listDocumentFolders(options).finally(() => {
     folderRequestCache.delete(requestKey)
   })
 
@@ -485,25 +498,6 @@ function doesFileMatchDocumentTypeRestriction(file: Pick<File, 'name' | 'type'>,
   return restriction.allowedTypes.includes(getSelectedFileType(file))
 }
 
-function getFolderSegmentValueLabel(folder: ArchiveFolder): string {
-  if (!folder.segmentValue) {
-    return folder.segmentType === 'CUSTOM' ? 'Manual folder' : 'No segment value'
-  }
-
-  if (folder.segmentType === 'DATE') {
-    const parsedDate = new Date(folder.segmentValue)
-    if (!Number.isNaN(parsedDate.getTime())) {
-      return new Intl.DateTimeFormat(undefined, {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      }).format(parsedDate)
-    }
-  }
-
-  return folder.segmentValue
-}
-
 function stripFileExtension(fileName: string): string {
   const lastDotIndex = fileName.lastIndexOf('.')
   return lastDotIndex > 0 ? fileName.slice(0, lastDotIndex) : fileName
@@ -645,34 +639,55 @@ function getGridBadgeTone(fileType: string, kind: 'folder' | 'document'): string
   return 'document'
 }
 
-function formatGridCardDate(value?: string): string {
-  if (!value) return 'Unknown date'
-
-  const parsedValue = new Date(value)
-  if (Number.isNaN(parsedValue.getTime())) return 'Unknown date'
-
-  return new Intl.DateTimeFormat(undefined, {
-    day: 'numeric',
-    month: 'short',
-  }).format(parsedValue)
-}
-
 function getActorLabel(entry: ArchiveEntry): string {
   const actor = entry.kind === 'folder'
-    ? entry.folder.updatedBy?.displayName || entry.folder.updatedBy?.username || entry.folder.createdBy?.displayName || entry.folder.createdBy?.username
-    : entry.document.updatedBy?.displayName || entry.document.updatedBy?.username || entry.document.createdBy?.displayName || entry.document.createdBy?.username
+    ? entry.folder.createdBy?.displayName || entry.folder.createdBy?.username || entry.folder.updatedBy?.displayName || entry.folder.updatedBy?.username
+    : entry.document.createdBy?.displayName || entry.document.createdBy?.username || entry.document.updatedBy?.displayName || entry.document.updatedBy?.username
 
   return actor || 'Archive'
 }
 
 function getEntryActor(entry: ArchiveEntry) {
   return entry.kind === 'folder'
-    ? entry.folder.updatedBy || entry.folder.createdBy
-    : entry.document.updatedBy || entry.document.createdBy
+    ? entry.folder.createdBy || entry.folder.updatedBy
+    : entry.document.createdBy || entry.document.updatedBy
 }
 
 function getItemCountLabel(count: number): string {
   return `${count} item${count === 1 ? '' : 's'}`
+}
+
+function getEntryDestination(entry: ArchiveEntry, folderMap: Map<string, ArchiveFolder>): EntryDestination {
+  const isTrashedEntry = entry.kind === 'folder'
+    ? Boolean(entry.folder.isTrashed)
+    : Boolean(entry.document.isTrashed)
+  const workspaceView: ArchiveWorkspaceView = isTrashedEntry ? 'trash' : 'archive'
+  const rootLabel = isTrashedEntry ? 'Archive Bin' : 'Archive root'
+
+  if (entry.kind === 'folder') {
+    const folderPath = getFolderPath(entry.folder._id, folderMap)
+    return {
+      label: [rootLabel, ...folderPath.map((folder) => folder.name)].join(' / '),
+      targetFolderId: entry.folder._id,
+      workspaceView,
+    }
+  }
+
+  const targetFolderId = entry.document.folderId?._id ?? null
+  if (!targetFolderId) {
+    return {
+      label: rootLabel,
+      targetFolderId: null,
+      workspaceView,
+    }
+  }
+
+  const folderPath = getFolderPath(targetFolderId, folderMap)
+  return {
+    label: [rootLabel, ...folderPath.map((folder) => folder.name)].join(' / '),
+    targetFolderId,
+    workspaceView,
+  }
 }
 
 function getSegmentInputLabel(segmentType: DocumentFolderSegmentType): string {
@@ -811,10 +826,16 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
   const [storageUsageBytes, setStorageUsageBytes] = useState(0)
   const [forceFolderDelete, setForceFolderDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const hasLoadedFoldersRef = useRef(false)
+  const [draggedEntry, setDraggedEntry] = useState<ArchiveEntry | null>(null)
+  const [dropTargetFolderId, setDropTargetFolderId] = useState<string | null>(null)
+  const [movingEntryKey, setMovingEntryKey] = useState<string | null>(null)
+  const lastFolderQueryKeyRef = useRef('')
   const lastDocumentQueryKeyRef = useRef('')
+  const draggedEntryRef = useRef<ArchiveEntry | null>(null)
+  const suppressClickUntilRef = useRef(0)
   const folderMap = getFolderMap(folders)
   const currentFolder = currentFolderId ? folderMap.get(currentFolderId) ?? null : null
+  const isTrashView = workspaceView === 'trash'
   const currentUploadRestriction = getFolderDocumentTypeRestriction(currentFolderId, folderMap)
   const { sortBy, sortOrder } = getSortConfig(sortOption)
 
@@ -902,15 +923,19 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
   }, [segmentFilter])
 
   useEffect(() => {
-    if (hasLoadedFoldersRef.current && foldersRefreshNonce === 0) return
-
-    hasLoadedFoldersRef.current = true
     let cancelled = false
+    const folderQuery = {
+      trashed: isTrashView ? 'only' as ArchiveTrashedFilter : 'exclude' as ArchiveTrashedFilter,
+    }
+    const folderQueryKey = JSON.stringify({ folderQuery, foldersRefreshNonce })
+    if (lastFolderQueryKeyRef.current === folderQueryKey) return
+
+    lastFolderQueryKeyRef.current = folderQueryKey
 
     setFoldersLoading(true)
     setFoldersError('')
 
-    void dedupedListDocumentFolders(foldersRefreshNonce)
+    void dedupedListDocumentFolders(folderQuery, foldersRefreshNonce)
       .then((response) => {
         if (!cancelled) {
           setFolders(response.folders)
@@ -930,7 +955,7 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
     return () => {
       cancelled = true
     }
-  }, [foldersRefreshNonce])
+  }, [foldersRefreshNonce, isTrashView])
 
   useEffect(() => {
     const query: ListDocumentsParams = {
@@ -940,6 +965,7 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
       sortOrder,
       page: currentPage,
       limit: PAGE_SIZE,
+      trashed: isTrashView ? 'only' : 'exclude',
     }
 
     if (debouncedSearchTerm) {
@@ -948,6 +974,8 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
 
     if (currentFolderId) {
       query.folderId = currentFolderId
+    } else if (isTrashView) {
+      query.trashRootOnly = true
     } else if (!debouncedSearchTerm && archiveMode === 'all' && segmentFilter === 'ALL') {
       query.includeUnfoldered = true
     }
@@ -993,6 +1021,7 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
     currentPage,
     debouncedSearchTerm,
     documentsRefreshNonce,
+    isTrashView,
     segmentFilter,
     sortBy,
     sortOrder,
@@ -1006,11 +1035,15 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
   }, [currentFolderId, folderMap])
 
   useEffect(() => {
+    if (isTrashView) {
+      return
+    }
+
     setRecentFolderIds((currentValue) => {
       const nextValue = currentValue.filter((folderId) => folderMap.has(folderId))
       return nextValue.length === currentValue.length ? currentValue : nextValue
     })
-  }, [folders])
+  }, [folderMap, isTrashView])
 
   const visibleFolders = sortFolders(
     folders.filter((folder) => {
@@ -1020,7 +1053,11 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
         return parentId === currentFolderId && doesFolderMatchSearch(folder, debouncedSearchTerm)
       }
 
-      if (parentId !== null) {
+      if (isTrashView) {
+        if (parentId !== null && folderMap.has(parentId)) {
+          return false
+        }
+      } else if (parentId !== null) {
         return false
       }
 
@@ -1037,6 +1074,14 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
   const visibleDocuments = archiveMode === 'recent'
     ? documents
     : documents.filter((document) => {
+        if (isTrashView) {
+          if (currentFolderId) {
+            return document.folderId?._id === currentFolderId
+          }
+
+          return true
+        }
+
         if (!currentFolderId && segmentFilter !== 'ALL') {
           if (!document.folderId) return false
           const parentFolder = folderMap.get(document.folderId._id) ?? null
@@ -1052,6 +1097,7 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
   ]
 
   const totalVisibleItems = visibleFolders.length + visibleDocuments.length
+  const hasArchiveLoadError = Boolean(foldersError || documentsError)
   const activeFilterCount = [categoryFilter !== 'all', statusFilter !== 'all'].filter(Boolean).length
   const currentFolderPath = currentFolder ? getFolderPath(currentFolder._id, folderMap) : []
   const rootFolders = sortFolders(
@@ -1128,9 +1174,9 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
             ? 'Archive Bin'
             : 'My Archive'
   const workspaceSubtitle = currentFolder
-    ? `${getItemCountLabel(totalVisibleItems)} in this folder`
+    ? `${getItemCountLabel(hasArchiveLoadError ? 0 : totalVisibleItems)} in this folder`
     : isSearchActive
-      ? `${getItemCountLabel(totalVisibleItems)} matching folders and files`
+      ? `${getItemCountLabel(hasArchiveLoadError ? 0 : totalVisibleItems)} matching folders and files`
     : workspaceView === 'home'
       ? 'A simpler cloud-style workspace for school records, forms, and shared folders.'
       : workspaceView === 'recent'
@@ -1138,19 +1184,23 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
         : workspaceView === 'shared'
           ? `${departmentSharedEntries.length} department folder${departmentSharedEntries.length === 1 ? '' : 's'} ready to open`
           : workspaceView === 'trash'
-            ? 'Deleted items will appear here when archive bin support is enabled.'
-            : `${getItemCountLabel(totalVisibleItems)} visible in the current archive view`
+            ? hasArchiveLoadError
+              ? 'Archive Bin could not be loaded.'
+              : `${getItemCountLabel(totalVisibleItems)} currently in Archive Bin. Items are removed after ${ARCHIVE_BIN_RETENTION_DAYS} days.`
+            : `${getItemCountLabel(hasArchiveLoadError ? 0 : totalVisibleItems)} visible in the current archive view`
   const browserLabel = currentFolder
     ? 'Current folder'
     : isSearchActive
       ? 'Search results'
+    : workspaceView === 'trash'
+      ? 'Archive bin'
     : workspaceView === 'shared'
       ? 'Department shared'
       : workspaceView === 'recent'
         ? 'Recent archive'
         : 'My archive'
-  const shouldRenderBrowser = Boolean(currentFolder || workspaceView === 'archive' || workspaceView === 'shared' || isSearchActive)
-  const storageUsageLabel = `${formatFileSize(storageUsageBytes)} of ${storagePlan === 'premium' ? '1 TB' : '15 GB'} used`
+  const shouldRenderBrowser = Boolean(currentFolder || workspaceView === 'archive' || workspaceView === 'shared' || workspaceView === 'trash' || isSearchActive)
+  const storageUsageLabel = `${formatFileSize(storageUsageBytes)} of ${storagePlan === 'premium' ? '1 TB' : '10 GB'} used`
   const breadcrumbItems: BreadcrumbItem[] = [
     {
       key: workspaceView,
@@ -1239,7 +1289,8 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
   }
 
   function handleOpenFolder(folderId: string) {
-    setWorkspaceView('archive')
+    const nextFolder = folderMap.get(folderId) ?? null
+    setWorkspaceView(nextFolder?.isTrashed ? 'trash' : 'archive')
     setArchiveMode('all')
     setCurrentFolderId(folderId)
     setSelectedEntryKey(null)
@@ -1266,6 +1317,22 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
     openArchiveDocumentViewerRoute(document)
   }
 
+  function handleOpenEntryDestination(entry: ArchiveEntry) {
+    const destination = getEntryDestination(entry, folderMap)
+    setSelectedEntryKey(null)
+    setOpenGridMenuKey(null)
+    setCreateMenuSource(null)
+
+    if (destination.targetFolderId) {
+      handleOpenFolder(destination.targetFolderId)
+      return
+    }
+
+    setWorkspaceView(destination.workspaceView)
+    setArchiveMode('all')
+    setCurrentFolderId(null)
+  }
+
   function handleRowOpen(entry: ArchiveEntry) {
     if (entry.kind === 'folder') {
       handleOpenFolder(entry.folder._id)
@@ -1276,6 +1343,10 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
   }
 
   function handleEntryClick(entry: ArchiveEntry) {
+    if (Date.now() < suppressClickUntilRef.current) {
+      return
+    }
+
     setSelectedEntryKey(entry.key)
     setOpenGridMenuKey(null)
     handleRowOpen(entry)
@@ -1352,6 +1423,11 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
   }
 
   function openUploadDialog() {
+    if (isTrashView) {
+      setFeedback({ tone: 'error', message: 'Upload is not available inside Archive Bin.' })
+      return
+    }
+
     setUploadForm(EMPTY_UPLOAD_FORM)
     setSelectedUploadFile(null)
     setUploadDialogOpen(true)
@@ -1494,16 +1570,26 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
 
     try {
       if (deleteTarget.kind === 'folder') {
-        await deleteDocumentFolder(deleteTarget.folder._id, forceFolderDelete)
+        const response = await deleteDocumentFolder(deleteTarget.folder._id, deleteTarget.folder.isTrashed ? true : forceFolderDelete)
 
         if (isFolderInBranch(currentFolderId, deleteTarget.folder._id, folderMap)) {
           setCurrentFolderId(getFolderParentId(deleteTarget.folder))
         }
 
-        setFeedback({ tone: 'success', message: `Folder "${deleteTarget.folder.name}" deleted.` })
+        setFeedback({
+          tone: 'success',
+          message: response.permanentlyDeleted
+            ? `Folder "${deleteTarget.folder.name}" permanently deleted from Archive Bin.`
+            : `Folder "${deleteTarget.folder.name}" moved to Archive Bin.`,
+        })
       } else {
-        await deleteArchiveDocument(deleteTarget.document._id)
-        setFeedback({ tone: 'success', message: `Deleted "${deleteTarget.document.title}".` })
+        const response = await deleteArchiveDocument(deleteTarget.document._id)
+        setFeedback({
+          tone: 'success',
+          message: response.permanentlyDeleted
+            ? `Document "${deleteTarget.document.title}" permanently deleted from Archive Bin.`
+            : `Document "${deleteTarget.document.title}" moved to Archive Bin.`,
+        })
       }
 
       closeDeleteDialog()
@@ -1523,6 +1609,175 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
     } finally {
       setDeleting(false)
     }
+  }
+
+  function isEntryTrashed(entry: ArchiveEntry): boolean {
+    return entry.kind === 'folder' ? Boolean(entry.folder.isTrashed) : Boolean(entry.document.isTrashed)
+  }
+
+  function isEntryDraggable(entry: ArchiveEntry): boolean {
+    return !isTrashView && !isEntryTrashed(entry) && movingEntryKey === null
+  }
+
+  function canDropEntryOnFolder(entry: ArchiveEntry, targetFolderId: string): boolean {
+    const targetFolder = folderMap.get(targetFolderId)
+    if (!targetFolder || targetFolder.isTrashed) {
+      return false
+    }
+
+    if (entry.kind === 'folder') {
+      if (entry.folder._id === targetFolderId) {
+        return false
+      }
+
+      if (getFolderParentId(entry.folder) === targetFolderId) {
+        return false
+      }
+
+      if (isFolderInBranch(targetFolderId, entry.folder._id, folderMap)) {
+        return false
+      }
+
+      return true
+    }
+
+    return (entry.document.folderId?._id ?? null) !== targetFolderId
+  }
+
+  function getArchiveEntryByKey(entryKey: string): ArchiveEntry | null {
+    if (entryKey.startsWith('folder:')) {
+      const folderId = entryKey.slice('folder:'.length)
+      const folder = folderMap.get(folderId)
+      return folder ? { key: entryKey, kind: 'folder', folder } : null
+    }
+
+    if (entryKey.startsWith('document:')) {
+      const documentId = entryKey.slice('document:'.length)
+      const document = documents.find((candidate) => candidate._id === documentId) ?? null
+      return document ? { key: entryKey, kind: 'document', document } : null
+    }
+
+    return null
+  }
+
+  function resolveDraggedEntry(event?: DragEvent<HTMLElement>): ArchiveEntry | null {
+    if (draggedEntryRef.current) {
+      return draggedEntryRef.current
+    }
+
+    if (draggedEntry) {
+      return draggedEntry
+    }
+
+    if (!event) {
+      return null
+    }
+
+    const customPayload = event.dataTransfer.getData(ARCHIVE_DRAG_MIME)
+    if (customPayload) {
+      try {
+        const parsedPayload = JSON.parse(customPayload) as { key?: string }
+        if (parsedPayload?.key) {
+          return getArchiveEntryByKey(parsedPayload.key)
+        }
+      } catch {
+        return null
+      }
+    }
+
+    const fallbackKey = event.dataTransfer.getData('text/plain')
+    return fallbackKey ? getArchiveEntryByKey(fallbackKey) : null
+  }
+
+  function suppressClickAfterDrag() {
+    suppressClickUntilRef.current = Date.now() + DRAG_CLICK_SUPPRESSION_MS
+  }
+
+  async function moveEntryToFolder(entry: ArchiveEntry, targetFolderId: string) {
+    setMovingEntryKey(entry.key)
+    setDraggedEntry(null)
+    draggedEntryRef.current = null
+    setDropTargetFolderId(null)
+
+    try {
+      if (entry.kind === 'folder') {
+        await updateDocumentFolder(entry.folder._id, {
+          parentFolderId: targetFolderId,
+        })
+        setFeedback({ tone: 'success', message: `Moved folder "${entry.folder.name}".` })
+      } else {
+        await updateArchiveDocument(entry.document._id, {
+          folderId: targetFolderId,
+        })
+        setFeedback({ tone: 'success', message: `Moved file "${entry.document.title}".` })
+      }
+
+      refreshArchiveData()
+      setSelectedEntryKey(null)
+    } catch (error) {
+      setFeedback({ tone: 'error', message: getErrorMessage(error, 'Failed to move the selected item.') })
+    } finally {
+      setMovingEntryKey(null)
+    }
+  }
+
+  function handleEntryDragStart(event: DragEvent<HTMLElement>, entry: ArchiveEntry) {
+    if (!isEntryDraggable(entry)) {
+      event.preventDefault()
+      return
+    }
+
+    draggedEntryRef.current = entry
+    setDraggedEntry(entry)
+    setDropTargetFolderId(null)
+    setOpenGridMenuKey(null)
+    setCreateMenuSource(null)
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', entry.key)
+    event.dataTransfer.setData(ARCHIVE_DRAG_MIME, JSON.stringify({ key: entry.key }))
+  }
+
+  function handleEntryDragEnd() {
+    suppressClickAfterDrag()
+    draggedEntryRef.current = null
+    setDraggedEntry(null)
+    setDropTargetFolderId(null)
+  }
+
+  function handleFolderDragOver(event: DragEvent<HTMLElement>, targetFolderId: string) {
+    const activeDraggedEntry = resolveDraggedEntry(event)
+    if (!activeDraggedEntry || !canDropEntryOnFolder(activeDraggedEntry, targetFolderId)) {
+      return
+    }
+
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    if (dropTargetFolderId !== targetFolderId) {
+      setDropTargetFolderId(targetFolderId)
+    }
+  }
+
+  function handleFolderDragLeave(targetFolderId: string) {
+    if (dropTargetFolderId === targetFolderId) {
+      setDropTargetFolderId(null)
+    }
+  }
+
+  async function handleFolderDrop(event: DragEvent<HTMLElement>, targetFolderId: string) {
+    event.preventDefault()
+    event.stopPropagation()
+
+    suppressClickAfterDrag()
+
+    const activeDraggedEntry = resolveDraggedEntry(event)
+    if (!activeDraggedEntry || !canDropEntryOnFolder(activeDraggedEntry, targetFolderId)) {
+      draggedEntryRef.current = null
+      setDraggedEntry(null)
+      setDropTargetFolderId(null)
+      return
+    }
+
+    await moveEntryToFolder(activeDraggedEntry, targetFolderId)
   }
 
   function handleUploadFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -1605,6 +1860,7 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
   }
 
   function renderActionButtons(entry: ArchiveEntry, variant: 'inline' | 'menu' = 'inline') {
+    const isTrashedEntry = entry.kind === 'folder' ? Boolean(entry.folder.isTrashed) : Boolean(entry.document.isTrashed)
     const handleEdit = () => {
       setOpenGridMenuKey(null)
       if (entry.kind === 'folder') {
@@ -1643,13 +1899,17 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
           </button>
           {isOpen ? (
             <div className="document-archive__menu" role="menu">
-              <button type="button" className="document-archive__menu-item" role="menuitem" onClick={handleEdit}>
-                <PencilLine size={15} />
-                <span>{entry.kind === 'folder' ? 'Edit folder' : 'Edit file'}</span>
-              </button>
+              {!isTrashedEntry ? (
+                <button type="button" className="document-archive__menu-item" role="menuitem" onClick={handleEdit}>
+                  <PencilLine size={15} />
+                  <span>{entry.kind === 'folder' ? 'Edit folder' : 'Edit file'}</span>
+                </button>
+              ) : null}
               <button type="button" className="document-archive__menu-item is-danger" role="menuitem" onClick={handleDelete}>
                 <Trash2 size={15} />
-                <span>{entry.kind === 'folder' ? 'Delete folder' : 'Delete file'}</span>
+                <span>{isTrashedEntry
+                  ? (entry.kind === 'folder' ? 'Delete permanently' : 'Delete permanently')
+                  : (entry.kind === 'folder' ? 'Delete folder' : 'Delete file')}</span>
               </button>
             </div>
           ) : null}
@@ -1663,20 +1923,22 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
-        <button
-          type="button"
-          className="document-archive__icon-button"
-          aria-label={entry.kind === 'folder' ? 'Edit folder' : 'Edit file'}
-          title={entry.kind === 'folder' ? 'Edit folder' : 'Edit file'}
-          onClick={handleEdit}
-        >
-          <PencilLine size={16} />
-        </button>
+        {!isTrashedEntry ? (
+          <button
+            type="button"
+            className="document-archive__icon-button"
+            aria-label={entry.kind === 'folder' ? 'Edit folder' : 'Edit file'}
+            title={entry.kind === 'folder' ? 'Edit folder' : 'Edit file'}
+            onClick={handleEdit}
+          >
+            <PencilLine size={16} />
+          </button>
+        ) : null}
         <button
           type="button"
           className="document-archive__icon-button is-danger"
-          aria-label={entry.kind === 'folder' ? 'Delete folder' : 'Delete file'}
-          title={entry.kind === 'folder' ? 'Delete folder' : 'Delete file'}
+          aria-label={isTrashedEntry ? 'Delete permanently' : (entry.kind === 'folder' ? 'Delete folder' : 'Delete file')}
+          title={isTrashedEntry ? 'Delete permanently' : (entry.kind === 'folder' ? 'Delete folder' : 'Delete file')}
           onClick={handleDelete}
         >
           <Trash2 size={16} />
@@ -1733,6 +1995,10 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
   }
 
   function renderCreateMenu(source: 'sidebar' | 'toolbar') {
+    if (isTrashView) {
+      return null
+    }
+
     const isOpen = createMenuSource === source
 
     return (
@@ -1769,33 +2035,38 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
 
   function renderGridEntryCard(entry: ArchiveEntry) {
     const isFolder = entry.kind === 'folder'
+    const folderId = isFolder ? entry.folder._id : null
     const key = entry.key
     const isSelected = selectedEntryKey === key
+    const isDraggable = isEntryDraggable(entry)
+    const activeDraggedEntry = draggedEntry || draggedEntryRef.current
+    const canAcceptDrop = folderId !== null && activeDraggedEntry ? canDropEntryOnFolder(activeDraggedEntry, folderId) : false
+    const isDropTarget = folderId !== null && canAcceptDrop && dropTargetFolderId === folderId
     const itemType = isFolder ? 'Folder' : getDocumentFileType(entry.document)
     const Icon = getFileIcon(itemType, entry.kind)
     const name = isFolder ? entry.folder.name : entry.document.title
     const actor = getEntryActor(entry)
     const actorLabel = getActorLabel(entry)
     const actorAvatarSrc = getProfileAvatarSrc(actor?.avatar, actor?.avatarMimeType)
-    const actorMeta = actor?.username && actor.username !== actorLabel
-      ? `@${actor.username} - ${isFolder
-          ? `${entry.folder.directDocumentCount} file${entry.folder.directDocumentCount === 1 ? '' : 's'} - ${formatGridCardDate(entry.folder.updatedAt)}`
-          : `Updated - ${formatGridCardDate(entry.document.updatedAt)}`}`
-      : (isFolder
-          ? `${entry.folder.directDocumentCount} file${entry.folder.directDocumentCount === 1 ? '' : 's'} - ${formatGridCardDate(entry.folder.updatedAt)}`
-          : `Updated - ${formatGridCardDate(entry.document.updatedAt)}`)
     const badgeTone = getGridBadgeTone(itemType, entry.kind)
+    const destination = getEntryDestination(entry, folderMap)
 
     return (
       <div
         key={key}
-        className={`document-archive__grid-card${isSelected ? ' is-selected' : ''}`}
+        className={`document-archive__grid-card${isSelected ? ' is-selected' : ''}${isDraggable ? ' is-draggable' : ''}${movingEntryKey === key ? ' is-moving' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
         onClick={() => handleEntryClick(entry)}
         onKeyDown={(event) => {
           if (event.key === 'Enter') {
             handleRowOpen(entry)
           }
         }}
+        draggable={isDraggable}
+        onDragStart={(event) => handleEntryDragStart(event, entry)}
+        onDragEnd={handleEntryDragEnd}
+        onDragOver={folderId ? (event) => handleFolderDragOver(event, folderId) : undefined}
+        onDragLeave={folderId ? () => handleFolderDragLeave(folderId) : undefined}
+        onDrop={folderId ? (event) => { void handleFolderDrop(event, folderId) } : undefined}
         role="button"
         tabIndex={0}
       >
@@ -1805,6 +2076,17 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
         </div>
         <div className="document-archive__grid-card-head">
           <strong title={name}>{name}</strong>
+          <button
+            type="button"
+            className="document-archive__destination-link"
+            title={destination.label}
+            onClick={(event) => {
+              event.stopPropagation()
+              handleOpenEntryDestination(entry)
+            }}
+          >
+            {destination.label}
+          </button>
         </div>
         {renderGridPreview(entry, itemType, Icon)}
         <div className="document-archive__grid-card-footer">
@@ -1817,7 +2099,6 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
           </span>
           <span className="document-archive__grid-card-copy">
             <strong title={actorLabel}>{actorLabel}</strong>
-            <span title={actorMeta}>{actorMeta}</span>
           </span>
         </div>
       </div>
@@ -1854,24 +2135,155 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
     )
   }
 
+  function renderListHead() {
+    return (
+      <div className="document-archive__table-head">
+        <div>Name</div>
+        <div>Inserted by</div>
+        <div>Modified</div>
+        <div>Size</div>
+        <div>Type</div>
+        <div className="document-archive__table-actions-head" aria-hidden="true" />
+      </div>
+    )
+  }
+
+  function renderListEntryRow(entry: ArchiveEntry) {
+    const isFolder = entry.kind === 'folder'
+    const folderId = isFolder ? entry.folder._id : null
+    const key = entry.key
+    const isSelected = selectedEntryKey === key
+    const isDraggable = isEntryDraggable(entry)
+    const activeDraggedEntry = draggedEntry || draggedEntryRef.current
+    const canAcceptDrop = folderId !== null && activeDraggedEntry ? canDropEntryOnFolder(activeDraggedEntry, folderId) : false
+    const isDropTarget = folderId !== null && canAcceptDrop && dropTargetFolderId === folderId
+    const itemType = isFolder ? 'Folder' : getDocumentFileType(entry.document)
+    const Icon = getFileIcon(itemType, entry.kind)
+    const name = isFolder ? entry.folder.name : entry.document.title
+    const modifiedAt = isFolder ? entry.folder.updatedAt : entry.document.updatedAt
+    const modifiedAbsoluteLabel = formatAbsoluteDate(modifiedAt)
+    const modifiedRelativeLabel = formatRelativeTime(modifiedAt)
+    const size = isFolder ? `${entry.folder.directDocumentCount} file${entry.folder.directDocumentCount === 1 ? '' : 's'}` : formatFileSize(entry.document.fileSize)
+    const sizeSecondary = isFolder ? `${entry.folder.directChildFolderCount} folder${entry.folder.directChildFolderCount === 1 ? '' : 's'}` : entry.document.originalFileName
+    const owner = isFolder
+      ? getActorName(entry.folder.createdBy || entry.folder.updatedBy)
+      : getActorName(entry.document.createdBy || entry.document.updatedBy)
+    const typeMeta = isFolder ? getSegmentLabel(entry.folder.segmentType) : (entry.document.mimeType || 'File')
+    const destination = getEntryDestination(entry, folderMap)
+
+    return (
+      <div
+        key={key}
+        className={`document-archive__table-row${isSelected ? ' is-selected' : ''}${isDraggable ? ' is-draggable' : ''}${movingEntryKey === key ? ' is-moving' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
+        onClick={() => handleEntryClick(entry)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            handleRowOpen(entry)
+          }
+        }}
+        draggable={isDraggable}
+        onDragStart={(event) => handleEntryDragStart(event, entry)}
+        onDragEnd={handleEntryDragEnd}
+        onDragOver={folderId ? (event) => handleFolderDragOver(event, folderId) : undefined}
+        onDragLeave={folderId ? () => handleFolderDragLeave(folderId) : undefined}
+        onDrop={folderId ? (event) => { void handleFolderDrop(event, folderId) } : undefined}
+        role="button"
+        tabIndex={0}
+      >
+        <div className="document-archive__table-cell document-archive__table-cell--name" data-label="Name">
+          <span className={`document-archive__item-icon${isFolder ? ' is-folder' : ''}`}>
+            <Icon size={18} />
+          </span>
+          <div className="document-archive__item-copy">
+            <strong title={name}>{name}</strong>
+            <button
+              type="button"
+              className="document-archive__destination-link"
+              title={destination.label}
+              onClick={(event) => {
+                event.stopPropagation()
+                handleOpenEntryDestination(entry)
+              }}
+            >
+              {destination.label}
+            </button>
+          </div>
+        </div>
+        <div className="document-archive__table-cell" data-label="Inserted by">
+          <strong title={owner}>{owner}</strong>
+        </div>
+        <div className="document-archive__table-cell" data-label="Modified">
+          <strong title={modifiedAbsoluteLabel}>{modifiedAbsoluteLabel}</strong>
+          <span title={modifiedRelativeLabel}>{modifiedRelativeLabel}</span>
+        </div>
+        <div className="document-archive__table-cell" data-label="Size">
+          <strong title={size}>{size}</strong>
+          <span title={sizeSecondary}>{sizeSecondary}</span>
+        </div>
+        <div className="document-archive__table-cell" data-label="Type">
+          <strong title={itemType}>{itemType}</strong>
+          <span title={typeMeta}>{typeMeta}</span>
+        </div>
+        <div className="document-archive__table-cell document-archive__table-cell--actions">
+          {renderActionButtons(entry)}
+        </div>
+      </div>
+    )
+  }
+
+  function renderSectionList(
+    title: string,
+    subtitle: string,
+    entries: ArchiveEntry[],
+    emptyTitle: string,
+    emptyMessage: string
+  ) {
+    return (
+      <section className="document-archive__section-block">
+        <div className="document-archive__section-head">
+          <div>
+            <h3>{title}</h3>
+            <p>{subtitle}</p>
+          </div>
+          <span className="document-archive__section-count">{getItemCountLabel(entries.length)}</span>
+        </div>
+        {entries.length > 0 ? (
+          <div className="document-archive__section-list">
+            {renderListHead()}
+            <div className="document-archive__table-body">
+              {entries.map((entry) => renderListEntryRow(entry))}
+            </div>
+          </div>
+        ) : (
+          <div className="document-archive__section-empty">
+            <strong>{emptyTitle}</strong>
+            <p>{emptyMessage}</p>
+          </div>
+        )}
+      </section>
+    )
+  }
+
   function renderHomeSections() {
+    const renderSection = viewMode === 'list' ? renderSectionList : renderSectionGrid
+
     return (
       <div className="document-archive__section-stack">
-        {renderSectionGrid(
+        {renderSection(
           'Quick access',
           'Jump back into the folders staff use most often.',
           quickAccessFolderEntries,
           'No quick access folders yet.',
           'Open folders from My Archive and they will appear here for faster access.'
         )}
-        {renderSectionGrid(
+        {renderSection(
           'Recent files',
           'Latest uploaded or updated documents across the archive.',
           recentFileEntries,
           'No recent files yet.',
           'Upload a document to start building a searchable school archive.'
         )}
-        {renderSectionGrid(
+        {renderSection(
           'Department shared',
           'Shared department spaces for registrar and admin document workflows.',
           departmentSharedEntries,
@@ -1883,33 +2295,24 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
   }
 
   function renderRecentSections() {
+    const renderSection = viewMode === 'list' ? renderSectionList : renderSectionGrid
+
     return (
       <div className="document-archive__section-stack">
-        {renderSectionGrid(
+        {renderSection(
           'Recent folders',
           'Folders you opened recently or folders updated most recently.',
           recentFolders.map((folder): ArchiveEntry => ({ key: `folder:${folder._id}`, kind: 'folder', folder })),
           'No recent folders yet.',
           'Open a folder from My Archive to keep it close at hand.'
         )}
-        {renderSectionGrid(
+        {renderSection(
           'Recent files',
           'Fresh activity across the archive, ordered by latest updates.',
           recentFileEntries,
           'No recent files yet.',
           'Recent document activity will appear here automatically.'
         )}
-      </div>
-    )
-  }
-
-  function renderTrashState() {
-    return (
-      <div className="document-archive__empty document-archive__empty--panel">
-        <div>
-          <strong>Archive Bin is empty.</strong>
-          <p>Trash support is reserved for the next storage phase. Deleted files are still removed immediately.</p>
-        </div>
       </div>
     )
   }
@@ -1925,11 +2328,16 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
     }
 
     if (foldersError || documentsError) {
+      const archiveErrorMessage = foldersError || documentsError
+      const resolvedErrorMessage = isTrashView && archiveErrorMessage === 'Invalid query parameters.'
+        ? 'Archive Bin needs the updated backend. Restart the admin server, then refresh this page.'
+        : archiveErrorMessage
+
       return (
         <div className="document-archive__empty is-error">
           <div>
             <strong>Archive content could not be loaded.</strong>
-            <p>{foldersError || documentsError}</p>
+            <p>{resolvedErrorMessage}</p>
           </div>
           <button type="button" className="document-archive__button document-archive__button--ghost" onClick={refreshArchiveData}>
             <RefreshCw size={16} />
@@ -1943,16 +2351,18 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
       return (
         <div className="document-archive__empty">
           <div>
-            <strong>No archive items in this view.</strong>
+            <strong>{isTrashView ? 'Archive Bin is empty.' : 'No archive items in this view.'}</strong>
             <p>
-              {debouncedSearchTerm || activeFilterCount > 0
+              {isTrashView
+                ? `Deleted folders and files stay here for ${ARCHIVE_BIN_RETENTION_DAYS} days before permanent removal.`
+                : debouncedSearchTerm || activeFilterCount > 0
                 ? 'Try clearing the search or active filters.'
                 : currentFolder
                   ? 'This folder does not contain any files or subfolders yet.'
                   : 'Create a folder or upload a file to start building the archive.'}
             </p>
           </div>
-          {(debouncedSearchTerm || activeFilterCount > 0) ? (
+          {isTrashView ? null : (debouncedSearchTerm || activeFilterCount > 0) ? (
             <button
               type="button"
               className="document-archive__button document-archive__button--ghost"
@@ -1976,80 +2386,9 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
 
     return (
       <>
-        <div className="document-archive__table-head">
-          <div>Name</div>
-          <div>Owner</div>
-          <div>Modified</div>
-          <div>Size</div>
-          <div>Type</div>
-          <div className="document-archive__table-actions-head" aria-hidden="true" />
-        </div>
+        {renderListHead()}
         <div className="document-archive__table-body">
-          {combinedEntries.map((entry) => {
-            const isFolder = entry.kind === 'folder'
-            const key = entry.key
-            const isSelected = selectedEntryKey === key
-            const itemType = isFolder ? 'Folder' : getDocumentFileType(entry.document)
-            const Icon = getFileIcon(itemType, entry.kind)
-            const name = isFolder ? entry.folder.name : entry.document.title
-            const description = isFolder
-              ? entry.folder.description || `${getFolderTypeCopy(entry.folder)} - ${getFolderSegmentValueLabel(entry.folder)}`
-              : entry.document.description || `${getCategoryLabel(entry.document.category)} - ${entry.document.originalFileName}`
-            const modifiedAt = isFolder ? entry.folder.updatedAt : entry.document.updatedAt
-            const modifiedAbsoluteLabel = formatAbsoluteDate(modifiedAt)
-            const modifiedRelativeLabel = formatRelativeTime(modifiedAt)
-            const size = isFolder ? `${entry.folder.directDocumentCount} file${entry.folder.directDocumentCount === 1 ? '' : 's'}` : formatFileSize(entry.document.fileSize)
-            const sizeSecondary = isFolder ? `${entry.folder.directChildFolderCount} folder${entry.folder.directChildFolderCount === 1 ? '' : 's'}` : entry.document.originalFileName
-            const owner = isFolder
-              ? getActorName(entry.folder.updatedBy || entry.folder.createdBy)
-              : getActorName(entry.document.updatedBy || entry.document.createdBy)
-            const ownerMeta = isFolder ? 'Folder owner' : (entry.document.subcategory || getCategoryLabel(entry.document.category))
-            const typeMeta = isFolder ? getSegmentLabel(entry.folder.segmentType) : (entry.document.mimeType || 'File')
-
-            return (
-              <div
-                key={key}
-                className={`document-archive__table-row${isSelected ? ' is-selected' : ''}`}
-                onClick={() => handleEntryClick(entry)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    handleRowOpen(entry)
-                  }
-                }}
-                role="button"
-                tabIndex={0}
-              >
-                <div className="document-archive__table-cell document-archive__table-cell--name" data-label="Name">
-                  <span className={`document-archive__item-icon${isFolder ? ' is-folder' : ''}`}>
-                    <Icon size={18} />
-                  </span>
-                  <div className="document-archive__item-copy">
-                    <strong title={name}>{name}</strong>
-                    <span className="document-archive__item-subtitle" title={description}>{description}</span>
-                  </div>
-                </div>
-                <div className="document-archive__table-cell" data-label="Owner">
-                  <strong title={owner}>{owner}</strong>
-                  <span title={ownerMeta}>{ownerMeta}</span>
-                </div>
-                <div className="document-archive__table-cell" data-label="Modified">
-                  <strong title={modifiedAbsoluteLabel}>{modifiedAbsoluteLabel}</strong>
-                  <span title={modifiedRelativeLabel}>{modifiedRelativeLabel}</span>
-                </div>
-                <div className="document-archive__table-cell" data-label="Size">
-                  <strong title={size}>{size}</strong>
-                  <span title={sizeSecondary}>{sizeSecondary}</span>
-                </div>
-                <div className="document-archive__table-cell" data-label="Type">
-                  <strong title={itemType}>{itemType}</strong>
-                  <span title={typeMeta}>{typeMeta}</span>
-                </div>
-                <div className="document-archive__table-cell document-archive__table-cell--actions">
-                  {renderActionButtons(entry)}
-                </div>
-              </div>
-            )
-          })}
+          {combinedEntries.map((entry) => renderListEntryRow(entry))}
           {(foldersLoading || documentsLoading) ? (
             <div className="document-archive__table-loading" aria-live="polite">
               <LoaderCircle className="spin" size={16} />
@@ -2070,33 +2409,38 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
       <div className="document-archive__grid">
         {combinedEntries.map((entry) => {
           const isFolder = entry.kind === 'folder'
+          const folderId = isFolder ? entry.folder._id : null
           const key = entry.key
           const isSelected = selectedEntryKey === key
+          const isDraggable = isEntryDraggable(entry)
+          const activeDraggedEntry = draggedEntry || draggedEntryRef.current
+          const canAcceptDrop = folderId !== null && activeDraggedEntry ? canDropEntryOnFolder(activeDraggedEntry, folderId) : false
+          const isDropTarget = folderId !== null && canAcceptDrop && dropTargetFolderId === folderId
           const itemType = isFolder ? 'Folder' : getDocumentFileType(entry.document)
           const Icon = getFileIcon(itemType, entry.kind)
           const name = isFolder ? entry.folder.name : entry.document.title
           const actor = getEntryActor(entry)
           const actorLabel = getActorLabel(entry)
           const actorAvatarSrc = getProfileAvatarSrc(actor?.avatar, actor?.avatarMimeType)
-          const actorMeta = actor?.username && actor.username !== actorLabel
-            ? `@${actor.username} - ${isFolder
-                ? `${entry.folder.directDocumentCount} file${entry.folder.directDocumentCount === 1 ? '' : 's'} - ${formatGridCardDate(entry.folder.updatedAt)}`
-                : `Updated - ${formatGridCardDate(entry.document.updatedAt)}`}`
-            : (isFolder
-                ? `${entry.folder.directDocumentCount} file${entry.folder.directDocumentCount === 1 ? '' : 's'} - ${formatGridCardDate(entry.folder.updatedAt)}`
-                : `Updated - ${formatGridCardDate(entry.document.updatedAt)}`)
           const badgeTone = getGridBadgeTone(itemType, entry.kind)
+          const destination = getEntryDestination(entry, folderMap)
 
           return (
             <div
               key={key}
-              className={`document-archive__grid-card${isSelected ? ' is-selected' : ''}`}
+              className={`document-archive__grid-card${isSelected ? ' is-selected' : ''}${isDraggable ? ' is-draggable' : ''}${movingEntryKey === key ? ' is-moving' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
               onClick={() => handleEntryClick(entry)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   handleRowOpen(entry)
                 }
               }}
+              draggable={isDraggable}
+              onDragStart={(event) => handleEntryDragStart(event, entry)}
+              onDragEnd={handleEntryDragEnd}
+              onDragOver={folderId ? (event) => handleFolderDragOver(event, folderId) : undefined}
+              onDragLeave={folderId ? () => handleFolderDragLeave(folderId) : undefined}
+              onDrop={folderId ? (event) => { void handleFolderDrop(event, folderId) } : undefined}
               role="button"
               tabIndex={0}
             >
@@ -2106,6 +2450,17 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
               </div>
               <div className="document-archive__grid-card-head">
                 <strong title={name}>{name}</strong>
+                <button
+                  type="button"
+                  className="document-archive__destination-link"
+                  title={destination.label}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    handleOpenEntryDestination(entry)
+                  }}
+                >
+                  {destination.label}
+                </button>
               </div>
               {renderGridPreview(entry, itemType, Icon)}
               <div className="document-archive__grid-card-footer">
@@ -2118,7 +2473,6 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
                 </span>
                 <span className="document-archive__grid-card-copy">
                   <strong title={actorLabel}>{actorLabel}</strong>
-                  <span title={actorMeta}>{actorMeta}</span>
                 </span>
               </div>
             </div>
@@ -2253,7 +2607,7 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
           <div className="document-archive__storage-card">
             <div className="document-archive__storage-head">
               <strong>Storage</strong>
-              <small>{storagePlan === 'premium' ? 'Premium 1 TB' : 'Default 15 GB'}</small>
+              <small>{storagePlan === 'premium' ? 'Premium 1 TB' : 'Default 10 GB'}</small>
             </div>
             <div className="document-archive__storage-meter" aria-hidden="true">
               <span style={{ width: `${storageUsagePercent}%` }} />
@@ -2293,14 +2647,19 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
                     return (
                       <React.Fragment key={item.key}>
                         {index > 0 ? <ChevronRight size={14} /> : null}
-                        <button
-                          type="button"
-                          className={`document-archive__breadcrumb${isLast ? ' is-current' : ''}`}
-                          onClick={item.onSelect}
-                          disabled={!item.onSelect}
-                        >
-                          {item.label}
-                        </button>
+                        {item.onSelect ? (
+                          <button
+                            type="button"
+                            className={`document-archive__breadcrumb${isLast ? ' is-current' : ''}`}
+                            onClick={item.onSelect}
+                          >
+                            {item.label}
+                          </button>
+                        ) : (
+                          <span className={`document-archive__breadcrumb${isLast ? ' is-current' : ''}`}>
+                            {item.label}
+                          </span>
+                        )}
                       </React.Fragment>
                     )
                   })}
@@ -2314,10 +2673,12 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
           <div className="document-archive__toolbar">
             <div className="document-archive__toolbar-actions">
               {renderCreateMenu('toolbar')}
-              <button type="button" className="document-archive__button document-archive__button--primary is-secondary" onClick={openUploadDialog}>
-                <Upload size={16} />
-                Upload
-              </button>
+              {!isTrashView ? (
+                <button type="button" className="document-archive__button document-archive__button--primary is-secondary" onClick={openUploadDialog}>
+                  <Upload size={16} />
+                  Upload
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={`document-archive__button document-archive__button--ghost${showFilters ? ' is-active' : ''}`}
@@ -2398,14 +2759,12 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
             </div>
           ) : null}
 
-          {workspaceView === 'trash' && !isSearchActive ? (
-            renderTrashState()
-          ) : shouldRenderBrowser ? (
+          {shouldRenderBrowser ? (
             <>
               <div className="document-archive__browser">
                 <div className="document-archive__browser-topline">
                   <span>{browserLabel}</span>
-                  <small>{getItemCountLabel(totalVisibleItems)}</small>
+                  <small>{getItemCountLabel(hasArchiveLoadError ? 0 : totalVisibleItems)}</small>
                 </div>
                 {viewMode === 'list' ? renderListRows() : renderGridCards()}
               </div>
@@ -2696,11 +3055,19 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
           <div className="document-archive__modal document-archive__modal--compact" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
             <div className="document-archive__modal-head">
               <div>
-                <h3>{deleteTarget.kind === 'folder' ? 'Delete Folder' : 'Delete File'}</h3>
+                <h3>
+                  {(deleteTarget.kind === 'folder' ? deleteTarget.folder.isTrashed : deleteTarget.document.isTrashed)
+                    ? 'Delete Permanently'
+                    : (deleteTarget.kind === 'folder' ? 'Delete Folder' : 'Delete File')}
+                </h3>
                 <p>
                   {deleteTarget.kind === 'folder'
-                    ? `This will remove "${deleteTarget.folder.name}" from the archive.`
-                    : `This will remove "${deleteTarget.document.title}" from the archive.`}
+                    ? (deleteTarget.folder.isTrashed
+                        ? `This will permanently remove "${deleteTarget.folder.name}" from Archive Bin.`
+                        : `This will move "${deleteTarget.folder.name}" to Archive Bin for up to ${ARCHIVE_BIN_RETENTION_DAYS} days.`)
+                    : (deleteTarget.document.isTrashed
+                        ? `This will permanently remove "${deleteTarget.document.title}" from Archive Bin.`
+                        : `This will move "${deleteTarget.document.title}" to Archive Bin for up to ${ARCHIVE_BIN_RETENTION_DAYS} days.`)}
                 </p>
               </div>
               <button type="button" className="document-archive__icon-button" onClick={closeDeleteDialog} aria-label="Close delete dialog">
@@ -2712,18 +3079,22 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
                 <p>
                   This folder currently has {deleteTarget.folder.directChildFolderCount} subfolder{deleteTarget.folder.directChildFolderCount === 1 ? '' : 's'} and {deleteTarget.folder.directDocumentCount} direct file{deleteTarget.folder.directDocumentCount === 1 ? '' : 's'}.
                 </p>
-                <label className="document-archive__checkbox">
-                  <input
-                    type="checkbox"
-                    checked={forceFolderDelete}
-                    onChange={(event) => setForceFolderDelete(event.target.checked)}
-                  />
-                  <span>Delete nested folders and files too</span>
-                </label>
+                {!deleteTarget.folder.isTrashed ? (
+                  <label className="document-archive__checkbox">
+                    <input
+                      type="checkbox"
+                      checked={forceFolderDelete}
+                      onChange={(event) => setForceFolderDelete(event.target.checked)}
+                    />
+                    <span>Move nested folders and files to Archive Bin too</span>
+                  </label>
+                ) : (
+                  <p>Items already in Archive Bin will be removed permanently.</p>
+                )}
               </div>
             ) : (
               <div className="document-archive__delete-copy">
-                <p>The stored upload will be removed permanently.</p>
+                <p>{deleteTarget.document.isTrashed ? 'The stored upload will be removed permanently.' : `The file will be moved to Archive Bin for up to ${ARCHIVE_BIN_RETENTION_DAYS} days.`}</p>
               </div>
             )}
             <div className="document-archive__modal-actions">
@@ -2732,7 +3103,7 @@ export default function DocumentManagement({ onNavigate }: DocumentManagementPro
               </button>
               <button type="button" className="document-archive__button document-archive__button--danger" onClick={handleDeleteConfirm} disabled={deleting}>
                 {deleting ? <LoaderCircle className="spin" size={16} /> : <Trash2 size={16} />}
-                Delete
+                {(deleteTarget.kind === 'folder' ? deleteTarget.folder.isTrashed : deleteTarget.document.isTrashed) ? 'Delete permanently' : 'Move to bin'}
               </button>
             </div>
           </div>

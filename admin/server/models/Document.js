@@ -101,6 +101,17 @@ const documentSchema = new mongoose.Schema({
   updatedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Admin'
+  },
+  isTrashed: {
+    type: Boolean,
+    default: false
+  },
+  trashedAt: {
+    type: Date
+  },
+  trashedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Admin'
   }
 }, {
   timestamps: true,
@@ -112,6 +123,7 @@ documentSchema.index({ tags: 1 })
 documentSchema.index({ isPublic: 1, status: 1 })
 documentSchema.index({ createdBy: 1, createdAt: -1 })
 documentSchema.index({ folderId: 1, updatedAt: -1 })
+documentSchema.index({ isTrashed: 1, folderId: 1, updatedAt: -1 })
 documentSchema.index({ title: 'text', description: 'text' })
 
 // Virtual to check if document is currently effective

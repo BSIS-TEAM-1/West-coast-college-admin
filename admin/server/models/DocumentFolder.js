@@ -38,6 +38,17 @@ const documentFolderSchema = new mongoose.Schema({
   updatedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Admin'
+  },
+  isTrashed: {
+    type: Boolean,
+    default: false
+  },
+  trashedAt: {
+    type: Date
+  },
+  trashedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Admin'
   }
 }, {
   timestamps: true,
@@ -45,6 +56,7 @@ const documentFolderSchema = new mongoose.Schema({
 
 documentFolderSchema.index({ parentFolder: 1, name: 1 })
 documentFolderSchema.index({ segmentType: 1, updatedAt: -1 })
+documentFolderSchema.index({ isTrashed: 1, parentFolder: 1, updatedAt: -1 })
 documentFolderSchema.index({ name: 'text', description: 'text', segmentValue: 'text' })
 
 const DocumentFolder = mongoose.model('DocumentFolder', documentFolderSchema)
