@@ -14,6 +14,7 @@ export type DocumentCategory =
 export type DocumentStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED' | 'SUPERSEDED'
 export type DocumentVisibilityFilter = 'all' | 'public' | 'restricted'
 export type DocumentFolderSegmentType = 'DOCUMENT_TYPE' | 'DEPARTMENT' | 'DATE' | 'CUSTOM'
+export type ArchiveTrashedFilter = 'exclude' | 'only' | 'include'
 
 type ArchiveActor = {
   _id?: string
@@ -43,6 +44,8 @@ export type ArchiveFolder = {
   directStorageBytes: number
   createdBy?: ArchiveActor
   updatedBy?: ArchiveActor
+  isTrashed?: boolean
+  trashedAt?: string
   createdAt: string
   updatedAt: string
 }
@@ -70,6 +73,8 @@ export type ArchiveDocument = {
   lastDownloadedAt?: string
   createdBy?: ArchiveActor
   updatedBy?: ArchiveActor
+  isTrashed?: boolean
+  trashedAt?: string
   createdAt: string
   updatedAt: string
 }
@@ -119,6 +124,8 @@ export type ArchiveDocumentUpdatePayload = {
 export type ListDocumentsParams = {
   folderId?: string | null
   includeUnfoldered?: boolean
+  trashed?: ArchiveTrashedFilter
+  trashRootOnly?: boolean
   category?: DocumentCategory | 'all'
   status?: DocumentStatus | 'all'
   visibility?: DocumentVisibilityFilter
@@ -283,10 +290,16 @@ async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> 
   throw new ArchiveApiError('Archive request failed.', 500)
 }
 
-export async function listDocumentFolders(search?: string): Promise<{ folders: ArchiveFolder[]; total: number }> {
+export async function listDocumentFolders(options: {
+  search?: string
+  trashed?: ArchiveTrashedFilter
+} = {}): Promise<{ folders: ArchiveFolder[]; total: number }> {
   const params = new URLSearchParams()
-  if (search?.trim()) {
-    params.set('search', search.trim())
+  if (options.search?.trim()) {
+    params.set('search', options.search.trim())
+  }
+  if (options.trashed && options.trashed !== 'exclude') {
+    params.set('trashed', options.trashed)
   }
 
   const query = params.toString()
@@ -323,6 +336,8 @@ export async function deleteDocumentFolder(folderId: string, force = false): Pro
   message: string
   deletedFolderCount: number
   deletedDocumentCount: number
+  movedToTrash?: boolean
+  permanentlyDeleted?: boolean
 }> {
   const query = force ? '?force=true' : ''
   return requestJson(`/api/admin/document-folders/${folderId}${query}`, {
@@ -349,6 +364,12 @@ export async function listArchiveDocuments(params: ListDocumentsParams = {}): Pr
   }
   if (params.status && params.status !== 'all') {
     query.set('status', params.status)
+  }
+  if (params.trashed && params.trashed !== 'exclude') {
+    query.set('trashed', params.trashed)
+  }
+  if (params.trashRootOnly) {
+    query.set('trashRootOnly', 'true')
   }
   if (params.visibility && params.visibility !== 'all') {
     query.set('visibility', params.visibility)
@@ -401,8 +422,12 @@ export async function updateArchiveDocument(documentId: string, payload: Archive
   return response.document
 }
 
-export async function deleteArchiveDocument(documentId: string): Promise<void> {
-  await requestJson(`/api/admin/documents/${documentId}`, {
+export async function deleteArchiveDocument(documentId: string): Promise<{
+  message: string
+  movedToTrash?: boolean
+  permanentlyDeleted?: boolean
+}> {
+  return requestJson(`/api/admin/documents/${documentId}`, {
     method: 'DELETE',
   })
 }
