@@ -315,10 +315,6 @@ export default function LandingPage({
   return (
     <div className="landing-page">
       <header className="landing-navbar">
-        <a href="#top" className="landing-nav-brand">
-          <img src="/Logo.jpg" alt="West Coast College" className="landing-nav-logo" />
-          <span>West Coast College</span>
-        </a>
         <nav className="landing-nav-links" aria-label="Landing page navigation">
           <button type="button" className="landing-nav-link-btn" onClick={onOpenAbout}>
             About
@@ -541,7 +537,11 @@ export default function LandingPage({
 
       <footer className="landing-footer" aria-label="Landing page footer">
         <div className="landing-footer-brand">
-          <img src="/Logo.jpg" alt="West Coast College" className="landing-footer-logo" />
+          <img
+            src="/logo-bg-removed.png"
+            alt="West Coast College"
+            className="landing-logo landing-footer-logo"
+          />
           <div>
             <h3>West Coast College</h3>
             <p>Accessible, quality, and student-centered digital services.</p>
