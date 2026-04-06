@@ -45,7 +45,7 @@ const SmsApiPhService = require('./services/smsApiPhService')
 const VerificationEmailService = require('./services/verificationEmailService')
 const registrarRoutes = require('./routes/registrarRoutes')
 const blockController = require('./controllers/blockController')
-const { requireAnyRole, requireAdminRole, isOwnerOrAdmin } = require('./authorization')
+const { requireAnyRole, requireAdminRole, isOwnerOrAdmin, normalizeAccountType } = require('./authorization')
 
 // Initialize backup system
 const backupSystem = new BackupSystem()
@@ -85,6 +85,7 @@ const UPLOADS_ROOT_DIR = path.join(__dirname, 'uploads')
 const DOCUMENT_UPLOADS_DIR = path.join(UPLOADS_ROOT_DIR, 'documents')
 const DOCUMENT_MANAGEMENT_ROLES = ['admin', 'registrar']
 const requireAdminOrRegistrarRole = requireAnyRole(...DOCUMENT_MANAGEMENT_ROLES)
+const requireBlockManagementRole = requireAnyRole('admin', 'registrar')
 const ARCHIVE_ACTOR_POPULATE = 'username displayName avatar avatarMimeType'
 const parsedPhoneVerificationTtlMs = Number(process.env.PHONE_VERIFICATION_CODE_TTL_MS)
 const PHONE_VERIFICATION_CODE_TTL_MS = Number.isFinite(parsedPhoneVerificationTtlMs) && parsedPhoneVerificationTtlMs > 0
@@ -314,9 +315,6 @@ app.use((req, res, next) => {
   next()
 })
 
-// Serve uploaded files
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')))
-
 function sanitizeStorageFileName(fileName) {
   const trimmedFileName = String(fileName || '').trim()
   const safeFileName = trimmedFileName
@@ -395,6 +393,56 @@ async function persistDocumentUpload({ originalFileName, fileData, mimeType, fil
 
 function resolveUploadPath(relativePath) {
   return path.resolve(UPLOADS_ROOT_DIR, String(relativePath || ''))
+}
+
+function getArchiveDocumentAssetPath(documentId, options = {}) {
+  const normalizedId = encodeURIComponent(String(documentId || '').trim())
+  const params = new URLSearchParams()
+
+  if (options.download) {
+    params.set('download', 'true')
+  }
+
+  return `/api/admin/documents/${normalizedId}/asset${params.toString() ? `?${params.toString()}` : ''}`
+}
+
+function getDocumentAccessRoleAliases(accountType) {
+  const normalizedAccountType = normalizeAccountType(accountType)
+  const roleAliases = new Set([normalizedAccountType])
+
+  if (normalizedAccountType === 'registrar') {
+    roleAliases.add('staff')
+  } else if (normalizedAccountType === 'professor') {
+    roleAliases.add('faculty')
+  }
+
+  return roleAliases
+}
+
+function canAccessDocumentAsset(document, accountType) {
+  if (!document || document.isTrashed) {
+    return false
+  }
+
+  const normalizedAccountType = normalizeAccountType(accountType)
+  if (!normalizedAccountType) {
+    return false
+  }
+
+  if (normalizedAccountType === 'admin' || document.isPublic) {
+    return true
+  }
+
+  const allowedRoles = Array.isArray(document.allowedRoles)
+    ? document.allowedRoles.map((role) => normalizeAccountType(role)).filter(Boolean)
+    : []
+
+  if (allowedRoles.length === 0) {
+    return normalizedAccountType === 'registrar'
+  }
+
+  const roleAliases = getDocumentAccessRoleAliases(accountType)
+  return allowedRoles.some((role) => roleAliases.has(role))
 }
 
 async function deleteStoredUpload(relativePath) {
@@ -4732,6 +4780,51 @@ app.get('/api/admin/documents/:id', authMiddleware, requireAdminOrRegistrarRole,
   }
 })
 
+// GET /api/admin/documents/:id/asset - serve a protected document file
+app.get('/api/admin/documents/:id/asset', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware({
+  params: Joi.object({ id: securityMiddleware.schemas.objectId }),
+  query: Joi.object({ download: Joi.boolean().optional() })
+}), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+
+  try {
+    const document = await Document.findById(req.params.id)
+      .select('title fileName originalFileName mimeType filePath isPublic allowedRoles isTrashed')
+      .lean()
+
+    if (!document || document.isTrashed) {
+      return res.status(404).json({ error: 'Document file not found.' })
+    }
+
+    if (!canAccessDocumentAsset(document, req.accountType)) {
+      return res.status(403).json({ error: 'You do not have permission to access this document.' })
+    }
+
+    const absoluteFilePath = resolveUploadPath(document.filePath)
+    const uploadsRoot = path.resolve(UPLOADS_ROOT_DIR)
+    if (!absoluteFilePath.startsWith(uploadsRoot) || !fs.existsSync(absoluteFilePath)) {
+      return res.status(404).json({ error: 'Document file not found.' })
+    }
+
+    const isDownloadRequest = req.query.download === true
+    const preferredFileName = sanitizeStorageFileName(document.originalFileName || document.fileName || document.title || 'document')
+
+    res.setHeader('Cache-Control', 'private, max-age=300')
+    res.type(document.mimeType || 'application/octet-stream')
+    res.setHeader(
+      'Content-Disposition',
+      `${isDownloadRequest ? 'attachment' : 'inline'}; filename="${preferredFileName.replace(/"/g, '')}"`
+    )
+
+    res.sendFile(absoluteFilePath)
+  } catch (err) {
+    console.error('Get admin document asset error:', err.message)
+    res.status(500).json({ error: 'Failed to load document file.' })
+  }
+})
+
 // POST /api/admin/documents - upload new document
 app.post('/api/admin/documents', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.documents.create), async (req, res) => {
   if (!dbReady) {
@@ -4891,12 +4984,13 @@ app.post('/api/admin/documents/:id/download', authMiddleware, requireAdminOrRegi
   }
   try {
     const document = await Document.findById(req.params.id)
-    if (!document) {
+      .select('title fileName originalFileName filePath downloadCount lastDownloadedBy lastDownloadedAt isPublic allowedRoles isTrashed')
+    if (!document || document.isTrashed) {
       return res.status(404).json({ error: 'Document not found.' })
     }
-    const absoluteFilePath = resolveUploadPath(document.filePath)
-    if (!absoluteFilePath.startsWith(path.resolve(UPLOADS_ROOT_DIR)) || !fs.existsSync(absoluteFilePath)) {
-      return res.status(404).json({ error: 'Document file not found.' })
+
+    if (!canAccessDocumentAsset(document, req.accountType)) {
+      return res.status(403).json({ error: 'You do not have permission to access this document.' })
     }
 
     // Update download tracking
@@ -4922,7 +5016,7 @@ app.post('/api/admin/documents/:id/download', authMiddleware, requireAdminOrRegi
 
     res.json({ 
       message: 'Download tracked successfully.',
-      downloadUrl: `/uploads/${String(document.filePath || '').replace(/\\/g, '/')}`
+      downloadUrl: getArchiveDocumentAssetPath(document._id, { download: true })
     })
   } catch (err) {
     console.error('Track download error:', err.message)
@@ -5174,7 +5268,7 @@ async function createTestErrorLogs() {
 }
 
 // GET /api/admin/security-metrics - Get security metrics and threats
-app.get('/api/admin/security-metrics', authMiddleware, async (req, res) => {
+app.get('/api/admin/security-metrics', authMiddleware, requireAdminRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -5330,7 +5424,7 @@ app.get('/api/admin/security-metrics', authMiddleware, async (req, res) => {
 })
 
 // GET /api/admin/error-logs - Get error logs
-app.get('/api/admin/error-logs', authMiddleware, async (req, res) => {
+app.get('/api/admin/error-logs', authMiddleware, requireAdminRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -5368,7 +5462,7 @@ app.get('/api/admin/error-logs', authMiddleware, async (req, res) => {
 })
 
 // GET /api/admin/system-health - Get comprehensive system health metrics
-app.get('/api/admin/system-health', authMiddleware, async (req, res) => {
+app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req, res) => {
   try {
     const forceScan = req.query.forceScan === 'true'
     
@@ -5390,9 +5484,6 @@ app.get('/api/admin/system-health', authMiddleware, async (req, res) => {
     if (forceScan) {
       global.cachedSystemHealth = null
     }
-    
-    // Create test logs if needed (for production debugging)
-    await createTestErrorLogs()
     
     const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000)
     
@@ -5577,7 +5668,7 @@ app.get('/api/admin/system-health', authMiddleware, async (req, res) => {
 })
 
 // Test endpoint to check account types
-app.get('/api/admin/test-account-types', authMiddleware, async (req, res) => {
+app.get('/api/admin/test-account-types', authMiddleware, requireAdminRole, async (req, res) => {
   try {
     const allAdmins = await Admin.find({}, 'username accountType displayName').lean()
     console.log('All Admins:', allAdmins)
@@ -5598,7 +5689,7 @@ app.get('/api/admin/test-account-types', authMiddleware, async (req, res) => {
 })
 
 // Get registration logs
-app.get('/api/admin/registration-logs', authMiddleware, async (req, res) => {
+app.get('/api/admin/registration-logs', authMiddleware, requireAdminRole, async (req, res) => {
   try {
     const logs = await Admin.find({}, 'username accountType displayName createdAt')
       .sort({ createdAt: -1 })
@@ -5621,7 +5712,7 @@ app.get('/api/admin/registration-logs', authMiddleware, async (req, res) => {
 })
 
 // Debug endpoint to check Admin collection directly
-app.get('/api/admin/debug-admins', authMiddleware, async (req, res) => {
+app.get('/api/admin/debug-admins', authMiddleware, requireAdminRole, async (req, res) => {
   try {
     const allAdmins = await Admin.find({}, 'username accountType displayName')
     const totalCount = await Admin.countDocuments()
@@ -5651,7 +5742,7 @@ app.get('/api/admin/debug-admins', authMiddleware, async (req, res) => {
 })
 
 // Test endpoint for Atlas API
-app.get('/api/admin/test-atlas', authMiddleware, async (req, res) => {
+app.get('/api/admin/test-atlas', authMiddleware, requireAdminRole, async (req, res) => {
   try {
     console.log('Testing Atlas API...')
     console.log('Environment variables:', {
@@ -5771,7 +5862,7 @@ app.post('/api/admin/sms/send-test', authMiddleware, requireAdminRole, async (re
 })
 
 // Backup endpoints
-app.post('/api/admin/backup/create', authMiddleware, async (req, res) => {
+app.post('/api/admin/backup/create', authMiddleware, requireAdminRole, async (req, res) => {
   const performedBy = req.adminId || null
   const performedByRole = req.accountType === 'registrar' ? 'registrar' : 'admin'
   const ipAddress = req.ip || req.connection?.remoteAddress || null
@@ -5829,7 +5920,7 @@ app.post('/api/admin/backup/create', authMiddleware, async (req, res) => {
   }
 });
 
-app.get('/api/admin/backup/history', authMiddleware, async (req, res) => {
+app.get('/api/admin/backup/history', authMiddleware, requireAdminRole, async (req, res) => {
   try {
     // Get backup history from database
     const backups = await Backup.find()
@@ -5881,7 +5972,7 @@ app.get('/api/admin/backup/history', authMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/admin/backup/restore', authMiddleware, async (req, res) => {
+app.post('/api/admin/backup/restore', authMiddleware, requireAdminRole, async (req, res) => {
   const performedBy = req.adminId || null
   const performedByRole = req.accountType === 'registrar' ? 'registrar' : 'admin'
   const ipAddress = req.ip || req.connection?.remoteAddress || null
@@ -5939,7 +6030,7 @@ app.post('/api/admin/backup/restore', authMiddleware, async (req, res) => {
   }
 });
 
-app.get('/api/admin/backup/stats', authMiddleware, async (req, res) => {
+app.get('/api/admin/backup/stats', authMiddleware, requireAdminRole, async (req, res) => {
   try {
     const stats = await backupSystem.getBackupStats();
     res.json({ success: true, ...stats });
@@ -5953,7 +6044,7 @@ app.get('/api/admin/backup/stats', authMiddleware, async (req, res) => {
 });
 
 // POST /api/admin/security-scan - Run a security scan
-app.post('/api/admin/security-scan', authMiddleware, async (req, res) => {
+app.post('/api/admin/security-scan', authMiddleware, requireAdminRole, async (req, res) => {
   console.log('Security scan initiated by admin:', req.adminId);
   
   if (!dbReady) {
@@ -6084,7 +6175,7 @@ app.post('/api/admin/security-scan', authMiddleware, async (req, res) => {
 // ==================== IP BLOCKING ====================
 
 // GET /api/admin/blocked-ips - get all blocked IPs
-app.get('/api/admin/blocked-ips', authMiddleware, async (req, res) => {
+app.get('/api/admin/blocked-ips', authMiddleware, requireAdminRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6105,7 +6196,7 @@ app.get('/api/admin/blocked-ips', authMiddleware, async (req, res) => {
 })
 
 // GET /api/admin/blocked-ips/logs - get blocked IP specific audit logs
-app.get('/api/admin/blocked-ips/logs', authMiddleware, async (req, res) => {
+app.get('/api/admin/blocked-ips/logs', authMiddleware, requireAdminRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6142,7 +6233,7 @@ app.get('/api/admin/blocked-ips/logs', authMiddleware, async (req, res) => {
 })
 
 // POST /api/admin/security-headers-scan - Scan security headers
-app.post('/api/admin/security-headers-scan', authMiddleware, async (req, res) => {
+app.post('/api/admin/security-headers-scan', authMiddleware, requireAdminRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' });
   }
@@ -6384,7 +6475,7 @@ app.post('/api/admin/security-headers-scan', authMiddleware, async (req, res) =>
 })
 
 // POST /api/admin/blocked-ips - block an IP
-app.post('/api/admin/blocked-ips', authMiddleware, async (req, res) => {
+app.post('/api/admin/blocked-ips', authMiddleware, requireAdminRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6481,7 +6572,7 @@ app.post('/api/admin/blocked-ips', authMiddleware, async (req, res) => {
 })
 
 // DELETE /api/admin/blocked-ips/:id - unblock an IP
-app.delete('/api/admin/blocked-ips/:id', authMiddleware, async (req, res) => {
+app.delete('/api/admin/blocked-ips/:id', authMiddleware, requireAdminRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6517,7 +6608,7 @@ app.delete('/api/admin/blocked-ips/:id', authMiddleware, async (req, res) => {
 })
 
 // DELETE /api/admin/blocked-ips/by-ip/:ipAddress - unblock by IP address (appeal flow)
-app.delete('/api/admin/blocked-ips/by-ip/:ipAddress', authMiddleware, async (req, res) => {
+app.delete('/api/admin/blocked-ips/by-ip/:ipAddress', authMiddleware, requireAdminRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6561,7 +6652,7 @@ app.delete('/api/admin/blocked-ips/by-ip/:ipAddress', authMiddleware, async (req
 })
 
 // GET /api/admin/blocked-ips/:ipAddress - check if IP is blocked
-app.get('/api/admin/blocked-ips/:ipAddress', async (req, res) => {
+app.get('/api/admin/blocked-ips/:ipAddress', authMiddleware, requireAdminRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6587,7 +6678,7 @@ app.get('/api/admin/blocked-ips/:ipAddress', async (req, res) => {
 // ==================== BLOCK MANAGEMENT ====================
 
 // POST /api/blocks/assign-student
-app.post('/api/blocks/assign-student', authMiddleware, async (req, res) => {
+app.post('/api/blocks/assign-student', authMiddleware, requireBlockManagementRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6600,7 +6691,7 @@ app.post('/api/blocks/assign-student', authMiddleware, async (req, res) => {
 });
 
 // POST /api/blocks/overcapacity/decision
-app.post('/api/blocks/overcapacity/decision', authMiddleware, async (req, res) => {
+app.post('/api/blocks/overcapacity/decision', authMiddleware, requireBlockManagementRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6613,7 +6704,7 @@ app.post('/api/blocks/overcapacity/decision', authMiddleware, async (req, res) =
 });
 
 // GET /api/blocks/suggested-sections
-app.get('/api/blocks/suggested-sections', authMiddleware, async (req, res) => {
+app.get('/api/blocks/suggested-sections', authMiddleware, requireBlockManagementRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6626,7 +6717,7 @@ app.get('/api/blocks/suggested-sections', authMiddleware, async (req, res) => {
 });
 
 // POST /api/blocks/rebalance
-app.post('/api/blocks/rebalance', authMiddleware, async (req, res) => {
+app.post('/api/blocks/rebalance', authMiddleware, requireBlockManagementRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6639,7 +6730,7 @@ app.post('/api/blocks/rebalance', authMiddleware, async (req, res) => {
 });
 
 // GET /api/blocks/groups
-app.get('/api/blocks/groups', authMiddleware, async (req, res) => {
+app.get('/api/blocks/groups', authMiddleware, requireBlockManagementRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6652,7 +6743,7 @@ app.get('/api/blocks/groups', authMiddleware, async (req, res) => {
 });
 
 // GET /api/blocks/assignable-students
-app.get('/api/blocks/assignable-students', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.assignableStudents), async (req, res) => {
+app.get('/api/blocks/assignable-students', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.assignableStudents), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6665,7 +6756,7 @@ app.get('/api/blocks/assignable-students', authMiddleware, securityMiddleware.in
 });
 
 // POST /api/blocks/groups
-app.post('/api/blocks/groups', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.createBlockGroup), async (req, res) => {
+app.post('/api/blocks/groups', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.createBlockGroup), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6678,7 +6769,7 @@ app.post('/api/blocks/groups', authMiddleware, securityMiddleware.inputValidatio
 });
 
 // DELETE /api/blocks/groups/:groupId
-app.delete('/api/blocks/groups/:groupId', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.objectIdParam), async (req, res) => {
+app.delete('/api/blocks/groups/:groupId', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.objectIdParam), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6691,7 +6782,7 @@ app.delete('/api/blocks/groups/:groupId', authMiddleware, securityMiddleware.inp
 });
 
 // GET /api/blocks/groups/:groupId/sections
-app.get('/api/blocks/groups/:groupId/sections', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.objectIdParam), async (req, res) => {
+app.get('/api/blocks/groups/:groupId/sections', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.objectIdParam), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6704,7 +6795,7 @@ app.get('/api/blocks/groups/:groupId/sections', authMiddleware, securityMiddlewa
 });
 
 // POST /api/blocks/groups/:groupId/sections
-app.post('/api/blocks/groups/:groupId/sections', authMiddleware, securityMiddleware.inputValidationMiddleware({ ...securityMiddleware.schemas.block.objectIdParam, ...securityMiddleware.schemas.block.createSection }), async (req, res) => {
+app.post('/api/blocks/groups/:groupId/sections', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware({ ...securityMiddleware.schemas.block.objectIdParam, ...securityMiddleware.schemas.block.createSection }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6717,7 +6808,7 @@ app.post('/api/blocks/groups/:groupId/sections', authMiddleware, securityMiddlew
 });
 
 // GET /api/blocks/sections/:sectionId/students
-app.get('/api/blocks/sections/:sectionId/students', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.objectIdParam), async (req, res) => {
+app.get('/api/blocks/sections/:sectionId/students', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.objectIdParam), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6730,7 +6821,7 @@ app.get('/api/blocks/sections/:sectionId/students', authMiddleware, securityMidd
 });
 
 // DELETE /api/blocks/sections/:sectionId/students/:studentId
-app.delete('/api/blocks/sections/:sectionId/students/:studentId', authMiddleware, async (req, res) => {
+app.delete('/api/blocks/sections/:sectionId/students/:studentId', authMiddleware, requireBlockManagementRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6743,7 +6834,7 @@ app.delete('/api/blocks/sections/:sectionId/students/:studentId', authMiddleware
 });
 
 // PATCH /api/blocks/sections/:sectionId/adviser
-app.patch('/api/blocks/sections/:sectionId/adviser', authMiddleware, async (req, res) => {
+app.patch('/api/blocks/sections/:sectionId/adviser', authMiddleware, requireBlockManagementRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6756,7 +6847,7 @@ app.patch('/api/blocks/sections/:sectionId/adviser', authMiddleware, async (req,
 });
 
 // POST /api/blocks/groups/:groupId/sections
-app.post('/api/blocks/groups/:groupId/sections', authMiddleware, async (req, res) => {
+app.post('/api/blocks/groups/:groupId/sections', authMiddleware, requireBlockManagementRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6808,7 +6899,7 @@ app.use((req, res, next) => {
 })
 
 // GET /api/admin/server-stats - Get server performance metrics from Render API
-app.get('/api/admin/server-stats', async (req, res) => {
+app.get('/api/admin/server-stats', authMiddleware, requireAdminRole, async (req, res) => {
   try {
     const response = await fetch(
       `https://api.render.com/v1/services/${process.env.RENDER_SERVICE_ID}/metrics`,
@@ -6852,7 +6943,7 @@ app.get('/api/admin/server-stats', async (req, res) => {
 })
 
 // GET /api/admin/bandwidth-stats - Get bandwidth usage statistics from Render API
-app.get('/api/admin/bandwidth-stats', async (req, res) => {
+app.get('/api/admin/bandwidth-stats', authMiddleware, requireAdminRole, async (req, res) => {
   try {
     const response = await fetch(
       `https://api.render.com/v1/services/${process.env.RENDER_SERVICE_ID}/metrics`,

@@ -139,7 +139,7 @@ function getDownloadFileName(document: Pick<ArchiveDocument, 'originalFileName' 
   return String(document.originalFileName || document.fileName || document.title || 'document').trim() || 'document'
 }
 
-async function fetchDocumentBlob(document: Pick<ArchiveDocument, 'filePath'>): Promise<Blob> {
+async function fetchDocumentBlob(document: Pick<ArchiveDocument, '_id'>): Promise<Blob> {
   const response = await fetch(getArchiveDocumentAssetUrl(document))
   if (!response.ok) {
     throw new Error('Unable to load the document file.')

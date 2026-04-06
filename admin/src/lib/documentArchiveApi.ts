@@ -443,9 +443,8 @@ export async function trackArchiveDocumentDownload(documentId: string): Promise<
   return new URL(response.downloadUrl, API_URL).toString()
 }
 
-export function getArchiveDocumentAssetUrl(document: Pick<ArchiveDocument, 'filePath'>): string {
-  const normalizedPath = String(document.filePath || '').replace(/^\/+/, '').replace(/\\/g, '/')
-  return new URL(`/uploads/${normalizedPath}`, API_URL).toString()
+export function getArchiveDocumentAssetUrl(document: Pick<ArchiveDocument, '_id'>): string {
+  return new URL(`/api/admin/documents/${encodeURIComponent(String(document._id || '').trim())}/asset`, API_URL).toString()
 }
 
 export function getArchiveDocumentViewerPath(documentId: string): string {
