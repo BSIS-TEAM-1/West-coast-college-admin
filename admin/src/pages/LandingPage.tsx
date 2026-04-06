@@ -28,19 +28,19 @@ const LANDING_VIDEOS: LandingVideoItem[] = [
   {
     title: '2024 SHS Graduation Ceremony',
     src: '/2024SHSintrovid.mp4',
-    optimizedSrc: '/videos/2024SHSintrovid.mp4',
+    optimizedSrc: '/2024SHSintrovid.mp4',
     poster: '/intro-img1.png'
   },
   {
     title: '2024 Graduation Ceremony',
     src: '/2024introvid.mp4',
-    optimizedSrc: '/videos/2024introvid.mp4',
+    optimizedSrc: '/2024introvid.mp4',
     poster: '/intro-img2.png'
   },
   {
     title: 'Video Premiere "West Coast College"',
     src: '/landingpagevideo.mp4',
-    optimizedSrc: '/videos/landingpagevideo.mp4'
+    optimizedSrc: '/landingpagevideo.mp4'
   }
 ]
 
