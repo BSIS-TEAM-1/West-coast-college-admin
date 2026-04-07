@@ -17,12 +17,35 @@ const institutionalHighlights = [
   'Commitment to research, innovation, and responsible community partnership'
 ]
 
+const coreValues = [
+  {
+    title: 'Excellence',
+    description: 'Commitment to academic quality and professional competence',
+    icon: 'E'
+  },
+  {
+    title: 'Integrity',
+    description: 'Upholding ethical standards and transparency in all operations',
+    icon: 'I'
+  },
+  {
+    title: 'Service',
+    description: 'Dedication to community engagement and social responsibility',
+    icon: 'S'
+  },
+  {
+    title: 'Innovation',
+    description: 'Embracing modern educational approaches and technology',
+    icon: 'N'
+  }
+]
+
 export default function AboutPage({ onBack }: AboutPageProps) {
   return (
     <div className="about-page">
       <header className="about-header">
         <a href="#top" className="about-brand">
-          <img src="/Logo.jpg" alt="West Coast College" />
+          <img src="/logo-bg-removed.png" alt="West Coast College" />
           <span>West Coast College</span>
         </a>
         <div className="about-header-actions">
@@ -38,9 +61,9 @@ export default function AboutPage({ onBack }: AboutPageProps) {
             <p className="about-kicker">Institution Profile</p>
             <h1>About West Coast College</h1>
             <p>
-              West Coast College (WCC) is a private higher education institution in the Bicol
-              Region. We are committed to providing accessible, standards-based tertiary education
-              for learners in the community and beyond. Our academic and administrative systems are
+              West Coast College (WCC) is a premier private higher education institution in the Bicol
+              Region, dedicated to providing accessible, standards-based tertiary education
+              for learners in the community and beyond. Our innovative academic and administrative systems are
               designed to strengthen student outcomes and support long-term professional growth.
             </p>
             <p>
@@ -59,7 +82,7 @@ export default function AboutPage({ onBack }: AboutPageProps) {
             </div>
           </div>
           <aside className="about-hero-image-wrap" aria-label="West Coast College image">
-            <img src="/logo-header.jpg" alt="West Coast College campus visual" />
+            <img src="/logo-bg-removed.png" alt="West Coast College campus visual" />
           </aside>
         </section>
 
@@ -92,6 +115,22 @@ export default function AboutPage({ onBack }: AboutPageProps) {
               education that equips students with knowledge, competencies, and values necessary for
               productive work, lifelong learning, and responsible citizenship.
             </p>
+          </article>
+
+          <article className="about-card about-card-wide">
+            <p className="about-card-label">Core Values</p>
+            <h2>Our Guiding Principles</h2>
+            <div className="about-values-grid">
+              {coreValues.map(value => (
+                <div key={value.title} className="about-value-item">
+                  <div className="about-value-icon" aria-hidden="true">
+                    <span>{value.icon}</span>
+                  </div>
+                  <h3 className="about-value-title">{value.title}</h3>
+                  <p className="about-value-description">{value.description}</p>
+                </div>
+              ))}
+            </div>
           </article>
 
           <article className="about-card about-card-wide">
