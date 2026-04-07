@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import './LandingPage.css'
 import {
   applyThemePreference,
@@ -256,6 +256,9 @@ export default function LandingPage({
 }: LandingPageProps) {
   const [theme, setTheme] = useState<ThemePreference>(() => getStoredTheme(null))
   const [isApplyModalOpen, setIsApplyModalOpen] = useState(false)
+  const [isFooterContactHighlighted, setIsFooterContactHighlighted] = useState(false)
+  const footerContactRef = useRef<HTMLDivElement | null>(null)
+  const footerContactHighlightTimeoutRef = useRef<number | null>(null)
 
   useEffect(() => {
     setActiveThemeScope(null)
@@ -294,6 +297,14 @@ export default function LandingPage({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isApplyModalOpen])
 
+  useEffect(() => {
+    return () => {
+      if (footerContactHighlightTimeoutRef.current !== null) {
+        window.clearTimeout(footerContactHighlightTimeoutRef.current)
+      }
+    }
+  }, [])
+
   const handleOpenApplyModal = () => {
     setIsApplyModalOpen(true)
   }
@@ -312,6 +323,29 @@ export default function LandingPage({
     onOpenApplicantMaintenance()
   }
 
+  const triggerFooterContactHighlight = () => {
+    if (footerContactHighlightTimeoutRef.current !== null) {
+      window.clearTimeout(footerContactHighlightTimeoutRef.current)
+    }
+
+    setIsFooterContactHighlighted(false)
+
+    window.requestAnimationFrame(() => {
+      setIsFooterContactHighlighted(true)
+      footerContactHighlightTimeoutRef.current = window.setTimeout(() => {
+        setIsFooterContactHighlighted(false)
+        footerContactHighlightTimeoutRef.current = null
+      }, 5200)
+    })
+  }
+
+  const handleFooterContactClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault()
+    footerContactRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    window.history.replaceState({}, '', '#footer-contact')
+    triggerFooterContactHighlight()
+  }
+
   return (
     <div className="landing-page">
       <header className="landing-navbar">
@@ -320,7 +354,7 @@ export default function LandingPage({
             About
           </button>
           <a href="#services">Services</a>
-          <a href="#contact">Contact</a>
+          <a href="#footer-contact" onClick={handleFooterContactClick}>Contact</a>
         </nav>
         <div className="landing-theme-picker">
           <label htmlFor="landing-theme-select" className="landing-theme-label">
@@ -569,7 +603,11 @@ export default function LandingPage({
           </button>
         </div>
 
-        <div className="landing-footer-contact">
+        <div
+          ref={footerContactRef}
+          className="landing-footer-contact"
+          id="footer-contact"
+        >
           <h4>Contact</h4>
           <a href="tel:+639778276806" className="landing-footer-contact-link">
             0977 827 6806
@@ -582,7 +620,7 @@ export default function LandingPage({
           </a>
           <a
             href="mailto:westcoastcollegeregistrar@gmail.com?subject=West%20Coast%20College%20Inquiry"
-            className="landing-footer-contact-cta"
+            className={`landing-footer-contact-cta ${isFooterContactHighlighted ? 'is-highlighted' : ''}`}
           >
             Contact Us
           </a>
