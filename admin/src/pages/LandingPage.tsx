@@ -376,14 +376,12 @@ export default function LandingPage({
 
       <div className="landing-shell">
         <section className="landing-content" id="top">
-          <div className="landing-brand">
-            <img src="/logo-bg-removed.png" alt="West Coast College" className="landing-logo" />
-            <p className="landing-kicker">West Coast College</p>
-          </div>
           <h1 className="landing-title">A Developing Higher Education Institution in the Bicol Region</h1>
           <p className="landing-subtitle">
-             Providing a digital enrollment platform that simplifies the process and makes it more accessible for students.
+            Providing a digital enrollment platform that simplifies admissions and makes
+            enrollment services more accessible for students.
           </p>
+          
           <div className="landing-hero-actions">
             <button type="button" className="landing-apply-btn" onClick={handleOpenApplyModal}>
               Apply Now
@@ -404,25 +402,45 @@ export default function LandingPage({
         <div className="landing-values-head">
           <p>Institution Direction</p>
           <h2>Vision And Mission</h2>
+          <span className="landing-values-intro">
+            The long-term direction of the college and the commitment that guides its daily
+            work are presented here with clarity and emphasis.
+          </span>
         </div>
 
+        <div className="landing-aurora-divider" aria-hidden="true" />
+
         <div className="landing-values-grid">
-          <article className="landing-value-card landing-value-card-vision">
+          <article className="landing-value-panel landing-value-panel-vision">
             <p className="landing-value-eyebrow">Strategic Direction</p>
             <h3>Vision</h3>
-            <p className="landing-value-summary">
-              By providing quality education, the College envisions itself as an educational institution that would develop highly disciplined and professionally competent, appreciative-of-Filipino-culture individuals who would contribute to building a just and humane Philippine society.
-            </p>
+            <div className="landing-value-copy">
+              <p className="landing-value-summary">
+                By providing quality education, the College envisions itself as an educational
+                institution that would develop highly disciplined and professionally competent,
+                appreciative-of-Filipino-culture individuals who would contribute to building
+                a just and humane Philippine society.
+              </p>
+            </div>
           </article>
 
-          <article className="landing-value-card landing-value-card-mission">
+          <article className="landing-value-panel landing-value-panel-mission">
             <p className="landing-value-eyebrow">Institutional Commitment</p>
             <h3>Mission</h3>
-            <p className="landing-value-summary">
-              West Coast College believes that all persons, regardless of status in life, are imbued with dignity and that all resources, whether personal or communal, should be harnessed to promote this dignity.
-              The College commits itself to pursue relevant and responsive programs utilizing modern educational technology that would develop competent and ethical professionals dedicated to the advancement of knowledge, appreciative of arts and culture, and who provide meaningful leadership to their community and the Philippine society as a whole.
-            </p>
-            
+            <div className="landing-value-copy">
+              <p className="landing-value-summary">
+                West Coast College believes that all persons, regardless of status in life, are
+                imbued with dignity and that all resources, whether personal or communal,
+                should be harnessed to promote this dignity.
+              </p>
+              <p className="landing-value-summary">
+                The College commits itself to pursue relevant and responsive programs utilizing
+                modern educational technology that would develop competent and ethical
+                professionals dedicated to the advancement of knowledge, appreciative of arts
+                and culture, and who provide meaningful leadership to their community and the
+                Philippine society as a whole.
+              </p>
+            </div>
           </article>
         </div>
       </section>
