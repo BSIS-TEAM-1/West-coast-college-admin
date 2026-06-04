@@ -9,7 +9,6 @@ import {
   FileText,
   History,
   Layers3,
-  MoreHorizontal,
   PencilLine,
   Plus,
   Search,
@@ -684,7 +683,7 @@ function StudentRowMenu({
         aria-expanded={isOpen}
         aria-label={`Open actions for ${studentNumberDisplay(student)}`}
       >
-        <MoreHorizontal size={16} />
+        <span className="student-workspace__menu-dots" aria-hidden="true">...</span>
       </button>
 
       {isOpen && typeof document !== 'undefined'

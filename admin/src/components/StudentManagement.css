@@ -1300,3 +1300,372 @@ body.student-workspace-overlay-open #root * {
     min-width: 920px;
   }
 }
+
+/* Registrar Student Management workspace redesign */
+.student-workspace {
+  --student-surface: var(--color-surface, #ffffff);
+  --student-surface-strong: var(--color-surface, #ffffff);
+  --student-surface-soft: var(--color-bg-soft, #f8fafc);
+  --student-border: var(--color-border, rgba(148, 163, 184, 0.24));
+  --student-text-soft: var(--color-text-muted, #64748b);
+  --student-accent: var(--color-primary-on-surface, var(--color-primary));
+  --student-accent-base: var(--color-primary);
+  --student-on-accent: var(--color-on-primary, #ffffff);
+  gap: 1.5rem;
+  color: var(--color-text);
+  font-family: 'Libre Franklin', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.student-workspace > .student-workspace__header {
+  align-items: flex-end;
+  gap: 1.5rem;
+  padding: 0 0 1.5rem;
+  border: 0;
+  border-bottom: 1px solid var(--student-border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.student-workspace__heading h1,
+.student-workspace__section-heading h2 {
+  color: var(--student-accent);
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-weight: 800;
+}
+
+.student-workspace__heading h1 {
+  font-size: clamp(2.6rem, 5vw, 4.4rem);
+  line-height: 1.02;
+}
+
+.student-workspace__section-heading h2 {
+  font-size: clamp(1.45rem, 3vw, 1.9rem);
+}
+
+.student-workspace__heading p,
+.student-workspace__section-heading p {
+  color: var(--student-text-soft);
+}
+
+.student-workspace__eyebrow {
+  color: var(--student-accent);
+  font-weight: 900;
+}
+
+.student-workspace > .student-workspace__header .student-workspace__primary-button,
+.student-workspace > .student-workspace__header .student-workspace__secondary-button,
+.student-workspace__bulk-actions .student-workspace__secondary-button {
+  border-radius: 2px;
+  min-height: 2.75rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.student-workspace > .student-workspace__header .student-workspace__primary-button {
+  border-color: var(--student-accent-base);
+  background: var(--student-accent-base);
+  color: var(--student-on-accent);
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--student-accent-base) 20%, transparent);
+}
+
+.student-workspace > .student-workspace__header .student-workspace__secondary-button,
+.student-workspace__bulk-actions .student-workspace__secondary-button {
+  border-color: var(--student-border);
+  background: transparent;
+  color: var(--student-accent);
+  box-shadow: none;
+}
+
+.student-workspace > .student-workspace__header .student-workspace__primary-button:hover,
+.student-workspace > .student-workspace__header .student-workspace__secondary-button:hover,
+.student-workspace__bulk-actions .student-workspace__secondary-button:hover {
+  transform: translateY(-1px);
+  border-color: var(--student-accent-base);
+}
+
+.student-workspace__stats {
+  gap: 1rem;
+}
+
+.student-workspace__stat-card,
+.student-workspace__controls-card,
+.student-workspace__table-card {
+  border: 1px solid var(--student-border);
+  border-radius: 2px;
+  background: var(--student-surface);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+}
+
+.student-workspace__stat-card {
+  min-height: 8rem;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.student-workspace__stat-card span,
+.student-workspace__stat-card small {
+  color: var(--student-text-soft);
+  font-weight: 700;
+}
+
+.student-workspace__stat-card strong {
+  color: var(--student-accent);
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 2.6rem;
+  line-height: 1;
+}
+
+.student-workspace__stat-card--pending {
+  border-color: var(--student-accent-base);
+  border-left: 4px solid var(--student-accent);
+  background: var(--student-accent-base);
+}
+
+.student-workspace__stat-card--pending span,
+.student-workspace__stat-card--pending small {
+  color: color-mix(in srgb, var(--student-on-accent) 72%, transparent);
+}
+
+.student-workspace__stat-card--pending strong {
+  color: var(--student-on-accent);
+}
+
+.student-workspace__controls-card,
+.student-workspace__table-card {
+  padding: 1.25rem;
+}
+
+.student-workspace__filters {
+  gap: 1rem;
+}
+
+.student-workspace__filters label span {
+  color: var(--student-text-soft);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.student-workspace__search,
+.student-workspace__filters select {
+  border-color: var(--student-border);
+  border-radius: 2px;
+  background: var(--student-surface);
+  color: var(--color-text);
+}
+
+.student-workspace__search input {
+  color: var(--color-text);
+}
+
+.student-workspace__search input:focus,
+.student-workspace__filters select:focus {
+  border-color: var(--student-accent-base);
+  box-shadow: 0 0 0 3px var(--color-primary-subtle);
+}
+
+.student-workspace__bulk-actions {
+  border-top-color: var(--student-border);
+}
+
+.student-workspace__section-heading {
+  margin-bottom: 1.25rem;
+}
+
+.student-workspace__section-heading > span {
+  color: var(--student-text-soft);
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.student-workspace__table {
+  min-width: 1120px;
+  --bs-table-bg: var(--student-surface);
+  --bs-table-color: var(--color-text);
+  --bs-table-border-color: var(--student-border);
+  --bs-table-hover-bg: var(--color-primary-subtle);
+  --bs-table-hover-color: var(--color-text);
+  --bs-table-striped-bg: var(--student-surface-soft);
+  --bs-table-striped-color: var(--color-text);
+}
+
+.student-workspace__table th {
+  background: var(--student-surface-soft);
+  color: var(--student-text-soft);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+}
+
+.student-workspace__table th,
+.student-workspace__table td {
+  padding: 1rem;
+  background-color: transparent;
+  color: var(--color-text);
+}
+
+.student-workspace__table tbody tr:hover,
+.student-workspace__row--selected {
+  background: var(--color-primary-subtle);
+}
+
+.student-workspace__table tbody tr:hover > *,
+.student-workspace__table tbody tr.student-workspace__row--selected > * {
+  background: transparent;
+  color: var(--color-text);
+}
+
+.student-workspace__student-cell strong,
+.student-workspace__meta-cell strong {
+  color: var(--student-accent);
+}
+
+.student-workspace__student-cell span,
+.student-workspace__meta-cell span,
+.student-workspace__muted {
+  color: var(--student-text-soft);
+}
+
+.student-workspace__status-control select {
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+}
+
+.student-workspace__table tbody tr:hover .student-workspace__status-control select {
+  border-bottom-color: var(--student-border);
+}
+
+.student-workspace__actions-column {
+  text-align: center;
+}
+
+.student-workspace__menu-trigger {
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--student-text-soft);
+}
+
+.student-workspace__menu-trigger:hover {
+  background: var(--student-surface-soft);
+  color: var(--student-accent);
+}
+
+.student-workspace__menu-dots {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  transform: translateY(-0.12rem);
+}
+
+.student-workspace__badge--accent {
+  background: color-mix(in srgb, var(--student-accent-base) 18%, var(--student-surface));
+  border-color: color-mix(in srgb, var(--student-accent-base) 30%, var(--student-border));
+  color: var(--student-accent);
+}
+
+.student-workspace__badge--success {
+  background: color-mix(in srgb, var(--color-success) 14%, var(--student-surface));
+  border-color: color-mix(in srgb, var(--color-success) 30%, var(--student-border));
+  color: var(--color-success);
+}
+
+[data-theme='dark'] .student-workspace {
+  --student-surface: var(--color-surface, #141414);
+  --student-surface-strong: var(--color-surface, #141414);
+  --student-surface-soft: var(--color-bg-soft, #262626);
+  --student-border: var(--color-border, rgba(255, 255, 255, 0.18));
+  --student-text-soft: var(--color-text-muted, #94a3b8);
+}
+
+[data-theme='dark'] .student-workspace__stat-card,
+[data-theme='dark'] .student-workspace__controls-card,
+[data-theme='dark'] .student-workspace__table-card {
+  box-shadow: none;
+}
+
+[data-theme='dark'] .student-workspace__table {
+  --bs-table-bg: var(--student-surface);
+  --bs-table-color: var(--color-text);
+  --bs-table-border-color: var(--student-border);
+  --bs-table-hover-bg: var(--color-primary-subtle);
+  --bs-table-hover-color: var(--color-text);
+}
+
+[data-theme='dark'] .student-workspace__table td,
+[data-theme='dark'] .student-workspace__table th {
+  background-color: transparent;
+  color: var(--color-text);
+}
+
+[data-theme='dark'] .student-workspace__table th {
+  color: var(--student-text-soft);
+}
+
+[data-theme='dark'] .student-workspace__table .student-workspace__student-cell strong,
+[data-theme='dark'] .student-workspace__table .student-workspace__meta-cell strong {
+  color: var(--student-accent);
+}
+
+[data-theme='dark'] .student-workspace__table .student-workspace__student-cell span,
+[data-theme='dark'] .student-workspace__table .student-workspace__meta-cell span,
+[data-theme='dark'] .student-workspace__table .student-workspace__muted {
+  color: var(--student-text-soft);
+}
+
+[data-theme='dark'] .student-workspace__status-control select {
+  color: var(--color-text);
+}
+
+[data-theme='dark'] .student-workspace__status-control select option,
+[data-theme='dark'] .student-workspace__filters select option {
+  background: var(--student-surface);
+  color: var(--color-text);
+}
+
+@media (max-width: 1320px) {
+  .student-workspace__stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1080px) {
+  .student-workspace > .student-workspace__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 760px) {
+  .student-workspace__stats {
+    grid-template-columns: 1fr;
+  }
+
+  .student-workspace > .student-workspace__header,
+  .student-workspace__controls-card,
+  .student-workspace__table-card {
+    padding: 1rem;
+  }
+
+  .student-workspace > .student-workspace__header {
+    padding-top: 0;
+  }
+}
