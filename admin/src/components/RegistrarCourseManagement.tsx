@@ -694,9 +694,9 @@ export default function RegistrarCourseManagement({ onOpenStudents, onOpenReport
       <section className="registrar-course-hero">
         <div className="registrar-course-hero-copy">
           <span className="registrar-course-eyebrow">Registrar Workspace</span>
-          <h2 className="registrar-section-title">Professor Loads</h2>
+          <h2 className="registrar-section-title">Course & Faculty Load Management</h2>
           <p className="registrar-section-desc">
-            Review professor teaching loads, scan assigned subjects by course and block, and update instructor schedules from one page.
+            Review teaching loads, track coverage gaps, and manage professor assignments by course, block, schedule, and room.
           </p>
         </div>
         <div className="registrar-course-hero-actions">
@@ -713,10 +713,10 @@ export default function RegistrarCourseManagement({ onOpenStudents, onOpenReport
 
       <section className="registrar-course-stat-bar">
         {[
-          ['Professors', visibleStats.professors || courseLoadStats.professors, 'Faculty profiles in view'],
-          ['Assigned Subjects', visibleStats.assignedSubjects, 'Live class loads'],
-          ['Sections Covered', visibleStats.sectionsCovered, 'Blocks with professor assignments'],
-          ['Students Reached', visibleStats.studentsCovered, 'Students inside assigned classes'],
+          ['Faculty', visibleStats.professors || courseLoadStats.professors, 'Profiles in current view'],
+          ['Subjects', visibleStats.assignedSubjects, 'Assigned teaching loads'],
+          ['Sections', visibleStats.sectionsCovered, 'Blocks with coverage'],
+          ['Students', visibleStats.studentsCovered, 'Covered by assignments'],
           ['Needs Attention', courseLoadStats.unassignedSubjects + courseLoadStats.unmatchedInstructors + courseLoadStats.orphanedSubjects, 'TBA, unmatched, or orphaned rows']
         ].map(([label, value, meta], index) => (
           <article key={label} className={`registrar-course-stat-card${index === 4 ? ' registrar-course-stat-card-alert' : ''}`}>
@@ -733,27 +733,40 @@ export default function RegistrarCourseManagement({ onOpenStudents, onOpenReport
 
       <section className="registrar-course-toolbar">
         <label className="registrar-course-search">
+          <span>Search</span>
           <Search size={16} className="registrar-course-search-icon" />
           <input type="search" value={loadSearch} onChange={(e) => setLoadSearch(e.target.value)} placeholder="Search professor, subject, section, room, or schedule" />
         </label>
-        <select value={selectedLoadCourse} onChange={(e) => setSelectedLoadCourse(e.target.value)}>
-          <option value="">All courses</option>
-          {courseLoadFilterOptions.courses.map((course) => <option key={course.value} value={String(course.value)}>{course.label}</option>)}
-        </select>
-        <select value={selectedLoadSemester} onChange={(e) => setSelectedLoadSemester(e.target.value)}>
-          <option value="">All semesters</option>
-          {courseLoadFilterOptions.semesters.map((semester) => <option key={semester} value={semester}>{semester}</option>)}
-        </select>
-        <select value={selectedLoadYear} onChange={(e) => setSelectedLoadYear(e.target.value)}>
-          <option value="">All academic years</option>
-          {courseLoadFilterOptions.years.map((year) => <option key={year} value={String(year)}>{formatAcademicYear(year)}</option>)}
-        </select>
-        <select value={loadSort} onChange={(e) => setLoadSort(e.target.value as ProfessorLoadSort)}>
-          <option value="load-desc">Sort: heaviest load</option>
-          <option value="students-desc">Sort: most students</option>
-          <option value="name-asc">Sort: name A-Z</option>
-          <option value="name-desc">Sort: name Z-A</option>
-        </select>
+        <label>
+          <span>Course</span>
+          <select value={selectedLoadCourse} onChange={(e) => setSelectedLoadCourse(e.target.value)}>
+            <option value="">All courses</option>
+            {courseLoadFilterOptions.courses.map((course) => <option key={course.value} value={String(course.value)}>{course.label}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>Semester</span>
+          <select value={selectedLoadSemester} onChange={(e) => setSelectedLoadSemester(e.target.value)}>
+            <option value="">All semesters</option>
+            {courseLoadFilterOptions.semesters.map((semester) => <option key={semester} value={semester}>{semester}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>School Year</span>
+          <select value={selectedLoadYear} onChange={(e) => setSelectedLoadYear(e.target.value)}>
+            <option value="">All academic years</option>
+            {courseLoadFilterOptions.years.map((year) => <option key={year} value={String(year)}>{formatAcademicYear(year)}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>Sort</span>
+          <select value={loadSort} onChange={(e) => setLoadSort(e.target.value as ProfessorLoadSort)}>
+            <option value="load-desc">Heaviest load</option>
+            <option value="students-desc">Most students</option>
+            <option value="name-asc">Name A-Z</option>
+            <option value="name-desc">Name Z-A</option>
+          </select>
+        </label>
         <button className="registrar-btn registrar-btn-secondary" onClick={() => void handleRefreshLoadBoard()} disabled={courseLoadLoading}>
           {courseLoadLoading ? 'Refreshing...' : 'Refresh'}
         </button>
@@ -764,8 +777,8 @@ export default function RegistrarCourseManagement({ onOpenStudents, onOpenReport
         <section className="registrar-course-directory-card">
           <header className="registrar-course-card-header">
             <div>
-              <p className="registrar-course-card-label">Professor Directory</p>
-              <h3>Select a professor</h3>
+              <p className="registrar-course-card-label">Faculty Directory</p>
+              <h3>Professor Load Overview</h3>
             </div>
             <span className="registrar-course-card-pill">{courseLoadLoading ? 'Loading...' : `${visibleProfessorLoads.length} in view`}</span>
           </header>
@@ -860,7 +873,7 @@ export default function RegistrarCourseManagement({ onOpenStudents, onOpenReport
           <section className="registrar-course-detail-card">
             <header className="registrar-course-card-header">
               <div>
-                <p className="registrar-course-card-label">Selected Professor</p>
+                <p className="registrar-course-card-label">Faculty Profile</p>
                 <h3>{selectedProfessor ? selectedProfessor.label : 'Choose from the directory'}</h3>
               </div>
               {selectedProfessor && (
@@ -874,7 +887,7 @@ export default function RegistrarCourseManagement({ onOpenStudents, onOpenReport
             {selectedProfessor ? (
               <>
                 <p className="registrar-course-helper-copy">
-                  All professors stay in the left directory. This panel focuses on one professor at a time so the schedule and course structure stay readable.
+                  Review the selected professor's active course coverage, sections, schedules, and room assignments.
                 </p>
 
                 <div className="registrar-course-detail-summary">
@@ -888,8 +901,8 @@ export default function RegistrarCourseManagement({ onOpenStudents, onOpenReport
                   <>
                     <div className="registrar-course-selector-shell">
                       <div className="registrar-course-selector-copy">
-                        <p className="registrar-course-card-label">Course Selector</p>
-                        <span>Use the course cards as selectors. Full subject details stay in one focused panel below.</span>
+                        <p className="registrar-course-card-label">Assigned Courses</p>
+                        <span>Select a course to inspect its section-level subject assignments.</span>
                       </div>
                       <div className="registrar-course-selector" role="tablist" aria-label="Professor courses">
                       {selectedProfessor.courseSummaries.map((course) => (
@@ -918,10 +931,10 @@ export default function RegistrarCourseManagement({ onOpenStudents, onOpenReport
                       >
                         <header className="registrar-course-focus-head">
                           <div>
-                            <p className="registrar-course-card-label">Selected Course</p>
+                            <p className="registrar-course-card-label">Course Detail</p>
                             <h4>{selectedProfessorCourse.fullLabel || selectedProfessorCourse.label}</h4>
                             <p className="registrar-course-focus-copy">
-                              This detail panel keeps the professor load readable by showing one course at a time and flattening its assigned subjects into a scan-friendly list.
+                              Section-level assignments for the selected course.
                             </p>
                           </div>
                           <div className="registrar-course-focus-head-actions">
@@ -1031,7 +1044,7 @@ export default function RegistrarCourseManagement({ onOpenStudents, onOpenReport
           </header>
 
           <p className="registrar-course-helper-copy">
-            CRUD flow: create a new assignment here, use the list on the right to read current assignments, click edit to update one, or remove it when the block changes.
+            Select a block, subject, professor, schedule, and room to create or update a teaching assignment.
           </p>
 
           <div className="assignment-form">

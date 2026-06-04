@@ -1,0 +1,286 @@
+.applicant-page {
+  min-height: 100vh;
+  padding: 2rem;
+  background: #f4f7fb;
+  color: #172033;
+}
+
+.applicant-page-centered {
+  display: grid;
+  place-items: center;
+}
+
+.applicant-header {
+  max-width: 1180px;
+  margin: 0 auto 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.applicant-header p {
+  margin: 0 0 0.25rem;
+  color: #0b5ed7;
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+}
+
+.applicant-header h1 {
+  margin: 0;
+  font-size: clamp(1.6rem, 3vw, 2.4rem);
+}
+
+.applicant-back-btn,
+.applicant-secondary-btn,
+.applicant-primary-btn {
+  border: 0;
+  border-radius: 0.5rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.applicant-back-btn,
+.applicant-secondary-btn {
+  background: #e7edf6;
+  color: #172033;
+  padding: 0.8rem 1rem;
+}
+
+.applicant-primary-btn {
+  background: #0b5ed7;
+  color: #fff;
+  padding: 0.9rem 1.2rem;
+}
+
+.applicant-primary-btn:disabled,
+.applicant-secondary-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.applicant-shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.applicant-steps,
+.applicant-form,
+.applicant-success {
+  background: #fff;
+  border: 1px solid rgba(23, 32, 51, 0.08);
+  border-radius: 0.75rem;
+  box-shadow: 0 1rem 2rem rgba(23, 32, 51, 0.08);
+}
+
+.applicant-steps {
+  padding: 1rem;
+  display: grid;
+  gap: 0.6rem;
+  position: sticky;
+  top: 1rem;
+}
+
+.applicant-step {
+  width: 100%;
+  min-height: 3rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: #536173;
+  text-align: left;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.applicant-step span {
+  width: 2rem;
+  height: 2rem;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #e7edf6;
+}
+
+.applicant-step-active {
+  background: #eef5ff;
+  color: #0b5ed7;
+}
+
+.applicant-step-active span,
+.applicant-step-done span {
+  background: #0b5ed7;
+  color: #fff;
+}
+
+.applicant-form {
+  padding: clamp(1rem, 3vw, 2rem);
+}
+
+.applicant-error {
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.5rem;
+  background: #fff1f1;
+  color: #9f1c1c;
+  font-weight: 700;
+}
+
+.applicant-form-section h2 {
+  margin: 0 0 1.25rem;
+  font-size: 1.45rem;
+}
+
+.applicant-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.applicant-grid label {
+  display: grid;
+  gap: 0.45rem;
+  color: #536173;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.applicant-grid input,
+.applicant-grid textarea,
+.applicant-grid select {
+  width: 100%;
+  min-height: 2.8rem;
+  border: 1px solid #cfd8e6;
+  border-radius: 0.5rem;
+  padding: 0.7rem 0.85rem;
+  color: #172033;
+  font: inherit;
+  background: #fff;
+}
+
+.applicant-grid textarea {
+  min-height: 5.8rem;
+  resize: vertical;
+}
+
+.applicant-wide {
+  grid-column: 1 / -1;
+}
+
+.applicant-school-group {
+  padding: 1rem;
+  border: 1px solid #e3e9f2;
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.applicant-school-group h3 {
+  margin: 0 0 1rem;
+}
+
+.applicant-review-box {
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  background: #eef5ff;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.applicant-review-box span {
+  color: #536173;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.applicant-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.applicant-success {
+  width: min(100%, 34rem);
+  padding: 2rem;
+  text-align: center;
+}
+
+.applicant-success-mark {
+  width: 4rem;
+  height: 4rem;
+  margin: 0 auto 1rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #178f62;
+  color: #fff;
+  font-size: 2rem;
+  font-weight: 800;
+}
+
+.applicant-reference {
+  margin: 1.5rem 0;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  background: #eef5ff;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.applicant-reference span {
+  color: #536173;
+  font-weight: 700;
+}
+
+.applicant-reference strong {
+  font-size: 1.35rem;
+}
+
+@media (max-width: 820px) {
+  .applicant-page {
+    padding: 1rem;
+  }
+
+  .applicant-header {
+    align-items: flex-start;
+  }
+
+  .applicant-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .applicant-steps {
+    position: static;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .applicant-step {
+    justify-content: center;
+    padding: 0.65rem;
+    font-size: 0;
+  }
+
+  .applicant-step span {
+    font-size: 0.9rem;
+  }
+
+  .applicant-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .applicant-actions {
+    flex-direction: column-reverse;
+  }
+
+  .applicant-actions button {
+    width: 100%;
+  }
+}

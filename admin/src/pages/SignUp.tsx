@@ -40,61 +40,89 @@ export default function SignUp({ onSuccess, onSwitchToLogin }: SignUpProps) {
 
   return (
     <div className="signup-page">
-      <div className="signup-card">
-        <img src="/logo.jpg" alt="West Coast College" className="signup-logo" />
-        <h1 className="signup-title">West Coast College</h1>
-        <p className="signup-subtitle">Create Admin Account</p>
+      <main className="signup-shell" aria-label="Create West Coast College account">
+        <section className="signup-card">
+          <div className="signup-toolbar">
+            <button type="button" className="signup-back-btn" onClick={onSwitchToLogin}>
+              <span className="material-symbols-outlined" aria-hidden="true">arrow_back</span>
+              <span className="signup-back-text">Back to Sign In</span>
+            </button>
+          </div>
 
-        <form className="signup-form" onSubmit={handleSubmit}>
-          {error && <p className="signup-error" role="alert">{error}</p>}
-          <label className="signup-label">
-            Admin Username
-            <input
-              type="text"
-              className="signup-input"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Choose a username"
-              autoComplete="username"
-              required
-            />
-          </label>
-          <label className="signup-label">
-            Passcode
-            <input
-              type="password"
-              className="signup-input"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="At least 6 characters"
-              autoComplete="new-password"
-              required
-              minLength={6}
-            />
-          </label>
-          <label className="signup-label">
-            Confirm Passcode
-            <input
-              type="password"
-              className="signup-input"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Re-enter passcode"
-              autoComplete="new-password"
-              required
-            />
-          </label>
-          <button type="submit" className="signup-submit" disabled={loading}>
-            {loading ? 'Creating…' : 'Create account'}
-          </button>
-        </form>
+          <div className="signup-brand-mark">
+            <img src="/logo-bg-removed.png" alt="West Coast College" className="signup-logo" />
+          </div>
+          <p className="signup-kicker">West Coast College</p>
+          <h1 className="signup-title">Create Account</h1>
+          <p className="signup-subtitle">Register an authorized admin portal account.</p>
 
-        <p className="signup-footer">
-          Already have an account?{' '}
-          <button type="button" className="signup-link" onClick={onSwitchToLogin}>
-            Sign in
-          </button>
-        </p>
+          <form className="signup-form" onSubmit={handleSubmit}>
+            {error && <p className="signup-error" role="alert">{error}</p>}
+            <label className="signup-label">
+              Admin Username
+              <span className="signup-input-wrap">
+                <input
+                  type="text"
+                  className="signup-input"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Choose a username"
+                  autoComplete="username"
+                  required
+                />
+                <span className="material-symbols-outlined" aria-hidden="true">person</span>
+              </span>
+            </label>
+            <label className="signup-label">
+              Passcode
+              <span className="signup-input-wrap">
+                <input
+                  type="password"
+                  className="signup-input"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 6 characters"
+                  autoComplete="new-password"
+                  required
+                  minLength={6}
+                />
+                <span className="material-symbols-outlined" aria-hidden="true">lock</span>
+              </span>
+            </label>
+            <label className="signup-label">
+              Confirm Passcode
+              <span className="signup-input-wrap">
+                <input
+                  type="password"
+                  className="signup-input"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter passcode"
+                  autoComplete="new-password"
+                  required
+                />
+                <span className="material-symbols-outlined" aria-hidden="true">verified_user</span>
+              </span>
+            </label>
+            <button type="submit" className="signup-submit" disabled={loading}>
+              {loading ? 'Creating...' : 'Create Account'}
+            </button>
+          </form>
+
+          <div className="signup-footer">
+            <p>
+              Already have an account?{' '}
+              <button type="button" className="signup-link" onClick={onSwitchToLogin}>
+                Sign in
+              </button>
+            </p>
+            <small>© 2026 West Coast College. Institutional Policy Applied.</small>
+          </div>
+        </section>
+      </main>
+      <div className="signup-ambient" aria-hidden="true">
+        <span />
+        <span />
       </div>
     </div>
   )

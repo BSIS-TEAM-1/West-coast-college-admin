@@ -114,14 +114,14 @@ class BackupSystem {
         await mongoose.connection.db.collection(tempCollection).rename(originalCollection);
       }
 
-      // STEP 7: Final validation after swap
+      // Final validation after swap
       console.log('STEP 7: Final validation after swap...');
       const finalValidation = await this.validateFinalRestore(backupData, tempCollections);
       if (!finalValidation.isValid) {
         throw new Error(`Final validation failed: ${finalValidation.errors.join(', ')}`);
       }
 
-      // STEP 8: Cleanup swap collections (success path)
+      // Cleanup swap collections (success path)
       console.log('STEP 8: Cleanup - removing swap collections...');
       for (const swap of swapCollections) {
         await mongoose.connection.db.collection(swap.swap).drop();

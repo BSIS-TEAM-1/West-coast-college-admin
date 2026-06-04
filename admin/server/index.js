@@ -43,7 +43,9 @@ const { getAnnouncementAudienceQueryValues, normalizeAnnouncementAudience, valid
 const SemaphoreSmsService = require('./services/semaphoreSmsService')
 const SmsApiPhService = require('./services/smsApiPhService')
 const VerificationEmailService = require('./services/verificationEmailService')
+const { apiCache, cacheMiddleware } = require('./services/apiCache')
 const registrarRoutes = require('./routes/registrarRoutes')
+const applicantRoutes = require('./routes/applicantRoutes')
 const blockController = require('./controllers/blockController')
 const { requireAnyRole, requireAdminRole, isOwnerOrAdmin, normalizeAccountType } = require('./authorization')
 
@@ -889,12 +891,30 @@ app.get('/assets/:assetName', staleAssetFallbackLimiter, (req, res, next) => {
 })
 
 // Registrar module API routes (supports both legacy and /api-prefixed paths)
+app.use('/api/applicants', applicantRoutes)
 app.use('/registrar', apiLimiter, authMiddleware, registrarRoutes)
 app.use('/api/registrar', authMiddleware, registrarRoutes)
+applicantRoutes.registerProtectedApplicantRoutes(app, authMiddleware)
+
+function invalidateApiCacheOnSuccess(...prefixes) {
+  return (req, res, next) => {
+    res.on('finish', () => {
+      if (res.statusCode < 200 || res.statusCode >= 300) return
+      prefixes.forEach((prefix) => apiCache.invalidatePrefix(prefix))
+    })
+    next()
+  }
+}
+
+const blockManagementCachePrefixes = [
+  '/api/blocks',
+  '/api/professor/assigned-blocks',
+  '/api/professor/sections/'
+]
 
 // GET /api/professor/assigned-blocks
 // Returns blocks/subjects currently assigned by registrar to the authenticated professor.
-app.get('/api/professor/assigned-blocks', authMiddleware, async (req, res) => {
+app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlMs: 20 * 1000 }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -1227,7 +1247,7 @@ async function getProfessorRouteAccess(adminId) {
 
 // GET /api/professor/sections/:sectionId/subjects/:subjectId/students
 // Returns the class roster for a specific assigned subject, including grades stored on enrollment subjects.
-app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authMiddleware, async (req, res) => {
+app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authMiddleware, cacheMiddleware({ ttlMs: 15 * 1000 }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6678,7 +6698,7 @@ app.get('/api/admin/blocked-ips/:ipAddress', authMiddleware, requireAdminRole, a
 // ==================== BLOCK MANAGEMENT ====================
 
 // POST /api/blocks/assign-student
-app.post('/api/blocks/assign-student', authMiddleware, requireBlockManagementRole, async (req, res) => {
+app.post('/api/blocks/assign-student', authMiddleware, requireBlockManagementRole, invalidateApiCacheOnSuccess(...blockManagementCachePrefixes), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6691,7 +6711,7 @@ app.post('/api/blocks/assign-student', authMiddleware, requireBlockManagementRol
 });
 
 // POST /api/blocks/overcapacity/decision
-app.post('/api/blocks/overcapacity/decision', authMiddleware, requireBlockManagementRole, async (req, res) => {
+app.post('/api/blocks/overcapacity/decision', authMiddleware, requireBlockManagementRole, invalidateApiCacheOnSuccess(...blockManagementCachePrefixes), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6704,7 +6724,7 @@ app.post('/api/blocks/overcapacity/decision', authMiddleware, requireBlockManage
 });
 
 // GET /api/blocks/suggested-sections
-app.get('/api/blocks/suggested-sections', authMiddleware, requireBlockManagementRole, async (req, res) => {
+app.get('/api/blocks/suggested-sections', authMiddleware, requireBlockManagementRole, cacheMiddleware({ ttlMs: 20 * 1000 }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6717,7 +6737,7 @@ app.get('/api/blocks/suggested-sections', authMiddleware, requireBlockManagement
 });
 
 // POST /api/blocks/rebalance
-app.post('/api/blocks/rebalance', authMiddleware, requireBlockManagementRole, async (req, res) => {
+app.post('/api/blocks/rebalance', authMiddleware, requireBlockManagementRole, invalidateApiCacheOnSuccess(...blockManagementCachePrefixes), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6730,7 +6750,7 @@ app.post('/api/blocks/rebalance', authMiddleware, requireBlockManagementRole, as
 });
 
 // GET /api/blocks/groups
-app.get('/api/blocks/groups', authMiddleware, requireBlockManagementRole, async (req, res) => {
+app.get('/api/blocks/groups', authMiddleware, requireBlockManagementRole, cacheMiddleware({ ttlMs: 20 * 1000 }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6743,7 +6763,7 @@ app.get('/api/blocks/groups', authMiddleware, requireBlockManagementRole, async 
 });
 
 // GET /api/blocks/assignable-students
-app.get('/api/blocks/assignable-students', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.assignableStudents), async (req, res) => {
+app.get('/api/blocks/assignable-students', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.assignableStudents), cacheMiddleware({ ttlMs: 15 * 1000 }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6756,7 +6776,7 @@ app.get('/api/blocks/assignable-students', authMiddleware, requireBlockManagemen
 });
 
 // POST /api/blocks/groups
-app.post('/api/blocks/groups', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.createBlockGroup), async (req, res) => {
+app.post('/api/blocks/groups', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.createBlockGroup), invalidateApiCacheOnSuccess(...blockManagementCachePrefixes), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6769,7 +6789,7 @@ app.post('/api/blocks/groups', authMiddleware, requireBlockManagementRole, secur
 });
 
 // DELETE /api/blocks/groups/:groupId
-app.delete('/api/blocks/groups/:groupId', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.objectIdParam), async (req, res) => {
+app.delete('/api/blocks/groups/:groupId', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.objectIdParam), invalidateApiCacheOnSuccess(...blockManagementCachePrefixes), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6782,7 +6802,7 @@ app.delete('/api/blocks/groups/:groupId', authMiddleware, requireBlockManagement
 });
 
 // GET /api/blocks/groups/:groupId/sections
-app.get('/api/blocks/groups/:groupId/sections', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.objectIdParam), async (req, res) => {
+app.get('/api/blocks/groups/:groupId/sections', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.objectIdParam), cacheMiddleware({ ttlMs: 20 * 1000 }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6795,7 +6815,7 @@ app.get('/api/blocks/groups/:groupId/sections', authMiddleware, requireBlockMana
 });
 
 // POST /api/blocks/groups/:groupId/sections
-app.post('/api/blocks/groups/:groupId/sections', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware({ ...securityMiddleware.schemas.block.objectIdParam, ...securityMiddleware.schemas.block.createSection }), async (req, res) => {
+app.post('/api/blocks/groups/:groupId/sections', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware({ ...securityMiddleware.schemas.block.objectIdParam, ...securityMiddleware.schemas.block.createSection }), invalidateApiCacheOnSuccess(...blockManagementCachePrefixes), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6808,7 +6828,7 @@ app.post('/api/blocks/groups/:groupId/sections', authMiddleware, requireBlockMan
 });
 
 // GET /api/blocks/sections/:sectionId/students
-app.get('/api/blocks/sections/:sectionId/students', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.objectIdParam), async (req, res) => {
+app.get('/api/blocks/sections/:sectionId/students', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.objectIdParam), cacheMiddleware({ ttlMs: 15 * 1000 }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6821,7 +6841,7 @@ app.get('/api/blocks/sections/:sectionId/students', authMiddleware, requireBlock
 });
 
 // DELETE /api/blocks/sections/:sectionId/students/:studentId
-app.delete('/api/blocks/sections/:sectionId/students/:studentId', authMiddleware, requireBlockManagementRole, async (req, res) => {
+app.delete('/api/blocks/sections/:sectionId/students/:studentId', authMiddleware, requireBlockManagementRole, invalidateApiCacheOnSuccess(...blockManagementCachePrefixes), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6834,7 +6854,7 @@ app.delete('/api/blocks/sections/:sectionId/students/:studentId', authMiddleware
 });
 
 // PATCH /api/blocks/sections/:sectionId/adviser
-app.patch('/api/blocks/sections/:sectionId/adviser', authMiddleware, requireBlockManagementRole, async (req, res) => {
+app.patch('/api/blocks/sections/:sectionId/adviser', authMiddleware, requireBlockManagementRole, invalidateApiCacheOnSuccess(...blockManagementCachePrefixes), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -6847,7 +6867,7 @@ app.patch('/api/blocks/sections/:sectionId/adviser', authMiddleware, requireBloc
 });
 
 // POST /api/blocks/groups/:groupId/sections
-app.post('/api/blocks/groups/:groupId/sections', authMiddleware, requireBlockManagementRole, async (req, res) => {
+app.post('/api/blocks/groups/:groupId/sections', authMiddleware, requireBlockManagementRole, invalidateApiCacheOnSuccess(...blockManagementCachePrefixes), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }

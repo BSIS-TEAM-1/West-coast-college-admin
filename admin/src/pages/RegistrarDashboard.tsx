@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Video, Users, Blocks, Pencil, Trash2, Check, X, FolderOpen } from 'lucide-react'
+import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Pin, Clock, AlertTriangle, Info, AlertCircle, Wrench, Video, Users, Blocks, Pencil, Trash2, Check, X, FolderOpen, UserPlus } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
@@ -15,6 +15,7 @@ import StudentManagement from '../components/StudentManagement'
 import RegistrarCourseManagement from '../components/RegistrarCourseManagement'
 import RegistrarCourseWorkspace, { type RegistrarCourseWorkspaceSelection } from '../components/RegistrarCourseWorkspace'
 import RegistrarReportsPanel from './RegistrarReportsPanel'
+import ApplicantQueue from './ApplicantQueue'
 import './RegistrarDashboard.css'
 
 interface Announcement {
@@ -62,7 +63,7 @@ type BlockWorkspaceSelection = {
   initialSectionId?: string | null
 }
 
-type RegistrarView = 'dashboard' | 'students' | 'courses' | 'course-workspace' | 'block-management' | 'view-blocks' | 'block-workspace' | 'assign-subject' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
+type RegistrarView = 'dashboard' | 'applicants' | 'students' | 'courses' | 'course-workspace' | 'block-management' | 'view-blocks' | 'block-workspace' | 'assign-subject' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
 
 type RegistrarDashboardProps = {
   username: string
@@ -72,6 +73,7 @@ type RegistrarDashboardProps = {
 
 const REGISTRAR_NAV_ITEMS: { id: RegistrarView; label: string; icon: any }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'applicants', label: 'Applicants', icon: UserPlus },
   { id: 'students', label: 'Student Management', icon: GraduationCap },
   { id: 'block-management', label: 'Block Management', icon: Blocks },
   { id: 'assign-subject', label: 'Assign Subject', icon: Users },
@@ -162,6 +164,8 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
     switch (view) {
       case 'students':
         return <StudentManagement />
+      case 'applicants':
+        return <ApplicantQueue />
       case 'courses':
         return (
           <RegistrarCourseManagement
