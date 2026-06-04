@@ -12,16 +12,17 @@ import {
 import { isNetworkRequestError, sleep, waitForOnline } from './lib/network'
 import { applyThemePreference, getStoredTheme, moveThemePreferencesToScope, setActiveThemeScope } from './lib/theme'
 import Login from './pages/Login'
+import SignUp from './pages/SignUp'
 import LandingPage from './pages/LandingPage'
-import AboutPage from './pages/AboutPage'
+import AboutPage from './pages/AboutPage.tsx'
 import TermsPolicyPage from './pages/TermsPolicyPage'
 import CookiePolicyPage from './pages/CookiePolicyPage'
 import CookieSystemPage from './pages/CookieSystemPage'
 import CollaboratorsPage from './pages/CollaboratorsPage'
+import ApplicantOnboarding from './pages/ApplicantOnboarding'
 import Dashboard from './pages/Dashboard'
 import RegistrarDashboard from './pages/RegistrarDashboard'
 import ProfessorDashboard from './pages/ProfessorDashboard.tsx'
-import Maintenance from './pages/Maintenance'
 import DocumentViewerRoute from './pages/DocumentViewerRoute'
 import './App.css'
 import type { LoginFlowResponse, LoginResponse, ProfileResponse } from './lib/authApi'
@@ -49,12 +50,13 @@ function App() {
   const [user, setUser] = useState<{ username: string; accountType: string } | null>(null)
   const [documentViewerId, setDocumentViewerId] = useState<string | null>(() => getDocumentViewerIdFromPath(window.location.pathname))
   const [showSignIn, setShowSignIn] = useState(false)
+  const [showSignUp, setShowSignUp] = useState(false)
   const [showAboutPage, setShowAboutPage] = useState(false)
   const [showTermsPolicyPage, setShowTermsPolicyPage] = useState(false)
   const [showCookiePolicyPage, setShowCookiePolicyPage] = useState(false)
   const [showCookieSystemPage, setShowCookieSystemPage] = useState(false)
   const [showCollaboratorsPage, setShowCollaboratorsPage] = useState(false)
-  const [showApplicantMaintenance, setShowApplicantMaintenance] = useState(false)
+  const [showApplicantPortal, setShowApplicantPortal] = useState(false)
   const [loginError, setLoginError] = useState<string | undefined>(undefined)
   const [loginLoading, setLoginLoading] = useState(false)
   const [sessionBootstrapping, setSessionBootstrapping] = useState(true)
@@ -68,7 +70,8 @@ function App() {
     setActiveThemeScope(profile.username)
     applyThemePreference(getStoredTheme(profile.username), { persist: false, scope: profile.username })
     setUser({ username, accountType: profile.accountType })
-    setShowApplicantMaintenance(false)
+    setShowApplicantPortal(false)
+    setShowSignUp(false)
     setShowSignIn(false)
   }, [])
 
@@ -129,11 +132,13 @@ function App() {
           if (isAuthSessionError(message)) {
             setLoginError(message)
             setShowSignIn(false)
+            setShowSignUp(false)
             setShowAboutPage(false)
             setShowTermsPolicyPage(false)
             setShowCookiePolicyPage(false)
             setShowCookieSystemPage(false)
             setShowCollaboratorsPage(false)
+            setShowApplicantPortal(false)
           }
           break
         }
@@ -211,12 +216,13 @@ function App() {
       applyThemePreference(getStoredTheme(null), { persist: false, scope: null })
       setUser(null)
       setShowSignIn(false)
+      setShowSignUp(false)
       setShowAboutPage(false)
       setShowTermsPolicyPage(false)
       setShowCookiePolicyPage(false)
       setShowCookieSystemPage(false)
       setShowCollaboratorsPage(false)
-      setShowApplicantMaintenance(false)
+      setShowApplicantPortal(false)
       setDocumentViewerId(null)
       setLoginError(undefined)
       setLoginLoading(false)
@@ -334,6 +340,26 @@ function App() {
         loading={loginLoading}
         onBack={() => {
           setShowSignIn(false)
+          setShowSignUp(false)
+          setLoginError(undefined)
+          setLoginLoading(false)
+        }}
+      />
+    )
+  }
+
+  if (showSignUp) {
+    return (
+      <SignUp
+        onSuccess={() => {
+          setShowSignUp(false)
+          setShowSignIn(true)
+          setLoginError(undefined)
+          setLoginLoading(false)
+        }}
+        onSwitchToLogin={() => {
+          setShowSignUp(false)
+          setShowSignIn(true)
           setLoginError(undefined)
           setLoginLoading(false)
         }}
@@ -367,12 +393,10 @@ function App() {
     )
   }
 
-  if (showApplicantMaintenance) {
+  if (showApplicantPortal) {
     return (
-      <Maintenance
-        featureName="Applicant Portal"
-        description="The applicant experience is temporarily unavailable while we complete updates. Please try again later or contact Software Support for assistance."
-        onBack={() => setShowApplicantMaintenance(false)}
+      <ApplicantOnboarding
+        onBack={() => setShowApplicantPortal(false)}
       />
     )
   }
@@ -381,66 +405,73 @@ function App() {
     <LandingPage
       onOpenAbout={() => {
         setShowSignIn(false)
+        setShowSignUp(false)
         setShowCookiePolicyPage(false)
         setShowCookieSystemPage(false)
         setShowTermsPolicyPage(false)
         setShowCollaboratorsPage(false)
-        setShowApplicantMaintenance(false)
+        setShowApplicantPortal(false)
         setShowAboutPage(true)
       }}
       onOpenTermsPolicy={() => {
         setShowSignIn(false)
+        setShowSignUp(false)
         setShowCookiePolicyPage(false)
         setShowCookieSystemPage(false)
         setShowAboutPage(false)
         setShowCollaboratorsPage(false)
-        setShowApplicantMaintenance(false)
+        setShowApplicantPortal(false)
         setShowTermsPolicyPage(true)
       }}
       onOpenCookiePolicy={() => {
         setShowSignIn(false)
+        setShowSignUp(false)
         setShowAboutPage(false)
         setShowTermsPolicyPage(false)
         setShowCookieSystemPage(false)
         setShowCollaboratorsPage(false)
-        setShowApplicantMaintenance(false)
+        setShowApplicantPortal(false)
         setShowCookiePolicyPage(true)
       }}
       onOpenCookieSystem={() => {
         setShowSignIn(false)
+        setShowSignUp(false)
         setShowCookiePolicyPage(false)
         setShowAboutPage(false)
         setShowTermsPolicyPage(false)
         setShowCollaboratorsPage(false)
-        setShowApplicantMaintenance(false)
+        setShowApplicantPortal(false)
         setShowCookieSystemPage(true)
       }}
       onOpenSignIn={() => {
+        setShowSignUp(false)
         setShowCookiePolicyPage(false)
         setShowCookieSystemPage(false)
         setShowAboutPage(false)
         setShowTermsPolicyPage(false)
         setShowCollaboratorsPage(false)
-        setShowApplicantMaintenance(false)
+        setShowApplicantPortal(false)
         setShowSignIn(true)
         setLoginError(undefined)
       }}
-      onOpenApplicantMaintenance={() => {
+      onOpenApplicantPortal={() => {
         setShowSignIn(false)
+        setShowSignUp(false)
         setShowCookiePolicyPage(false)
         setShowCookieSystemPage(false)
         setShowAboutPage(false)
         setShowTermsPolicyPage(false)
         setShowCollaboratorsPage(false)
-        setShowApplicantMaintenance(true)
+        setShowApplicantPortal(true)
       }}
       onOpenCollaborators={() => {
         setShowSignIn(false)
+        setShowSignUp(false)
         setShowCookiePolicyPage(false)
         setShowCookieSystemPage(false)
         setShowTermsPolicyPage(false)
         setShowCollaboratorsPage(true)
-        setShowApplicantMaintenance(false)
+        setShowApplicantPortal(false)
         setShowAboutPage(false)
       }}
     />

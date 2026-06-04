@@ -14,5 +14,7 @@ const StudentBlockAssignmentSchema = new mongoose.Schema({
 
 StudentBlockAssignmentSchema.index({ studentId: 1, semester: 1, year: 1 }, { unique: true });
 StudentBlockAssignmentSchema.index({ sectionId: 1, status: 1 });
+StudentBlockAssignmentSchema.index({ sectionId: 1, status: 1, semester: 1, year: 1, assignedAt: 1 });
+StudentBlockAssignmentSchema.index({ studentId: 1, sectionId: 1, status: 1 });
 
 module.exports = mongoose.model('StudentBlockAssignment', StudentBlockAssignmentSchema);

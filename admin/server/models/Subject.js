@@ -49,5 +49,6 @@ const SubjectSchema = new mongoose.Schema({
 
 SubjectSchema.index({ code: 1 }, { unique: true });
 SubjectSchema.index({ course: 1, yearLevel: 1, semester: 1, isActive: 1 });
+SubjectSchema.index({ isActive: 1, code: 1 });
 
 module.exports = mongoose.model('Subject', SubjectSchema);

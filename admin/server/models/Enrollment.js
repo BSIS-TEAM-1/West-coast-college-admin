@@ -216,6 +216,10 @@ const enrollmentSchema = new Schema({
 enrollmentSchema.index({ studentId: 1, schoolYear: 1, semester: 1, isCurrent: 1 });
 enrollmentSchema.index({ 'subjects.subjectId': 1 });
 enrollmentSchema.index({ 'assessment.paymentStatus': 1 });
+enrollmentSchema.index({ schoolYear: 1, semester: 1, course: 1, yearLevel: 1, status: 1 });
+enrollmentSchema.index({ 'subjects.subjectId': 1, schoolYear: 1, semester: 1, status: 1 });
+enrollmentSchema.index({ 'subjects.instructor': 1, schoolYear: 1, semester: 1, status: 1 });
+enrollmentSchema.index({ studentId: 1, status: 1, isCurrent: 1, createdAt: -1 });
 
 // Virtual for total units
 enrollmentSchema.virtual('totalUnits').get(function() {

@@ -469,30 +469,14 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
 
   return (
     <div className="login-page">
-      <div className="login-shell">
-        <section className="login-pane login-pane-brand" aria-label="Portal introduction">
-          <div className="login-brand-content">
-            <img src="/Logo.jpg" alt="West Coast College" className="hero-logo" />
-            <p className="login-kicker">West Coast College</p>
-            <h2 className="hero-title">Admin and Registrar Portal</h2>
-            <p className="hero-text">
-              Secure access for authorized personnel. Sign in to manage records, workflows, and internal
-              operations in one protected workspace.
-            </p>
-            <ul className="hero-list">
-              <li>Access controlled account management</li>
-              <li>Session security with active monitoring</li>
-              <li>Audit-ready administrative workflows</li>
-            </ul>
-          </div>
-        </section>
-
+      <main className="login-shell" aria-label="West Coast College portal sign in">
         <section className="login-pane login-pane-form" aria-label="Sign in">
           <div className="login-card">
-            <div className="login-toolbar">
+            <div className="login-toolbar d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center justify-content-between">
               {onBack && (
                 <button type="button" className="login-back-btn" onClick={onBack}>
-                  Back to Landing
+                  <span className="material-symbols-outlined" aria-hidden="true">arrow_back</span>
+                  <span className="login-back-text">Back to Landing</span>
                 </button>
               )}
 
@@ -507,6 +491,7 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
                 >
                   <span className="login-theme-trigger-icon">{renderThemeIcon(activeThemeOption.value)}</span>
                   <span className="login-theme-trigger-label">{activeThemeOption.label}</span>
+                  <span className="material-symbols-outlined login-theme-material-chevron" aria-hidden="true">keyboard_arrow_down</span>
                   <svg className={`login-theme-chevron ${isThemeMenuOpen ? 'open' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                     <polyline points="6 9 12 15 18 9" />
                   </svg>
@@ -532,36 +517,53 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
               </div>
             </div>
 
+            <div className="login-brand-mark">
+              <img src="/logo-bg-removed.png" alt="West Coast College" />
+            </div>
             <h1 className="login-title">Sign In</h1>
             <p className="login-subtitle">Enter your credentials to continue.</p>
 
-            <form className="login-form" onSubmit={handleSubmit}>
-              {error && <p className="login-error" role="alert">{error}</p>}
+            <form className="login-form needs-validation" onSubmit={handleSubmit}>
+              {error && <p className="login-error alert alert-danger" role="alert">{error}</p>}
 
-              <label className="login-label">
+              <label className="login-label form-label">
                 Username
-                <input
-                  type="text"
-                  className="login-input"
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
-                  placeholder="Enter username"
-                  autoComplete="username"
-                  required
-                />
+                <span className="login-input-wrap">
+                  <input
+                    type="text"
+                    className="login-input form-control"
+                    value={username}
+                    onChange={(event) => setUsername(event.target.value)}
+                    placeholder="Enter username"
+                    autoComplete="username"
+                    required
+                  />
+                  <span className="material-symbols-outlined" aria-hidden="true">person</span>
+                </span>
               </label>
 
-              <label className="login-label">
-                Password
-                <input
-                  type="password"
-                  className="login-input"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder="Enter password"
-                  autoComplete="current-password"
-                  required
-                />
+              <label className="login-label form-label">
+                <span className="login-label-row">
+                  Password
+                  <a
+                    className="login-forgot-btn"
+                    href="mailto:westcoastcollegeregistrar@gmail.com?subject=Forgot%20Password%20Assistance"
+                  >
+                    Forgot password?
+                  </a>
+                </span>
+                <span className="login-input-wrap">
+                  <input
+                    type="password"
+                    className="login-input form-control"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    placeholder="Enter password"
+                    autoComplete="current-password"
+                    required
+                  />
+                  <span className="material-symbols-outlined" aria-hidden="true">visibility_off</span>
+                </span>
               </label>
 
               <div className="login-method-stack">
@@ -600,14 +602,24 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
               </div>
             </form>
 
-            <p className="security-note">Protected by reCAPTCHA and secure session controls.</p>
+            <div className="security-note">
+              <p>
+                <span className="material-symbols-outlined" aria-hidden="true">verified_user</span>
+                Protected by reCAPTCHA and secure session controls.
+              </p>
+              <small>© 2026 West Coast College. Institutional Policy Applied.</small>
+            </div>
           </div>
         </section>
+      </main>
+      <div className="login-ambient" aria-hidden="true">
+        <span />
+        <span />
       </div>
 
       {loginVerificationChallenge && (
-        <div className="login-verify-modal-backdrop" role="presentation">
-          <div className="login-verify-modal" role="dialog" aria-modal="true" aria-labelledby="login-verify-title">
+        <div className="login-verify-modal-backdrop modal" role="presentation">
+          <div className="login-verify-modal modal-dialog modal-dialog-centered" role="dialog" aria-modal="true" aria-labelledby="login-verify-title">
             <h3 id="login-verify-title" className="login-verify-modal-title">Confirm Login by Email</h3>
             <p className="login-verify-modal-desc">
               Enter the 6-digit code sent to <strong>{loginVerificationChallenge.destination || loginVerificationChallenge.email}</strong>.
@@ -622,7 +634,7 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
 
             <form className="login-verify-modal-form" onSubmit={handleLoginVerificationSubmit}>
               {loginVerificationError && (
-                <p className="login-verify-modal-error" role="alert">{loginVerificationError}</p>
+                <p className="login-verify-modal-error alert alert-danger" role="alert">{loginVerificationError}</p>
               )}
               <div className="login-verify-otp-group">
                 {loginVerificationDigits.map((digit, index) => (
@@ -634,7 +646,7 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
                     pattern="[0-9]*"
                     autoComplete={index === 0 ? 'one-time-code' : 'off'}
                     maxLength={1}
-                    className="login-verify-otp-input"
+                    className="login-verify-otp-input form-control"
                     value={digit}
                     onChange={(event) => handleLoginVerificationDigitChange(index, event)}
                     onKeyDown={(event) => handleLoginVerificationDigitKeyDown(index, event)}
@@ -646,7 +658,7 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
               <div className="login-verify-modal-actions">
                 <button
                   type="button"
-                  className="login-verify-cancel-btn"
+                  className="login-verify-cancel-btn btn btn-outline-secondary"
                   onClick={closeLoginVerificationModal}
                   disabled={loading}
                 >
@@ -654,7 +666,7 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
                 </button>
                 <button
                   type="submit"
-                  className="login-verify-submit-btn"
+                  className="login-verify-submit-btn btn btn-warning"
                   disabled={loading}
                 >
                   {loading ? 'Verifying...' : 'Verify Login'}

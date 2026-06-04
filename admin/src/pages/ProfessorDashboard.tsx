@@ -143,6 +143,13 @@ interface ProfessorRosterSectionOption {
   schoolYear: string
   yearLevel: number | null
   subjectCount: number
+  subjects: Array<{
+    subjectId: string
+    subjectCode: string
+    subjectTitle: string
+    schedule: string
+    room: string
+  }>
 }
 
 interface ProfessorRosterStudent extends Omit<ProfessorAssignedStudent, 'studentNumber'> {
@@ -1383,7 +1390,12 @@ function ProfessorSubjectDetail({ detail, onBack }: ProfessorSubjectDetailProps)
           return
         }
 
-        const response = await fetchWithAutoReconnect(`${API_URL}/api/blocks/sections/${detail.sectionId}/students`, {
+        const query = new URLSearchParams({
+          semester: detail.semester,
+          schoolYear: detail.schoolYear
+        })
+
+        const response = await fetchWithAutoReconnect(`${API_URL}/api/professor/sections/${detail.sectionId}/subjects/${detail.subject.subjectId}/students?${query.toString()}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
@@ -1396,7 +1408,7 @@ function ProfessorSubjectDetail({ detail, onBack }: ProfessorSubjectDetailProps)
         }
 
         const payload = await response.json().catch(() => ({}))
-        const list = Array.isArray(payload?.students) ? payload.students : []
+        const list = Array.isArray(payload?.data?.students) ? payload.data.students : []
         if (!cancelled) {
           setStudents(list)
         }
@@ -2053,15 +2065,15 @@ function CourseManagement({
       <div className="placeholder-card professor-course-hero">
         <div className="professor-course-hero-copy">
           <span className="professor-course-hero-eyebrow">{greeting}, {professorFirstName}</span>
-          <h2 className="professor-section-title">My Courses</h2>
+          <h2 className="professor-section-title">My Teaching Load</h2>
           <p className="professor-section-desc">
-            Review your teaching load by course, expand a block only when you need it, and jump straight into your class tools.
+            Review assigned courses, block sections, class schedules, rooms, rosters, attendance, and grading tools from one workspace.
           </p>
         </div>
         <div className="professor-course-hero-actions">
           <button type="button" className="professor-course-help-trigger" onClick={() => setShowUsageTips(true)}>
             <Info size={16} />
-            <span>Usage tips</span>
+            <span>Guide</span>
           </button>
           <button className="professor-btn" onClick={() => void onRefresh()} disabled={loading}>
             {loading ? 'Loading...' : 'Refresh Assignments'}
@@ -2226,7 +2238,7 @@ function CourseManagement({
       ) : !loading && courses.length === 0 ? (
         <div className="placeholder-card professor-empty-state">
           <h3>No assigned blocks yet</h3>
-          <p>The registrar has not assigned subjects or block sections to this professor yet.</p>
+          <p>The registrar has not assigned subjects or block sections to your account yet.</p>
         </div>
       ) : !loading && filteredCourses.length === 0 ? (
         <div className="placeholder-card professor-empty-state">
@@ -2418,7 +2430,7 @@ function CourseManagement({
             <div className="professor-help-modal-header">
               <div>
                 <span className="professor-course-hero-eyebrow">Quick help</span>
-                <h3>Using My Courses</h3>
+                <h3>Using My Teaching Load</h3>
               </div>
               <button type="button" className="professor-btn-xs professor-btn-secondary" onClick={() => setShowUsageTips(false)}>
                 Close
@@ -2544,7 +2556,14 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
           semester: block.semester,
           schoolYear: block.schoolYear,
           yearLevel: block.yearLevel,
-          subjectCount: block.subjects.length
+          subjectCount: block.subjects.length,
+          subjects: block.subjects.map((subject) => ({
+            subjectId: subject.subjectId,
+            subjectCode: subject.code,
+            subjectTitle: subject.title,
+            schedule: subject.schedule || 'TBA',
+            room: subject.room || 'TBA'
+          }))
         }))
     })
   }, [courses])
@@ -2675,42 +2694,58 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
           return
         }
 
-        const responses = await Promise.all(rosterTargets.map(async (target) => {
+        const responses = await Promise.all(rosterTargets.flatMap((target) => {
           const matchedSubjectContext = selectedClass?.sectionId === target.sectionId ? selectedClass : null
-          const endpoint = matchedSubjectContext
-            ? `${API_URL}/api/professor/sections/${target.sectionId}/subjects/${matchedSubjectContext.subjectId}/students?${new URLSearchParams({
-                semester: matchedSubjectContext.semester,
-                schoolYear: matchedSubjectContext.schoolYear
-              }).toString()}`
-            : `${API_URL}/api/blocks/sections/${target.sectionId}/students`
+          const subjectContexts = matchedSubjectContext
+            ? [matchedSubjectContext]
+            : target.subjects.map((subject) => ({
+                key: `${target.courseCode}|${target.sectionId}|${subject.subjectId}`,
+                courseCode: target.courseCode,
+                blockCode: target.blockCode,
+                sectionId: target.sectionId,
+                sectionCode: target.sectionCode,
+                semester: target.semester,
+                schoolYear: target.schoolYear,
+                yearLevel: target.yearLevel,
+                subjectId: subject.subjectId,
+                subjectCode: subject.subjectCode,
+                subjectTitle: subject.subjectTitle,
+                schedule: subject.schedule,
+                room: subject.room
+              }))
 
-          const response = await fetchWithAutoReconnect(endpoint, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            },
-            signal: controller.signal
+          return subjectContexts.map(async (subjectContext) => {
+            const query = new URLSearchParams({
+              semester: subjectContext.semester,
+              schoolYear: subjectContext.schoolYear
+            })
+            const endpoint = `${API_URL}/api/professor/sections/${target.sectionId}/subjects/${subjectContext.subjectId}/students?${query.toString()}`
+
+            const response = await fetchWithAutoReconnect(endpoint, {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              signal: controller.signal
+            })
+
+            if (!response.ok) {
+              throw new Error(`Failed to fetch students: ${response.status}`)
+            }
+
+            const payload = await response.json().catch(() => ({}))
+            const rosterRows = Array.isArray(payload?.data?.students) ? payload.data.students : []
+            return { target, subjectContext, rosterRows }
           })
-
-          if (!response.ok) {
-            throw new Error(`Failed to fetch students: ${response.status}`)
-          }
-
-          const payload = await response.json().catch(() => ({}))
-          const rosterRows = matchedSubjectContext
-            ? (Array.isArray(payload?.data?.students) ? payload.data.students : [])
-            : (Array.isArray(payload?.students) ? payload.students : [])
-          return { target, rosterRows }
         }))
 
-        const normalized = responses.flatMap(({ target, rosterRows }) => {
+        const normalized = responses.flatMap(({ target, subjectContext, rosterRows }) => {
           return rosterRows.map((raw: any, index: number) => {
             const yearLevel = typeof raw?.yearLevel === 'number' ? raw.yearLevel : Number(raw?.yearLevel)
             const rawId = String(raw?._id || raw?.id || raw?.studentNumber || raw?.studentId || index)
-            const matchedSubjectContext = selectedClass?.sectionId === target.sectionId ? selectedClass : null
             return {
               _id: String(raw?._id || raw?.id || ''),
-              rosterEntryKey: `${target.sectionId}-${rawId}-${index}`,
+              rosterEntryKey: `${target.sectionId}-${subjectContext.subjectId}-${rawId}-${index}`,
               enrollmentId: raw?.enrollmentId ? String(raw.enrollmentId) : undefined,
               subjectEntryId: raw?.subjectEntryId ? String(raw.subjectEntryId) : undefined,
               studentNumber: formatStudentNumber(
@@ -2736,8 +2771,8 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
               assignmentScores: Array.isArray(raw?.assignmentScores) ? raw.assignmentScores : undefined,
               classBlockCode: target.blockCode,
               classSectionCode: target.sectionCode,
-              classSubjectCode: matchedSubjectContext?.subjectCode || '',
-              classSubjectTitle: matchedSubjectContext?.subjectTitle || '',
+              classSubjectCode: raw?.classSubjectCode || subjectContext.subjectCode || '',
+              classSubjectTitle: raw?.classSubjectTitle || subjectContext.subjectTitle || '',
               classSemester: target.semester,
               classSchoolYear: target.schoolYear,
               subjectStatus: raw?.subjectStatus ? String(raw.subjectStatus) : undefined,
@@ -2745,8 +2780,20 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
             } as ProfessorRosterStudent
           })
         })
+        const visibleRosterRows = selectedClass
+          ? normalized
+          : Array.from(
+              normalized.reduce((rowsByStudent, row) => {
+                const key = `${row.classSectionCode || ''}|${row._id || row.studentNumber}`
+                if (!rowsByStudent.has(key)) {
+                  rowsByStudent.set(key, row)
+                }
+                return rowsByStudent
+              }, new Map<string, ProfessorRosterStudent>()).values()
+            )
+
         if (!cancelled) {
-          setStudents(normalized)
+          setStudents(visibleRosterRows)
           setCurrentPage(1)
         }
       } catch (error) {

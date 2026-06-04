@@ -13,5 +13,7 @@ const BlockSectionSchema = new mongoose.Schema({
 });
 
 BlockSectionSchema.index({ blockGroupId: 1, sectionCode: 1 }, { unique: true });
+BlockSectionSchema.index({ blockGroupId: 1, status: 1 });
+BlockSectionSchema.index({ status: 1, currentPopulation: 1, capacity: 1 });
 
 module.exports = mongoose.model('BlockSection', BlockSectionSchema);

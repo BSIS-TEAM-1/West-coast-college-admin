@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type TouchEvent } from 'react'
 import './LandingPage.css'
 import {
   applyThemePreference,
@@ -14,7 +14,7 @@ type LandingPageProps = {
   onOpenCookieSystem: () => void
   onOpenCollaborators: () => void
   onOpenSignIn: () => void
-  onOpenApplicantMaintenance: () => void
+  onOpenApplicantPortal: () => void
 }
 
 type LandingVideoItem = {
@@ -40,18 +40,29 @@ const LANDING_VIDEOS: LandingVideoItem[] = [
   {
     title: 'Video Premiere "West Coast College"',
     src: '/landingpagevideo.mp4',
-    optimizedSrc: '/landingpagevideo.mp4'
+    optimizedSrc: '/landingpagevideo.mp4',
+    poster: '/logo-bg-removed.png'
   }
 ]
 
 const TITLE_FADE_MS = 220
 const VIDEO_SWIPE_THRESHOLD_PX = 56
 
+function formatVideoTime(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '0:00'
+
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = Math.floor(seconds % 60)
+  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`
+}
+
 function LandingVideoCarousel() {
   const useOptimizedSourceByDefault = import.meta.env.PROD
   const [activeVideoIndex, setActiveVideoIndex] = useState(0)
   const [isVideoPlaying, setIsVideoPlaying] = useState(false)
   const [isTitleFading, setIsTitleFading] = useState(false)
+  const [videoCurrentTime, setVideoCurrentTime] = useState(0)
+  const [videoDuration, setVideoDuration] = useState(0)
   const [currentVideoSrc, setCurrentVideoSrc] = useState<string>(() =>
     useOptimizedSourceByDefault ? LANDING_VIDEOS[0].optimizedSrc : LANDING_VIDEOS[0].src
   )
@@ -64,6 +75,9 @@ function LandingVideoCarousel() {
   const expectedDefaultSrc = useOptimizedSourceByDefault
     ? activeVideo.optimizedSrc
     : activeVideo.src
+  const videoProgressPercent = videoDuration > 0
+    ? Math.min(100, Math.max(0, (videoCurrentTime / videoDuration) * 100))
+    : 0
 
   useEffect(() => {
     return () => {
@@ -91,13 +105,13 @@ function LandingVideoCarousel() {
     }
 
     setIsVideoPlaying(false)
+    setVideoCurrentTime(0)
+    setVideoDuration(0)
     setIsTitleFading(true)
 
     fadeTimeoutRef.current = window.setTimeout(() => {
       setActiveVideoIndex(normalizedIndex)
-      window.requestAnimationFrame(() => {
-        setIsTitleFading(false)
-      })
+      window.requestAnimationFrame(() => setIsTitleFading(false))
       fadeTimeoutRef.current = null
     }, TITLE_FADE_MS)
   }
@@ -119,13 +133,13 @@ function LandingVideoCarousel() {
     video.pause()
   }
 
-  const handleVideoTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+  const handleVideoTouchStart = (event: TouchEvent<HTMLDivElement>) => {
     const touch = event.changedTouches[0]
     touchStartRef.current = { x: touch.clientX, y: touch.clientY }
     suppressPlaybackToggleRef.current = false
   }
 
-  const handleVideoTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
+  const handleVideoTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
     const touchStart = touchStartRef.current
     touchStartRef.current = null
     if (!touchStart || isTitleFading) return
@@ -142,88 +156,175 @@ function LandingVideoCarousel() {
     goToSlide(deltaX < 0 ? activeVideoIndex + 1 : activeVideoIndex - 1)
   }
 
+  const handleVideoKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      togglePlayback()
+    }
+  }
+
+  const updateVideoProgress = () => {
+    const video = videoRef.current
+    if (!video) return
+
+    setVideoCurrentTime(video.currentTime || 0)
+    setVideoDuration(Number.isFinite(video.duration) ? video.duration : 0)
+  }
+
+  const handleProgressClick = (event: MouseEvent<HTMLDivElement>) => {
+    event.stopPropagation()
+
+    const video = videoRef.current
+    if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return
+
+    const progressBounds = event.currentTarget.getBoundingClientRect()
+    const clickRatio = Math.min(1, Math.max(0, (event.clientX - progressBounds.left) / progressBounds.width))
+    const nextTime = clickRatio * video.duration
+
+    video.currentTime = nextTime
+    setVideoCurrentTime(nextTime)
+  }
+
+  const seekVideoTo = (nextTime: number) => {
+    const video = videoRef.current
+    if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return
+
+    const boundedTime = Math.min(video.duration, Math.max(0, nextTime))
+    video.currentTime = boundedTime
+    setVideoCurrentTime(boundedTime)
+  }
+
+  const handleProgressKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!videoDuration) return
+
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      seekVideoTo(videoCurrentTime - 5)
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault()
+      seekVideoTo(videoCurrentTime + 5)
+    } else if (event.key === 'Home') {
+      event.preventDefault()
+      seekVideoTo(0)
+    } else if (event.key === 'End') {
+      event.preventDefault()
+      seekVideoTo(videoDuration)
+    }
+  }
+
   return (
     <section className="landing-video-section" id="contact" aria-label="Campus video section">
-      <div className="landing-video-head">
-        <p>Campus Feature</p>
-        <h2>Campus Videos</h2>
-      </div>
+      <div className="container landing-container py-4 py-lg-5">
+        <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-end gap-3 mb-4">
+          <div>
+            <span className="landing-section-kicker">Campus Feature</span>
+            <h2 className="landing-section-title mt-1 mb-1">Campus Videos</h2>
+            <p className={`landing-video-active-title ${isTitleFading ? 'is-fading' : ''}`}>
+              {activeVideo.title}
+            </p>
+          </div>
 
-      <div className="landing-video-carousel">
-        <div className="landing-video-carousel-top">
-          <h3 className={`landing-carousel-title ${isTitleFading ? 'is-fading' : ''}`}>
-            {activeVideo.title}
-          </h3>
-
-          <div className="landing-carousel-controls">
+          <div className="landing-video-controls d-flex align-items-center gap-3">
             <button
               type="button"
-              className="landing-carousel-btn"
+              className="landing-square-btn btn"
               onClick={() => goToSlide(activeVideoIndex - 1)}
               disabled={isTitleFading}
+              aria-label="Previous video"
             >
-              Prev
+              <span className="material-symbols-outlined" aria-hidden="true">chevron_left</span>
             </button>
             <span className="landing-carousel-count">
               {activeVideoIndex + 1} / {LANDING_VIDEOS.length}
             </span>
             <button
               type="button"
-              className="landing-carousel-btn"
+              className="landing-square-btn landing-square-btn-primary btn"
               onClick={() => goToSlide(activeVideoIndex + 1)}
               disabled={isTitleFading}
+              aria-label="Next video"
             >
-              Next
+              <span className="material-symbols-outlined" aria-hidden="true">chevron_right</span>
             </button>
           </div>
         </div>
 
-      <div
-        className="landing-video-frame landing-video-interactive"
-        role="button"
-        tabIndex={0}
-        aria-label={isVideoPlaying ? `Pause ${activeVideo.title}` : `Play ${activeVideo.title}`}
-        onClick={togglePlayback}
-        onTouchStart={handleVideoTouchStart}
-        onTouchEnd={handleVideoTouchEnd}
-        onKeyDown={event => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            togglePlayback()
-          }
-        }}
-      >
-        <video
-          key={currentVideoSrc}
-          ref={videoRef}
-          className="landing-video-player"
-          poster={activeVideo.poster}
-          preload="metadata"
-          playsInline
-          onError={() => {
-            if (currentVideoSrc !== activeVideo.src) {
-              setCurrentVideoSrc(activeVideo.src)
-            }
-          }}
-          onPlay={() => setIsVideoPlaying(true)}
-          onPause={() => setIsVideoPlaying(false)}
-          onEnded={() => setIsVideoPlaying(false)}
+        <div
+          className="landing-video-frame landing-video-interactive"
+          role="button"
+          tabIndex={0}
+          aria-label={isVideoPlaying ? `Pause ${activeVideo.title}` : `Play ${activeVideo.title}`}
+          onClick={togglePlayback}
+          onTouchStart={handleVideoTouchStart}
+          onTouchEnd={handleVideoTouchEnd}
+          onKeyDown={handleVideoKeyDown}
         >
-          <source src={currentVideoSrc} type="video/mp4" />
-          Your browser does not support the video tag.
-        </video>
-        <button
-          type="button"
-          className={`landing-video-overlay-btn ${isVideoPlaying ? 'is-hidden' : ''}`}
-          aria-label={`Play ${activeVideo.title}`}
-          onClick={event => {
-            event.stopPropagation()
-            togglePlayback()
-          }}
-        >
-          <span className="landing-video-play-icon" />
-        </button>
-      </div>
+          <video
+            key={currentVideoSrc}
+            ref={videoRef}
+            className="landing-video-player"
+            poster={activeVideo.poster}
+            preload="metadata"
+            playsInline
+            onError={() => {
+              if (currentVideoSrc !== activeVideo.src) {
+                setCurrentVideoSrc(activeVideo.src)
+              }
+            }}
+            onPlay={() => setIsVideoPlaying(true)}
+            onPause={() => setIsVideoPlaying(false)}
+            onEnded={() => {
+              setIsVideoPlaying(false)
+              updateVideoProgress()
+            }}
+            onLoadedMetadata={updateVideoProgress}
+            onTimeUpdate={updateVideoProgress}
+          >
+            <source src={currentVideoSrc} type="video/mp4" />
+            Your browser does not support the video tag.
+          </video>
+
+          <button
+            type="button"
+            className={`landing-video-overlay-btn ${isVideoPlaying ? 'is-hidden' : ''}`}
+            aria-label={`Play ${activeVideo.title}`}
+            onClick={event => {
+              event.stopPropagation()
+              togglePlayback()
+            }}
+          >
+            <span className="material-symbols-outlined" aria-hidden="true">play_arrow</span>
+          </button>
+
+          <div className="landing-video-bottom-bar" onClick={event => event.stopPropagation()}>
+            <button
+              type="button"
+              className="landing-video-inline-btn"
+              onClick={togglePlayback}
+              aria-label={isVideoPlaying ? 'Pause video' : 'Play video'}
+            >
+              <span className="material-symbols-outlined" aria-hidden="true">
+                {isVideoPlaying ? 'pause' : 'play_arrow'}
+              </span>
+            </button>
+            <div
+              className="landing-video-progress"
+              role="slider"
+              aria-label="Video progress"
+              aria-valuemin={0}
+              aria-valuemax={Math.max(0, Math.floor(videoDuration))}
+              aria-valuenow={Math.floor(videoCurrentTime)}
+              tabIndex={0}
+              onClick={handleProgressClick}
+              onKeyDown={handleProgressKeyDown}
+            >
+              <span style={{ width: `${videoProgressPercent}%` }} />
+            </div>
+            <span className="landing-video-time">
+              {formatVideoTime(videoCurrentTime)} / {formatVideoTime(videoDuration)}
+            </span>
+          </div>
+        </div>
 
         <p className="landing-carousel-swipe-hint">Swipe left or right on the video to switch clips.</p>
 
@@ -252,11 +353,12 @@ export default function LandingPage({
   onOpenCookieSystem,
   onOpenCollaborators,
   onOpenSignIn,
-  onOpenApplicantMaintenance
+  onOpenApplicantPortal
 }: LandingPageProps) {
   const [theme, setTheme] = useState<ThemePreference>(() => getStoredTheme(null))
   const [isApplyModalOpen, setIsApplyModalOpen] = useState(false)
   const [isFooterContactHighlighted, setIsFooterContactHighlighted] = useState(false)
+  const [isNavOpen, setIsNavOpen] = useState(false)
   const footerContactRef = useRef<HTMLDivElement | null>(null)
   const footerContactHighlightTimeoutRef = useRef<number | null>(null)
 
@@ -279,15 +381,10 @@ export default function LandingPage({
     return () => mediaQuery.removeEventListener('change', handleThemeUpdate)
   }, [theme])
 
-  const handleThemeChange = (nextTheme: ThemePreference) => {
-    setTheme(nextTheme)
-    applyThemePreference(nextTheme, { animate: true, scope: null })
-  }
-
   useEffect(() => {
     if (!isApplyModalOpen) return
 
-    const handleKeyDown = (event: KeyboardEvent) => {
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Escape') {
         setIsApplyModalOpen(false)
       }
@@ -298,12 +395,34 @@ export default function LandingPage({
   }, [isApplyModalOpen])
 
   useEffect(() => {
+    if (!isNavOpen) return
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsNavOpen(false)
+      }
+    }
+
+    document.body.classList.add('landing-drawer-open')
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.body.classList.remove('landing-drawer-open')
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isNavOpen])
+
+  useEffect(() => {
     return () => {
       if (footerContactHighlightTimeoutRef.current !== null) {
         window.clearTimeout(footerContactHighlightTimeoutRef.current)
       }
     }
   }, [])
+
+  const handleThemeChange = (nextTheme: ThemePreference) => {
+    setTheme(nextTheme)
+    applyThemePreference(nextTheme, { animate: true, scope: null })
+  }
 
   const handleOpenApplyModal = () => {
     setIsApplyModalOpen(true)
@@ -320,7 +439,7 @@ export default function LandingPage({
 
   const handleApplicantClick = () => {
     setIsApplyModalOpen(false)
-    onOpenApplicantMaintenance()
+    onOpenApplicantPortal()
   }
 
   const triggerFooterContactHighlight = () => {
@@ -341,156 +460,266 @@ export default function LandingPage({
 
   const handleFooterContactClick = (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault()
+    setIsNavOpen(false)
     footerContactRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     window.history.replaceState({}, '', '#footer-contact')
     triggerFooterContactHighlight()
   }
 
+  const handleSectionLinkClick = () => {
+    setIsNavOpen(false)
+  }
+
+  const handleAboutClick = () => {
+    setIsNavOpen(false)
+    onOpenAbout()
+  }
+
+  const toggleDarkLightTheme = () => {
+    handleThemeChange(theme === 'dark' ? 'light' : 'dark')
+  }
+
+  const displayedTheme = theme === 'auto' ? 'Auto' : theme === 'dark' ? 'Dark' : 'Light'
+
   return (
     <div className="landing-page">
-      <header className="landing-navbar">
-        <nav className="landing-nav-links" aria-label="Landing page navigation">
-          <button type="button" className="landing-nav-link-btn" onClick={onOpenAbout}>
-            About
-          </button>
-          <a href="#services">Services</a>
-          <a href="#footer-contact" onClick={handleFooterContactClick}>Contact</a>
-        </nav>
-        <div className="landing-theme-picker">
-          <label htmlFor="landing-theme-select" className="landing-theme-label">
-            Theme
-          </label>
-          <select
-            id="landing-theme-select"
-            className="landing-theme-select"
-            value={theme}
-            onChange={event => handleThemeChange(event.target.value as ThemePreference)}
-            aria-label="Theme mode selector"
-          >
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-            <option value="auto">System Auto</option>
-          </select>
-        </div>
-      </header>
+      <nav className="landing-navbar navbar navbar-expand-md sticky-top">
+        <div className="container landing-container">
+          <a className="navbar-brand landing-brand" href="#top" onClick={handleSectionLinkClick}>
+            <img src="/logo-bg-removed.png" alt="West Coast College Logo" className="landing-brand-logo" />
+            <span>West Coast College</span>
+          </a>
 
-      <div className="landing-shell">
-        <section className="landing-content" id="top">
-          <h1 className="landing-title">A Developing Higher Education Institution in the Bicol Region</h1>
-          <p className="landing-subtitle">
-            Providing a digital enrollment platform that simplifies admissions and makes
-            enrollment services more accessible for students.
-          </p>
-          
-          <div className="landing-hero-actions">
-            <button type="button" className="landing-apply-btn" onClick={handleOpenApplyModal}>
-              Apply Now
-            </button>
+          <button
+            className="navbar-toggler landing-navbar-toggler"
+            type="button"
+            aria-controls="landingNavbar"
+            aria-expanded={isNavOpen}
+            aria-label="Toggle navigation"
+            onClick={() => setIsNavOpen(previous => !previous)}
+          >
+            <span className="material-symbols-outlined" aria-hidden="true">menu</span>
+          </button>
+
+          <button
+            type="button"
+            className={`landing-mobile-backdrop ${isNavOpen ? 'is-open' : ''}`}
+            aria-label="Close navigation"
+            onClick={() => setIsNavOpen(false)}
+          />
+
+          <div className={`collapse navbar-collapse landing-nav-panel ${isNavOpen ? 'show is-open' : ''}`} id="landingNavbar">
+            <div className="landing-drawer-head">
+              <div className="landing-drawer-brand">
+                <img src="/logo-bg-removed.png" alt="" aria-hidden="true" />
+                <span>Menu</span>
+              </div>
+              <button
+                type="button"
+                className="landing-drawer-close"
+                aria-label="Close navigation"
+                onClick={() => setIsNavOpen(false)}
+              >
+                <span className="material-symbols-outlined" aria-hidden="true">close</span>
+              </button>
+            </div>
+
+            <ul className="navbar-nav landing-nav-links mx-md-auto">
+              <li className="nav-item">
+                <button type="button" className="nav-link active landing-nav-button" onClick={handleAboutClick}>
+                  About
+                </button>
+              </li>
+              <li className="nav-item">
+                <a className="nav-link" href="#services" onClick={handleSectionLinkClick}>Services</a>
+              </li>
+              <li className="nav-item">
+                <a className="nav-link" href="#footer-contact" onClick={handleFooterContactClick}>Contact</a>
+              </li>
+            </ul>
+
+            <div className="landing-theme-tools">
+              <div className="landing-theme-picker">
+                <span>Theme</span>
+                <select
+                  className="landing-theme-select"
+                  value={theme}
+                  onChange={event => handleThemeChange(event.target.value as ThemePreference)}
+                  aria-label="Theme mode selector"
+                >
+                  <option value="light">Light</option>
+                  <option value="dark">Dark</option>
+                  <option value="auto">Auto</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                className="landing-theme-icon-btn"
+                onClick={toggleDarkLightTheme}
+                aria-label={`Current theme: ${displayedTheme}`}
+              >
+                <span className="material-symbols-outlined" aria-hidden="true">
+                  {theme === 'dark' ? 'light_mode' : 'dark_mode'}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <main>
+        <section className="landing-hero" id="top">
+          <div className="landing-hero-glow" aria-hidden="true" />
+          <div className="container landing-container position-relative">
+            <div className="row align-items-center g-5">
+              <div className="col-lg-7 text-white">
+                <span className="landing-hero-kicker">Since 2000</span>
+                <h1 className="landing-hero-title">
+                  A Developing Higher Education <span>Institution</span> in the Bicol Region
+                </h1>
+                <p className="landing-hero-copy">
+                  Providing a digital enrollment platform that simplifies admissions and makes
+                  enrollment services more accessible for students.
+                </p>
+                <button type="button" className="landing-gold-btn btn" onClick={handleOpenApplyModal}>
+                  Apply Now
+                </button>
+              </div>
+
+              <div className="col-lg-5 d-flex justify-content-center justify-content-lg-end">
+                <div className="landing-seal-wrap">
+                  <img src="/logo-bg-removed.png" alt="West Coast College seal" className="landing-seal-img" />
+                  <div className="landing-seal-ring" aria-hidden="true" />
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 
-        <aside className="landing-image-wrap" aria-label="Campus hero image">
-          <img
-            src="/logo-bg-removed.png"
-            alt="West Coast College campus visual"
-            className="landing-hero-image"
-          />
-        </aside>
-      </div>
-
-      <section className="landing-values" id="about" aria-label="Vision and mission section">
-        <div className="landing-values-head">
-          <p>Institution Direction</p>
-          <h2>Vision And Mission</h2>
-          <span className="landing-values-intro">
-            The long-term direction of the college and the commitment that guides its daily
-            work are presented here with clarity and emphasis.
-          </span>
-        </div>
-
-        <div className="landing-aurora-divider" aria-hidden="true" />
-
-        <div className="landing-values-grid">
-          <article className="landing-value-panel landing-value-panel-vision">
-            <p className="landing-value-eyebrow">Strategic Direction</p>
-            <h3>Vision</h3>
-            <div className="landing-value-copy">
-              <p className="landing-value-summary">
-                By providing quality education, the College envisions itself as an educational
-                institution that would develop highly disciplined and professionally competent,
-                appreciative-of-Filipino-culture individuals who would contribute to building
-                a just and humane Philippine society.
+        <section className="landing-values" id="about" aria-label="Vision and mission section">
+          <div className="container landing-container py-4 py-lg-5">
+            <div className="landing-section-head text-center mx-auto mb-5">
+              <span className="landing-section-kicker">Institution Direction</span>
+              <h2 className="landing-section-title mt-2 mb-3">Vision And Mission</h2>
+              <div className="landing-title-rule mx-auto" />
+              <p>
+                The long-term direction of the college and the commitment that guides its daily work
+                are presented here with clarity and emphasis.
               </p>
             </div>
-          </article>
 
-          <article className="landing-value-panel landing-value-panel-mission">
-            <p className="landing-value-eyebrow">Institutional Commitment</p>
-            <h3>Mission</h3>
-            <div className="landing-value-copy">
-              <p className="landing-value-summary">
-                West Coast College believes that all persons, regardless of status in life, are
-                imbued with dignity and that all resources, whether personal or communal,
-                should be harnessed to promote this dignity.
-              </p>
-              <p className="landing-value-summary">
-                The College commits itself to pursue relevant and responsive programs utilizing
-                modern educational technology that would develop competent and ethical
-                professionals dedicated to the advancement of knowledge, appreciative of arts
-                and culture, and who provide meaningful leadership to their community and the
-                Philippine society as a whole.
-              </p>
+            <div className="row g-4 align-items-stretch">
+              <div className="col-md-6">
+                <article className="landing-value-card landing-value-card-light h-100">
+                  <div className="d-flex align-items-center gap-3 mb-4">
+                    <span className="material-symbols-outlined landing-value-icon" aria-hidden="true">visibility</span>
+                    <h3>Vision</h3>
+                  </div>
+                  <p>
+                    By providing quality education, the College envisions itself as an educational
+                    institution that would develop highly disciplined and professionally competent,
+                    appreciative-of-Filipino-culture individuals who would contribute to building a
+                    just and humane Philippine society.
+                  </p>
+                </article>
+              </div>
+
+              <div className="col-md-6">
+                <article className="landing-value-card landing-value-card-dark h-100">
+                  <div className="d-flex align-items-center gap-3 mb-4">
+                    <span className="material-symbols-outlined landing-value-icon" aria-hidden="true">target</span>
+                    <h3>Mission</h3>
+                  </div>
+                  <p>
+                    West Coast College believes that all persons, regardless of status in life, are
+                    imbued with dignity and that all resources, whether personal or communal, should
+                    be harnessed to promote this dignity.
+                  </p>
+                  <p>
+                    The College commits itself to pursue relevant and responsive programs utilizing
+                    modern educational technology that would develop competent and ethical professionals.
+                  </p>
+                </article>
+              </div>
             </div>
-          </article>
-        </div>
-      </section>
+          </div>
+        </section>
 
-      <section className="landing-services" id="services" aria-label="Services section">
-        <div className="landing-services-head">
-          <p>Institutional Services</p>
-          <h2>Student And School Services</h2>
-        </div>
+        <section className="landing-services" id="services" aria-label="Services section">
+          <div className="container landing-container py-4 py-lg-5">
+            <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-end gap-3 mb-5">
+              <div>
+                <span className="landing-section-kicker">Institutional Services</span>
+                <h2 className="landing-section-title">Student And School Services</h2>
+              </div>
+              <a className="landing-view-link" href="#footer-contact" onClick={handleFooterContactClick}>
+                View Departments
+                <span className="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
+              </a>
+            </div>
 
-        <div className="landing-services-grid">
-          <article className="landing-service-card">
-            <p className="landing-service-kicker">01</p>
-            <h3>Academic Programs</h3>
-            <p className="landing-service-desc">
-              West Coast College provides relevant higher education programs designed to build
-              professional competence, academic excellence, and ethical leadership.
-            </p>
-          </article>
+            <div className="row g-4">
+              <div className="col-lg-7">
+                <article className="landing-service-card landing-service-card-large h-100">
+                  <span className="landing-service-watermark">01</span>
+                  <h3>Academic Programs</h3>
+                  <p>
+                    West Coast College provides relevant higher education programs designed to build
+                    professional competence, academic excellence, and ethical leadership.
+                  </p>
+                  <ul>
+                    <li>Undergraduate Studies</li>
+                    <li>Senior High School</li>
+                    <li>Technical Vocational</li>
+                  </ul>
+                </article>
+              </div>
 
-          <article className="landing-service-card">
-            <p className="landing-service-kicker">02</p>
-            <h3>Admissions and Registrar Services</h3>
-            <p className="landing-service-desc">
-              The institution supports students through admissions processing, enrollment guidance,
-              records management, and issuance of official academic documents.
-            </p>
-          </article>
+              <div className="col-lg-5">
+                <article className="landing-service-card landing-service-card-primary h-100">
+                  <span>02</span>
+                  <h3>Admissions and Registrar Services</h3>
+                  <p>
+                    The institution supports students through admissions processing, enrollment
+                    guidance, records management, and issuance of official academic documents.
+                  </p>
+                </article>
+              </div>
 
-          <article className="landing-service-card">
-            <p className="landing-service-kicker">03</p>
-            <h3>Student Affairs and Support</h3>
-            <p className="landing-service-desc">
-              Student services include counseling, co-curricular activities, and campus support
-              initiatives that promote student welfare and holistic development.
-            </p>
-          </article>
+              <div className="col-lg-5">
+                <article className="landing-service-card landing-service-card-outline h-100">
+                  <span>03</span>
+                  <h3>Student Affairs and Support</h3>
+                  <p>
+                    Student services include counseling, co-curricular activities, and campus support
+                    initiatives that promote student welfare and holistic development.
+                  </p>
+                </article>
+              </div>
 
-          <article className="landing-service-card">
-            <p className="landing-service-kicker">04</p>
-            <h3>Faculty and Staff Development</h3>
-            <p className="landing-service-desc">
-              West Coast College strengthens institutional quality through faculty training,
-              administrative development, and continuous improvement of school services.
-            </p>
-          </article>
-        </div>
-      </section>
+              <div className="col-lg-7">
+                <article className="landing-service-card landing-service-card-soft h-100">
+                  <div className="row g-4 align-items-start">
+                    <div className="col-sm-8">
+                      <span>04</span>
+                      <h3>Faculty and Staff Development</h3>
+                      <p>
+                        West Coast College strengthens institutional quality through faculty training,
+                        administrative development, and continuous improvement of school services.
+                      </p>
+                    </div>
+                    <div className="col-sm-4 text-sm-end">
+                      <span className="material-symbols-outlined landing-service-big-icon" aria-hidden="true">groups</span>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </div>
+        </section>
 
-      <LandingVideoCarousel />
+        <LandingVideoCarousel />
+      </main>
 
       {isApplyModalOpen && (
         <div
@@ -507,64 +736,44 @@ export default function LandingPage({
           <div className="landing-apply-modal-card">
             <button
               type="button"
-              className="landing-apply-modal-close"
+              className="landing-apply-modal-close btn-close"
               onClick={handleCloseApplyModal}
               aria-label="Close apply options"
-            >
-              &times;
-            </button>
+            />
 
             <div className="landing-apply-modal-brand">
-              <img
-                src="/Logo.jpg"
-                alt="West Coast College"
-                className="landing-apply-modal-logo"
-              />
+              <img src="/Logo.jpg" alt="West Coast College" className="landing-apply-modal-logo" />
               <h3 id="landing-apply-modal-title">West Coast College</h3>
             </div>
 
-            <p className="landing-apply-modal-desc">
-              Choose how you want to continue
-            </p>
+            <p className="landing-apply-modal-desc">Choose how you want to continue</p>
 
             <div className="landing-apply-choice-list">
-              <button
-                type="button"
-                className="landing-apply-choice-card landing-apply-choice-btn"
-                onClick={handleSignIn}
-              >
-                <span className="landing-apply-choice-icon landing-apply-choice-icon-signin" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" focusable="false">
-                    <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-3.3 0-6 1.8-6 4v1h12v-1c0-2.2-2.7-4-6-4Z" />
-                  </svg>
+              <button type="button" className="landing-apply-choice-card" onClick={handleSignIn}>
+                <span className="landing-apply-choice-icon" aria-hidden="true">
+                  <span className="material-symbols-outlined">person</span>
                 </span>
                 <span className="landing-apply-choice-content">
                   <span className="landing-apply-choice-title">WCC Personnel &amp; Students</span>
                   <span className="landing-apply-choice-meta">Admin and account access</span>
                   <span className="landing-apply-choice-text">Sign in using your registered portal account</span>
                 </span>
-                <span className="landing-apply-choice-arrow" aria-hidden="true">
-                  &gt;
+                <span className="landing-apply-choice-arrow material-symbols-outlined" aria-hidden="true">
+                  chevron_right
                 </span>
               </button>
 
-              <button
-                type="button"
-                className="landing-apply-choice-card landing-apply-choice-btn"
-                onClick={handleApplicantClick}
-              >
-                <span className="landing-apply-choice-icon landing-apply-choice-icon-apply" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" focusable="false">
-                    <path d="M7 4h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm0 2v12h10V6Zm2 2h6v2H9Zm0 4h6v2H9Z" />
-                  </svg>
+              <button type="button" className="landing-apply-choice-card" onClick={handleApplicantClick}>
+                <span className="landing-apply-choice-icon landing-apply-choice-icon-gold" aria-hidden="true">
+                  <span className="material-symbols-outlined">assignment</span>
                 </span>
                 <span className="landing-apply-choice-content">
                   <span className="landing-apply-choice-title">Applicants</span>
-                  <span className="landing-apply-choice-meta">Admissions and enrollment inquiry</span>
-                  <span className="landing-apply-choice-text">Apply in school and coordinate with Software Support</span>
+                  <span className="landing-apply-choice-meta">Online admissions onboarding</span>
+                  <span className="landing-apply-choice-text">Submit your application details to the registrar</span>
                 </span>
-                <span className="landing-apply-choice-arrow" aria-hidden="true">
-                  &gt;
+                <span className="landing-apply-choice-arrow material-symbols-outlined" aria-hidden="true">
+                  chevron_right
                 </span>
               </button>
             </div>
@@ -588,90 +797,71 @@ export default function LandingPage({
       )}
 
       <footer className="landing-footer" aria-label="Landing page footer">
-        <div className="landing-footer-brand">
-          <img
-            src="/logo-bg-removed.png"
-            alt="West Coast College"
-            className="landing-logo landing-footer-logo"
-          />
-          <div>
-            <h3>West Coast College</h3>
-            <p>Accessible, quality, and student-centered digital services.</p>
+        <div className="container landing-container">
+          <div className="row g-5 mb-5">
+            <div className="col-lg-4">
+              <div className="landing-footer-brand">
+                <img src="/logo-bg-removed.png" alt="West Coast College" />
+                <h3>West Coast College</h3>
+              </div>
+              <p className="landing-footer-copy">
+                Accessible, quality, and student-centered digital services. Shaping the future of
+                Bicol's education through technology and tradition.
+              </p>
+            </div>
+
+            <div className="col-lg-4 ps-lg-5">
+              <h4>Quick Links</h4>
+              <div className="row g-3">
+                <div className="col-6">
+                  <ul className="landing-footer-link-list">
+                    <li><a href="#top">Home</a></li>
+                    <li><a href="#contact">Campus Video</a></li>
+                    <li><button type="button" onClick={onOpenCookieSystem}>Cookie Settings</button></li>
+                  </ul>
+                </div>
+                <div className="col-6">
+                  <ul className="landing-footer-link-list">
+                    <li><a href="#about">Vision &amp; Mission</a></li>
+                    <li><button type="button" onClick={onOpenCollaborators}>Collaborators</button></li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div className="col-lg-4 ps-lg-5" ref={footerContactRef} id="footer-contact">
+              <h4>Contact</h4>
+              <ul className="landing-contact-list">
+                <li>
+                  <span className="material-symbols-outlined" aria-hidden="true">call</span>
+                  <a href="tel:+639778276806">0977 827 6806</a>
+                </li>
+                <li>
+                  <span className="material-symbols-outlined" aria-hidden="true">mail</span>
+                  <a href="mailto:westcoastcollegeregistrar@gmail.com">westcoastcollegeregistrar@gmail.com</a>
+                </li>
+                <li>
+                  <span className="material-symbols-outlined" aria-hidden="true">location_on</span>
+                  <span>West Coast College, Bicol Region</span>
+                </li>
+              </ul>
+              <a
+                href="mailto:westcoastcollegeregistrar@gmail.com?subject=West%20Coast%20College%20Inquiry"
+                className={`landing-footer-contact-cta ${isFooterContactHighlighted ? 'is-highlighted' : ''}`}
+              >
+                Contact Us
+              </a>
+            </div>
           </div>
-        </div>
 
-        <div className="landing-footer-links">
-          <h4>Quick Links</h4>
-          <a href="#top">Home</a>
-          <a href="#about">Vision &amp; Mission</a>
-          <a href="#contact">Campus Video</a>
-          <button
-            type="button"
-            className="landing-footer-cookie-link"
-            onClick={onOpenCollaborators}
-          >
-            Collaborators
-          </button>
-          <button
-            type="button"
-            className="landing-footer-cookie-link"
-            onClick={onOpenCookieSystem}
-          >
-            Cookie Settings
-          </button>
-        </div>
-
-        <div
-          ref={footerContactRef}
-          className="landing-footer-contact"
-          id="footer-contact"
-        >
-          <h4>Contact</h4>
-          <a href="tel:+639778276806" className="landing-footer-contact-link">
-            0977 827 6806
-          </a>
-          <a
-            href="mailto:westcoastcollegeregistrar@gmail.com"
-            className="landing-footer-contact-link"
-          >
-            westcoastcollegeregistrar@gmail.com
-          </a>
-          <a
-            href="mailto:westcoastcollegeregistrar@gmail.com?subject=West%20Coast%20College%20Inquiry"
-            className={`landing-footer-contact-cta ${isFooterContactHighlighted ? 'is-highlighted' : ''}`}
-          >
-            Contact Us
-          </a>
-          <p>West Coast College</p>
-        </div>
-
-        <div className="landing-footer-bottom" aria-label="Footer policies">
-          <button
-            type="button"
-            className="landing-footer-bottom-link landing-footer-bottom-btn"
-            onClick={onOpenTermsPolicy}
-          >
-            Terms &amp; Policy
-          </button>
-          <span className="landing-footer-separator">|</span>
-          <button
-            type="button"
-            className="landing-footer-bottom-link landing-footer-bottom-btn"
-            onClick={onOpenCookiePolicy}
-          >
-            Cookie Policy
-          </button>
-          <span className="landing-footer-separator">|</span>
-          <button
-            type="button"
-            className="landing-footer-bottom-link landing-footer-bottom-btn"
-            onClick={onOpenCookieSystem}
-          >
-            Cookie System
-          </button>
-          <span className="landing-footer-copyright">
-            &copy; 2026 West Coast College All rights reserved
-          </span>
+          <div className="landing-footer-bottom">
+            <p>&copy; 2026 West Coast College All rights reserved</p>
+            <div>
+              <button type="button" onClick={onOpenTermsPolicy}>Terms &amp; Policy</button>
+              <button type="button" onClick={onOpenCookiePolicy}>Cookie Policy</button>
+              <button type="button" onClick={onOpenCookieSystem}>Cookie System</button>
+            </div>
+          </div>
         </div>
       </footer>
     </div>
