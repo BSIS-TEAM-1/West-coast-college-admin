@@ -24,6 +24,32 @@ type LandingVideoItem = {
   poster?: string
 }
 
+type LandingNavItem = 'home' | 'admissions' | 'programs' | 'campus' | 'about' | 'contact'
+
+type TeacherProgramItem = {
+  code: string
+  title: string
+  description: string
+}
+
+const TEACHER_PROGRAMS: TeacherProgramItem[] = [
+  {
+    code: 'BEED',
+    title: 'Bachelor of Elementary Education',
+    description: 'Prepares future elementary teachers with strong foundations in child-centered instruction, classroom management, and values-driven learning.'
+  },
+  {
+    code: 'BSEd English',
+    title: 'Bachelor of Secondary Education - English',
+    description: 'Develops communication-focused educators who can teach language, literature, reading, and critical expression in secondary classrooms.'
+  },
+  {
+    code: 'BSEd Mathematics',
+    title: 'Bachelor of Secondary Education - Mathematics',
+    description: 'Builds confident mathematics teachers through analytical thinking, problem solving, and practical strategies for teaching secondary learners.'
+  }
+]
+
 const LANDING_VIDEOS: LandingVideoItem[] = [
   {
     title: '2024 SHS Graduation Ceremony',
@@ -359,8 +385,11 @@ export default function LandingPage({
   const [isApplyModalOpen, setIsApplyModalOpen] = useState(false)
   const [isFooterContactHighlighted, setIsFooterContactHighlighted] = useState(false)
   const [isNavOpen, setIsNavOpen] = useState(false)
+  const [activeNavItem, setActiveNavItem] = useState<LandingNavItem>('home')
+  const [activeTeacherProgramIndex, setActiveTeacherProgramIndex] = useState(0)
   const footerContactRef = useRef<HTMLDivElement | null>(null)
   const footerContactHighlightTimeoutRef = useRef<number | null>(null)
+  const activeTeacherProgram = TEACHER_PROGRAMS[activeTeacherProgramIndex]
 
   useEffect(() => {
     setActiveThemeScope(null)
@@ -419,6 +448,14 @@ export default function LandingPage({
     }
   }, [])
 
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setActiveTeacherProgramIndex(previous => (previous + 1) % TEACHER_PROGRAMS.length)
+    }, 4200)
+
+    return () => window.clearInterval(timer)
+  }, [])
+
   const handleThemeChange = (nextTheme: ThemePreference) => {
     setTheme(nextTheme)
     applyThemePreference(nextTheme, { animate: true, scope: null })
@@ -460,17 +497,20 @@ export default function LandingPage({
 
   const handleFooterContactClick = (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault()
+    setActiveNavItem('contact')
     setIsNavOpen(false)
     footerContactRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     window.history.replaceState({}, '', '#footer-contact')
     triggerFooterContactHighlight()
   }
 
-  const handleSectionLinkClick = () => {
+  const handleSectionLinkClick = (navItem: LandingNavItem) => {
+    setActiveNavItem(navItem)
     setIsNavOpen(false)
   }
 
   const handleAboutClick = () => {
+    setActiveNavItem('about')
     setIsNavOpen(false)
     onOpenAbout()
   }
@@ -483,9 +523,9 @@ export default function LandingPage({
 
   return (
     <div className="landing-page">
-      <nav className="landing-navbar navbar navbar-expand-md sticky-top">
+      <nav className="landing-navbar navbar navbar-expand-lg sticky-top">
         <div className="container landing-container">
-          <a className="navbar-brand landing-brand" href="#top" onClick={handleSectionLinkClick}>
+          <a className="navbar-brand landing-brand" href="#top" onClick={() => handleSectionLinkClick('home')}>
             <img src="/logo-bg-removed.png" alt="West Coast College Logo" className="landing-brand-logo" />
             <span>West Coast College</span>
           </a>
@@ -526,15 +566,64 @@ export default function LandingPage({
 
             <ul className="navbar-nav landing-nav-links mx-md-auto">
               <li className="nav-item">
-                <button type="button" className="nav-link active landing-nav-button" onClick={handleAboutClick}>
+                <a
+                  className={`nav-link ${activeNavItem === 'home' ? 'active' : ''}`}
+                  href="#top"
+                  onClick={() => handleSectionLinkClick('home')}
+                  aria-current={activeNavItem === 'home' ? 'page' : undefined}
+                >
+                  Home
+                </a>
+              </li>
+              <li className="nav-item">
+                <a
+                  className={`nav-link ${activeNavItem === 'admissions' ? 'active' : ''}`}
+                  href="#admissions"
+                  onClick={() => handleSectionLinkClick('admissions')}
+                  aria-current={activeNavItem === 'admissions' ? 'page' : undefined}
+                >
+                  Admissions
+                </a>
+              </li>
+              <li className="nav-item">
+                <a
+                  className={`nav-link ${activeNavItem === 'programs' ? 'active' : ''}`}
+                  href="#programs"
+                  onClick={() => handleSectionLinkClick('programs')}
+                  aria-current={activeNavItem === 'programs' ? 'page' : undefined}
+                >
+                  Programs
+                </a>
+              </li>
+              <li className="nav-item">
+                <a
+                  className={`nav-link ${activeNavItem === 'campus' ? 'active' : ''}`}
+                  href="#campus-life"
+                  onClick={() => handleSectionLinkClick('campus')}
+                  aria-current={activeNavItem === 'campus' ? 'page' : undefined}
+                >
+                  Campus Life
+                </a>
+              </li>
+              <li className="nav-item">
+                <button
+                  type="button"
+                  className={`nav-link landing-nav-button ${activeNavItem === 'about' ? 'active' : ''}`}
+                  onClick={handleAboutClick}
+                  aria-current={activeNavItem === 'about' ? 'page' : undefined}
+                >
                   About
                 </button>
               </li>
               <li className="nav-item">
-                <a className="nav-link" href="#services" onClick={handleSectionLinkClick}>Services</a>
-              </li>
-              <li className="nav-item">
-                <a className="nav-link" href="#footer-contact" onClick={handleFooterContactClick}>Contact</a>
+                <a
+                  className={`nav-link ${activeNavItem === 'contact' ? 'active' : ''}`}
+                  href="#footer-contact"
+                  onClick={handleFooterContactClick}
+                  aria-current={activeNavItem === 'contact' ? 'page' : undefined}
+                >
+                  Contact
+                </a>
               </li>
             </ul>
 
@@ -572,72 +661,91 @@ export default function LandingPage({
           <div className="landing-hero-glow" aria-hidden="true" />
           <div className="container landing-container position-relative">
             <div className="row align-items-center g-5">
-              <div className="col-lg-7 text-white">
+              <div className="col-lg-6 text-white">
                 <span className="landing-hero-kicker">Since 2000</span>
                 <h1 className="landing-hero-title">
-                  A Developing Higher Education <span>Institution</span> in the Bicol Region
+                  Empowering Future Leaders Through <span>Quality Education</span>
                 </h1>
                 <p className="landing-hero-copy">
-                  Providing a digital enrollment platform that simplifies admissions and makes
-                  enrollment services more accessible for students.
+                  West Coast College blends classroom excellence, student support, and a real campus
+                  community to help learners take the next confident step toward their future.
                 </p>
-                <button type="button" className="landing-gold-btn btn" onClick={handleOpenApplyModal}>
-                  Apply Now
-                </button>
+                <div className="landing-hero-actions">
+                  <button type="button" className="landing-gold-btn btn" onClick={handleOpenApplyModal}>
+                    Apply Now
+                  </button>
+                  <a className="landing-outline-btn btn" href="#programs" onClick={() => handleSectionLinkClick('programs')}>
+                    Explore Programs
+                  </a>
+                </div>
               </div>
 
-              <div className="col-lg-5 d-flex justify-content-center justify-content-lg-end">
-                <div className="landing-seal-wrap">
-                  <img src="/logo-bg-removed.png" alt="West Coast College seal" className="landing-seal-img" />
-                  <div className="landing-seal-ring" aria-hidden="true" />
+              <div className="col-lg-6">
+                <div className="landing-campus-visual">
+                  <img src="/schoolLogo1.png" alt="West Coast College campus buildings" />
+                  <div className="landing-campus-overlay" aria-hidden="true" />
+                  <div className="landing-campus-seal">
+                    <img src="/logo-bg-removed.png" alt="" aria-hidden="true" />
+                    <span>West Coast College</span>
+                  </div>
+                  <div className="landing-hero-stat landing-hero-stat-secondary">
+                    <strong>CHED</strong>
+                    <span>Recognized</span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="landing-values" id="about" aria-label="Vision and mission section">
+        <section className="landing-values" id="about" aria-label="Why choose West Coast College">
           <div className="container landing-container py-4 py-lg-5">
             <div className="landing-section-head text-center mx-auto mb-5">
-              <span className="landing-section-kicker">Institution Direction</span>
-              <h2 className="landing-section-title mt-2 mb-3">Vision And Mission</h2>
+              <span className="landing-section-kicker">Why Choose West Coast College</span>
+              <h2 className="landing-section-title mt-2 mb-3">A Campus Built Around Student Success</h2>
               <div className="landing-title-rule mx-auto" />
               <p>
-                The long-term direction of the college and the commitment that guides its daily work
-                are presented here with clarity and emphasis.
+                Students learn in an environment that combines academic discipline, practical support,
+                and accessible digital services from application to graduation.
               </p>
             </div>
 
             <div className="row g-4 align-items-stretch">
-              <div className="col-md-6">
+              <div className="col-md-4">
                 <article className="landing-value-card landing-value-card-light h-100">
                   <div className="d-flex align-items-center gap-3 mb-4">
-                    <span className="material-symbols-outlined landing-value-icon" aria-hidden="true">visibility</span>
-                    <h3>Vision</h3>
+                    <span className="material-symbols-outlined landing-value-icon" aria-hidden="true">school</span>
+                    <h3>Quality Instruction</h3>
                   </div>
                   <p>
-                    By providing quality education, the College envisions itself as an educational
-                    institution that would develop highly disciplined and professionally competent,
-                    appreciative-of-Filipino-culture individuals who would contribute to building a
-                    just and humane Philippine society.
+                    Programs are shaped to build professional competence, discipline, and ethical
+                    leadership for the Bicol region and beyond.
                   </p>
                 </article>
               </div>
 
-              <div className="col-md-6">
+              <div className="col-md-4">
                 <article className="landing-value-card landing-value-card-dark h-100">
                   <div className="d-flex align-items-center gap-3 mb-4">
-                    <span className="material-symbols-outlined landing-value-icon" aria-hidden="true">target</span>
-                    <h3>Mission</h3>
+                    <span className="material-symbols-outlined landing-value-icon" aria-hidden="true">support_agent</span>
+                    <h3>Student Support</h3>
                   </div>
                   <p>
-                    West Coast College believes that all persons, regardless of status in life, are
-                    imbued with dignity and that all resources, whether personal or communal, should
-                    be harnessed to promote this dignity.
+                    Admissions, registrar services, student affairs, and digital tools work together
+                    to make the academic journey clearer and more accessible.
                   </p>
+                </article>
+              </div>
+
+              <div className="col-md-4">
+                <article className="landing-value-card landing-value-card-light h-100">
+                  <div className="d-flex align-items-center gap-3 mb-4">
+                    <span className="material-symbols-outlined landing-value-icon" aria-hidden="true">workspace_premium</span>
+                    <h3>Career Direction</h3>
+                  </div>
                   <p>
-                    The College commits itself to pursue relevant and responsive programs utilizing
-                    modern educational technology that would develop competent and ethical professionals.
+                    Learning experiences are connected to real career goals, helping students build
+                    confidence before they step into professional life.
                   </p>
                 </article>
               </div>
@@ -645,43 +753,64 @@ export default function LandingPage({
           </div>
         </section>
 
-        <section className="landing-services" id="services" aria-label="Services section">
+        <section className="landing-services" id="programs" aria-label="Featured programs section">
           <div className="container landing-container py-4 py-lg-5">
             <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-end gap-3 mb-5">
               <div>
-                <span className="landing-section-kicker">Institutional Services</span>
-                <h2 className="landing-section-title">Student And School Services</h2>
+                <span className="landing-section-kicker">Featured Programs</span>
+                <h2 className="landing-section-title">Academic Pathways With Purpose</h2>
               </div>
               <a className="landing-view-link" href="#footer-contact" onClick={handleFooterContactClick}>
-                View Departments
+                Ask Admissions
                 <span className="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
               </a>
             </div>
 
             <div className="row g-4">
               <div className="col-lg-7">
-                <article className="landing-service-card landing-service-card-large h-100">
+                <article className="landing-service-card landing-service-card-large landing-teacher-carousel-card h-100">
                   <span className="landing-service-watermark">01</span>
-                  <h3>Academic Programs</h3>
-                  <p>
-                    West Coast College provides relevant higher education programs designed to build
-                    professional competence, academic excellence, and ethical leadership.
-                  </p>
-                  <ul>
-                    <li>Undergraduate Studies</li>
-                    <li>Senior High School</li>
-                    <li>Technical Vocational</li>
-                  </ul>
+                  <div className="landing-teacher-carousel-head">
+                    <div>
+                      <span className="landing-program-label">Teacher Education</span>
+                      <h3>{activeTeacherProgram.code}</h3>
+                    </div>
+                  </div>
+                  <div className="landing-teacher-carousel-viewport" aria-live="polite">
+                    <div
+                      className="landing-teacher-carousel-track"
+                      style={{ transform: `translateX(-${activeTeacherProgramIndex * 100}%)` }}
+                    >
+                      {TEACHER_PROGRAMS.map((program) => (
+                        <div className="landing-teacher-carousel-body" key={program.code}>
+                          <strong>{program.title}</strong>
+                          <p>{program.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="landing-teacher-carousel-dots" aria-label="Teacher education programs">
+                    {TEACHER_PROGRAMS.map((program, index) => (
+                      <button
+                        key={program.code}
+                        type="button"
+                        className={index === activeTeacherProgramIndex ? 'is-active' : ''}
+                        disabled
+                        aria-label={`Show ${program.code}`}
+                        aria-current={index === activeTeacherProgramIndex ? 'true' : undefined}
+                      />
+                    ))}
+                  </div>
                 </article>
               </div>
 
               <div className="col-lg-5">
                 <article className="landing-service-card landing-service-card-primary h-100">
                   <span>02</span>
-                  <h3>Admissions and Registrar Services</h3>
+                  <h3>Business Administration</h3>
                   <p>
-                    The institution supports students through admissions processing, enrollment
-                    guidance, records management, and issuance of official academic documents.
+                    Develop operational, service, and management skills for careers in hospitality,
+                    business, and people-centered organizations.
                   </p>
                 </article>
               </div>
@@ -689,10 +818,10 @@ export default function LandingPage({
               <div className="col-lg-5">
                 <article className="landing-service-card landing-service-card-outline h-100">
                   <span>03</span>
-                  <h3>Student Affairs and Support</h3>
+                  <h3>Senior High School</h3>
                   <p>
-                    Student services include counseling, co-curricular activities, and campus support
-                    initiatives that promote student welfare and holistic development.
+                    Prepare for college with a learning environment that supports academic readiness,
+                    discipline, and future planning.
                   </p>
                 </article>
               </div>
@@ -702,10 +831,10 @@ export default function LandingPage({
                   <div className="row g-4 align-items-start">
                     <div className="col-sm-8">
                       <span>04</span>
-                      <h3>Faculty and Staff Development</h3>
+                      <h3>Registrar and Digital Services</h3>
                       <p>
-                        West Coast College strengthens institutional quality through faculty training,
-                        administrative development, and continuous improvement of school services.
+                        Online application, enrollment support, document assistance, and academic
+                        records services help students move through school requirements with less friction.
                       </p>
                     </div>
                     <div className="col-sm-4 text-sm-end">
@@ -714,6 +843,91 @@ export default function LandingPage({
                   </div>
                 </article>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="landing-campus-life" id="campus-life" aria-label="Campus life preview">
+          <div className="container landing-container py-4 py-lg-5">
+            <div className="row g-4 align-items-center">
+              <div className="col-lg-6">
+                <img src="/intro-img2.png" alt="West Coast College campus event" className="landing-campus-life-img" />
+              </div>
+              <div className="col-lg-6">
+                <span className="landing-section-kicker">Campus Life</span>
+                <h2 className="landing-section-title mt-2">A Real Campus Community</h2>
+                <p className="landing-campus-life-copy">
+                  From classroom learning to school events and student services, West Coast College
+                  gives students a place to belong, participate, and grow with confidence.
+                </p>
+                <div className="landing-campus-points">
+                  <span>Student activities</span>
+                  <span>Guidance and support</span>
+                  <span>Campus events</span>
+                  <span>Digital services</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="landing-testimonials" aria-label="Student testimonials and announcements">
+          <div className="container landing-container py-4 py-lg-5">
+            <div className="landing-section-head mx-auto text-center mb-5">
+              <span className="landing-section-kicker">Student Voices</span>
+              <h2 className="landing-section-title mt-2">Confidence Starts With the Right Support</h2>
+            </div>
+            <div className="row g-4">
+              <div className="col-lg-4">
+                <article className="landing-testimonial-card h-100">
+                  <p>"The enrollment process is easier to follow, and the staff guide us through every requirement."</p>
+                  <strong>Incoming College Student</strong>
+                </article>
+              </div>
+              <div className="col-lg-4">
+                <article className="landing-testimonial-card h-100">
+                  <p>"West Coast College feels personal. You can ask for help and know where to go next."</p>
+                  <strong>Education Student</strong>
+                </article>
+              </div>
+              <div className="col-lg-4">
+                <article className="landing-news-card h-100">
+                  <span className="landing-section-kicker">News &amp; Announcements</span>
+                  <h3>Admissions and campus updates are posted through the student portal.</h3>
+                  <a href="#footer-contact" onClick={handleFooterContactClick}>Contact Admissions</a>
+                </article>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="landing-enrollment" id="admissions" aria-label="Enrollment process">
+          <div className="container landing-container py-4 py-lg-5">
+            <div className="landing-section-head text-center mx-auto mb-5">
+              <span className="landing-section-kicker">Enrollment Process</span>
+              <h2 className="landing-section-title mt-2">A Clear Path From Inquiry to Enrollment</h2>
+            </div>
+            <div className="landing-enrollment-steps">
+              <article>
+                <span>01</span>
+                <h3>Choose a Program</h3>
+                <p>Explore the academic pathway that matches your interests and career direction.</p>
+              </article>
+              <article>
+                <span>02</span>
+                <h3>Submit Application</h3>
+                <p>Use the applicant portal or contact admissions for guided registration support.</p>
+              </article>
+              <article>
+                <span>03</span>
+                <h3>Confirm Requirements</h3>
+                <p>Coordinate with registrar services for records, verification, and enrollment steps.</p>
+              </article>
+              <article>
+                <span>04</span>
+                <h3>Start Classes</h3>
+                <p>Join your block, meet your instructors, and begin your West Coast College journey.</p>
+              </article>
             </div>
           </div>
         </section>

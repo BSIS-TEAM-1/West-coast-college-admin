@@ -15,6 +15,7 @@ type LoginProps = {
 export default function RegistrarLogin({ onLogin, error, loading }: LoginProps) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [captchaLoading, setCaptchaLoading] = useState(false)
   const captchaEnabled = import.meta.env.PROD
   const [captchaReady, setCaptchaReady] = useState(!captchaEnabled)
@@ -94,15 +95,28 @@ export default function RegistrarLogin({ onLogin, error, loading }: LoginProps) 
           </label>
           <label className="login-label">
             Credential Passcode
-            <input
-              type="password"
-              className="login-input"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="********"
-              autoComplete="current-password"
-              required
-            />
+            <span className="login-input-wrap">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                className="login-input"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="********"
+                autoComplete="current-password"
+                required
+              />
+              <button
+                type="button"
+                className="login-password-toggle"
+                onClick={() => setShowPassword(previous => !previous)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+              >
+                <span className="material-symbols-outlined" aria-hidden="true">
+                  {showPassword ? 'visibility' : 'visibility_off'}
+                </span>
+              </button>
+            </span>
           </label>
           <button
             type="submit"

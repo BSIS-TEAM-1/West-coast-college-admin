@@ -82,6 +82,7 @@ const renderThemeIcon = (theme: ThemePreference) => {
 export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, error, signUpSuccess: _signUpSuccess, loading, onBack }: LoginProps) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [theme, setTheme] = useState<ThemePreference>(() => getStoredTheme(null))
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false)
   const [captchaLoading, setCaptchaLoading] = useState(false)
@@ -554,7 +555,7 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
                 </span>
                 <span className="login-input-wrap">
                   <input
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     className="login-input form-control"
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
@@ -562,7 +563,17 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
                     autoComplete="current-password"
                     required
                   />
-                  <span className="material-symbols-outlined" aria-hidden="true">visibility_off</span>
+                  <button
+                    type="button"
+                    className="login-password-toggle"
+                    onClick={() => setShowPassword(previous => !previous)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    aria-pressed={showPassword}
+                  >
+                    <span className="material-symbols-outlined" aria-hidden="true">
+                      {showPassword ? 'visibility' : 'visibility_off'}
+                    </span>
+                  </button>
                 </span>
               </label>
 
