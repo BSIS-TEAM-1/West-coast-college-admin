@@ -267,18 +267,49 @@
   outline: none;
 }
 
-.login-input-wrap > .material-symbols-outlined {
+.login-input-wrap > .material-symbols-outlined,
+.login-password-toggle {
   position: absolute;
   top: 50%;
   right: 1rem;
+  transform: translateY(-50%);
+}
+
+.login-input-wrap > .material-symbols-outlined {
   color: var(--auth-outline);
   font-size: 1.35rem;
-  transform: translateY(-50%);
   transition: color 0.2s ease;
 }
 
-.login-input-wrap:focus-within > .material-symbols-outlined {
+.login-password-toggle {
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--auth-outline);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.login-password-toggle .material-symbols-outlined {
+  font-size: 1.35rem;
+}
+
+.login-input-wrap:focus-within > .material-symbols-outlined,
+.login-password-toggle:hover,
+.login-password-toggle:focus-visible {
   color: var(--auth-gold);
+}
+
+.login-password-toggle:hover,
+.login-password-toggle:focus-visible {
+  background: color-mix(in srgb, var(--auth-gold) 12%, transparent);
+  outline: none;
 }
 
 .login-error {

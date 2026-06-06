@@ -834,6 +834,86 @@
   gap: 0.9rem;
 }
 
+.block-management-notice {
+  position: fixed;
+  top: 1.25rem;
+  right: 1.25rem;
+  z-index: 250;
+  width: min(92vw, 390px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: 2px;
+  padding: 0.9rem 0.95rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.22);
+}
+
+.block-management-notice strong {
+  display: block;
+  margin: 0 0 0.18rem;
+  font-size: 0.9rem;
+  color: var(--color-text);
+}
+
+.block-management-notice p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.block-management-notice button {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.block-management-notice button:hover,
+.block-management-notice button:focus-visible {
+  border-color: var(--color-border);
+  background: var(--color-bg-soft);
+  color: var(--color-text);
+  outline: none;
+}
+
+.block-management-notice-error {
+  border-left: 4px solid #dc2626;
+}
+
+.block-management-notice-success {
+  border-left: 4px solid #16a34a;
+}
+
+.block-management-page :is(
+  .block-management-banner,
+  .block-management-inline-summary,
+  .block-summary-card,
+  .block-create-card,
+  .block-selection-card,
+  .block-preview-card,
+  .block-current-card,
+  .block-number-select-list,
+  .assignment-section,
+  .registrar-btn,
+  .assignment-form input,
+  .assignment-form select,
+  .block-number-select-trigger
+) {
+  border-radius: 2px;
+}
+
 .block-management-header-row,
 .block-management-workspace-grid {
   display: grid;
