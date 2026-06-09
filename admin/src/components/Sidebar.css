@@ -1,14 +1,25 @@
 .sidebar {
+  --sidebar-primary: #000a1e;
+  --sidebar-primary-container: #002147;
+  --sidebar-gold: #775a19;
+  --sidebar-gold-light: #e9c176;
+  --sidebar-gold-soft: #ffdea5;
+  --sidebar-surface: #ffffff;
+  --sidebar-surface-soft: #f6f3f2;
+  --sidebar-text: #1c1b1b;
+  --sidebar-muted: #5f6269;
+  --sidebar-border: #c4c6cf;
   width: 260px; /* Slightly wider for better breathing room */
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--color-surface);
-  border-right: 2px solid var(--color-sidebar-border);
+  background: var(--sidebar-surface);
+  border-right: 1px solid color-mix(in srgb, var(--sidebar-border) 72%, transparent);
   position: sticky;
   top: 0;
   z-index: 20;
   overflow-y: auto;
+  color: var(--sidebar-text);
 }
 
 .sidebar-brand {
@@ -31,17 +42,20 @@
   justify-content: center;
   width: 2rem;
   height: 2rem;
-  border-radius: 999px;
-  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  border: 1px solid var(--sidebar-border);
   background: transparent;
-  color: var(--color-text-muted);
+  color: var(--sidebar-muted);
   cursor: pointer;
   flex-shrink: 0;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
 }
 
 .sidebar-close-btn:hover {
-  background: var(--color-surface-hover, rgba(0, 0, 0, 0.05));
-  color: var(--color-text-bold);
+  background: color-mix(in srgb, var(--sidebar-gold-soft) 48%, #ffffff);
+  border-color: var(--sidebar-gold);
+  color: var(--sidebar-primary);
+  transform: translateY(-1px);
 }
 
 .logo-container {
@@ -52,7 +66,7 @@
   width: 40px;
   height: 40px;
   object-fit: contain;
-  border-radius: 8px;
+  border-radius: 6px;
 }
 
 .logo-fallback-text {
@@ -61,8 +75,8 @@
   justify-content: center;
   width: 40px;
   height: 40px;
-  background: var(--color-primary);
-  color: var(--color-on-primary);
+  background: var(--sidebar-primary-container);
+  color: #ffffff;
   font-weight: 700;
   font-size: 0.75rem;
   border-radius: 8px;
@@ -78,16 +92,17 @@
 
 .sidebar-title {
   font-size: 0.9rem;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: -0.01em;
-  color: var(--color-text-bold);
+  color: var(--sidebar-primary);
 }
 
 .sidebar-tagline {
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--color-text-muted);
+  color: var(--sidebar-gold);
+  font-weight: 800;
 }
 
 .sidebar-nav {
@@ -104,23 +119,43 @@
   gap: 0.75rem;
   padding: 0.625rem 0.875rem;
   font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--color-text-muted);
+  font-weight: 700;
+  color: var(--sidebar-muted);
   background: transparent;
   border: none;
-  border-radius: 8px; /* Rounded pill look is more modern than border-left */
+  border-radius: 4px;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.sidebar-link::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--sidebar-gold);
+  opacity: 0;
+  transition: opacity 0.2s ease;
 }
 
 .sidebar-link:hover {
-  color: var(--color-primary);
-  background: var(--color-primary-subtle, rgba(79, 70, 229, 0.08));
+  color: var(--sidebar-primary);
+  background: color-mix(in srgb, var(--sidebar-gold-soft) 42%, #ffffff);
+  box-shadow: 0 10px 20px rgba(0, 33, 71, 0.08);
+  transform: translateX(2px);
+}
+
+.sidebar-link:hover::before,
+.sidebar-link-active::before {
+  opacity: 1;
 }
 
 .sidebar-link-active {
-  color: var(--color-primary);
-  background: var(--color-primary-subtle, rgba(79, 70, 229, 0.1));
+  color: var(--sidebar-primary);
+  background: color-mix(in srgb, var(--sidebar-gold-soft) 52%, #ffffff);
+  font-weight: 800;
 }
 
 .sidebar-icon {
@@ -129,39 +164,39 @@
 
 .sidebar-link-active .sidebar-icon {
   opacity: 1;
-  color: var(--color-primary);
+  color: var(--sidebar-gold);
 }
 
 .sidebar-footer {
   padding: 1rem;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid color-mix(in srgb, var(--sidebar-border) 72%, transparent);
 }
 
 .sidebar-time {
   padding: 1rem;
   margin: 0 1rem;
-  border-radius: 8px;
+  border-radius: 6px;
   text-align: center;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 22%, var(--color-border));
-  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--sidebar-gold) 34%, var(--sidebar-border));
+  background: color-mix(in srgb, var(--sidebar-gold-soft) 30%, #ffffff);
 }
 
 .sidebar-time-label {
   font-size: 0.75rem;
-  color: var(--color-text-secondary);
-  font-weight: 500;
+  color: var(--sidebar-muted);
+  font-weight: 800;
   margin-bottom: 0.25rem;
 }
 
 .sidebar-time-value {
   font-size: 1rem;
-  font-weight: 600;
-  color: var(--color-text-bold);
+  font-weight: 800;
+  color: var(--sidebar-primary);
 }
 
 .sidebar-time-date {
   font-size: 0.75rem;
-  color: var(--color-text-secondary);
+  color: var(--sidebar-muted);
   margin-top: 0.25rem;
 }
 
@@ -170,12 +205,14 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.5rem;
-  border-radius: 16px;
-  transition: background-color 0.2s ease;
+  border-radius: 6px;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .profile-section:hover {
-  background: var(--color-surface-hover, rgba(0, 0, 0, 0.02));
+  background: color-mix(in srgb, var(--sidebar-gold-soft) 34%, #ffffff);
+  box-shadow: 0 10px 20px rgba(0, 33, 71, 0.08);
+  transform: translateY(-1px);
 }
 
 .profile-avatar {
@@ -189,17 +226,18 @@
   height: 100%;
   border-radius: 50%;
   object-fit: cover;
+  border: 2px solid color-mix(in srgb, var(--sidebar-gold) 36%, transparent);
 }
 
 .profile-avatar-placeholder {
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  background: var(--color-surface-hover, rgba(0, 0, 0, 0.05));
+  background: color-mix(in srgb, var(--sidebar-gold-soft) 38%, #ffffff);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-text-muted);
+  color: var(--sidebar-gold);
 }
 
 .profile-info {
@@ -209,8 +247,8 @@
 
 .profile-name {
   font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--color-text-bold);
+  font-weight: 800;
+  color: var(--sidebar-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -218,13 +256,46 @@
 
 .profile-role {
   font-size: 0.75rem;
-  color: var(--color-text-muted);
+  color: var(--sidebar-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  font-weight: 800;
 }
 
 .hidden {
   display: none !important;
+}
+
+[data-theme='dark'] .sidebar {
+  --sidebar-surface: #1c1b1b;
+  --sidebar-surface-soft: #212220;
+  --sidebar-text: #f3f0ef;
+  --sidebar-muted: #c7c7c3;
+  --sidebar-border: #44474e;
+  border-right-color: var(--sidebar-border);
+}
+
+[data-theme='dark'] .sidebar-title,
+[data-theme='dark'] .sidebar-link:hover,
+[data-theme='dark'] .sidebar-link-active,
+[data-theme='dark'] .sidebar-time-value,
+[data-theme='dark'] .profile-name {
+  color: #f3f0ef;
+}
+
+[data-theme='dark'] .sidebar-close-btn:hover,
+[data-theme='dark'] .sidebar-link:hover,
+[data-theme='dark'] .sidebar-link-active,
+[data-theme='dark'] .profile-section:hover {
+  background: color-mix(in srgb, var(--sidebar-gold) 16%, var(--sidebar-surface));
+}
+
+[data-theme='dark'] .sidebar-time {
+  background: color-mix(in srgb, var(--sidebar-gold) 10%, var(--sidebar-surface));
+}
+
+[data-theme='dark'] .profile-avatar-placeholder {
+  background: color-mix(in srgb, var(--sidebar-gold) 12%, var(--sidebar-surface));
 }
 
 @media (max-width: 1024px) {
@@ -235,9 +306,9 @@
     width: min(420px, calc(100vw - 1.5rem));
     max-height: min(78dvh, calc(100dvh - 5.5rem));
     height: auto;
-    border: 1px solid var(--color-sidebar-border);
-    border-radius: 22px;
-    box-shadow: 0 26px 48px rgba(15, 23, 42, 0.24);
+    border: 1px solid var(--sidebar-border);
+    border-radius: 8px;
+    box-shadow: 0 26px 48px rgba(0, 33, 71, 0.22);
     backdrop-filter: blur(18px);
     overflow: hidden auto;
     opacity: 0;

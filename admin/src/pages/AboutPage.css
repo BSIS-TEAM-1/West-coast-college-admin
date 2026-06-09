@@ -93,10 +93,13 @@
   letter-spacing: 0.08em;
   text-decoration: none;
   text-transform: uppercase;
+  transition: color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
-.about-nav-links a:hover {
+.about-nav-links a:hover,
+.about-nav-links a:focus-visible {
   color: var(--about-gold);
+  outline: none;
 }
 
 .about-theme-tools {
@@ -160,11 +163,15 @@
   background: var(--about-primary-container);
   color: #ffffff;
   padding: 0.66rem 1.2rem;
-  transition: opacity 0.2s ease;
 }
 
-.about-portal-btn:hover {
-  opacity: 0.9;
+.about-portal-btn:hover,
+.about-portal-btn:focus-visible {
+  background: var(--about-gold);
+  color: #ffffff;
+  box-shadow: 0 16px 30px rgba(119, 90, 25, 0.22);
+  transform: translateY(-1px);
+  outline: none;
 }
 
 .about-hero {
@@ -446,11 +453,16 @@
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
-.about-directions-btn:hover {
+.about-directions-btn:hover,
+.about-directions-btn:focus-visible {
+  background: var(--about-gold);
   color: #ffffff;
-  opacity: 0.9;
+  box-shadow: 0 16px 30px rgba(119, 90, 25, 0.22);
+  transform: translateY(-1px);
+  outline: none;
 }
 
 .about-map-card {
@@ -514,11 +526,16 @@
   padding: 0;
   text-align: left;
   text-decoration: none;
+  transition: color 0.2s ease, transform 0.2s ease;
 }
 
 .about-footer a:hover,
-.about-footer button:hover {
+.about-footer a:focus-visible,
+.about-footer button:hover,
+.about-footer button:focus-visible {
   color: var(--about-gold-soft);
+  transform: translateX(2px);
+  outline: none;
 }
 
 .about-footer-bottom {

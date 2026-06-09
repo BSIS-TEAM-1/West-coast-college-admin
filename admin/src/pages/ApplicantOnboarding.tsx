@@ -12,6 +12,16 @@ type Props = {
 }
 
 const steps = ['Contact', 'Personal', 'Academic', 'Course']
+const suffixOptions = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV', 'V']
+
+function RequiredLabel({ children }: { children: string }) {
+  return (
+    <span className="applicant-label-text">
+      {children}
+      <span className="applicant-required-mark" aria-hidden="true">*</span>
+    </span>
+  )
+}
 
 const defaultSchoolYear = (() => {
   const now = new Date()
@@ -237,12 +247,20 @@ export default function ApplicantOnboarding({ onBack }: Props) {
             <section className="applicant-form-section">
               <h2>Contact Information</h2>
               <div className="applicant-grid">
-                <label>First name<input value={form.firstName} onChange={(e) => update('firstName', e.target.value)} required /></label>
+                <label><RequiredLabel>First name</RequiredLabel><input value={form.firstName} onChange={(e) => update('firstName', e.target.value)} required /></label>
                 <label>Middle name<input value={form.middleName} onChange={(e) => update('middleName', e.target.value)} /></label>
-                <label>Last name<input value={form.lastName} onChange={(e) => update('lastName', e.target.value)} required /></label>
-                <label>Suffix<input value={form.suffix} onChange={(e) => update('suffix', e.target.value)} /></label>
-                <label>Email<input type="email" value={form.email} onChange={(e) => update('email', e.target.value)} required /></label>
-                <label>Phone number<input value={form.phoneNumber} onChange={(e) => update('phoneNumber', e.target.value)} required /></label>
+                <label><RequiredLabel>Last name</RequiredLabel><input value={form.lastName} onChange={(e) => update('lastName', e.target.value)} required /></label>
+                <label>Suffix
+                  <select value={form.suffix} onChange={(e) => update('suffix', e.target.value)}>
+                    {suffixOptions.map((suffix) => (
+                      <option key={suffix || 'none'} value={suffix}>
+                        {suffix || 'None'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label><RequiredLabel>Email</RequiredLabel><input type="email" value={form.email} onChange={(e) => update('email', e.target.value)} required /></label>
+                <label><RequiredLabel>Phone number</RequiredLabel><input value={form.phoneNumber} onChange={(e) => update('phoneNumber', e.target.value)} required /></label>
               </div>
             </section>
           ) : null}
@@ -251,22 +269,22 @@ export default function ApplicantOnboarding({ onBack }: Props) {
             <section className="applicant-form-section">
               <h2>Personal Details</h2>
               <div className="applicant-grid">
-                <label>Birth date<input type="date" value={form.birthDate} onChange={(e) => update('birthDate', e.target.value)} required /></label>
+                <label><RequiredLabel>Birth date</RequiredLabel><input type="date" value={form.birthDate} onChange={(e) => update('birthDate', e.target.value)} required /></label>
                 <label>Birth place<input value={form.birthPlace} onChange={(e) => update('birthPlace', e.target.value)} /></label>
                 <label>Gender<input value={form.gender} onChange={(e) => update('gender', e.target.value)} /></label>
                 <label>Civil status<input value={form.civilStatus} onChange={(e) => update('civilStatus', e.target.value)} /></label>
                 <label>Nationality<input value={form.nationality} onChange={(e) => update('nationality', e.target.value)} /></label>
                 <label>Religion<input value={form.religion} onChange={(e) => update('religion', e.target.value)} /></label>
-                <label className="applicant-wide">Current address<textarea value={form.currentAddress} onChange={(e) => update('currentAddress', e.target.value)} required /></label>
+                <label className="applicant-wide"><RequiredLabel>Current address</RequiredLabel><textarea value={form.currentAddress} onChange={(e) => update('currentAddress', e.target.value)} required /></label>
                 <label className="applicant-wide">Permanent address<textarea value={form.permanentAddress} onChange={(e) => update('permanentAddress', e.target.value)} /></label>
                 <label>Father's name<input value={form.fatherName} onChange={(e) => update('fatherName', e.target.value)} /></label>
                 <label>Mother's name<input value={form.motherName} onChange={(e) => update('motherName', e.target.value)} /></label>
                 <label>Guardian name<input value={form.guardianName} onChange={(e) => update('guardianName', e.target.value)} /></label>
                 <label>Guardian relationship<input value={form.guardianRelationship} onChange={(e) => update('guardianRelationship', e.target.value)} /></label>
-                <label>Parent / guardian contact<input value={form.guardianContactNumber} onChange={(e) => update('guardianContactNumber', e.target.value)} required /></label>
-                <label>Emergency contact name<input value={form.emergencyContact.name} onChange={(e) => update('emergencyContact.name', e.target.value)} required /></label>
-                <label>Emergency relationship<input value={form.emergencyContact.relationship} onChange={(e) => update('emergencyContact.relationship', e.target.value)} required /></label>
-                <label>Emergency contact number<input value={form.emergencyContact.contactNumber} onChange={(e) => update('emergencyContact.contactNumber', e.target.value)} required /></label>
+                <label><RequiredLabel>Parent / guardian contact</RequiredLabel><input value={form.guardianContactNumber} onChange={(e) => update('guardianContactNumber', e.target.value)} required /></label>
+                <label><RequiredLabel>Emergency contact name</RequiredLabel><input value={form.emergencyContact.name} onChange={(e) => update('emergencyContact.name', e.target.value)} required /></label>
+                <label><RequiredLabel>Emergency relationship</RequiredLabel><input value={form.emergencyContact.relationship} onChange={(e) => update('emergencyContact.relationship', e.target.value)} required /></label>
+                <label><RequiredLabel>Emergency contact number</RequiredLabel><input value={form.emergencyContact.contactNumber} onChange={(e) => update('emergencyContact.contactNumber', e.target.value)} required /></label>
                 <label className="applicant-wide">Emergency contact address<textarea value={form.emergencyContact.address} onChange={(e) => update('emergencyContact.address', e.target.value)} /></label>
               </div>
             </section>
@@ -278,8 +296,8 @@ export default function ApplicantOnboarding({ onBack }: Props) {
               <div className="applicant-school-group">
                 <h3>Elementary</h3>
                 <div className="applicant-grid">
-                  <label>School name<input value={form.academicDetails.elementary.schoolName} onChange={(e) => update('academicDetails.elementary.schoolName', e.target.value)} required /></label>
-                  <label>Year graduated<input value={form.academicDetails.elementary.yearGraduated} onChange={(e) => update('academicDetails.elementary.yearGraduated', e.target.value)} required /></label>
+                  <label><RequiredLabel>School name</RequiredLabel><input value={form.academicDetails.elementary.schoolName} onChange={(e) => update('academicDetails.elementary.schoolName', e.target.value)} required /></label>
+                  <label><RequiredLabel>Year graduated</RequiredLabel><input value={form.academicDetails.elementary.yearGraduated} onChange={(e) => update('academicDetails.elementary.yearGraduated', e.target.value)} required /></label>
                   <label>General average / GPA<input value={form.academicDetails.elementary.generalAverage} onChange={(e) => update('academicDetails.elementary.generalAverage', e.target.value)} /></label>
                   <label className="applicant-wide">School address<textarea value={form.academicDetails.elementary.schoolAddress} onChange={(e) => update('academicDetails.elementary.schoolAddress', e.target.value)} /></label>
                   <label className="applicant-wide">Grades summary<textarea value={form.academicDetails.elementary.gradesSummary} onChange={(e) => update('academicDetails.elementary.gradesSummary', e.target.value)} /></label>
@@ -288,8 +306,8 @@ export default function ApplicantOnboarding({ onBack }: Props) {
               <div className="applicant-school-group">
                 <h3>High School / Senior High School</h3>
                 <div className="applicant-grid">
-                  <label>School name<input value={form.academicDetails.highSchool.schoolName} onChange={(e) => update('academicDetails.highSchool.schoolName', e.target.value)} required /></label>
-                  <label>Year graduated<input value={form.academicDetails.highSchool.yearGraduated} onChange={(e) => update('academicDetails.highSchool.yearGraduated', e.target.value)} required /></label>
+                  <label><RequiredLabel>School name</RequiredLabel><input value={form.academicDetails.highSchool.schoolName} onChange={(e) => update('academicDetails.highSchool.schoolName', e.target.value)} required /></label>
+                  <label><RequiredLabel>Year graduated</RequiredLabel><input value={form.academicDetails.highSchool.yearGraduated} onChange={(e) => update('academicDetails.highSchool.yearGraduated', e.target.value)} required /></label>
                   <label>Strand or track<input value={form.academicDetails.highSchool.strandOrTrack} onChange={(e) => update('academicDetails.highSchool.strandOrTrack', e.target.value)} /></label>
                   <label>General average / GPA<input value={form.academicDetails.highSchool.generalAverage} onChange={(e) => update('academicDetails.highSchool.generalAverage', e.target.value)} /></label>
                   <label className="applicant-wide">School address<textarea value={form.academicDetails.highSchool.schoolAddress} onChange={(e) => update('academicDetails.highSchool.schoolAddress', e.target.value)} /></label>
@@ -303,36 +321,36 @@ export default function ApplicantOnboarding({ onBack }: Props) {
             <section className="applicant-form-section">
               <h2>Course Selection</h2>
               <div className="applicant-grid">
-                <label>Applicant type
-                  <select value={form.applicantType} onChange={(e) => update('applicantType', e.target.value)}>
+                <label><RequiredLabel>Applicant type</RequiredLabel>
+                  <select value={form.applicantType} onChange={(e) => update('applicantType', e.target.value)} required>
                     <option value="New">Freshman / New Student</option>
                     <option value="Transferee">Transferee</option>
                     <option value="Returnee">Returnee</option>
                   </select>
                 </label>
-                <label>Course
-                  <select value={form.selectedCourse} onChange={(e) => update('selectedCourse', Number(e.target.value))} disabled={loadingCourses}>
+                <label><RequiredLabel>Course</RequiredLabel>
+                  <select value={form.selectedCourse} onChange={(e) => update('selectedCourse', Number(e.target.value))} disabled={loadingCourses} required>
                     {courses.map((course) => (
                       <option key={course.id} value={course.id}>{course.code} - {course.name}</option>
                     ))}
                   </select>
                 </label>
-                <label>Requested year level
-                  <select value={form.requestedYearLevel} onChange={(e) => update('requestedYearLevel', Number(e.target.value))}>
+                <label><RequiredLabel>Requested year level</RequiredLabel>
+                  <select value={form.requestedYearLevel} onChange={(e) => update('requestedYearLevel', Number(e.target.value))} required>
                     <option value={1}>First Year</option>
                     <option value={2}>Second Year</option>
                     <option value={3}>Third Year</option>
                     <option value={4}>Fourth Year</option>
                   </select>
                 </label>
-                <label>Semester
-                  <select value={form.semester} onChange={(e) => update('semester', e.target.value)}>
+                <label><RequiredLabel>Semester</RequiredLabel>
+                  <select value={form.semester} onChange={(e) => update('semester', e.target.value)} required>
                     <option value="1st">1st Semester</option>
                     <option value="2nd">2nd Semester</option>
                     <option value="Summer">Summer</option>
                   </select>
                 </label>
-                <label>School year<input value={form.schoolYear} onChange={(e) => update('schoolYear', e.target.value)} required /></label>
+                <label><RequiredLabel>School year</RequiredLabel><input value={form.schoolYear} onChange={(e) => update('schoolYear', e.target.value)} required /></label>
               </div>
               <div className="applicant-review-box">
                 <span>Selected course</span>
