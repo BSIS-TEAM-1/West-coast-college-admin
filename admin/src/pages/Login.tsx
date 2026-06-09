@@ -629,8 +629,8 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
       </div>
 
       {loginVerificationChallenge && (
-        <div className="login-verify-modal-backdrop modal" role="presentation">
-          <div className="login-verify-modal modal-dialog modal-dialog-centered" role="dialog" aria-modal="true" aria-labelledby="login-verify-title">
+        <div className="login-verify-modal-backdrop" role="presentation">
+          <div className="login-verify-modal" role="dialog" aria-modal="true" aria-labelledby="login-verify-title">
             <h3 id="login-verify-title" className="login-verify-modal-title">Confirm Login by Email</h3>
             <p className="login-verify-modal-desc">
               Enter the 6-digit code sent to <strong>{loginVerificationChallenge.destination || loginVerificationChallenge.email}</strong>.

@@ -219,12 +219,12 @@ Continuing first-year students already have a student record and are enrolling f
 Second-year enrollment requires checking completed first-year subjects and prerequisites.
 
 ### Typical Requirements
-
-| Requirement | Notes |
-|---|---|
-| Existing student number | Required |
-| Previous COR | Confirms previous term |
-| Clearance | Required if applicable |
+|-----------------------------------------------|
+| Requirement |               Notes             |
+|-------------|---------------------------------|
+| Existing student number | Required            |
+| Previous COR | Confirms previous term         |
+| Clearance | Required if applicable            |
 | Grade record | Used for prerequisite checking |
 
 ### Process

@@ -427,6 +427,15 @@
   justify-content: center;
   gap: 0.75rem;
   font-weight: 700;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.login-google-fallback:hover,
+.login-google-fallback:focus-visible {
+  border-color: var(--auth-gold);
+  box-shadow: 0 14px 28px rgba(119, 90, 25, 0.14);
+  transform: translateY(-1px);
+  outline: none;
 }
 
 .login-google-fallback-icon,
@@ -531,15 +540,22 @@
   padding: 1rem;
   background: rgba(0, 10, 30, 0.62);
   backdrop-filter: blur(8px);
+  box-sizing: border-box;
 }
 
 .login-verify-modal {
   width: min(100%, 430px);
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
   border-radius: 8px;
   border: 1px solid var(--auth-outline-soft);
   background: var(--auth-surface);
   box-shadow: 0 24px 64px rgba(0, 10, 30, 0.24);
   padding: 1.4rem;
+  box-sizing: border-box;
+  display: grid;
+  gap: 0.85rem;
+  margin: 0;
 }
 
 .login-verify-modal-title {
@@ -553,15 +569,16 @@
 .login-verify-modal-desc,
 .login-verify-modal-meta,
 .login-verify-modal-provider {
-  margin: 0.65rem 0 0;
+  margin: 0;
   color: var(--auth-muted);
   font-size: 0.9rem;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .login-verify-modal-timer,
 .login-verify-modal-error {
-  margin: 0.75rem 0 0;
+  margin: 0;
   padding: 0.75rem 0.85rem;
   border-radius: 2px;
   font-size: 0.86rem;
@@ -583,9 +600,10 @@
 }
 
 .login-verify-modal-form {
-  margin-top: 1rem;
+  margin-top: 0;
   display: grid;
   gap: 0.9rem;
+  min-width: 0;
 }
 
 .login-verify-otp-group {
@@ -615,6 +633,7 @@
 .login-verify-modal-actions {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 0.75rem;
 }
 
@@ -623,12 +642,27 @@
   border-radius: 2px;
   padding: 0.72rem 1rem;
   font-weight: 800;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .login-verify-submit-btn {
   border: 0;
   background: var(--auth-gold);
   color: #ffffff;
+}
+
+.login-verify-cancel-btn:hover,
+.login-verify-cancel-btn:focus-visible,
+.login-verify-submit-btn:hover:not(:disabled),
+.login-verify-submit-btn:focus-visible:not(:disabled) {
+  box-shadow: 0 14px 28px rgba(119, 90, 25, 0.16);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.login-verify-submit-btn:hover:not(:disabled),
+.login-verify-submit-btn:focus-visible:not(:disabled) {
+  background: var(--auth-gold-hover);
 }
 
 [data-theme='dark'] .login-page {
@@ -695,6 +729,21 @@
     height: 2.75rem;
     font-size: 1rem;
   }
+
+  .login-verify-modal {
+    width: 100%;
+    padding: 1.15rem;
+  }
+
+  .login-verify-modal-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .login-verify-cancel-btn,
+  .login-verify-submit-btn {
+    width: 100%;
+  }
 }
 
 .login-page .login-back-btn,
@@ -736,4 +785,21 @@
 .login-page .login-back-btn:focus .login-back-text,
 .login-page .login-back-btn:focus-visible .login-back-text {
   text-decoration: underline;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-google-fallback,
+  .login-verify-cancel-btn,
+  .login-verify-submit-btn {
+    transition: none;
+  }
+
+  .login-google-fallback:hover,
+  .login-google-fallback:focus-visible,
+  .login-verify-cancel-btn:hover,
+  .login-verify-cancel-btn:focus-visible,
+  .login-verify-submit-btn:hover:not(:disabled),
+  .login-verify-submit-btn:focus-visible:not(:disabled) {
+    transform: none;
+  }
 }

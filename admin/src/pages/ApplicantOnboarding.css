@@ -1,4 +1,8 @@
 .applicant-page {
+  --applicant-primary: #002147;
+  --applicant-primary-dark: #000a1e;
+  --applicant-gold: #775a19;
+  --applicant-gold-light: #e9c176;
   min-height: 100vh;
   padding: 2rem;
   background: #f4f7fb;
@@ -38,6 +42,7 @@
   border-radius: 0.5rem;
   font-weight: 700;
   cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .applicant-back-btn,
@@ -48,9 +53,29 @@
 }
 
 .applicant-primary-btn {
-  background: #0b5ed7;
+  background: var(--applicant-primary);
   color: #fff;
   padding: 0.9rem 1.2rem;
+}
+
+.applicant-back-btn:hover:not(:disabled),
+.applicant-secondary-btn:hover:not(:disabled),
+.applicant-back-btn:focus-visible,
+.applicant-secondary-btn:focus-visible {
+  background: #fff7df;
+  color: var(--applicant-primary-dark);
+  box-shadow: 0 12px 24px rgba(0, 33, 71, 0.12);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.applicant-primary-btn:hover:not(:disabled),
+.applicant-primary-btn:focus-visible {
+  background: var(--applicant-gold);
+  color: #ffffff;
+  box-shadow: 0 16px 30px rgba(119, 90, 25, 0.22);
+  transform: translateY(-1px);
+  outline: none;
 }
 
 .applicant-primary-btn:disabled,
@@ -98,6 +123,15 @@
   text-align: left;
   font-weight: 700;
   cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.applicant-step:hover,
+.applicant-step:focus-visible {
+  background: #fff7df;
+  color: var(--applicant-gold);
+  transform: translateX(2px);
+  outline: none;
 }
 
 .applicant-step span {
@@ -111,12 +145,12 @@
 
 .applicant-step-active {
   background: #eef5ff;
-  color: #0b5ed7;
+  color: var(--applicant-primary);
 }
 
 .applicant-step-active span,
 .applicant-step-done span {
-  background: #0b5ed7;
+  background: var(--applicant-primary);
   color: #fff;
 }
 
@@ -152,6 +186,18 @@
   font-weight: 700;
 }
 
+.applicant-label-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.18rem;
+  width: fit-content;
+}
+
+.applicant-required-mark {
+  color: #dc2626;
+  font-weight: 900;
+}
+
 .applicant-grid input,
 .applicant-grid textarea,
 .applicant-grid select {
@@ -163,6 +209,21 @@
   color: #172033;
   font: inherit;
   background: #fff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.applicant-grid input:hover,
+.applicant-grid textarea:hover,
+.applicant-grid select:hover {
+  border-color: color-mix(in srgb, var(--applicant-gold) 42%, #cfd8e6);
+}
+
+.applicant-grid input:focus,
+.applicant-grid textarea:focus,
+.applicant-grid select:focus {
+  border-color: var(--applicant-gold);
+  box-shadow: 0 0 0 3px rgba(119, 90, 25, 0.14);
+  outline: none;
 }
 
 .applicant-grid textarea {
@@ -179,6 +240,13 @@
   border: 1px solid #e3e9f2;
   border-radius: 0.5rem;
   margin-bottom: 1rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.applicant-school-group:hover {
+  border-color: color-mix(in srgb, var(--applicant-gold) 36%, #e3e9f2);
+  box-shadow: 0 16px 32px rgba(0, 33, 71, 0.08);
+  transform: translateY(-1px);
 }
 
 .applicant-school-group h3 {
@@ -282,5 +350,23 @@
 
   .applicant-actions button {
     width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .applicant-back-btn,
+  .applicant-secondary-btn,
+  .applicant-primary-btn,
+  .applicant-step,
+  .applicant-school-group {
+    transition: none;
+  }
+
+  .applicant-back-btn:hover:not(:disabled),
+  .applicant-secondary-btn:hover:not(:disabled),
+  .applicant-primary-btn:hover:not(:disabled),
+  .applicant-step:hover,
+  .applicant-school-group:hover {
+    transform: none;
   }
 }
