@@ -1,15 +1,19 @@
 import { useEffect, useState } from 'react'
+import { ArrowLeft, Award, BarChart3, CalendarDays, Download, Info, MapPin, Users } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import { fetchWithAutoReconnect, isAbortRequestError, isNetworkRequestError } from '../../lib/network'
 import type { ProfessorAssignedStudent, ProfessorSubjectDetailState } from './professorTypes'
 import { buildReconnectMessage } from './professorUtils'
+import './ProfessorSubjectDetail.css'
 
 interface ProfessorSubjectDetailProps {
   detail: ProfessorSubjectDetailState | null
   onBack: () => void
+  onOpenRosterClass?: (classKey: string, mode?: 'students' | 'attendance') => void
+  onOpenGradesView?: (classKey?: string) => void
 }
 
-function ProfessorSubjectDetail({ detail, onBack }: ProfessorSubjectDetailProps) {
+function ProfessorSubjectDetail({ detail, onBack, onOpenRosterClass, onOpenGradesView }: ProfessorSubjectDetailProps) {
   const [students, setStudents] = useState<ProfessorAssignedStudent[]>([])
   const [studentsLoading, setStudentsLoading] = useState(false)
   const [studentsError, setStudentsError] = useState('')
@@ -132,6 +136,58 @@ function ProfessorSubjectDetail({ detail, onBack }: ProfessorSubjectDetailProps)
     return `${year}-${courseCode}-${seq}`
   }
 
+  const buildClassKey = () => {
+    if (!detail?.sectionId || !detail.subject.subjectId) return ''
+    return `${detail.courseCode}|${detail.sectionId}|${detail.subject.subjectId}`
+  }
+
+  const getBadgeClass = (value: string | undefined, type: 'student' | 'cor') => {
+    const normalized = String(value || '').trim().toLowerCase()
+    if (type === 'student') {
+      if (normalized.includes('irregular')) return 'is-red'
+      if (normalized.includes('probation')) return 'is-orange'
+      return 'is-green'
+    }
+
+    if (normalized.includes('approved')) return 'is-green'
+    if (normalized.includes('reject')) return 'is-red'
+    return 'is-yellow'
+  }
+
+  const handleOpenAttendance = () => {
+    const classKey = buildClassKey()
+    if (classKey) onOpenRosterClass?.(classKey, 'attendance')
+  }
+
+  const handleOpenGrades = () => {
+    const classKey = buildClassKey()
+    if (classKey) onOpenGradesView?.(classKey)
+  }
+
+  const handleExportClassList = () => {
+    if (!detail || students.length === 0) return
+
+    const headers = ['Student', 'Student No.', 'Course', 'Year', 'Status', 'COR Status']
+    const rows = students.map((student) => [
+      formatStudentName(student),
+      formatStudentNumber(student),
+      student.course || 'N/A',
+      student.yearLevel ?? 'N/A',
+      student.studentStatus || 'Regular',
+      student.corStatus || 'Pending'
+    ])
+    const csv = [headers, ...rows]
+      .map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${detail.subject.code || 'class'}-${detail.blockCode || 'students'}-class-list.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   if (!detail) {
     return (
       <div className="professor-section">
@@ -144,29 +200,92 @@ function ProfessorSubjectDetail({ detail, onBack }: ProfessorSubjectDetailProps)
 
   return (
     <div className="professor-section">
-      <h2 className="professor-section-title">Subject Details</h2>
-      <p className="professor-section-desc">Assigned subject and block information.</p>
-
-      <div className="professor-course-toolbar">
-        <button className="professor-btn" onClick={onBack}>Back to My Courses</button>
-      </div>
-
-      <div className="placeholder-card professor-subject-detail-card">
-        <div className="professor-detail-grid">
-          <div><strong>Course:</strong> {detail.courseCode}</div>
-          <div><strong>Block:</strong> {detail.blockCode}</div>
-          <div><strong>Section:</strong> {detail.sectionCode}</div>
-          <div><strong>Term:</strong> {detail.semester} {detail.schoolYear}</div>
-          <div><strong>Subject Code:</strong> {detail.subject.code}</div>
-          <div><strong>Subject Title:</strong> {detail.subject.title}</div>
-          <div><strong>Schedule:</strong> {detail.subject.schedule || 'TBA'}</div>
-          <div><strong>Room:</strong> {detail.subject.room || 'TBA'}</div>
-          <div><strong>Enrolled Students:</strong> {detail.subject.enrolledStudents}</div>
+      <section className="professor-subject-overview" aria-labelledby="professor-subject-heading">
+        <div className="professor-subject-page-header">
+          <button className="professor-subject-back-btn" onClick={onBack} aria-label="Back to my courses">
+            <ArrowLeft size={16} />
+            Back to My Courses
+          </button>
+          <div className="professor-subject-title-block">
+            <span className="professor-subject-context-pill">{detail.courseCode} / {detail.blockCode}</span>
+            <h1 id="professor-subject-heading">{detail.subject.code} - {detail.subject.title}</h1>
+            <p>{detail.semester} {detail.schoolYear} / Section {detail.sectionCode}</p>
+          </div>
+          <div className="professor-subject-action-bar">
+            <button type="button" className="professor-subject-action-btn" onClick={handleOpenAttendance} disabled={!buildClassKey()}>
+              <CalendarDays size={16} />
+              Attendance
+            </button>
+            <button type="button" className="professor-subject-action-btn" onClick={handleOpenGrades} disabled={!buildClassKey()}>
+              <Award size={16} />
+              Grades
+            </button>
+            <button type="button" className="professor-subject-action-btn" onClick={() => window.print()}>
+              <BarChart3 size={16} />
+              Reports
+            </button>
+            <button type="button" className="professor-subject-action-btn is-primary" onClick={handleExportClassList} disabled={students.length === 0}>
+              <Download size={16} />
+              Export Class List
+            </button>
+          </div>
         </div>
-      </div>
 
-      <div className="placeholder-card professor-subject-students-card">
-        <h3>Students</h3>
+        <div className="professor-subject-stat-grid">
+          <article className="professor-subject-stat-card">
+            <span className="professor-subject-stat-icon"><Users size={18} /></span>
+            <div>
+              <span>Enrolled Students</span>
+              <strong>{detail.subject.enrolledStudents}</strong>
+            </div>
+          </article>
+          <article className="professor-subject-stat-card">
+            <span className="professor-subject-stat-icon"><CalendarDays size={18} /></span>
+            <div>
+              <span>Schedule</span>
+              <strong>{detail.subject.schedule || 'TBA'}</strong>
+            </div>
+          </article>
+          <article className="professor-subject-stat-card">
+            <span className="professor-subject-stat-icon"><MapPin size={18} /></span>
+            <div>
+              <span>Room</span>
+              <strong>{detail.subject.room || 'TBA'}</strong>
+            </div>
+          </article>
+          <article className="professor-subject-stat-card">
+            <span className="professor-subject-stat-icon"><BarChart3 size={18} /></span>
+            <div>
+              <span>Block</span>
+              <strong>{detail.blockCode}</strong>
+            </div>
+          </article>
+        </div>
+
+        <div className="professor-subject-info-card">
+          <h2>
+            <Info size={19} />
+            Course Information
+          </h2>
+          <div className="professor-subject-info-grid">
+            <div className="professor-subject-info-item"><span>Subject Code</span><strong>{detail.subject.code}</strong></div>
+            <div className="professor-subject-info-item"><span>Block</span><strong>{detail.blockCode}</strong></div>
+            <div className="professor-subject-info-item"><span>Subject Title</span><strong>{detail.subject.title}</strong></div>
+            <div className="professor-subject-info-item"><span>Section</span><strong>{detail.sectionCode}</strong></div>
+            <div className="professor-subject-info-item"><span>Course</span><strong>{detail.courseCode}</strong></div>
+            <div className="professor-subject-info-item"><span>Term</span><strong>{detail.semester} {detail.schoolYear}</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <div className="professor-subject-students-card">
+        <div className="professor-subject-students-head">
+          <div>
+            <span className="professor-subject-eyebrow">Class Roster</span>
+            <h3>Students</h3>
+          </div>
+          <span>{students.length} loaded</span>
+        </div>
         {studentsLoading ? (
           <p>Loading students...</p>
         ) : studentsError ? (
@@ -174,17 +293,43 @@ function ProfessorSubjectDetail({ detail, onBack }: ProfessorSubjectDetailProps)
         ) : students.length === 0 ? (
           <p>No students found for this assigned subject/block.</p>
         ) : (
-          <div className="professor-student-grid">
-            {students.map((student) => (
-              <div key={student._id} className="professor-student-item">
-                <div className="professor-student-name">{formatStudentName(student)}</div>
-                <div className="professor-student-meta">Student No: {formatStudentNumber(student)}</div>
-                <div className="professor-student-meta">Course: {student.course || 'N/A'}</div>
-                <div className="professor-student-meta">Year Level: {student.yearLevel ?? 'N/A'}</div>
-                <div className="professor-student-meta">Status: {student.studentStatus || 'N/A'}</div>
-                <div className="professor-student-meta">COR: {student.corStatus || 'Pending'}</div>
-              </div>
-            ))}
+          <div className="professor-subject-table-shell">
+            <table className="professor-subject-roster-table">
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Student No.</th>
+                  <th>Course</th>
+                  <th>Year</th>
+                  <th>Status</th>
+                  <th>COR</th>
+                </tr>
+              </thead>
+              <tbody>
+                {students.map((student) => (
+                  <tr key={student._id}>
+                    <td data-label="Student">
+                      <div className="professor-subject-student-main">
+                        <strong>{formatStudentName(student)}</strong>
+                      </div>
+                    </td>
+                    <td data-label="Student No.">{formatStudentNumber(student)}</td>
+                    <td data-label="Course">{student.course || 'N/A'}</td>
+                    <td data-label="Year">{student.yearLevel ?? 'N/A'}</td>
+                    <td data-label="Status">
+                      <span className={`professor-subject-status-badge ${getBadgeClass(student.studentStatus, 'student')}`}>
+                        {student.studentStatus || 'Regular'}
+                      </span>
+                    </td>
+                    <td data-label="COR">
+                      <span className={`professor-subject-status-badge ${getBadgeClass(student.corStatus, 'cor')}`}>
+                        {student.corStatus || 'Pending'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

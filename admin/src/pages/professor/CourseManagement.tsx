@@ -8,7 +8,6 @@ interface CourseManagementProps {
   courses: ProfessorAssignedCourse[]
   loading: boolean
   error: string
-  onRefresh: () => Promise<void>
   onOpenSubjectDetail: (detail: ProfessorSubjectDetailState) => void
   onOpenRosterClass: (classKey: string, mode?: 'students' | 'attendance') => void
   onOpenGradesView: (classKey?: string) => void
@@ -19,7 +18,6 @@ function CourseManagement({
   courses,
   loading,
   error,
-  onRefresh,
   onOpenSubjectDetail,
   onOpenRosterClass,
   onOpenGradesView
@@ -107,6 +105,26 @@ function CourseManagement({
     if (normalized.includes('BSED-MATH') || normalized === 'MATH' || normalized === 'MATHEMATICS') return 'BSED-MATH'
     if (normalized.includes('BSBA-HRM') || normalized === 'HRM') return 'BSBA-HRM'
     return raw
+  }
+
+  const toCourseFullLabel = (courseCode: string | number, courseName?: string) => {
+    const courseLabel = toCourseDisplayLabel(courseCode)
+    const normalizedName = String(courseName || '').trim()
+    const fullLabelByShortLabel: Record<string, string> = {
+      BEED: 'Bachelor of Elementary Education',
+      'BSED-ENGLISH': 'Bachelor of Secondary Education - Major in English',
+      'BSED-MATH': 'Bachelor of Secondary Education - Major in Mathematics',
+      'BSBA-HRM': 'Bachelor of Science in Business Administration - Major in HRM'
+    }
+
+    if (
+      fullLabelByShortLabel[courseLabel] &&
+      (!normalizedName || normalizedName.toUpperCase() === courseLabel.toUpperCase())
+    ) {
+      return fullLabelByShortLabel[courseLabel]
+    }
+
+    return normalizedName || fullLabelByShortLabel[courseLabel] || courseLabel
   }
 
   const getSectionSuffix = (sectionCode: string) => {
@@ -541,9 +559,6 @@ function CourseManagement({
             <Info size={16} />
             <span>Guide</span>
           </button>
-          <button className="professor-btn" onClick={() => void onRefresh()} disabled={loading}>
-            {loading ? 'Loading...' : 'Refresh Assignments'}
-          </button>
         </div>
       </div>
 
@@ -613,20 +628,27 @@ function CourseManagement({
                 <option value="students">Student count</option>
               </select>
             </label>
-            <label className="professor-course-toggle">
-              <input
-                type="checkbox"
-                checked={showEnrolledOnly}
-                onChange={(event) => setShowEnrolledOnly(event.target.checked)}
-              />
-              <span>Only show classes with enrolled students</span>
+            <label className="professor-course-select professor-course-toggle-field">
+              <span>Students</span>
+              <span className="professor-course-toggle">
+                <input
+                  type="checkbox"
+                  checked={showEnrolledOnly}
+                  onChange={(event) => setShowEnrolledOnly(event.target.checked)}
+                />
+                <span>Enrolled only</span>
+              </span>
             </label>
-            {hasActiveFilters && (
-              <button type="button" className="professor-btn professor-btn-secondary" onClick={clearFilters}>
-                Clear
-              </button>
-            )}
           </div>
+          <button
+            type="button"
+            className={`professor-btn professor-btn-secondary professor-course-clear-btn${hasActiveFilters ? '' : ' is-hidden'}`}
+            onClick={clearFilters}
+            disabled={!hasActiveFilters}
+            aria-hidden={!hasActiveFilters}
+          >
+            Clear
+          </button>
         </div>
       </div>
 
@@ -781,7 +803,7 @@ function CourseManagement({
           {filteredCourses.map((course) => {
             const courseSubjectCount = course.blocks.reduce((sum, block) => sum + block.subjects.length, 0)
             const courseLabel = toCourseDisplayLabel(course.courseCode)
-            const courseTitle = course.courseName?.trim() || courseLabel
+            const courseTitle = toCourseFullLabel(course.courseCode, course.courseName)
 
             return (
               <article key={course.courseCode} className="placeholder-card professor-course-card">

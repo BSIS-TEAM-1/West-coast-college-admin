@@ -311,8 +311,6 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
               yearLevel: Number.isFinite(yearLevel) ? yearLevel : undefined,
               studentStatus: raw?.studentStatus || raw?.status || 'Active',
               course: target.courseCode || raw?.course || '',
-              email: raw?.email || 'Not provided',
-              contactNumber: raw?.contactNumber || 'Not provided',
               assignedAt: raw?.assignedAt,
               attendancePercentage: raw?.attendancePercentage,
               latestGrade: raw?.latestGrade,
@@ -459,11 +457,10 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
       getStudentCourseDisplay(student),
       String(student.classBlockCode || selectedSection?.blockCode || selectedClass?.blockCode || 'N/A'),
       String(student.yearLevel ?? ''),
-      student.email || '',
       String(student.currentGrade ?? student.latestGrade ?? ''),
       student.studentStatus || 'Active'
     ])
-    const header = ['Student ID', 'Full Name', 'Program/Course', 'Block / Section', 'Year Level', 'Email', 'Current Grade', 'Status']
+    const header = ['Student ID', 'Full Name', 'Program/Course', 'Block / Section', 'Year Level', 'Current Grade', 'Status']
     const csv = [header, ...rows].map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\r\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
@@ -514,7 +511,6 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
         <div className="placeholder-card">
           <h3>No assigned class found</h3>
           <p>No classes are currently assigned to your account.</p>
-          <button className="professor-btn professor-btn-secondary" onClick={() => void onRefresh()}>Refresh Assignments</button>
         </div>
       </div>
     )
@@ -662,7 +658,6 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
                 <th>Program / Course</th>
                 <th>Block / Section</th>
                 <th>Year Level</th>
-                <th>Email</th>
                 <th>Current Grade</th>
                 <th>Status</th>
                 <th>Actions</th>
@@ -671,15 +666,15 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
             <tbody>
               {studentsLoading ? (
                 <tr>
-                  <td colSpan={9}>Loading students...</td>
+                  <td colSpan={8}>Loading students...</td>
                 </tr>
               ) : studentsError ? (
                 <tr>
-                  <td colSpan={9} className="professor-data-error">{studentsError}</td>
+                  <td colSpan={8} className="professor-data-error">{studentsError}</td>
                 </tr>
               ) : currentPageStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={9}>No students matched the current filters.</td>
+                  <td colSpan={8}>No students matched the current filters.</td>
                 </tr>
               ) : (
                 currentPageStudents.map((student) => (
@@ -689,7 +684,6 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
                     <td>{getStudentCourseDisplay(student)}</td>
                     <td>{student.classBlockCode || selectedSection?.blockCode || selectedClass?.blockCode || 'N/A'}</td>
                     <td>{student.yearLevel ?? 'N/A'}</td>
-                    <td>{student.email || 'Not provided'}</td>
                     <td>{student.currentGrade ?? student.latestGrade ?? 'N/A'}</td>
                     <td>{student.studentStatus || student.status || 'Active'}</td>
                     <td className="professor-table-actions">
@@ -734,8 +728,6 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
                 <div><strong>Year Level:</strong> {selectedStudent.yearLevel ?? 'N/A'}</div>
                 <div><strong>Block / Section:</strong> {selectedStudent.classBlockCode || selectedSection?.blockCode || selectedClass?.blockCode || 'N/A'}</div>
                 <div><strong>Subject:</strong> {selectedStudent.classSubjectCode ? `${selectedStudent.classSubjectCode} - ${selectedStudent.classSubjectTitle || 'Untitled subject'}` : 'Multiple subjects in view'}</div>
-                <div><strong>Email:</strong> {selectedStudent.email || 'Not provided'}</div>
-                <div><strong>Contact Number:</strong> {selectedStudent.contactNumber || 'Not provided'}</div>
                 <div><strong>Enrollment Status:</strong> {selectedStudent.studentStatus || selectedStudent.status || 'Active'}</div>
               </div>
             </div>

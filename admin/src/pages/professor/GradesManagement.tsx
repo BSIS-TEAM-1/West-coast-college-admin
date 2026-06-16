@@ -235,8 +235,6 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
             yearLevel: Number.isFinite(yearLevel) ? yearLevel : undefined,
             studentStatus: raw?.studentStatus || raw?.status || 'Active',
             course: raw?.course || selectedClass.courseCode,
-            email: raw?.email || 'Not provided',
-            contactNumber: raw?.contactNumber || 'Not provided',
             corStatus: raw?.corStatus || 'Pending',
             currentGrade: raw?.currentGrade ?? '',
             remarks: raw?.remarks || '',
@@ -554,7 +552,6 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
         <div className="placeholder-card">
           <h3>No assigned class found</h3>
           <p>No classes are currently assigned to your account.</p>
-          <button className="professor-btn professor-btn-secondary" onClick={() => void onRefresh()}>Refresh Assignments</button>
         </div>
       </div>
     )
@@ -596,9 +593,6 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
           >
             <Download size={14} />
             Export Grades
-          </button>
-          <button type="button" className="professor-btn professor-btn-secondary" onClick={() => void onRefresh()}>
-            Refresh Assignments
           </button>
         </div>
       </div>
@@ -808,8 +802,6 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                 <div><strong>Year Level:</strong> {selectedStudent.yearLevel ?? 'N/A'}</div>
                 <div><strong>Block / Section:</strong> {selectedStudent.classBlockCode || selectedClass?.blockCode || 'N/A'}</div>
                 <div><strong>Subject:</strong> {selectedStudent.classSubjectCode ? `${selectedStudent.classSubjectCode} - ${selectedStudent.classSubjectTitle || 'Untitled subject'}` : (selectedClass ? `${selectedClass.subjectCode} - ${selectedClass.subjectTitle}` : 'N/A')}</div>
-                <div><strong>Email:</strong> {selectedStudent.email || 'Not provided'}</div>
-                <div><strong>Contact Number:</strong> {selectedStudent.contactNumber || 'Not provided'}</div>
                 <div><strong>Enrollment Status:</strong> {selectedStudent.studentStatus || selectedStudent.status || 'Active'}</div>
               </div>
             </div>

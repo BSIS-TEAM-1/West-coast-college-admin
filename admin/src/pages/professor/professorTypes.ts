@@ -145,4 +145,4 @@ export interface ProfessorRosterStudent extends Omit<ProfessorAssignedStudent, '
 
 export type RosterSortBy = 'name-asc' | 'name-desc' | 'id-asc' | 'id-desc'
 
-export type ProfessorView = 'dashboard' | 'courses' | 'students' | 'grades' | 'schedule' | 'profile' | 'settings' | 'announcement-detail' | 'personal-details' | 'subject-detail'
+export type ProfessorView = 'courses' | 'students' | 'grades' | 'schedule' | 'profile' | 'settings' | 'personal-details' | 'subject-detail'
