@@ -1,22 +1,19 @@
 import { useState, useEffect, useRef } from 'react'
-import { LayoutDashboard, User, Settings as SettingsIcon, BookOpen, GraduationCap, AlertCircle, Calendar, Award } from 'lucide-react'
+import { User, Settings as SettingsIcon, BookOpen, GraduationCap, AlertCircle, Calendar, Award } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
-import { getProfile, getStoredToken } from '../lib/authApi'
+import { API_URL, getProfile, getStoredToken } from '../lib/authApi'
 import { fetchWithAutoReconnect, isAbortRequestError, isNetworkRequestError } from '../lib/network'
 import type { ProfileResponse } from '../lib/authApi'
-import { API_URL } from '../lib/authApi'
-import AnnouncementDetail from './AnnouncementDetail'
 import PersonalDetails from './PersonalDetails'
-import ProfessorHome from './professor/ProfessorHome'
 import CourseManagement from './professor/CourseManagement'
 import GradesManagement from './professor/GradesManagement'
 import ProfessorSubjectDetail from './professor/ProfessorSubjectDetail'
 import ScheduleManagement from './professor/ScheduleManagement'
 import StudentManagement from './professor/StudentManagement'
-import type { Announcement, ProfessorAssignedBlock, ProfessorAssignedCourse, ProfessorSubjectDetailState, ProfessorView } from './professor/professorTypes'
-import { buildReconnectMessage, isVisibleProfessorAnnouncement } from './professor/professorUtils'
+import type { ProfessorAssignedBlock, ProfessorAssignedCourse, ProfessorSubjectDetailState, ProfessorView } from './professor/professorTypes'
+import { buildReconnectMessage } from './professor/professorUtils'
 import './ProfessorDashboard.css'
 
 type ProfessorDashboardProps = {
@@ -26,7 +23,6 @@ type ProfessorDashboardProps = {
 }
 
 const PROFESSOR_NAV_ITEMS: { id: ProfessorView; label: string; icon: any }[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'courses', label: 'My Courses', icon: BookOpen },
   { id: 'students', label: 'Students', icon: GraduationCap },
   { id: 'grades', label: 'Grades', icon: Award },
@@ -36,12 +32,9 @@ const PROFESSOR_NAV_ITEMS: { id: ProfessorView; label: string; icon: any }[] = [
 ]
 
 export default function ProfessorDashboard({ username, onLogout, onProfileUpdated }: ProfessorDashboardProps) {
-  const [view, setView] = useState<ProfessorView>('dashboard')
+  const [view, setView] = useState<ProfessorView>('courses')
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [profile, setProfile] = useState<ProfileResponse | null>(null)
-  const [announcements, setAnnouncements] = useState<Announcement[]>([])
-  const [announcementsLoading, setAnnouncementsLoading] = useState(false)
-  const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string | null>(null)
   const [assignedCourses, setAssignedCourses] = useState<ProfessorAssignedCourse[]>([])
   const [coursesLoading, setCoursesLoading] = useState(false)
   const [coursesError, setCoursesError] = useState('')
@@ -55,8 +48,6 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
   
   // Animation refs
   const dashboardRef = useRef<HTMLDivElement>(null)
-  const quickActionsRef = useRef<HTMLDivElement>(null)
-  const newsSectionRef = useRef<HTMLDivElement>(null)
 
   const loadProfile = async () => {
     try {
@@ -87,53 +78,7 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
       }, 100)
     }
 
-    // Animate quick action cards with stagger
-    if (quickActionsRef.current) {
-      const cards = quickActionsRef.current.querySelectorAll('.quick-action-card')
-      cards.forEach((card, index) => {
-        const htmlCard = card as HTMLElement
-        htmlCard.style.opacity = '0'
-        htmlCard.style.transform = 'translateY(30px)'
-        setTimeout(() => {
-          htmlCard.style.opacity = '1'
-          htmlCard.style.transform = 'translateY(0)'
-        }, 100 + index * 100)
-      })
-    }
-
-    // Animate news section
-    if (newsSectionRef.current) {
-      newsSectionRef.current.style.opacity = '0'
-      newsSectionRef.current.style.transform = 'translateX(-30px)'
-      setTimeout(() => {
-        if (newsSectionRef.current) {
-          newsSectionRef.current.style.opacity = '1'
-          newsSectionRef.current.style.transform = 'translateX(0)'
-        }
-      }, 300)
-    }
   }, [])
-
-  useEffect(() => {
-    if (view !== 'dashboard') return
-
-    const refreshAnnouncements = () => {
-      if (document.visibilityState === 'hidden') return
-      void fetchAnnouncements()
-    }
-
-    refreshAnnouncements()
-
-    const intervalId = window.setInterval(refreshAnnouncements, 60_000)
-    window.addEventListener('focus', refreshAnnouncements)
-    document.addEventListener('visibilitychange', refreshAnnouncements)
-
-    return () => {
-      window.clearInterval(intervalId)
-      window.removeEventListener('focus', refreshAnnouncements)
-      document.removeEventListener('visibilitychange', refreshAnnouncements)
-    }
-  }, [view])
 
   useEffect(() => {
     if (view === 'courses' || view === 'students' || view === 'grades' || view === 'schedule') {
@@ -185,10 +130,6 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
       setIsOffline(false)
       void loadProfile()
 
-      if (view === 'dashboard') {
-        void fetchAnnouncements()
-      }
-
       if (view === 'courses' || view === 'students' || view === 'grades' || view === 'schedule' || view === 'subject-detail') {
         void fetchAssignedCourses()
       }
@@ -209,29 +150,6 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
   const handleProfileUpdated = (profile: ProfileResponse) => {
     setProfile(profile)
     onProfileUpdated?.(profile)
-  }
-
-  const fetchAnnouncements = async () => {
-    try {
-      setAnnouncementsLoading(true)
-
-      const response = await fetchWithAutoReconnect(`${API_URL}/api/announcements?targetAudience=professor`)
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch announcements: ${response.status}`)
-      }
-
-      const data = await response.json().catch(() => [])
-      setAnnouncements(Array.isArray(data) ? data.filter(isVisibleProfessorAnnouncement) : [])
-    } catch (error) {
-      if (isAbortRequestError(error)) {
-        return
-      }
-
-      console.error('Failed to fetch announcements:', error)
-    } finally {
-      setAnnouncementsLoading(false)
-    }
   }
 
   const fetchAssignedCourses = async () => {
@@ -294,16 +212,6 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
     }
   }
 
-  const handleAnnouncementClick = (announcement: Announcement) => {
-    setSelectedAnnouncementId(announcement._id)
-    setView('announcement-detail')
-  }
-
-  const handleBackFromDetail = () => {
-    setSelectedAnnouncementId(null)
-    setView('dashboard')
-  }
-
   const renderContent = () => {
     switch (view) {
       case 'courses':
@@ -313,7 +221,6 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
             courses={assignedCourses}
             loading={coursesLoading}
             error={coursesError}
-            onRefresh={fetchAssignedCourses}
             onOpenSubjectDetail={(detail) => {
               setSelectedSubjectDetail(detail)
               setView('subject-detail')
@@ -367,12 +274,6 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
         }} />
       case 'settings':
         return <SettingsPage onProfileUpdated={handleProfileUpdated} onLogout={onLogout} />
-      case 'announcement-detail':
-        return <AnnouncementDetail 
-          announcementId={selectedAnnouncementId!} 
-          onBack={handleBackFromDetail}
-          viewerAudience="professor"
-        />
       case 'personal-details':
         return <PersonalDetails onBack={() => setView('profile')} />
       case 'subject-detail':
@@ -380,18 +281,19 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
           <ProfessorSubjectDetail
             detail={selectedSubjectDetail}
             onBack={() => setView('courses')}
+            onOpenRosterClass={(classKey, mode = 'students') => {
+              setSelectedRosterClassKey(classKey)
+              setSelectedRosterFocus(mode)
+              setView('students')
+            }}
+            onOpenGradesView={(classKey) => {
+              setSelectedGradeClassKey(classKey || '')
+              setView('grades')
+            }}
           />
         )
       default:
-        return (
-          <ProfessorHome
-            announcements={announcements}
-            announcementsLoading={announcementsLoading}
-            onAnnouncementClick={handleAnnouncementClick}
-            quickActionsRef={quickActionsRef}
-            newsSectionRef={newsSectionRef}
-          />
-        )
+        return null
     }
   }
 
