@@ -413,7 +413,7 @@ function AssignSubjectPage() {
   }
 
   return (
-    <div className="registrar-section">
+    <div className="registrar-section assign-subject-page">
       <h2 className="registrar-section-title">Assign Subject</h2>
       <p className="registrar-section-desc">Assign subjects to students by block and semester.</p>
 
