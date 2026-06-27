@@ -14,6 +14,11 @@ type SubjectForm = {
 
 type SubjectStatusFilter = 'active' | 'archived' | 'all'
 type WizardStep = 1 | 2 | 3
+type SubjectManagementMode = 'catalog' | 'add'
+
+type SubjectManagementPageProps = {
+  mode?: SubjectManagementMode
+}
 
 const emptyForm: SubjectForm = {
   code: '',
@@ -36,7 +41,7 @@ const courseLabel = (value?: number | string) => {
   return courseOptions.find((option) => Number(option.value) === normalized)?.label || 'Any program'
 }
 
-function SubjectManagementPage() {
+function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps) {
   const [subjects, setSubjects] = useState<SubjectItem[]>([])
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<SubjectStatusFilter>('active')
@@ -61,6 +66,7 @@ function SubjectManagementPage() {
   const normalizedTitle = form.title.trim()
   const normalizedUnits = Number(form.units)
   const isEditing = Boolean(editingId)
+  const showSubjectWizard = mode === 'add' || isEditing
 
   const authorizedFetch = async (path: string, init: RequestInit = {}) => {
     const token = await getStoredToken()
@@ -228,151 +234,153 @@ function SubjectManagementPage() {
       {error && <p className="registrar-alert registrar-alert-error">{error}</p>}
       {success && <p className="registrar-alert registrar-alert-success">{success}</p>}
 
-      <div className="sis-wizard-shell">
-        <section className="sis-wizard-card">
-          <div className="block-wizard-stepper" aria-label="Subject management progress">
-            {[
-              { step: 1, title: isEditing ? 'Edit Subject' : 'Create Subject' },
-              { step: 2, title: 'Review' },
-              { step: 3, title: 'Finish' }
-            ].map((item) => (
-              <div
-                key={item.step}
-                className={`block-wizard-step ${wizardStep === item.step ? 'is-active' : ''} ${wizardStep > item.step ? 'is-complete' : ''}`}
-              >
-                <span className="block-wizard-step-number">{wizardStep > item.step ? <CheckCircle size={16} /> : item.step}</span>
-                <span>
-                  <small>Step {item.step}</small>
-                  <strong>{item.title}</strong>
-                </span>
-              </div>
-            ))}
-          </div>
-
-          {wizardStep === 1 && (
-            <div className="sis-wizard-panel">
-              <div className="block-wizard-panel-head">
-                <h3>{isEditing ? 'Edit Subject' : 'Create Subject'}</h3>
-              </div>
-              <div className="sis-wizard-grid">
-                <div className="block-wizard-fields subject-wizard-fields">
-                  <label>
-                    <span>Subject Code</span>
-                    <input value={form.code} onChange={(event) => updateForm('code', event.target.value)} placeholder="ENG101" />
-                  </label>
-                  <label>
-                    <span>Subject Title</span>
-                    <input value={form.title} onChange={(event) => updateForm('title', event.target.value)} placeholder="English Communication" />
-                  </label>
-                  <label>
-                    <span>Units</span>
-                    <input type="number" min={0.5} max={6} step={0.5} value={form.units} onChange={(event) => updateForm('units', event.target.value)} />
-                  </label>
-                  <label>
-                    <span>Program/Course</span>
-                    <select value={form.course} onChange={(event) => updateForm('course', event.target.value)}>
-                      <option value="">Any program</option>
-                      {courseOptions.map((option) => <option key={option.value} value={option.value}>{option.fullLabel}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    <span>Year Level</span>
-                    <select value={form.yearLevel} onChange={(event) => updateForm('yearLevel', event.target.value)}>
-                      <option value="">Any year</option>
-                      {[1, 2, 3, 4, 5].map((level) => <option key={level} value={level}>{level}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    <span>Semester</span>
-                    <select value={form.semester} onChange={(event) => updateForm('semester', event.target.value as Semester)}>
-                      <option value="1st">1st</option>
-                      <option value="2nd">2nd</option>
-                      <option value="Summer">Summer</option>
-                    </select>
-                  </label>
+      {showSubjectWizard && (
+        <div className="sis-wizard-shell">
+          <section className="sis-wizard-card">
+            <div className="block-wizard-stepper" aria-label="Subject management progress">
+              {[
+                { step: 1, title: isEditing ? 'Edit Subject' : 'Create Subject' },
+                { step: 2, title: 'Review' },
+                { step: 3, title: 'Finish' }
+              ].map((item) => (
+                <div
+                  key={item.step}
+                  className={`block-wizard-step ${wizardStep === item.step ? 'is-active' : ''} ${wizardStep > item.step ? 'is-complete' : ''}`}
+                >
+                  <span className="block-wizard-step-number">{wizardStep > item.step ? <CheckCircle size={16} /> : item.step}</span>
+                  <span>
+                    <small>Step {item.step}</small>
+                    <strong>{item.title}</strong>
+                  </span>
                 </div>
+              ))}
+            </div>
 
-                <div className="block-wizard-preview">
-                  <span className="block-wizard-preview-label">Live Preview</span>
-                  <strong>{normalizedCode || 'Subject Code'}</strong>
-                  <dl>
-                    <div>
-                      <dt>Title</dt>
-                      <dd>{normalizedTitle || 'Subject title'}</dd>
-                    </div>
-                    <div>
-                      <dt>Units</dt>
-                      <dd>{form.units || '0'}</dd>
-                    </div>
-                    <div>
-                      <dt>Program</dt>
-                      <dd>{selectedProgram?.label || 'Any program'}</dd>
-                    </div>
-                    <div>
-                      <dt>Year/Semester</dt>
-                      <dd>{form.yearLevel || 'Any'} / {form.semester}</dd>
-                    </div>
-                  </dl>
+            {wizardStep === 1 && (
+              <div className="sis-wizard-panel">
+                <div className="block-wizard-panel-head">
+                  <h3>{isEditing ? 'Edit Subject' : 'Create Subject'}</h3>
                 </div>
-              </div>
-              <div className="block-wizard-actions">
-                {isEditing ? (
-                  <button className="registrar-btn registrar-btn-secondary" type="button" onClick={resetForm}>
-                    Cancel
+                <div className="sis-wizard-grid">
+                  <div className="block-wizard-fields subject-wizard-fields">
+                    <label>
+                      <span>Subject Code</span>
+                      <input value={form.code} onChange={(event) => updateForm('code', event.target.value)} placeholder="ENG101" />
+                    </label>
+                    <label>
+                      <span>Subject Title</span>
+                      <input value={form.title} onChange={(event) => updateForm('title', event.target.value)} placeholder="English Communication" />
+                    </label>
+                    <label>
+                      <span>Units</span>
+                      <input type="number" min={0.5} max={6} step={0.5} value={form.units} onChange={(event) => updateForm('units', event.target.value)} />
+                    </label>
+                    <label>
+                      <span>Program/Course</span>
+                      <select value={form.course} onChange={(event) => updateForm('course', event.target.value)}>
+                        <option value="">Any program</option>
+                        {courseOptions.map((option) => <option key={option.value} value={option.value}>{option.fullLabel}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Year Level</span>
+                      <select value={form.yearLevel} onChange={(event) => updateForm('yearLevel', event.target.value)}>
+                        <option value="">Any year</option>
+                        {[1, 2, 3, 4, 5].map((level) => <option key={level} value={level}>{level}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Semester</span>
+                      <select value={form.semester} onChange={(event) => updateForm('semester', event.target.value as Semester)}>
+                        <option value="1st">1st</option>
+                        <option value="2nd">2nd</option>
+                        <option value="Summer">Summer</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="block-wizard-preview">
+                    <span className="block-wizard-preview-label">Live Preview</span>
+                    <strong>{normalizedCode || 'Subject Code'}</strong>
+                    <dl>
+                      <div>
+                        <dt>Title</dt>
+                        <dd>{normalizedTitle || 'Subject title'}</dd>
+                      </div>
+                      <div>
+                        <dt>Units</dt>
+                        <dd>{form.units || '0'}</dd>
+                      </div>
+                      <div>
+                        <dt>Program</dt>
+                        <dd>{selectedProgram?.label || 'Any program'}</dd>
+                      </div>
+                      <div>
+                        <dt>Year/Semester</dt>
+                        <dd>{form.yearLevel || 'Any'} / {form.semester}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                </div>
+                <div className="block-wizard-actions">
+                  {isEditing ? (
+                    <button className="registrar-btn registrar-btn-secondary" type="button" onClick={resetForm}>
+                      Cancel
+                    </button>
+                  ) : <span />}
+                  <button className="registrar-btn" type="button" onClick={handleReview}>
+                    Next
+                    <ChevronRight size={16} />
                   </button>
-                ) : <span />}
-                <button className="registrar-btn" type="button" onClick={handleReview}>
-                  Next
-                  <ChevronRight size={16} />
-                </button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {wizardStep === 2 && (
-            <div className="sis-wizard-panel">
-              <div className="block-wizard-panel-head">
-                <h3>Review Subject</h3>
+            {wizardStep === 2 && (
+              <div className="sis-wizard-panel">
+                <div className="block-wizard-panel-head">
+                  <h3>Review Subject</h3>
+                </div>
+                <div className="block-wizard-review">
+                  <div><span>Code</span><strong>{normalizedCode}</strong></div>
+                  <div><span>Title</span><strong>{normalizedTitle}</strong></div>
+                  <div><span>Units</span><strong>{normalizedUnits}</strong></div>
+                  <div><span>Program</span><strong>{selectedProgram?.fullLabel || 'Any program'}</strong></div>
+                  <div><span>Year Level</span><strong>{form.yearLevel || 'Any year'}</strong></div>
+                  <div><span>Semester</span><strong>{form.semester}</strong></div>
+                </div>
+                <div className="block-wizard-actions">
+                  <button className="registrar-btn registrar-btn-secondary" type="button" onClick={() => setWizardStep(1)}>
+                    <ChevronLeft size={16} />
+                    Back
+                  </button>
+                  <button className="registrar-btn" type="button" onClick={handleSubmit} disabled={saving}>
+                    <Plus size={16} />
+                    {saving ? 'Saving...' : isEditing ? 'Save Changes' : 'Create Subject'}
+                  </button>
+                </div>
               </div>
-              <div className="block-wizard-review">
-                <div><span>Code</span><strong>{normalizedCode}</strong></div>
-                <div><span>Title</span><strong>{normalizedTitle}</strong></div>
-                <div><span>Units</span><strong>{normalizedUnits}</strong></div>
-                <div><span>Program</span><strong>{selectedProgram?.fullLabel || 'Any program'}</strong></div>
-                <div><span>Year Level</span><strong>{form.yearLevel || 'Any year'}</strong></div>
-                <div><span>Semester</span><strong>{form.semester}</strong></div>
-              </div>
-              <div className="block-wizard-actions">
-                <button className="registrar-btn registrar-btn-secondary" type="button" onClick={() => setWizardStep(1)}>
-                  <ChevronLeft size={16} />
-                  Back
-                </button>
-                <button className="registrar-btn" type="button" onClick={handleSubmit} disabled={saving}>
-                  <Plus size={16} />
-                  {saving ? 'Saving...' : isEditing ? 'Save Changes' : 'Create Subject'}
-                </button>
-              </div>
-            </div>
-          )}
+            )}
 
-          {wizardStep === 3 && (
-            <div className="block-wizard-panel block-wizard-success">
-              <CheckCircle size={52} />
-              <h3>{isEditing ? 'Subject Updated Successfully' : 'Subject Created Successfully'}</h3>
-              <p>{normalizedCode} is now available in the subject catalog.</p>
-              <div className="block-wizard-success-actions">
-                <button className="registrar-btn" type="button" onClick={resetForm}>
-                  <RotateCcw size={16} />
-                  Create Another Subject
-                </button>
-                <button className="registrar-btn registrar-btn-secondary" type="button" onClick={() => setWizardStep(1)}>
-                  Edit Again
-                </button>
+            {wizardStep === 3 && (
+              <div className="block-wizard-panel block-wizard-success">
+                <CheckCircle size={52} />
+                <h3>{isEditing ? 'Subject Updated Successfully' : 'Subject Created Successfully'}</h3>
+                <p>{normalizedCode} is now available in the subject catalog.</p>
+                <div className="block-wizard-success-actions">
+                  <button className="registrar-btn" type="button" onClick={resetForm}>
+                    <RotateCcw size={16} />
+                    Create Another Subject
+                  </button>
+                  <button className="registrar-btn registrar-btn-secondary" type="button" onClick={() => setWizardStep(1)}>
+                    Edit Again
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
-        </section>
-      </div>
+            )}
+          </section>
+        </div>
+      )}
 
       <section className="assignment-section subject-catalog-section">
         <div className="assignment-panel-head">

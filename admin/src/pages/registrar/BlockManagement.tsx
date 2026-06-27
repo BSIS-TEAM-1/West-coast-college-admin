@@ -54,24 +54,27 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [newGroupCourse, setNewGroupCourse] = useState<number>(103)
-  const [newGroupBlockNumber, setNewGroupBlockNumber] = useState('1-A')
+  const [newGroupCourse, setNewGroupCourse] = useState('')
+  const [newGroupBlockNumber, setNewGroupBlockNumber] = useState('')
   const [newGroupSemester, setNewGroupSemester] = useState<Semester>('1st')
   const [newGroupYear, setNewGroupYear] = useState<number>(currentYear)
   const [newGroupCapacity, setNewGroupCapacity] = useState<number>(30)
 
   const selectedCourse = useMemo(
-    () => blockCourseOptions.find((course) => course.value === Number(newGroupCourse)) || blockCourseOptions[0],
+    () => blockCourseOptions.find((course) => course.value === Number(newGroupCourse)) || null,
     [newGroupCourse]
   )
   const normalizedBlockNumber = String(newGroupBlockNumber || '').trim().toUpperCase()
-  const generatedStorageName = `${selectedCourse.value}-${normalizedBlockNumber}`
-  const generatedDisplayName = `${selectedCourse.label} - ${normalizedBlockNumber || 'Block'}`
+  const generatedStorageName = selectedCourse && normalizedBlockNumber ? `${selectedCourse.value}-${normalizedBlockNumber}` : ''
+  const generatedDisplayName = selectedCourse && normalizedBlockNumber ? `${selectedCourse.label} - ${normalizedBlockNumber}` : 'No block selected'
+  const courseIsSelected = Boolean(selectedCourse)
+  const blockNumberIsSelected = Boolean(normalizedBlockNumber)
   const blockNumberIsValid = /^([1-5])-([A-D])$/.test(normalizedBlockNumber)
   const yearIsValid = Number.isInteger(Number(newGroupYear)) && Number(newGroupYear) >= 2000 && Number(newGroupYear) <= 2100
   const capacityIsValid = Number.isInteger(Number(newGroupCapacity)) && Number(newGroupCapacity) >= 1 && Number(newGroupCapacity) <= 50
   const hasDuplicate = blockGroups.some((group) => {
     if (group.semester !== newGroupSemester || Number(group.year) !== Number(newGroupYear)) return false
+    if (!generatedStorageName) return false
     return String(group.name || '').trim().toUpperCase() === generatedStorageName.toUpperCase()
   })
 
@@ -108,7 +111,8 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
   }
 
   const validateForm = () => {
-    if (!selectedCourse) return 'Course is required'
+    if (!courseIsSelected) return 'Please select a course'
+    if (!blockNumberIsSelected) return 'Please select a block number'
     if (!blockNumberIsValid) return 'Block number must be in format 1-A to 5-D'
     if (!yearIsValid) return 'Academic year must be between 2000 and 2100'
     if (!capacityIsValid) return 'Default capacity must be between 1 and 50 students'
@@ -167,7 +171,8 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
     setWizardStep(1)
     setError('')
     setSuccess('')
-    setNewGroupBlockNumber('1-A')
+    setNewGroupCourse('')
+    setNewGroupBlockNumber('')
     setNewGroupCapacity(30)
   }
 
@@ -230,7 +235,8 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                 <div className="block-wizard-fields">
                   <label>
                     <span>Course</span>
-                    <select value={newGroupCourse} onChange={(e) => setNewGroupCourse(parseInt(e.target.value, 10))}>
+                    <select value={newGroupCourse} onChange={(e) => setNewGroupCourse(e.target.value)}>
+                      <option value="">Select course</option>
                       {blockCourseOptions.map((course) => (
                         <option key={course.value} value={course.value}>
                           {course.fullLabel}
@@ -242,6 +248,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                   <label>
                     <span>Block Number</span>
                     <select value={newGroupBlockNumber} onChange={(e) => setNewGroupBlockNumber(e.target.value)}>
+                      <option value="">Select block</option>
                       {blockNumberOptions.map((value) => (
                         <option key={value} value={value}>
                           {value}
@@ -288,7 +295,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                   <dl>
                     <div>
                       <dt>Course Code</dt>
-                      <dd>{selectedCourse.value}</dd>
+                      <dd>{selectedCourse?.value || 'N/A'}</dd>
                     </div>
                     <div>
                       <dt>Semester</dt>
@@ -307,7 +314,9 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
               </div>
 
               <div className="block-wizard-validation" aria-live="polite">
-                {!blockNumberIsValid && <span>Block number must use the format 1-A.</span>}
+                {!courseIsSelected && <span>Select a course before creating a block.</span>}
+                {!blockNumberIsSelected && <span>Select a block number before creating a block.</span>}
+                {blockNumberIsSelected && !blockNumberIsValid && <span>Block number must use the format 1-A.</span>}
                 {!yearIsValid && <span>Academic year must be between 2000 and 2100.</span>}
                 {!capacityIsValid && <span>Capacity must be 1 to 50 students.</span>}
                 {hasDuplicate && <span>This block already exists for the selected term.</span>}
@@ -335,7 +344,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
               <div className="block-wizard-review">
                 <div>
                   <span>Course</span>
-                  <strong>{selectedCourse.fullLabel}</strong>
+                  <strong>{selectedCourse?.fullLabel || 'No course selected'}</strong>
                 </div>
                 <div>
                   <span>Block</span>

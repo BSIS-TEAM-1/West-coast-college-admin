@@ -4,12 +4,20 @@ import { API_URL, getStoredToken } from '../../lib/authApi'
 import type { BlockGroup, BlockSection, Semester, SubjectItem } from './registrarBlockTypes'
 
 type BlockSubjectAssignment = {
-  _id: string
+  _id?: string
   subject: SubjectItem
   blockSection: BlockSection
   semester: Semester
   academicYear: string
   assignedAt: string
+  canRemove?: boolean
+}
+
+type SectionSubjectAssignmentSummary = {
+  subjectId: string
+  subjectCode: string
+  subjectTitle: string
+  studentCount?: number
 }
 
 type WizardStep = 1 | 2 | 3
@@ -22,6 +30,59 @@ const courseOptions = [
 ]
 
 const courseLabel = (value: string) => courseOptions.find((option) => option.value === value)?.label || 'Select program'
+
+const parseAcademicYearStart = (value: string) => {
+  const match = String(value || '').trim().match(/^(\d{4})-\d{4}$/)
+  return match ? Number(match[1]) : null
+}
+
+const getBlockGroupCourse = (groupName: string) => {
+  const normalized = String(groupName || '').trim().toUpperCase()
+  const firstPart = normalized.split('-')[0]
+  const matchedCourse = courseOptions.find((option) => (
+    option.value === firstPart
+    || option.label.toUpperCase() === firstPart
+    || normalized.startsWith(`${option.label.toUpperCase()}-`)
+  ))
+  return matchedCourse?.value || ''
+}
+
+const getBlockGroupYearLevel = (groupName: string) => {
+  const normalized = String(groupName || '').trim().toUpperCase()
+  const numericPrefixMatch = normalized.match(/^\d{3}-(\d+)/)
+  if (numericPrefixMatch) return numericPrefixMatch[1]
+
+  const labeledPrefixMatch = normalized.match(/^[A-Z]+(?:-[A-Z]+)?\s*-\s*(\d+)/)
+  if (labeledPrefixMatch) return labeledPrefixMatch[1]
+
+  return ''
+}
+
+const describeHttpError = (status: number, path: string, data: any) => {
+  const serverMessage = String(data?.error || data?.message || '').trim()
+  if (serverMessage) return serverMessage
+
+  const isSubjectAssignmentPath = path.includes('/block-subject-assignments')
+  const isSectionAssignmentsPath = path.includes('/subject-assignments')
+  const isBlocksPath = path.includes('/api/blocks/')
+  const isSubjectsPath = path.includes('/api/registrar/subjects')
+
+  if (status === 400) return 'The assignment request has invalid or incomplete details. Please review the selected block, section, term, and subjects.'
+  if (status === 401) return 'Your session has expired. Please sign in again.'
+  if (status === 403) return 'Your account does not have permission to assign subjects.'
+  if (status === 404) {
+    if (isSubjectAssignmentPath) return 'The subject-assignment endpoint was not found on the running server. Please restart the backend or update the server routes.'
+    if (isSectionAssignmentsPath) return 'The selected section or its subject-assignment record was not found.'
+    if (isBlocksPath) return 'The selected block group or block section was not found.'
+    if (isSubjectsPath) return 'The subject catalog endpoint was not found.'
+    return 'The requested registrar resource was not found.'
+  }
+  if (status === 409) return 'One or more selected subjects are already assigned to this block section.'
+  if (status === 429) return 'Too many requests. Please wait a moment and try again.'
+  if (status >= 500) return 'The server hit an error while assigning subjects. Please check the server logs and try again.'
+
+  return `Request failed (${status})`
+}
 
 function AssignSubjectPage() {
   const currentYear = new Date().getFullYear()
@@ -44,6 +105,16 @@ function AssignSubjectPage() {
 
   const selectedGroup = blockGroups.find((group) => group._id === selectedGroupId) || null
   const selectedSection = sections.find((section) => section._id === selectedSectionId) || null
+  const academicYearStart = parseAcademicYearStart(academicYear)
+  const filteredBlockGroups = useMemo(() => (
+    blockGroups.filter((group) => {
+      if (course && getBlockGroupCourse(group.name) !== course) return false
+      if (yearLevel && getBlockGroupYearLevel(group.name) !== yearLevel) return false
+      if (semester && group.semester !== semester) return false
+      if (academicYearStart && Number(group.year) !== academicYearStart) return false
+      return true
+    })
+  ), [blockGroups, course, yearLevel, semester, academicYearStart])
   const selectedSubjects = subjects.filter((subject) => selectedSubjectIds.includes(subject._id))
   const assignedSubjectIds = useMemo(
     () => new Set(assignments.map((assignment) => assignment.subject?._id).filter(Boolean)),
@@ -51,23 +122,40 @@ function AssignSubjectPage() {
   )
   const availableSubjects = subjects.filter((subject) => !assignedSubjectIds.has(subject._id))
 
-  const authorizedFetch = async (path: string, init: RequestInit = {}) => {
+  const authorizedFetch = async (path: string | string[], init: RequestInit = {}) => {
     const token = await getStoredToken()
     if (!token) throw new Error('No authentication token found')
 
-    const response = await fetch(`${API_URL}${path}`, {
-      ...init,
-      headers: {
-        ...(init.headers || {}),
-        Authorization: `Bearer ${token}`
-      }
-    })
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      const details = Array.isArray(data?.details) ? ` ${data.details.join(' ')}` : ''
-      throw new Error(`${(data?.error as string) || (data?.message as string) || `Request failed (${response.status})`}${details}`)
+    const paths = Array.isArray(path) ? path : [path]
+    let lastResponseStatus = 0
+    let lastData: any = {}
+
+    for (const currentPath of paths) {
+      const response = await fetch(`${API_URL}${currentPath}`, {
+        ...init,
+        headers: {
+          ...(init.headers || {}),
+          Authorization: `Bearer ${token}`
+        }
+      })
+      const responseText = await response.text().catch(() => '')
+      const data = responseText ? (() => {
+        try {
+          return JSON.parse(responseText)
+        } catch {
+          return { message: responseText }
+        }
+      })() : {}
+      if (response.ok) return data
+
+      lastResponseStatus = response.status
+      lastData = { ...data, path: currentPath }
+      const hasServerMessage = Boolean(data?.error || data?.message)
+      if (response.status !== 404 || hasServerMessage) break
     }
-    return data
+
+    const details = Array.isArray(lastData?.details) ? ` ${lastData.details.join(' ')}` : ''
+    throw new Error(`${describeHttpError(lastResponseStatus, String(lastData?.path || paths[paths.length - 1] || ''), lastData)}${details}`)
   }
 
   useEffect(() => {
@@ -128,6 +216,17 @@ function AssignSubjectPage() {
     void fetchSubjects()
   }, [course, yearLevel, semester])
 
+  useEffect(() => {
+    if (!selectedGroupId) return
+    if (filteredBlockGroups.some((group) => group._id === selectedGroupId)) return
+
+    setSelectedGroupId('')
+    setSections([])
+    setSelectedSectionId('')
+    setAssignments([])
+    setSelectedSubjectIds([])
+  }, [filteredBlockGroups, selectedGroupId])
+
   const fetchAssignments = async () => {
     if (!selectedSectionId || !academicYear || !semester) {
       setAssignments([])
@@ -137,12 +236,25 @@ function AssignSubjectPage() {
     setLoading(true)
     try {
       const query = new URLSearchParams({
-        blockSectionId: selectedSectionId,
-        academicYear,
+        schoolYear: academicYear,
         semester
       })
-      const data = await authorizedFetch(`/api/registrar/block-subject-assignments?${query.toString()}`)
-      const nextAssignments = Array.isArray(data?.data) ? data.data as BlockSubjectAssignment[] : []
+      const data = await authorizedFetch(`/api/registrar/sections/${selectedSectionId}/subject-assignments?${query.toString()}`)
+      const summaries = Array.isArray(data?.data?.assignments) ? data.data.assignments as SectionSubjectAssignmentSummary[] : []
+      const nextAssignments = summaries.map((assignment) => ({
+        _id: `section-${assignment.subjectId || assignment.subjectCode}`,
+        subject: {
+          _id: assignment.subjectId,
+          code: assignment.subjectCode,
+          title: assignment.subjectTitle,
+          units: 0
+        },
+        blockSection: selectedSection as BlockSection,
+        semester,
+        academicYear,
+        assignedAt: '',
+        canRemove: false
+      }))
       const nextAssignedIds = new Set(nextAssignments.map((assignment) => assignment.subject?._id).filter(Boolean))
       setAssignments(nextAssignments)
       setSelectedSubjectIds((prev) => prev.filter((id) => !nextAssignedIds.has(id)))
@@ -197,7 +309,7 @@ function AssignSubjectPage() {
 
     setSaving(true)
     try {
-      const data = await authorizedFetch('/api/registrar/block-subject-assignments', {
+      const data = await authorizedFetch(['/api/registrar/block-subject-assignments', '/registrar/block-subject-assignments'], {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -207,7 +319,8 @@ function AssignSubjectPage() {
           academicYear
         })
       })
-      setAssignments(Array.isArray(data?.data) ? data.data as BlockSubjectAssignment[] : [])
+      const nextAssignments = Array.isArray(data?.data) ? data.data as BlockSubjectAssignment[] : []
+      setAssignments(nextAssignments.map((assignment) => ({ ...assignment, canRemove: true })))
       setSelectedSubjectIds([])
       setSuccess((data?.message as string) || 'Selected subjects assigned successfully')
       setWizardStep(3)
@@ -219,6 +332,11 @@ function AssignSubjectPage() {
   }
 
   const handleRemoveAssignment = async (assignment: BlockSubjectAssignment) => {
+    if (!assignment._id || assignment.canRemove === false) {
+      setError('This subject is already reflected in section enrollments and cannot be removed from this list.')
+      return
+    }
+
     const subjectLabel = assignment.subject ? `${assignment.subject.code} - ${assignment.subject.title}` : 'this subject'
     const confirmed = window.confirm(`Remove ${subjectLabel} from ${selectedSection?.sectionCode || 'this block section'}?`)
     if (!confirmed) return
@@ -226,7 +344,10 @@ function AssignSubjectPage() {
     setError('')
     setSuccess('')
     try {
-      const data = await authorizedFetch(`/api/registrar/block-subject-assignments/${assignment._id}`, {
+      const data = await authorizedFetch([
+        `/api/registrar/block-subject-assignments/${assignment._id}`,
+        `/registrar/block-subject-assignments/${assignment._id}`
+      ], {
         method: 'DELETE'
       })
       setAssignments((prev) => prev.filter((item) => item._id !== assignment._id))
@@ -311,9 +432,9 @@ function AssignSubjectPage() {
                   </label>
                   <label>
                     <span>Block Group</span>
-                    <select value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)}>
-                      <option value="">Select block group</option>
-                      {blockGroups.map((group) => (
+                    <select value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)} disabled={!course || !yearLevel || !academicYearStart}>
+                      <option value="">{course && yearLevel ? 'Select matching block group' : 'Select program and year first'}</option>
+                      {filteredBlockGroups.map((group) => (
                         <option key={group._id} value={group._id}>{group.name} ({group.semester} {group.year})</option>
                       ))}
                     </select>
@@ -415,16 +536,18 @@ function AssignSubjectPage() {
 
                   <div className="assigned-subject-list">
                     {assignments.map((assignment) => (
-                      <article key={assignment._id} className="assigned-subject-item">
+                      <article key={assignment._id || assignment.subject?._id} className="assigned-subject-item">
                         <div>
                           <strong>{assignment.subject?.code || 'N/A'}</strong>
                           <span>{assignment.subject?.title || 'Subject unavailable'}</span>
-                          <small>{assignment.subject?.units || 0} units</small>
+                          <small>{assignment.subject?.units ? `${assignment.subject.units} units` : 'Already assigned'}</small>
                         </div>
-                        <button className="section-delete-btn" type="button" onClick={() => void handleRemoveAssignment(assignment)}>
-                          <Trash2 size={14} />
-                          Remove
-                        </button>
+                        {assignment.canRemove !== false && (
+                          <button className="section-delete-btn" type="button" onClick={() => void handleRemoveAssignment(assignment)}>
+                            <Trash2 size={14} />
+                            Remove
+                          </button>
+                        )}
                       </article>
                     ))}
                   </div>
