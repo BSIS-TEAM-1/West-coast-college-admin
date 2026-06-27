@@ -1,145 +1,83 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { CheckCircle, ChevronLeft, ChevronRight, LayoutList, Plus, RotateCcw } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
-import type { BlockGroup, BlockSection, Semester } from './registrarBlockTypes'
+import type { BlockGroup, Semester } from './registrarBlockTypes'
 
 type BlockManagementProps = {
   onOpenBlocksPage: () => void
+  onGoDashboard?: () => void
 }
 
-function BlockManagement({ onOpenBlocksPage }: BlockManagementProps) {
-  const blockCourseOptions: Array<{ value: number; label: string; fullLabel: string }> = [
-    { value: 101, label: 'BEED', fullLabel: 'Bachelor of Elementary Education (BEED)' },
-    { value: 102, label: 'BSEd-English', fullLabel: 'Bachelor of Secondary Education - Major in English' },
-    { value: 103, label: 'BSEd-Math', fullLabel: 'Bachelor of Secondary Education - Major in Mathematics' },
-    { value: 201, label: 'BSBA-HRM', fullLabel: 'Bachelor of Science in Business Administration - Major in HRM' }
-  ]
-  const blockNumberOptions = [
-    '1-A',
-    '1-B',
-    '1-C',
-    '1-D',
-    '2-A',
-    '2-B',
-    '2-C',
-    '2-D',
-    '3-A',
-    '3-B',
-    '3-C',
-    '3-D',
-    '4-A',
-    '4-B',
-    '4-C',
-    '4-D',
-    '5-A',
-    '5-B',
-    '5-C',
-    '5-D'
-  ]
+type CourseOption = {
+  value: number
+  label: string
+  fullLabel: string
+}
+
+type WizardStep = 1 | 2 | 3
+
+const blockCourseOptions: CourseOption[] = [
+  { value: 101, label: 'BEED', fullLabel: 'Bachelor of Elementary Education (BEED)' },
+  { value: 102, label: 'BSEd-English', fullLabel: 'Bachelor of Secondary Education - Major in English' },
+  { value: 103, label: 'BSEd-Math', fullLabel: 'Bachelor of Secondary Education - Major in Mathematics' },
+  { value: 201, label: 'BSBA-HRM', fullLabel: 'Bachelor of Science in Business Administration - Major in HRM' }
+]
+
+const blockNumberOptions = [
+  '1-A',
+  '1-B',
+  '1-C',
+  '1-D',
+  '2-A',
+  '2-B',
+  '2-C',
+  '2-D',
+  '3-A',
+  '3-B',
+  '3-C',
+  '3-D',
+  '4-A',
+  '4-B',
+  '4-C',
+  '4-D',
+  '5-A',
+  '5-B',
+  '5-C',
+  '5-D'
+]
+
+const currentYear = new Date().getFullYear()
+
+function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementProps) {
+  const [wizardStep, setWizardStep] = useState<WizardStep>(1)
   const [blockGroups, setBlockGroups] = useState<BlockGroup[]>([])
-  const [selectedGroup, setSelectedGroup] = useState<BlockGroup | null>(null)
-  const [sections, setSections] = useState<BlockSection[]>([])
-  const [selectedSection, setSelectedSection] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [newGroupCourse, setNewGroupCourse] = useState<number>(103)
   const [newGroupBlockNumber, setNewGroupBlockNumber] = useState('1-A')
-  const [isBlockNumberOpen, setIsBlockNumberOpen] = useState(false)
-  const blockNumberDropdownRef = useRef<HTMLDivElement>(null)
   const [newGroupSemester, setNewGroupSemester] = useState<Semester>('1st')
-  const [newGroupYear, setNewGroupYear] = useState<number>(new Date().getFullYear())
-  const openBlocks = sections.filter((s) => (s.status || 'OPEN').toUpperCase() === 'OPEN')
-  const courseAbbreviationByCode: Record<string, string> = {
-    '101': 'BEED',
-    '102': 'BSEd-English',
-    '103': 'BSEd-Math',
-    '201': 'BSBA-HRM'
-  }
+  const [newGroupYear, setNewGroupYear] = useState<number>(currentYear)
+  const [newGroupCapacity, setNewGroupCapacity] = useState<number>(30)
 
-  const formatBlockLabel = (value: string) => {
-    const text = String(value || '').trim()
-    if (!text) return value
-    const parts = text.split('-')
-    if (parts.length === 0) return text
-    const first = parts[0]
-    const mapped = courseAbbreviationByCode[first] || first
-    return [mapped, ...parts.slice(1)].join('-')
-  }
-
-  const parseBlockSlot = (value: string) => {
-    const text = String(value || '').trim().toUpperCase()
-    if (!text) return null
-
-    const directMatch = text.match(/(?:^|-)(\d+)([A-Z])$/)
-    if (directMatch) {
-      return {
-        yearLevel: Number(directMatch[1]) || 99,
-        letter: directMatch[2]
-      }
-    }
-
-    const dashedMatch = text.match(/(?:^|-)(\d+)-([A-Z])$/)
-    if (dashedMatch) {
-      return {
-        yearLevel: Number(dashedMatch[1]) || 99,
-        letter: dashedMatch[2]
-      }
-    }
-
-    return null
-  }
-
-  const formatBlockColumnLabel = (value: string) => {
-    const slot = parseBlockSlot(value)
-    if (!slot) return formatBlockLabel(value)
-    return `${slot.yearLevel}-${slot.letter}`
-  }
-
-  useEffect(() => {
-    if (!selectedGroup) return
-    const stillExists = blockGroups.some((group) => group._id === selectedGroup._id)
-    if (!stillExists) {
-      setSelectedGroup(null)
-    }
-  }, [blockGroups, selectedGroup])
+  const selectedCourse = useMemo(
+    () => blockCourseOptions.find((course) => course.value === Number(newGroupCourse)) || blockCourseOptions[0],
+    [newGroupCourse]
+  )
+  const normalizedBlockNumber = String(newGroupBlockNumber || '').trim().toUpperCase()
+  const generatedStorageName = `${selectedCourse.value}-${normalizedBlockNumber}`
+  const generatedDisplayName = `${selectedCourse.label} - ${normalizedBlockNumber || 'Block'}`
+  const blockNumberIsValid = /^([1-5])-([A-D])$/.test(normalizedBlockNumber)
+  const yearIsValid = Number.isInteger(Number(newGroupYear)) && Number(newGroupYear) >= 2000 && Number(newGroupYear) <= 2100
+  const capacityIsValid = Number.isInteger(Number(newGroupCapacity)) && Number(newGroupCapacity) >= 1 && Number(newGroupCapacity) <= 50
+  const hasDuplicate = blockGroups.some((group) => {
+    if (group.semester !== newGroupSemester || Number(group.year) !== Number(newGroupYear)) return false
+    return String(group.name || '').trim().toUpperCase() === generatedStorageName.toUpperCase()
+  })
 
   useEffect(() => {
     void fetchBlockGroups()
   }, [])
-
-  useEffect(() => {
-    if (!selectedGroup) {
-      setSections([])
-      setSelectedSection('')
-      return
-    }
-    void fetchSections(selectedGroup._id)
-  }, [selectedGroup])
-
-  useEffect(() => {
-    if (!selectedGroup) return
-    if (openBlocks.length === 0) {
-      if (selectedSection) setSelectedSection('')
-      return
-    }
-    if (!openBlocks.some((block) => block._id === selectedSection)) {
-      setSelectedSection(openBlocks[0]._id)
-    }
-  }, [selectedGroup, openBlocks, selectedSection])
-  
-  useEffect(() => {
-    if (!isBlockNumberOpen) return
-
-    const handleOutsideClick = (event: MouseEvent) => {
-      if (!blockNumberDropdownRef.current) return
-      if (!blockNumberDropdownRef.current.contains(event.target as Node)) {
-        setIsBlockNumberOpen(false)
-      }
-    }
-
-    document.addEventListener('mousedown', handleOutsideClick)
-    return () => document.removeEventListener('mousedown', handleOutsideClick)
-  }, [isBlockNumberOpen])
 
   const authorizedFetch = async (path: string, init: RequestInit = {}) => {
     const token = await getStoredToken()
@@ -169,45 +107,27 @@ function BlockManagement({ onOpenBlocksPage }: BlockManagementProps) {
     }
   }
 
-  const fetchSections = async (groupId: string) => {
-    try {
-      const data = await authorizedFetch(`/api/blocks/groups/${groupId}/sections`)
-      setSections(Array.isArray(data) ? data : [])
-      setError('')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch sections')
-    }
+  const validateForm = () => {
+    if (!selectedCourse) return 'Course is required'
+    if (!blockNumberIsValid) return 'Block number must be in format 1-A to 5-D'
+    if (!yearIsValid) return 'Academic year must be between 2000 and 2100'
+    if (!capacityIsValid) return 'Default capacity must be between 1 and 50 students'
+    if (hasDuplicate) return 'Block group already exists for this semester and academic year'
+    return ''
+  }
+
+  const handleNext = () => {
+    const validationMessage = validateForm()
+    setError(validationMessage)
+    setSuccess('')
+    if (validationMessage) return
+    setWizardStep(2)
   }
 
   const handleCreateGroup = async () => {
-    const selectedCourse = blockCourseOptions.find((course) => course.value === Number(newGroupCourse))
-    const normalizedBlockNumber = String(newGroupBlockNumber || '').trim().toUpperCase()
-    const blockMatch = normalizedBlockNumber.match(/^([1-5])-([A-D])$/)
-
-    if (!selectedCourse) {
-      setError('Course is required')
-      return
-    }
-    if (!blockMatch) {
-      setError('Block number must be in format 1-A to 5-D')
-      return
-    }
-    const generatedGroupName = `${selectedCourse.value}-${normalizedBlockNumber}`
-    const [blockYearLevel, blockLetter] = [Number(blockMatch[1]), blockMatch[2]]
-    const hasExistingInTerm = blockGroups.some((group) => {
-      if (group.semester !== newGroupSemester || Number(group.year) !== Number(newGroupYear)) return false
-      const normalizedExisting = String(group.name || '').trim().toUpperCase()
-      const existingCourse = Number(normalizedExisting.split('-')[0]) || null
-      const existingMatch = normalizedExisting.match(/(?:^|-)(\d+)-?([A-D])$/)
-      if (!existingMatch) return false
-      return (
-        existingCourse === Number(selectedCourse.value) &&
-        Number(existingMatch[1]) === blockYearLevel &&
-        existingMatch[2] === blockLetter
-      )
-    })
-    if (hasExistingInTerm) {
-      setError('Block group already exists for this semester/year')
+    const validationMessage = validateForm()
+    if (validationMessage) {
+      setError(validationMessage)
       return
     }
 
@@ -219,7 +139,7 @@ function BlockManagement({ onOpenBlocksPage }: BlockManagementProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: generatedGroupName,
+          name: generatedStorageName,
           semester: newGroupSemester,
           year: Number(newGroupYear)
         })
@@ -228,16 +148,14 @@ function BlockManagement({ onOpenBlocksPage }: BlockManagementProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sectionCode: generatedGroupName,
-          capacity: 30,
+          sectionCode: generatedStorageName,
+          capacity: Number(newGroupCapacity),
           schedule: ''
         })
       })
       await fetchBlockGroups()
-      setSelectedGroup(created as BlockGroup)
-      await fetchSections((created as BlockGroup)._id)
-      setNewGroupBlockNumber('1-A')
-      setSuccess('Block created')
+      setSuccess('The block group has been created and its initial section was generated automatically.')
+      setWizardStep(3)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create block')
     } finally {
@@ -245,32 +163,12 @@ function BlockManagement({ onOpenBlocksPage }: BlockManagementProps) {
     }
   }
 
-  const selectedGroupLabel = selectedGroup
-    ? `${formatBlockLabel(selectedGroup.name)} (${selectedGroup.semester} ${selectedGroup.year})`
-    : 'No block selected yet'
-  const selectedTargetSection = sections.find((section) => section._id === selectedSection) || null
-  const selectedCourseOption = blockCourseOptions.find((course) => course.value === Number(newGroupCourse)) || null
-  const newGroupPreviewCode = `${selectedCourseOption?.fullLabel || 'Course'}`
-  const newGroupPreviewInlineCode = `${selectedCourseOption?.label || 'Course'} - ${newGroupBlockNumber}`
-  const newGroupPreviewCourseCode = `${selectedCourseOption?.value || '000'}`
-  const newGroupPreviewLabel = `${selectedCourseOption?.fullLabel || 'Course'}`
-  const totalSectionCapacity = sections.reduce((sum, section) => sum + (Number(section.capacity) || 0), 0)
-  const totalSectionPopulation = sections.reduce((sum, section) => sum + (Number(section.currentPopulation) || 0), 0)
-  const utilizationPercent = totalSectionCapacity > 0
-    ? Math.min(100, Math.round((totalSectionPopulation / totalSectionCapacity) * 100))
-    : 0
-  const selectedYearLevel = selectedGroup ? parseBlockSlot(selectedGroup.name)?.yearLevel : null
-  const selectedBlockBadge = selectedGroup
-    ? `Block-${formatBlockColumnLabel(selectedGroup.name).replace('-', '')}`
-    : 'No block selected'
-  const tutorialTarget = !blockGroups.length ? 'create-action' : 'view-blocks'
-  const guidePanelTitle = tutorialTarget === 'create-action' ? 'Press Create Block' : 'Press View Blocks'
-  const guidePanelText = tutorialTarget === 'create-action'
-    ? `The form is prefilled. Change anything you want, then press Create Block for ${newGroupPreviewCode}.`
-    : 'Created block groups now live on a separate page. Press View Blocks to browse them, review sections, and open the workspace.'
-  const tutorialFocus = {
-    createAction: tutorialTarget === 'create-action',
-    viewBlocks: tutorialTarget === 'view-blocks'
+  const handleCreateAnother = () => {
+    setWizardStep(1)
+    setError('')
+    setSuccess('')
+    setNewGroupBlockNumber('1-A')
+    setNewGroupCapacity(30)
   }
 
   return (
@@ -282,7 +180,7 @@ function BlockManagement({ onOpenBlocksPage }: BlockManagementProps) {
           aria-live="assertive"
         >
           <div>
-            <strong>{error ? 'Block creation failed' : 'Block updated'}</strong>
+            <strong>{error ? 'Action needed' : 'Block created'}</strong>
             <p>{error || success}</p>
           </div>
           <button
@@ -299,213 +197,203 @@ function BlockManagement({ onOpenBlocksPage }: BlockManagementProps) {
       )}
 
       <h2 className="registrar-section-title">Block Management</h2>
-      <p className="registrar-section-desc">Create blocks, assign students, and monitor block capacity with a guided flow.</p>
+      <p className="registrar-section-desc">Create one block group at a time with a guided review before saving.</p>
 
-      <div className="block-management-content">
-        <div className="block-summary-grid">
-          <div className="assignment-section block-summary-card">
-            <span className="block-summary-label">Block Groups</span>
-            <strong className="block-summary-value">{blockGroups.length}</strong>
-            <small>Available this registrar view</small>
-          </div>
-          <div className="assignment-section block-summary-card">
-            <span className="block-summary-label">Open Sections</span>
-            <strong className="block-summary-value">{openBlocks.length}</strong>
-            <small>{selectedGroup ? 'Inside selected block group' : 'Select a block group to view'}</small>
-          </div>
-          <div className="assignment-section block-summary-card">
-            <span className="block-summary-label">Sections</span>
-            <strong className="block-summary-value">{sections.length}</strong>
-            <small>{selectedGroup ? 'Inside selected block group' : 'Select a block group to view'}</small>
-          </div>
-          <div className="assignment-section block-summary-card">
-            <span className="block-summary-label">Selected Section</span>
-            <strong className="block-summary-value">{selectedTargetSection ? formatBlockColumnLabel(selectedTargetSection.sectionCode) : 'N/A'}</strong>
-            <small>{selectedTargetSection ? `Target: ${formatBlockColumnLabel(selectedTargetSection.sectionCode)}` : 'No target section selected'}</small>
-          </div>
-        </div>
-
-        <div className="block-management-header-row">
-          <div className="block-management-banner">
-            <span className="block-hero-kicker">Registrar Workflow</span>
-            <div className="block-management-banner-copy">
-              <h3>Build blocks faster</h3>
-              <p>Start with a clean block preview, confirm the term and slot, then move straight into the workspace once the block is created.</p>
-            </div>
-          </div>
-          <div className="block-management-inline-summary">
-            <div className="block-management-inline-summary-copy">
-              <span className="block-hero-status-label">Setup Summary</span>
-              <strong>{guidePanelTitle}</strong>
-              <p>{guidePanelText}</p>
-            </div>
-            <div className="block-management-inline-summary-meta">
-              <span>{selectedGroup ? `${openBlocks.length} open section(s)` : `${blockGroups.length} total block group(s)`}</span>
-              <span>{selectedGroup ? `${totalSectionPopulation}/${totalSectionCapacity || 0} seats used` : 'Guided setup mode'}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="block-management-workspace-grid">
-          <div className="assignment-section block-create-card">
-          <div className="block-panel-head">
-            <div>
-              <span className="block-step-badge">Step 1</span>
-              <h3>Create Block</h3>
-            </div>
-            <p>Choose the course, slot, and term before you create the block group.</p>
-          </div>
-          <div className="block-selection-helper-list">
-            <span className="block-selection-pill">Default capacity: 30 seats</span>
-            <span className="block-selection-pill">{newGroupSemester} {newGroupYear}</span>
-            <span className="block-selection-pill">{selectedCourseOption?.label || 'Course not set'}</span>
-          </div>
-          <div className="block-preview-card">
-            <span className="block-preview-label">Preview</span>
-            <strong>{newGroupPreviewLabel}</strong>
-            <p>Code: {newGroupPreviewCourseCode}</p>
-            <div className="block-preview-meta">
-              <span>Block-{newGroupBlockNumber.replace('-', '')}</span>
-              <span>{newGroupSemester}</span>
-              <span>{newGroupYear}</span>
-            </div>
-          </div>
-          <p className="assignment-help-text">This creates the block group first, then auto-generates its initial section.</p>
-          <div className="assignment-form">
-            <label>
-              <span className="block-field-head">
-                <span>Course</span>
-              </span>
-              <select value={newGroupCourse} onChange={(e) => setNewGroupCourse(parseInt(e.target.value, 10))}>
-                {blockCourseOptions.map((course) => (
-                  <option key={course.value} value={course.value}>
-                    {course.value} - {course.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span className="block-field-head">
-                <span>Block Number</span>
-              </span>
-              <div className="block-number-select-wrapper" ref={blockNumberDropdownRef}>
-                <button
-                  type="button"
-                  className={`block-number-select-trigger ${tutorialFocus.createAction ? 'tutorial-focus' : ''}`}
-                  onClick={() => setIsBlockNumberOpen((prev) => !prev)}
-                  aria-expanded={isBlockNumberOpen}
-                  aria-haspopup="listbox"
-                >
-                  <span>{newGroupBlockNumber}</span>
-                  <span aria-hidden="true" className="block-number-select-caret">▾</span>
-                </button>
-                {isBlockNumberOpen && (
-                  <div className="block-number-select-list" role="listbox" aria-label="Block number options">
-                    {blockNumberOptions.map((value) => (
-                      <button
-                        key={value}
-                        type="button"
-                        className="block-number-select-option"
-                        role="option"
-                        aria-selected={newGroupBlockNumber === value}
-                        onClick={() => {
-                          setNewGroupBlockNumber(value)
-                          setIsBlockNumberOpen(false)
-                        }}
-                      >
-                        {value}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </label>
-            <label>
-              <span className="block-field-head">
-                <span>Semester</span>
-              </span>
-              <select value={newGroupSemester} onChange={(e) => setNewGroupSemester(e.target.value as Semester)}>
-                <option value="1st">1st</option>
-                <option value="2nd">2nd</option>
-                <option value="Summer">Summer</option>
-              </select>
-            </label>
-            <label>
-              <span className="block-field-head">
-                <span>Year</span>
-              </span>
-              <input
-                type="number"
-                min={2000}
-                max={2100}
-                value={newGroupYear}
-                onChange={(e) => setNewGroupYear(parseInt(e.target.value || `${new Date().getFullYear()}`, 10))} />
-            </label>
-            <p className="assignment-inline-note">Block name preview: <strong>{newGroupPreviewInlineCode}</strong></p>
-            <p className="assignment-inline-note assignment-inline-note-small">
-              Preview uses the abbreviated course label, for example <strong>{`${selectedCourseOption?.label || 'BSEd-Math'} - 1-A`}</strong>.
-            </p>
-            <div className="block-action-stack">
-              {tutorialFocus.createAction && (
-                <span className="block-control-callout">Press this button to create your first block.</span>
-              )}
-              <button
-                type="button"
-                className={`registrar-btn ${tutorialFocus.createAction ? 'tutorial-focus' : ''}`}
-                onClick={handleCreateGroup}
-                disabled={loading}
+      <div className="block-wizard-shell">
+        <div className="block-wizard-card">
+          <div className="block-wizard-stepper" aria-label="Block creation progress">
+            {[
+              { step: 1, title: 'Create Block' },
+              { step: 2, title: 'Review' },
+              { step: 3, title: 'Finish' }
+            ].map((item) => (
+              <div
+                key={item.step}
+                className={`block-wizard-step ${wizardStep === item.step ? 'is-active' : ''} ${wizardStep > item.step ? 'is-complete' : ''}`}
               >
-                {loading ? 'Saving...' : 'Create Block'}
-              </button>
-            </div>
-          </div>
+                <span className="block-wizard-step-number">{wizardStep > item.step ? <CheckCircle size={16} /> : item.step}</span>
+                <span>
+                  <small>Step {item.step}</small>
+                  <strong>{item.title}</strong>
+                </span>
+              </div>
+            ))}
           </div>
 
-          <div className="block-selection block-selection-card">
-        <div className="block-selection-head">
-          <div>
-            <span className="block-step-badge">Step 2</span>
-            <p className="block-selection-title">View Blocks</p>
-          </div>
-          <p className="block-selection-subtitle">{blockGroups.length} created</p>
-        </div>
-        <p className="block-selection-helper">Open a dedicated page to browse created blocks, inspect sections, delete a block, and launch the assignment workspace.</p>
-        <div className="block-selection-helper-list">
-          <span className="block-selection-pill">
-            {blockGroups.length ? `${blockGroups.length} block group(s)` : 'No blocks yet'}
-          </span>
-          <span className="block-selection-pill">
-            {selectedGroup ? `Latest: ${selectedGroupLabel}` : 'Create one, then review it here'}
-          </span>
-          <span className="block-selection-pill">
-            {selectedGroup && selectedTargetSection ? `Target: ${formatBlockColumnLabel(selectedTargetSection.sectionCode)}` : 'Sections shown on View Blocks'}
-          </span>
-        </div>
-        <div className="block-current-card">
-          <span className="block-current-label">Blocks Page Preview</span>
-          <strong>{selectedGroup ? selectedBlockBadge : `${blockGroups.length} block group(s)`}</strong>
-          <p>{selectedGroup ? `${formatBlockLabel(selectedGroup.name)} is ready for section review and student assignment on the View Blocks page.` : 'Keep block creation here, then use the separate View Blocks page for browsing and workspace entry.'}</p>
-          <div className="block-current-meta">
-            <span>{selectedGroup ? `${selectedGroup.semester} ${selectedGroup.year}` : 'Ready for review'}</span>
-            <span>{selectedGroup && selectedYearLevel ? `Year ${selectedYearLevel}` : 'Dedicated block directory'}</span>
-            <span>{selectedGroup ? `${utilizationPercent}% utilized` : 'Cleaner block workflow'}</span>
-          </div>
-        </div>
-        <div className="block-selection-actions">
-          <div className="block-action-stack">
-            {tutorialFocus.viewBlocks && (
-              <span className="block-control-callout">Press this to open the dedicated block directory.</span>
-            )}
-            <button
-              type="button"
-              className={`registrar-btn ${tutorialFocus.viewBlocks ? 'tutorial-focus' : ''}`}
-              onClick={onOpenBlocksPage}
-            >
-              View Blocks
-            </button>
-          </div>
-        </div>
-          </div>
+          {wizardStep === 1 && (
+            <div className="block-wizard-panel">
+              <div className="block-wizard-panel-head">
+                <h3>Create Block</h3>
+              </div>
+
+              <div className="block-wizard-form-grid">
+                <div className="block-wizard-fields">
+                  <label>
+                    <span>Course</span>
+                    <select value={newGroupCourse} onChange={(e) => setNewGroupCourse(parseInt(e.target.value, 10))}>
+                      {blockCourseOptions.map((course) => (
+                        <option key={course.value} value={course.value}>
+                          {course.fullLabel}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>Block Number</span>
+                    <select value={newGroupBlockNumber} onChange={(e) => setNewGroupBlockNumber(e.target.value)}>
+                      {blockNumberOptions.map((value) => (
+                        <option key={value} value={value}>
+                          {value}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>Semester</span>
+                    <select value={newGroupSemester} onChange={(e) => setNewGroupSemester(e.target.value as Semester)}>
+                      <option value="1st">1st</option>
+                      <option value="2nd">2nd</option>
+                      <option value="Summer">Summer</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>Academic Year</span>
+                    <input
+                      type="number"
+                      min={2000}
+                      max={2100}
+                      value={newGroupYear}
+                      onChange={(e) => setNewGroupYear(parseInt(e.target.value || `${currentYear}`, 10))}
+                    />
+                  </label>
+
+                  <label>
+                    <span>Default Capacity</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={newGroupCapacity}
+                      onChange={(e) => setNewGroupCapacity(parseInt(e.target.value || '30', 10))}
+                    />
+                  </label>
+                </div>
+
+                <div className="block-wizard-preview" aria-label="Live block preview">
+                  <span className="block-wizard-preview-label">Live Preview</span>
+                  <strong>{generatedDisplayName}</strong>
+                  <dl>
+                    <div>
+                      <dt>Course Code</dt>
+                      <dd>{selectedCourse.value}</dd>
+                    </div>
+                    <div>
+                      <dt>Semester</dt>
+                      <dd>{newGroupSemester}</dd>
+                    </div>
+                    <div>
+                      <dt>Academic Year</dt>
+                      <dd>{newGroupYear}</dd>
+                    </div>
+                    <div>
+                      <dt>Capacity</dt>
+                      <dd>{newGroupCapacity || 0} Students</dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+
+              <div className="block-wizard-validation" aria-live="polite">
+                {!blockNumberIsValid && <span>Block number must use the format 1-A.</span>}
+                {!yearIsValid && <span>Academic year must be between 2000 and 2100.</span>}
+                {!capacityIsValid && <span>Capacity must be 1 to 50 students.</span>}
+                {hasDuplicate && <span>This block already exists for the selected term.</span>}
+              </div>
+
+              <div className="block-wizard-actions">
+                <button type="button" className="registrar-btn registrar-btn-secondary" onClick={onOpenBlocksPage}>
+                  <ChevronLeft size={16} />
+                  Back
+                </button>
+                <button type="button" className="registrar-btn" onClick={handleNext}>
+                  Next
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {wizardStep === 2 && (
+            <div className="block-wizard-panel">
+              <div className="block-wizard-panel-head">
+                <h3>Review Block</h3>
+              </div>
+
+              <div className="block-wizard-review">
+                <div>
+                  <span>Course</span>
+                  <strong>{selectedCourse.fullLabel}</strong>
+                </div>
+                <div>
+                  <span>Block</span>
+                  <strong>{normalizedBlockNumber}</strong>
+                </div>
+                <div>
+                  <span>Semester</span>
+                  <strong>{newGroupSemester}</strong>
+                </div>
+                <div>
+                  <span>Academic Year</span>
+                  <strong>{newGroupYear}</strong>
+                </div>
+                <div>
+                  <span>Capacity</span>
+                  <strong>{newGroupCapacity}</strong>
+                </div>
+                <div>
+                  <span>Generated Name</span>
+                  <strong>{generatedDisplayName}</strong>
+                </div>
+              </div>
+
+              <div className="block-wizard-actions">
+                <button type="button" className="registrar-btn registrar-btn-secondary" onClick={() => setWizardStep(1)}>
+                  <ChevronLeft size={16} />
+                  Back
+                </button>
+                <button type="button" className="registrar-btn" onClick={handleCreateGroup} disabled={loading}>
+                  <Plus size={16} />
+                  {loading ? 'Creating...' : 'Create Block'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {wizardStep === 3 && (
+            <div className="block-wizard-panel block-wizard-success">
+              <CheckCircle size={52} />
+              <h3>Block Created Successfully</h3>
+              <p>The block group has been created.</p>
+              <p>Initial section generated automatically.</p>
+
+              <div className="block-wizard-success-actions">
+                <button type="button" className="registrar-btn" onClick={onOpenBlocksPage}>
+                  <LayoutList size={16} />
+                  View Blocks
+                </button>
+                <button type="button" className="registrar-btn registrar-btn-secondary" onClick={handleCreateAnother}>
+                  <RotateCcw size={16} />
+                  Create Another Block
+                </button>
+                <button type="button" className="registrar-btn registrar-btn-secondary" onClick={onGoDashboard || onOpenBlocksPage}>
+                  Go to Dashboard
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

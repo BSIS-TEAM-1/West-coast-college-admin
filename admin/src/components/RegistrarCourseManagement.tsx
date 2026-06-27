@@ -886,10 +886,6 @@ export default function RegistrarCourseManagement({ onOpenStudents, onOpenReport
 
             {selectedProfessor ? (
               <>
-                <p className="registrar-course-helper-copy">
-                  Review the selected professor's active course coverage, sections, schedules, and room assignments.
-                </p>
-
                 <div className="registrar-course-detail-summary">
                   <div><span>Courses</span><strong>{selectedProfessor.totals.courses}</strong></div>
                   <div><span>Sections</span><strong>{selectedProfessor.totals.sections}</strong></div>
@@ -902,7 +898,7 @@ export default function RegistrarCourseManagement({ onOpenStudents, onOpenReport
                     <div className="registrar-course-selector-shell">
                       <div className="registrar-course-selector-copy">
                         <p className="registrar-course-card-label">Assigned Courses</p>
-                        <span>Select a course to inspect its section-level subject assignments.</span>
+                        <span>Pick one course to view its classes.</span>
                       </div>
                       <div className="registrar-course-selector" role="tablist" aria-label="Professor courses">
                       {selectedProfessor.courseSummaries.map((course) => (
@@ -934,7 +930,7 @@ export default function RegistrarCourseManagement({ onOpenStudents, onOpenReport
                             <p className="registrar-course-card-label">Course Detail</p>
                             <h4>{selectedProfessorCourse.fullLabel || selectedProfessorCourse.label}</h4>
                             <p className="registrar-course-focus-copy">
-                              Section-level assignments for the selected course.
+                              Classes under this course.
                             </p>
                           </div>
                           <div className="registrar-course-focus-head-actions">

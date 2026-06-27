@@ -60,6 +60,7 @@ export type SubjectItem = {
   course?: number
   yearLevel?: number
   semester?: Semester
+  isActive?: boolean
 }
 
 export type SubjectDraft = {

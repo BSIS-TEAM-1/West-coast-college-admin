@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Users, Blocks, FolderOpen, UserPlus } from 'lucide-react'
+import { User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Users, Blocks, FolderOpen, UserPlus, ListTree } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
@@ -19,6 +19,7 @@ import BlockManagement from './registrar/BlockManagement'
 import ViewBlocksPage from './registrar/ViewBlocksPage'
 import BlockWorkspace from './registrar/BlockWorkspace'
 import AssignSubjectPage from './registrar/AssignSubjectPage'
+import SubjectManagementPage from './registrar/SubjectManagementPage'
 import './RegistrarDashboard.css'
 
 type Semester = '1st' | '2nd' | 'Summer'
@@ -31,7 +32,7 @@ type BlockWorkspaceSelection = {
   initialSectionId?: string | null
 }
 
-type RegistrarView = 'applicants' | 'students' | 'courses' | 'course-workspace' | 'block-management' | 'view-blocks' | 'block-workspace' | 'assign-subject' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
+type RegistrarView = 'applicants' | 'students' | 'courses' | 'course-workspace' | 'block-management' | 'view-blocks' | 'block-workspace' | 'subject-management' | 'assign-subject' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
 
 type RegistrarDashboardProps = {
   username: string
@@ -43,7 +44,8 @@ const REGISTRAR_NAV_ITEMS: { id: RegistrarView; label: string; icon: any }[] = [
   { id: 'applicants', label: 'Applicants', icon: UserPlus },
   { id: 'students', label: 'Student Management', icon: GraduationCap },
   { id: 'block-management', label: 'Block Management', icon: Blocks },
-  { id: 'assign-subject', label: 'Assign Subject', icon: Users },
+  { id: 'subject-management', label: 'Subject Management', icon: BookOpen },
+  { id: 'assign-subject', label: 'Subject Assignment', icon: Users },
   { id: 'courses', label: 'Professor Loads', icon: BookOpen },
   { id: 'documents', label: 'Document Archive', icon: FolderOpen },
   { id: 'announcements', label: 'Announcements', icon: Bell },
@@ -115,7 +117,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
       case 'course-workspace':
         return <RegistrarCourseWorkspace selection={courseWorkspaceSelection} onBack={() => setView('courses')} />
       case 'block-management':
-        return <BlockManagement onOpenBlocksPage={() => setView('view-blocks')} />
+        return <BlockManagement onOpenBlocksPage={() => setView('view-blocks')} onGoDashboard={() => setView('applicants')} />
       case 'view-blocks':
         return <ViewBlocksPage onBack={() => setView('block-management')} onOpenWorkspace={(selection) => {
           setBlockWorkspaceSelection(selection)
@@ -123,6 +125,8 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
         }} />
       case 'block-workspace':
         return <BlockWorkspace selection={blockWorkspaceSelection} onBack={() => setView('view-blocks')} />
+      case 'subject-management':
+        return <SubjectManagementPage />
       case 'assign-subject':
         return <AssignSubjectPage />
       case 'documents':
@@ -187,26 +191,44 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
         </div>
 
         <nav className="registrar-sidebar-nav" aria-label="Registrar navigation">
-          {REGISTRAR_NAV_ITEMS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              className={`registrar-sidebar-link ${(
-                view === id
-                || (id === 'courses' && view === 'course-workspace')
-                || (id === 'block-management' && (view === 'view-blocks' || view === 'block-workspace'))
-              ) ? 'registrar-sidebar-link-active' : ''}`}
-              onClick={() => setView(id)}
-              aria-current={(
-                view === id
-                || (id === 'courses' && view === 'course-workspace')
-                || (id === 'block-management' && (view === 'view-blocks' || view === 'block-workspace'))
-              ) ? 'page' : undefined}
-            >
-              <Icon size={18} className="registrar-sidebar-icon" />
-              <span>{label}</span>
-            </button>
-          ))}
+          {REGISTRAR_NAV_ITEMS.map(({ id, label, icon: Icon }) => {
+            const isActive = (
+              view === id
+              || (id === 'courses' && view === 'course-workspace')
+              || (id === 'block-management' && (view === 'view-blocks' || view === 'block-workspace'))
+            )
+            const isBlockManagement = id === 'block-management'
+            const showBlockSubnav = isBlockManagement && isActive
+            const isViewBlocksActive = view === 'view-blocks' || view === 'block-workspace'
+
+            return (
+              <div key={id} className={isBlockManagement ? 'registrar-sidebar-group' : undefined}>
+                <button
+                  type="button"
+                  className={`registrar-sidebar-link ${isActive ? 'registrar-sidebar-link-active' : ''}`}
+                  onClick={() => setView(id)}
+                  aria-current={isActive ? 'page' : undefined}
+                >
+                  <Icon size={18} className="registrar-sidebar-icon" />
+                  <span>{label}</span>
+                </button>
+
+                {showBlockSubnav && (
+                  <div className="registrar-sidebar-subnav" aria-label="Block management navigation">
+                    <button
+                      type="button"
+                      className={`registrar-sidebar-sublink ${isViewBlocksActive ? 'registrar-sidebar-sublink-active' : ''}`}
+                      onClick={() => setView('view-blocks')}
+                      aria-current={isViewBlocksActive ? 'page' : undefined}
+                    >
+                      <ListTree size={15} className="registrar-sidebar-icon" />
+                      <span>View All Blocks</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </nav>
 
         <div className="registrar-sidebar-time">

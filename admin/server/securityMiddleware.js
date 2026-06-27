@@ -147,9 +147,9 @@ function inputValidationMiddleware(options = {}) {
   // Backward compatibility:
   // existing routes pass { body/query/params }, while newer callers may pass
   // { bodySchema/querySchema/paramsSchema }.
-  const bodySchema = options.bodySchema || options.body;
-  const querySchema = options.querySchema || options.query;
-  const paramsSchema = options.paramsSchema || options.params;
+  const bodySchema = options.bodySchema || options.body?.body || options.body;
+  const querySchema = options.querySchema || options.query?.query || options.query;
+  const paramsSchema = options.paramsSchema || options.params?.params || options.params;
 
   return (req, res, next) => {
     try {
@@ -171,7 +171,11 @@ function inputValidationMiddleware(options = {}) {
       }
 
       if (querySchema) {
-        const { error, value } = querySchema.validate(req.query, { abortEarly: false });
+        const { error, value } = querySchema.validate(req.query, {
+          abortEarly: false,
+          convert: true,
+          stripUnknown: true
+        });
         if (error) {
           return res.status(400).json({
             error: 'Invalid query parameters.',
@@ -666,6 +670,7 @@ const schemas = {
         course: Joi.number().integer().valid(...STUDENT_COURSES).optional(),
         yearLevel: Joi.number().integer().min(1).max(5).optional(),
         semester: Joi.string().valid(...STUDENT_SEMESTERS).optional(),
+        isActive: Joi.boolean().optional(),
         q: Joi.string().trim().max(100).optional()
       })
     },
@@ -680,6 +685,30 @@ const schemas = {
     },
     update: {
       body: Joi.object(subjectMutationFields).min(1)
+    },
+    idParam: {
+      params: Joi.object({
+        id: subjectIdSchema.required()
+      })
+    }
+  },
+
+  blockSubjectAssignment: {
+    query: {
+      query: Joi.object({
+        blockSectionId: subjectIdSchema.optional(),
+        subjectId: subjectIdSchema.optional(),
+        semester: Joi.string().valid(...STUDENT_SEMESTERS).optional(),
+        academicYear: schoolYearSchema.optional()
+      })
+    },
+    create: {
+      body: Joi.object({
+        blockSectionId: subjectIdSchema.required(),
+        subjectIds: Joi.array().items(subjectIdSchema.required()).min(1).required(),
+        semester: Joi.string().valid(...STUDENT_SEMESTERS).required(),
+        academicYear: schoolYearSchema.required()
+      })
     },
     idParam: {
       params: Joi.object({
