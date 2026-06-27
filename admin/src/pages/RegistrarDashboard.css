@@ -1,16 +1,42 @@
 .registrar-dashboard {
+  --registrar-primary: #000a1e;
+  --registrar-primary-container: #002147;
+  --registrar-gold: #775a19;
+  --registrar-gold-light: #e9c176;
+  --registrar-gold-soft: #ffdea5;
+  --color-primary: var(--registrar-primary-container);
+  --color-primary-hover: var(--registrar-primary);
+  --color-primary-dark: var(--registrar-primary);
+  --color-primary-subtle: color-mix(in srgb, var(--registrar-primary-container) 11%, transparent);
+  --color-on-primary: #ffffff;
+  --color-primary-on-surface: var(--registrar-primary-container);
+  --color-primary-on-dark-surface: var(--registrar-gold-light);
+  --color-accent: var(--registrar-gold);
+  --color-accent-hover: var(--registrar-gold-light);
+  --color-bg: #fcf9f8;
+  --color-bg-soft: #f6f3f2;
+  --color-surface: #ffffff;
+  --color-surface-hover: rgba(0, 10, 30, 0.04);
+  --color-border: #c4c6cf;
+  --color-sidebar-border: color-mix(in srgb, var(--registrar-gold) 38%, transparent);
+  --color-text: #1c1b1b;
+  --color-text-muted: #5f6269;
+  --color-text-bold: #000a1e;
+  --color-text-secondary: #3f4652;
   min-height: 100vh;
   width: 100%;
   display: flex;
   flex-direction: row;
-  background: var(--color-bg);
+  background: #fcf9f8;
 }
 
 .registrar-sidebar {
   width: 260px;
   min-height: 100vh;
-  background: var(--color-surface);
-  border-right: 1px solid var(--color-border);
+  background:
+    linear-gradient(160deg, rgba(0, 10, 30, 0.98) 0%, rgba(0, 33, 71, 0.98) 64%, rgba(25, 42, 71, 0.96) 100%);
+  border-right: 1px solid color-mix(in srgb, var(--registrar-gold) 42%, transparent);
+  color: #ffffff;
   display: flex;
   flex-direction: column;
   position: fixed;
@@ -22,7 +48,7 @@
 
 .registrar-sidebar-brand {
   padding: 1.5rem;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid color-mix(in srgb, var(--registrar-gold-light) 24%, transparent);
 }
 
 .brand-content {
@@ -37,7 +63,8 @@
   border-radius: 8px;
   overflow: hidden;
   flex-shrink: 0;
-  background: var(--color-bg-soft);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid color-mix(in srgb, var(--registrar-gold-light) 32%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -52,7 +79,7 @@
 .logo-fallback-text {
   font-size: 1rem;
   font-weight: 700;
-  color: var(--color-primary);
+  color: var(--registrar-gold-light);
 }
 
 .brand-text {
@@ -63,13 +90,13 @@
 .sidebar-title {
   font-size: 1rem;
   font-weight: 600;
-  color: var(--color-text);
+  color: #ffffff;
   line-height: 1.2;
 }
 
 .sidebar-tagline {
   font-size: 0.75rem;
-  color: var(--color-text-muted);
+  color: color-mix(in srgb, #ffffff 68%, var(--registrar-gold-light));
 }
 
 .registrar-sidebar-nav {
@@ -97,7 +124,7 @@
   border-radius: 8px;
   border: none;
   background: transparent;
-  color: var(--color-text-muted);
+  color: rgba(255, 255, 255, 0.74);
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
@@ -106,18 +133,19 @@
 }
 
 .registrar-sidebar-link:hover {
-  background: var(--color-bg-soft);
-  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.09);
+  color: #ffffff;
 }
 
 .registrar-sidebar-link-active {
-  background: var(--color-primary);
-  color: var(--color-on-primary);
+  background: var(--registrar-gold);
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.2);
 }
 
 .registrar-sidebar-link-active:hover {
-  background: var(--color-primary);
-  color: var(--color-on-primary);
+  background: var(--registrar-gold-light);
+  color: var(--registrar-primary);
 }
 
 .registrar-sidebar-icon {
@@ -126,35 +154,35 @@
 
 .registrar-sidebar-footer {
   padding: 1rem;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid color-mix(in srgb, var(--registrar-gold-light) 24%, transparent);
 }
 
 .registrar-sidebar-time {
   margin: 0.5rem 1rem 0.75rem;
   padding: 0.85rem;
   border-radius: 8px;
-  border: 1px solid var(--color-border);
-  background: var(--color-primary-subtle);
+  border: 1px solid color-mix(in srgb, var(--registrar-gold-light) 30%, transparent);
+  background: rgba(255, 255, 255, 0.08);
   text-align: center;
 }
 
 .registrar-sidebar-time-label {
   font-size: 0.75rem;
   font-weight: 600;
-  color: var(--color-text-secondary);
+  color: color-mix(in srgb, #ffffff 70%, var(--registrar-gold-light));
   margin-bottom: 0.2rem;
 }
 
 .registrar-sidebar-time-value {
   font-size: 1rem;
   font-weight: 700;
-  color: var(--color-text-bold);
+  color: #ffffff;
   line-height: 1.2;
 }
 
 .registrar-sidebar-date-value {
   font-size: 0.75rem;
-  color: var(--color-text-muted);
+  color: color-mix(in srgb, #ffffff 64%, var(--registrar-gold-light));
   margin-top: 0.25rem;
 }
 
@@ -181,11 +209,11 @@
 .profile-avatar-placeholder {
   width: 100%;
   height: 100%;
-  background: var(--color-primary);
+  background: var(--registrar-gold);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-on-primary);
+  color: #ffffff;
 }
 
 .profile-info {
@@ -197,7 +225,7 @@
 .profile-name {
   font-size: 0.875rem;
   font-weight: 500;
-  color: var(--color-text);
+  color: #ffffff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -205,7 +233,17 @@
 
 .profile-role {
   font-size: 0.75rem;
-  color: var(--color-text-muted);
+  color: color-mix(in srgb, #ffffff 64%, var(--registrar-gold-light));
+}
+
+.registrar-dashboard .registrar-sidebar .sidebar-title,
+.registrar-dashboard .registrar-sidebar .profile-name {
+  color: #ffffff;
+}
+
+.registrar-dashboard .registrar-sidebar .sidebar-tagline,
+.registrar-dashboard .registrar-sidebar .profile-role {
+  color: color-mix(in srgb, #ffffff 64%, var(--registrar-gold-light));
 }
 
 .registrar-dashboard-body {
@@ -224,7 +262,33 @@
   width: 100%;
   max-width: none;
   padding: 2rem;
-  background: var(--color-bg-soft);
+  background: #f6f3f2;
+}
+
+.registrar-dashboard .navbar {
+  background:
+    linear-gradient(135deg, rgba(0, 10, 30, 0.98) 0%, rgba(0, 33, 71, 0.96) 100%);
+  border-bottom: 1px solid color-mix(in srgb, var(--registrar-gold-light) 28%, transparent);
+}
+
+.registrar-dashboard .navbar-center-top,
+.registrar-dashboard .navbar-profile-name {
+  color: #ffffff;
+}
+
+.registrar-dashboard .navbar-date,
+.registrar-dashboard .navbar-profile-role {
+  color: color-mix(in srgb, #ffffff 66%, var(--registrar-gold-light));
+}
+
+.registrar-dashboard .navbar-profile {
+  border-left-color: color-mix(in srgb, var(--registrar-gold-light) 30%, transparent);
+}
+
+.registrar-dashboard .navbar-profile-avatar {
+  background: var(--registrar-gold);
+  color: #ffffff;
+  border: 1px solid color-mix(in srgb, var(--registrar-gold-light) 55%, transparent);
 }
 
 /* Home Dashboard */
@@ -288,7 +352,7 @@
   max-width: 64rem;
 }
 
-.registrar-dashboard-main > :is(.registrar-course-management-page, .block-management-page, .view-blocks-page).registrar-section {
+.registrar-dashboard-main > :is(.registrar-course-management-page, .block-management-page, .view-blocks-page, .assign-subject-page).registrar-section {
   width: 100%;
   max-width: none;
 }
