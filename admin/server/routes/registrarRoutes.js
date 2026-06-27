@@ -3,6 +3,7 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const StudentController = require('../controllers/studentController');
 const SubjectController = require('../controllers/subjectController');
+const BlockSubjectAssignmentController = require('../controllers/blockSubjectAssignmentController');
 const securityMiddleware = require('../securityMiddleware');
 const { requireAnyRole } = require('../authorization');
 const { apiCache, cacheMiddleware } = require('../services/apiCache');
@@ -29,6 +30,7 @@ function invalidateCacheOnSuccess(...prefixes) {
 
 const studentCachePrefixes = ['/registrar/students', '/api/registrar/students'];
 const subjectCachePrefixes = ['/registrar/subjects', '/api/registrar/subjects'];
+const subjectAssignmentCachePrefixes = ['/registrar/block-subject-assignments', '/api/registrar/block-subject-assignments'];
 const courseLoadCachePrefixes = [
   '/registrar/professor-course-loads',
   '/api/registrar/professor-course-loads',
@@ -56,6 +58,9 @@ router.get('/students/:id/enrollments', securityMiddleware.inputValidationMiddle
 router.post('/sections/:sectionId/subject-assignment', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.assignSubjectInstructor), invalidateCacheOnSuccess(...courseLoadCachePrefixes), StudentController.assignSubjectInstructorToSection);
 router.put('/sections/:sectionId/subject-assignment', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.assignSubjectInstructor), invalidateCacheOnSuccess(...courseLoadCachePrefixes), StudentController.assignSubjectInstructorToSection);
 router.delete('/sections/:sectionId/subject-assignment/:subjectId', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.sectionAssignmentTarget), invalidateCacheOnSuccess(...courseLoadCachePrefixes), StudentController.clearSubjectInstructorForSection);
+router.get('/block-subject-assignments', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.blockSubjectAssignment.query), cacheMiddleware({ ttlMs: 20 * 1000 }), BlockSubjectAssignmentController.getAssignments);
+router.post('/block-subject-assignments', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.blockSubjectAssignment.create), invalidateCacheOnSuccess(...subjectAssignmentCachePrefixes, ...courseLoadCachePrefixes), BlockSubjectAssignmentController.assignSubjects);
+router.delete('/block-subject-assignments/:id', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.blockSubjectAssignment.idParam), invalidateCacheOnSuccess(...subjectAssignmentCachePrefixes, ...courseLoadCachePrefixes), BlockSubjectAssignmentController.deleteAssignment);
 
 // Subject Routes
 router.get('/subjects', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.subject.query), cacheMiddleware({ ttlMs: 60 * 1000 }), SubjectController.getSubjects);

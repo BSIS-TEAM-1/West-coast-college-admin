@@ -4,12 +4,15 @@ const Enrollment = require('../models/Enrollment');
 class SubjectController {
   static async getSubjects(req, res) {
     try {
-      const query = { isActive: true };
-      const { course, yearLevel, semester, q } = req.query;
+      const query = {};
+      const { course, yearLevel, semester, isActive, q } = req.query;
 
       if (course) query.course = Number(course);
       if (yearLevel) query.yearLevel = Number(yearLevel);
       if (semester) query.semester = semester;
+      if (isActive !== undefined) {
+        query.isActive = String(isActive) === 'true';
+      }
       if (q) {
         query.$or = [
           { code: { $regex: String(q).trim(), $options: 'i' } },
@@ -17,7 +20,7 @@ class SubjectController {
         ];
       }
 
-      const subjects = await Subject.find(query).sort({ code: 1 });
+      const subjects = await Subject.find(query).sort({ isActive: -1, code: 1 });
       res.json({ success: true, data: subjects });
     } catch (error) {
       console.error('Error fetching subjects:', error);
