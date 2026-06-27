@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Users, Blocks, FolderOpen, UserPlus, ListTree } from 'lucide-react'
+import { User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Users, Blocks, FolderOpen, UserPlus, Plus } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
@@ -32,7 +32,7 @@ type BlockWorkspaceSelection = {
   initialSectionId?: string | null
 }
 
-type RegistrarView = 'applicants' | 'students' | 'courses' | 'course-workspace' | 'block-management' | 'view-blocks' | 'block-workspace' | 'subject-management' | 'assign-subject' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
+type RegistrarView = 'applicants' | 'students' | 'courses' | 'course-workspace' | 'block-management' | 'view-blocks' | 'block-workspace' | 'subject-management' | 'add-subject' | 'assign-subject' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
 
 type RegistrarDashboardProps = {
   username: string
@@ -45,7 +45,6 @@ const REGISTRAR_NAV_ITEMS: { id: RegistrarView; label: string; icon: any }[] = [
   { id: 'students', label: 'Student Management', icon: GraduationCap },
   { id: 'block-management', label: 'Block Management', icon: Blocks },
   { id: 'subject-management', label: 'Subject Management', icon: BookOpen },
-  { id: 'assign-subject', label: 'Subject Assignment', icon: Users },
   { id: 'courses', label: 'Professor Loads', icon: BookOpen },
   { id: 'documents', label: 'Document Archive', icon: FolderOpen },
   { id: 'announcements', label: 'Announcements', icon: Bell },
@@ -126,7 +125,9 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
       case 'block-workspace':
         return <BlockWorkspace selection={blockWorkspaceSelection} onBack={() => setView('view-blocks')} />
       case 'subject-management':
-        return <SubjectManagementPage />
+        return <SubjectManagementPage mode="catalog" />
+      case 'add-subject':
+        return <SubjectManagementPage mode="add" />
       case 'assign-subject':
         return <AssignSubjectPage />
       case 'documents':
@@ -196,17 +197,22 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
               view === id
               || (id === 'courses' && view === 'course-workspace')
               || (id === 'block-management' && (view === 'view-blocks' || view === 'block-workspace'))
+              || (id === 'subject-management' && (view === 'add-subject' || view === 'assign-subject'))
             )
             const isBlockManagement = id === 'block-management'
+            const isSubjectManagement = id === 'subject-management'
             const showBlockSubnav = isBlockManagement && isActive
-            const isViewBlocksActive = view === 'view-blocks' || view === 'block-workspace'
+            const showSubjectSubnav = isSubjectManagement && isActive
+            const isAddBlockActive = view === 'block-management'
+            const isAddSubjectActive = view === 'add-subject'
+            const isSubjectAssignmentActive = view === 'assign-subject'
 
             return (
-              <div key={id} className={isBlockManagement ? 'registrar-sidebar-group' : undefined}>
+              <div key={id} className={isBlockManagement || isSubjectManagement ? 'registrar-sidebar-group' : undefined}>
                 <button
                   type="button"
                   className={`registrar-sidebar-link ${isActive ? 'registrar-sidebar-link-active' : ''}`}
-                  onClick={() => setView(id)}
+                  onClick={() => setView(isBlockManagement ? 'view-blocks' : id)}
                   aria-current={isActive ? 'page' : undefined}
                 >
                   <Icon size={18} className="registrar-sidebar-icon" />
@@ -217,12 +223,35 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
                   <div className="registrar-sidebar-subnav" aria-label="Block management navigation">
                     <button
                       type="button"
-                      className={`registrar-sidebar-sublink ${isViewBlocksActive ? 'registrar-sidebar-sublink-active' : ''}`}
-                      onClick={() => setView('view-blocks')}
-                      aria-current={isViewBlocksActive ? 'page' : undefined}
+                      className={`registrar-sidebar-sublink ${isAddBlockActive ? 'registrar-sidebar-sublink-active' : ''}`}
+                      onClick={() => setView('block-management')}
+                      aria-current={isAddBlockActive ? 'page' : undefined}
                     >
-                      <ListTree size={15} className="registrar-sidebar-icon" />
-                      <span>View All Blocks</span>
+                      <Plus size={15} className="registrar-sidebar-icon" />
+                      <span>Add Block</span>
+                    </button>
+                  </div>
+                )}
+
+                {showSubjectSubnav && (
+                  <div className="registrar-sidebar-subnav" aria-label="Subject management navigation">
+                    <button
+                      type="button"
+                      className={`registrar-sidebar-sublink ${isAddSubjectActive ? 'registrar-sidebar-sublink-active' : ''}`}
+                      onClick={() => setView('add-subject')}
+                      aria-current={isAddSubjectActive ? 'page' : undefined}
+                    >
+                      <Plus size={15} className="registrar-sidebar-icon" />
+                      <span>Add Subject</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`registrar-sidebar-sublink ${isSubjectAssignmentActive ? 'registrar-sidebar-sublink-active' : ''}`}
+                      onClick={() => setView('assign-subject')}
+                      aria-current={isSubjectAssignmentActive ? 'page' : undefined}
+                    >
+                      <Users size={15} className="registrar-sidebar-icon" />
+                      <span>Subject Assignment</span>
                     </button>
                   </div>
                 )}

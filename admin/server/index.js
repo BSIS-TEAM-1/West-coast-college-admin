@@ -47,6 +47,7 @@ const { apiCache, cacheMiddleware } = require('./services/apiCache')
 const registrarRoutes = require('./routes/registrarRoutes')
 const applicantRoutes = require('./routes/applicantRoutes')
 const blockController = require('./controllers/blockController')
+const BlockSubjectAssignmentController = require('./controllers/blockSubjectAssignmentController')
 const { requireAnyRole, requireAdminRole, isOwnerOrAdmin, normalizeAccountType } = require('./authorization')
 
 // Initialize backup system
@@ -894,6 +895,30 @@ app.get('/assets/:assetName', staleAssetFallbackLimiter, (req, res, next) => {
 app.use('/api/applicants', applicantRoutes)
 app.use('/registrar', apiLimiter, authMiddleware, registrarRoutes)
 app.use('/api/registrar', authMiddleware, registrarRoutes)
+app.get(
+  ['/registrar/block-subject-assignments', '/api/registrar/block-subject-assignments'],
+  authMiddleware,
+  requireBlockManagementRole,
+  securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.blockSubjectAssignment.query),
+  cacheMiddleware({ ttlMs: 20 * 1000 }),
+  BlockSubjectAssignmentController.getAssignments
+)
+app.post(
+  ['/registrar/block-subject-assignments', '/api/registrar/block-subject-assignments'],
+  authMiddleware,
+  requireBlockManagementRole,
+  securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.blockSubjectAssignment.create),
+  invalidateApiCacheOnSuccess('/registrar/block-subject-assignments', '/api/registrar/block-subject-assignments', '/registrar/professor-course-loads', '/api/registrar/professor-course-loads', '/registrar/sections/', '/api/registrar/sections/'),
+  BlockSubjectAssignmentController.assignSubjects
+)
+app.delete(
+  ['/registrar/block-subject-assignments/:id', '/api/registrar/block-subject-assignments/:id'],
+  authMiddleware,
+  requireBlockManagementRole,
+  securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.blockSubjectAssignment.idParam),
+  invalidateApiCacheOnSuccess('/registrar/block-subject-assignments', '/api/registrar/block-subject-assignments', '/registrar/professor-course-loads', '/api/registrar/professor-course-loads', '/registrar/sections/', '/api/registrar/sections/'),
+  BlockSubjectAssignmentController.deleteAssignment
+)
 applicantRoutes.registerProtectedApplicantRoutes(app, authMiddleware)
 
 function invalidateApiCacheOnSuccess(...prefixes) {
