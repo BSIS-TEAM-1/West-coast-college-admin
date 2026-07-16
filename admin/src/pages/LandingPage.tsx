@@ -12,7 +12,6 @@ type LandingPageProps = {
   onOpenTermsPolicy: () => void
   onOpenCookiePolicy: () => void
   onOpenCookieSystem: () => void
-  onOpenCollaborators: () => void
   onOpenSignIn: () => void
   onOpenApplicantPortal: () => void
 }
@@ -377,7 +376,6 @@ export default function LandingPage({
   onOpenTermsPolicy,
   onOpenCookiePolicy,
   onOpenCookieSystem,
-  onOpenCollaborators,
   onOpenSignIn,
   onOpenApplicantPortal
 }: LandingPageProps) {
@@ -627,6 +625,14 @@ export default function LandingPage({
               </li>
             </ul>
 
+            <button
+              type="button"
+              className="landing-nav-signin-btn"
+              onClick={onOpenSignIn}
+            >
+              Sign In
+            </button>
+
             <div className="landing-theme-tools">
               <div className="landing-theme-picker">
                 <span>Theme</span>
@@ -671,7 +677,7 @@ export default function LandingPage({
                   community to help learners take the next confident step toward their future.
                 </p>
                 <div className="landing-hero-actions">
-                  <button type="button" className="landing-gold-btn btn" onClick={handleOpenApplyModal}>
+                  <button type="button" className="landing-gold-btn btn" onClick={handleApplicantClick}>
                     Apply Now
                   </button>
                   <a className="landing-outline-btn btn" href="#programs" onClick={() => handleSectionLinkClick('programs')}>
@@ -929,6 +935,11 @@ export default function LandingPage({
                 <p>Join your block, meet your instructors, and begin your West Coast College journey.</p>
               </article>
             </div>
+            <div className="text-end mt-5">
+              <button type="button" className="landing-gold-btn btn" onClick={handleApplicantClick}>
+                Apply Now
+              </button>
+            </div>
           </div>
         </section>
 
@@ -1037,7 +1048,6 @@ export default function LandingPage({
                 <div className="col-6">
                   <ul className="landing-footer-link-list">
                     <li><a href="#about">Vision &amp; Mission</a></li>
-                    <li><button type="button" onClick={onOpenCollaborators}>Collaborators</button></li>
                   </ul>
                 </div>
               </div>

@@ -267,6 +267,38 @@
   align-items: start;
 }
 
+.registrar-course-view-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(380px, 1fr);
+  gap: 1.1rem;
+  align-items: start;
+}
+
+.registrar-course-view-panel,
+.registrar-course-view-detail {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
+.registrar-course-view-detail {
+  height: auto;
+  position: sticky;
+  top: 24px;
+}
+
+.registrar-course-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  background: var(--color-surface);
+  margin-bottom: 0.8rem;
+}
+
 .registrar-course-directory-card,
 .registrar-course-detail-card,
 .registrar-course-alert-card,

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowRight, Blocks, BookOpen, FileText, GraduationCap, Search, Users } from 'lucide-react'
+import { FileText, GraduationCap, PencilLine, Search, X } from 'lucide-react'
 import { API_URL, getStoredToken } from '../lib/authApi'
 import type { RegistrarCourseWorkspaceSelection } from './RegistrarCourseWorkspace'
-import './RegistrarCourseManagement.css'
+import './ProfessorLoad.css'
 
 type Semester = '1st' | '2nd' | 'Summer'
 
@@ -117,7 +117,7 @@ const EMPTY_STATS: CourseLoadStats = {
 
 const EMPTY_FILTERS: CourseLoadFilterOptions = { semesters: [], years: [], courses: [] }
 
-export default function RegistrarCourseManagement({ onOpenStudents, onOpenReports, onOpenWorkspace }: Props) {
+export default function ProfessorLoad({ onOpenStudents, onOpenReports, onOpenWorkspace }: Props) {
   const workspaceCardRef = useRef<HTMLElement | null>(null)
   const refreshSignalTimerRef = useRef<number | null>(null)
   const [blockGroups, setBlockGroups] = useState<BlockGroup[]>([])
@@ -788,451 +788,352 @@ export default function RegistrarCourseManagement({ onOpenStudents, onOpenReport
               {Array.from({ length: 4 }).map((_, index) => (
                 <div key={index} className="registrar-professor-list-row registrar-professor-load-card-skeleton" aria-hidden="true">
                   <div className="registrar-skeleton registrar-skeleton-title" />
-                  <div className="registrar-skeleton registrar-skeleton-line" />
                 </div>
               ))}
             </div>
-          ) : visibleProfessorLoads.length > 0 ? (
-            <div className="registrar-professor-list">
-              {visibleProfessorLoads.map((professor) => (
-                <button
-                  key={professor.professorId}
-                  type="button"
-                  className={`registrar-professor-list-row${selectedProfessor?.professorId === professor.professorId ? ' registrar-professor-list-row-active' : ''}`}
-                  onClick={() => setSelectedProfessorId(professor.professorId)}
-                >
-                  <div className="registrar-professor-list-head">
-                    <div>
-                      <h3>{professor.label}</h3>
-                      <p>{professor.totals.subjects > 0 ? `${professor.totals.subjects} subjects active` : 'Ready for assignment'}</p>
-                    </div>
-                    <span className="registrar-professor-load-badge">{professor.totals.students} students</span>
-                  </div>
-
-                  <div className="registrar-professor-list-metrics">
-                    <span>{professor.totals.courses} courses</span>
-                    <span>{professor.totals.sections} sections</span>
-                    <span>@{professor.username || professor.displayName || 'faculty'}</span>
-                  </div>
-
-                  <div className="registrar-professor-course-tags">
-                    {professor.courseSummaries.length > 0 ? (
-                      professor.courseSummaries.slice(0, 2).map((course) => (
-                        <span key={`${professor.professorId}-${course.label}`} className="registrar-professor-course-tag">{course.label}</span>
-                      ))
-                    ) : (
-                      <span className="registrar-professor-course-tag registrar-professor-course-tag-muted">No course load yet</span>
-                    )}
-                  </div>
-                </button>
-              ))}
+          ) : visibleProfessorLoads.length === 0 ? (
+            <div className="registrar-empty-state">
+              <p>No professors found matching current filters.</p>
             </div>
           ) : (
-            <div className="registrar-course-empty-state">
-              <BookOpen size={24} />
-              <div>
-                <h3>No professor loads match this view</h3>
-                <p>Adjust the search or filters, or refresh to load current assignments.</p>
-              </div>
+            <div className="registrar-professor-list">
+              {visibleProfessorLoads.map((professor) => (
+                <div
+                  key={professor.professorId}
+                  className={`registrar-professor-list-row ${selectedProfessorId === professor.professorId ? 'registrar-professor-list-row--active' : ''}`}
+                  onClick={() => setSelectedProfessorId(professor.professorId)}
+                >
+                  <div className="registrar-professor-list-row-main">
+                    <div className="registrar-professor-list-row-header">
+                      <span className="registrar-professor-name">{professor.label}</span>
+                      <span className="registrar-professor-load-badge">{professor.totals.subjects} subjects</span>
+                    </div>
+                    <div className="registrar-professor-list-row-meta">
+                      <span>{professor.totals.sections} sections</span>
+                      <span>•</span>
+                      <span>{professor.totals.students} students</span>
+                    </div>
+                  </div>
+                  <div className="registrar-professor-list-row-courses">
+                    {professor.courseSummaries.slice(0, 3).map((course) => (
+                      <span key={course.label} className="registrar-professor-course-pill">{course.label}</span>
+                    ))}
+                    {professor.courseSummaries.length > 3 && (
+                      <span className="registrar-professor-course-pill">+{professor.courseSummaries.length - 3}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </section>
-
-          <section className="registrar-course-alert-card">
-            <header className="registrar-course-card-header">
-              <div>
-                <p className="registrar-course-card-label">Needs Attention</p>
-                <h3>Unassigned, unmatched, or orphaned classes</h3>
-              </div>
-              <span className="registrar-course-card-pill">{unassignedCourseLoads.length} rows</span>
-            </header>
-
-            {unassignedCourseLoads.length > 0 ? (
-              <div className="registrar-course-alert-list">
-                {unassignedCourseLoads.slice(0, 6).map((entry, index) => (
-                  <article key={`${entry.sectionLabel}-${entry.subjectCode}-${index}`} className="registrar-course-alert-item">
-                    <div><strong>{entry.subjectCode}</strong><span>{entry.subjectTitle}</span></div>
-                    <small>{entry.sectionLabel} | {entry.courseShortLabel}</small>
-                    <em>{
-                      entry.issueType === 'orphaned'
-                        ? `Orphaned load: ${entry.instructor}`
-                        : entry.issueType === 'tba' || entry.instructor === 'TBA'
-                          ? 'Instructor not assigned'
-                          : `Unmatched: ${entry.instructor}`
-                    }</em>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <p className="registrar-course-alert-empty">All filtered class loads are tied to active professor accounts and live block assignments.</p>
-            )}
-          </section>
         </div>
 
-        <div className="registrar-course-side-stack">
-          <section className="registrar-course-detail-card">
-            <header className="registrar-course-card-header">
-              <div>
-                <p className="registrar-course-card-label">Faculty Profile</p>
-                <h3>{selectedProfessor ? selectedProfessor.label : 'Choose from the directory'}</h3>
-              </div>
-              {selectedProfessor && (
-                <button className="registrar-btn registrar-btn-secondary" onClick={() => useProfessorForAssignment(selectedProfessor)}>
-                  <ArrowRight size={16} />
-                  Use in workspace
-                </button>
-              )}
-            </header>
-
-            {selectedProfessor ? (
-              <>
-                <div className="registrar-course-detail-summary">
-                  <div><span>Courses</span><strong>{selectedProfessor.totals.courses}</strong></div>
-                  <div><span>Sections</span><strong>{selectedProfessor.totals.sections}</strong></div>
-                  <div><span>Subjects</span><strong>{selectedProfessor.totals.subjects}</strong></div>
-                  <div><span>Students</span><strong>{selectedProfessor.totals.students}</strong></div>
-                </div>
-
-                {selectedProfessor.courseSummaries.length > 0 ? (
-                  <>
-                    <div className="registrar-course-selector-shell">
-                      <div className="registrar-course-selector-copy">
-                        <p className="registrar-course-card-label">Assigned Courses</p>
-                        <span>Pick one course to view its classes.</span>
-                      </div>
-                      <div className="registrar-course-selector" role="tablist" aria-label="Professor courses">
-                      {selectedProfessor.courseSummaries.map((course) => (
-                        <button
-                          key={`${selectedProfessor.professorId}-${course.label}`}
-                          type="button"
-                          id={`registrar-course-tab-${selectedProfessor.professorId}-${course.label}`}
-                          role="tab"
-                          aria-selected={selectedProfessorCourse?.label === course.label}
-                          className={`registrar-course-selector-card${selectedProfessorCourse?.label === course.label ? ' registrar-course-selector-card-active' : ''}`}
-                          onClick={() => setSelectedProfessorCourseLabel(course.label)}
-                        >
-                          <strong>{course.label}</strong>
-                          <span>{course.fullLabel || course.label}</span>
-                          <small>{course.subjectCount} subjects • {course.sections} sections • {course.studentCount} students</small>
-                        </button>
-                      ))}
-                    </div>
-                    </div>
-
-                    {selectedProfessorCourse && (
-                      <section
-                        className="registrar-course-focus-panel"
-                        role="tabpanel"
-                        aria-labelledby={`registrar-course-tab-${selectedProfessor.professorId}-${selectedProfessorCourse.label}`}
+        <div className="registrar-course-main-stack">
+          {selectedProfessor ? (
+            <>
+              <section className="registrar-course-detail-card">
+                <header className="registrar-course-card-header">
+                  <div>
+                    <p className="registrar-course-card-label">Selected Faculty</p>
+                    <h3>{selectedProfessor.label}</h3>
+                  </div>
+                  <div className="registrar-course-card-actions">
+                    {selectedProfessor.courseSummaries.length > 1 && (
+                      <select
+                        value={selectedProfessorCourseLabel}
+                        onChange={(e) => setSelectedProfessorCourseLabel(e.target.value)}
+                        className="registrar-select-sm"
                       >
-                        <header className="registrar-course-focus-head">
-                          <div>
-                            <p className="registrar-course-card-label">Course Detail</p>
-                            <h4>{selectedProfessorCourse.fullLabel || selectedProfessorCourse.label}</h4>
-                            <p className="registrar-course-focus-copy">
-                              Classes under this course.
-                            </p>
-                          </div>
-                          <div className="registrar-course-focus-head-actions">
-                            <span className="registrar-course-card-pill">{selectedProfessorCourse.subjectCount} subjects</span>
-                            <button className="registrar-btn registrar-btn-secondary" onClick={() => handleCreateAssignmentForProfessor(selectedProfessor)}>
-                              <Users size={16} />
-                              Create assignment
-                            </button>
-                          </div>
-                        </header>
-
-                        <div className="registrar-course-focus-metrics">
-                          <span><strong>{selectedProfessorCourse.sections}</strong> sections</span>
-                          <span><strong>{selectedProfessorCourse.studentCount}</strong> students</span>
-                          <span><strong>{selectedProfessorCourseAssignments.length}</strong> scheduled classes</span>
-                        </div>
-
-                        {selectedProfessorCourseAssignments.length > 0 ? (
-                          <div
-                            className="registrar-course-subject-table"
-                            role="table"
-                            aria-label={`${selectedProfessorCourse.fullLabel || selectedProfessorCourse.label} subject assignments`}
-                          >
-                            <div className="registrar-course-subject-head">
-                              <span>Subject</span>
-                              <span>Block</span>
-                              <span>Schedule</span>
-                              <span>Room</span>
-                              <span>Students</span>
-                              <span>Actions</span>
-                            </div>
-                            <div className="registrar-course-subject-body">
-                              {selectedProfessorCourseAssignments.map((assignment) => (
-                                <div
-                                  key={`${selectedProfessor.professorId}-${assignment.sectionId}-${assignment.subjectId}`}
-                                  className="registrar-course-subject-row"
-                                  role="row"
-                                >
-                                  <div className="registrar-course-subject-main" data-label="Subject">
-                                    <strong>{assignment.subjectCode}</strong>
-                                    <span>{assignment.subjectTitle}</span>
-                                  </div>
-                                  <span data-label="Block">{assignment.sectionLabel}</span>
-                                  <span data-label="Schedule">{assignment.schedule}</span>
-                                  <span data-label="Room">{assignment.room}</span>
-                                  <span data-label="Students" className="registrar-course-subject-students">
-                                    {(() => {
-                                      // Get section to find actual block student count (currentPopulation)
-                                      const section = sections.find((s) => s._id === assignment.sectionId)
-                                      return section?.currentPopulation ?? assignment.studentCount
-                                    })()}
-                                  </span>
-                                  <div data-label="Actions" className="registrar-course-subject-actions">
-                                    <button
-                                      className="registrar-btn registrar-btn-secondary"
-                                      onClick={() => handleEditProfessorCourseAssignment(selectedProfessor, assignment)}
-                                      disabled={assigning}
-                                    >
-                                      Edit
-                                    </button>
-                                    <button
-                                      className="registrar-btn registrar-course-danger-btn"
-                                      onClick={() => void handleDeleteProfessorCourseAssignment(assignment)}
-                                      disabled={assigning}
-                                    >
-                                      Unassign
-                                    </button>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ) : (
-                          <p className="registrar-professor-load-empty">No scheduled classes found for the selected course.</p>
-                        )}
-                      </section>
+                        {selectedProfessor.courseSummaries.map((course) => (
+                          <option key={course.label} value={course.label}>{course.fullLabel}</option>
+                        ))}
+                      </select>
                     )}
-                  </>
-                ) : (
-                  <article className="registrar-course-summary-item">
-                    <strong>No assigned load yet</strong>
-                    <span>This professor is ready for a new section or subject.</span>
-                  </article>
-                )}
-              </>
-            ) : (
-              <div className="registrar-course-empty-state registrar-course-empty-state-compact">
-                <Users size={22} />
-                <div>
-                  <h3>No professor selected</h3>
-                  <p>Select a professor from the directory to inspect their load and send them into the assignment workspace.</p>
+                  </div>
+                </header>
+
+                <div className="registrar-professor-detail-stats">
+                  <div className="registrar-professor-detail-stat">
+                    <span>Total Subjects</span>
+                    <strong>{selectedProfessor.totals.subjects}</strong>
+                  </div>
+                  <div className="registrar-professor-detail-stat">
+                    <span>Sections</span>
+                    <strong>{selectedProfessor.totals.sections}</strong>
+                  </div>
+                  <div className="registrar-professor-detail-stat">
+                    <span>Total Students</span>
+                    <strong>{selectedProfessor.totals.students}</strong>
+                  </div>
                 </div>
-              </div>
-            )}
-          </section>
 
-        </div>
-      </div>
-
-      <div className="registrar-course-workspace-grid">
-        <section ref={workspaceCardRef} className="assignment-section registrar-course-workspace-card">
-          <header className="registrar-course-card-header">
-            <div>
-              <p className="registrar-course-card-label">{editingAssignmentId ? 'Update Assignment' : 'Create Assignment'}</p>
-              <h3>{editingAssignmentId ? 'Update professor assignment for this block' : 'Create a new professor assignment for this block'}</h3>
-            </div>
-          </header>
-
-          <p className="registrar-course-helper-copy">
-            Select a block, subject, professor, schedule, and room to create or update a teaching assignment.
-          </p>
-
-          <div className="assignment-form">
-            <label>
-              Block Group
-              <select value={selectedGroupId} onChange={(e) => setSelectedGroupId(e.target.value)}>
-                <option value="">Select block group</option>
-                {blockGroups.map((group) => (
-                  <option key={group._id} value={group._id}>
-                    {formatBlockGroupLabel(group.name)} ({group.semester} | {formatAcademicYear(group.year)})
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              Section
-              <select value={selectedSectionId} onChange={(e) => setSelectedSectionId(e.target.value)} disabled={!selectedGroupId}>
-                <option value="">Select section</option>
-                {sortedSections.map((section) => (
-                  <option key={section._id} value={section._id}>
-                    Block-{formatSectionShortLabel(section.sectionCode).replace('-', '')} ({section.currentPopulation}/{section.capacity})
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              Subject
-              <select value={selectedSubjectId} onChange={(e) => setSelectedSubjectId(e.target.value)} disabled={!selectedGroupId || Boolean(editingAssignmentId)}>
-                <option value="">Select subject</option>
-                {subjects.map((subject) => (
-                  <option key={subject._id} value={subject._id}>
-                    {subject.code} - {subject.title}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              Professor
-              <select value={subjectInstructorName} onChange={(e) => setSubjectInstructorName(e.target.value)} disabled={!selectedSectionId || !selectedSubjectId || professors.length === 0}>
-                <option value="">Select professor</option>
-                {professors.map((professor) => <option key={professor._id} value={professor.label}>{professor.label}</option>)}
-              </select>
-            </label>
-
-            <label className="registrar-course-days-field">
-              Class Days
-              <div className="day-checkbox-group">
-                {dayOptions.map((dayCode) => (
-                  <label key={dayCode} className="day-checkbox-item">
-                    <input
-                      type="checkbox"
-                      checked={subjectDaySelections.includes(dayCode)}
-                      onChange={() => setSubjectDaySelections((prev) => prev.includes(dayCode) ? prev.filter((day) => day !== dayCode) : [...prev, dayCode])}
-                      disabled={!selectedSectionId || !selectedSubjectId}
-                    />
-                    <span>{dayCode}</span>
-                  </label>
-                ))}
-              </div>
-            </label>
-
-            <label>
-              Time
-              <div className="time-box-group">
-                <input type="time" className="time-box-input" value={subjectTimeStart} onChange={(e) => setSubjectTimeStart(e.target.value)} disabled={!selectedSectionId || !selectedSubjectId} />
-                <span className="time-box-separator">to</span>
-                <input type="time" className="time-box-input" value={subjectTimeEnd} onChange={(e) => setSubjectTimeEnd(e.target.value)} disabled={!selectedSectionId || !selectedSubjectId} />
-              </div>
-            </label>
-
-            <label>
-              Room
-              <input type="text" value={subjectRoom} onChange={(e) => setSubjectRoom(e.target.value)} placeholder="e.g. Room 204" disabled={!selectedSectionId || !selectedSubjectId} />
-            </label>
-          </div>
-
-          <div className="registrar-course-workspace-footer">
-            <div className="registrar-course-workspace-meta">
-              <article><span>Selected block group</span><strong>{selectedGroup ? `${formatBlockGroupLabel(selectedGroup.name)} | ${selectedGroup.semester}` : 'Not selected'}</strong></article>
-              <article><span>Selected section</span><strong>{selectedSection ? `Block-${formatSectionShortLabel(selectedSection.sectionCode).replace('-', '')}` : 'Not selected'}</strong></article>
-              <article><span>Students in section</span><strong>{selectedSection ? `${sectionStudents.length} students` : 'Select a section'}</strong></article>
-            </div>
-            <div className="registrar-course-footer-actions">
-              {editingAssignmentId && (
-                <button className="registrar-btn registrar-btn-secondary" onClick={clearAssignmentForm} disabled={assigning}>
-                  Cancel edit
-                </button>
-              )}
-              <button className="registrar-btn" onClick={() => void handleAssignSubjectInstructor()} disabled={!canAssign}>
-                {assigning ? 'Saving assignment...' : editingAssignmentId ? 'Update assignment' : 'Create assignment'}
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <div className="registrar-course-support-stack">
-          <section className="registrar-course-section-card">
-            <header className="registrar-course-card-header">
-              <div>
-                <p className="registrar-course-card-label">Read / Manage Assignments</p>
-                <h3>{selectedSection ? `Current assignments for Block-${formatSectionShortLabel(selectedSection.sectionCode).replace('-', '')}` : 'Select a section to manage assignments'}</h3>
-              </div>
-              {selectedSection && <span className="registrar-course-card-pill">{sectionAssignments.length} assignments</span>}
-            </header>
-
-            {selectedSection ? (
-              sectionAssignmentsLoading ? (
-                <p className="registrar-course-alert-empty">Loading current block assignments...</p>
-              ) : sectionAssignments.length > 0 ? (
-                <div className="registrar-course-manager-list">
-                  {sectionAssignments.map((assignment) => (
-                    <article key={assignment.subjectId} className="registrar-course-manager-item">
-                      <div className="registrar-course-assignment-row-head">
-                        <div><strong>{assignment.subjectCode}</strong><span>{assignment.subjectTitle}</span></div>
-                        <span className="registrar-course-assignment-chip">{selectedSection.currentPopulation} students</span>
-                      </div>
-                      <div className="registrar-course-assignment-row-meta">
-                        <span>{assignment.instructor}</span>
-                        <span>{assignment.schedule}</span>
-                        <span>{assignment.room}</span>
-                      </div>
-                      <div className="registrar-course-inline-actions">
-                        <button className="registrar-btn registrar-btn-secondary" onClick={() => handleEditAssignment(assignment)} disabled={assigning}>
-                          Edit
-                        </button>
-                        <button className="registrar-btn registrar-course-danger-btn" onClick={() => void handleDeleteAssignment(assignment)} disabled={assigning}>
-                          Unassign
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <p className="registrar-course-alert-empty">No professor assignments exist for this section yet. Use the form on the left to create the first one.</p>
-              )
-            ) : (
-              <p className="registrar-course-alert-empty">Choose a block group and section first to read, update, or delete assignments.</p>
-            )}
-          </section>
-
-          <section className="registrar-course-section-card">
-            <header className="registrar-course-card-header">
-              <div>
-                <p className="registrar-course-card-label">Block Snapshot</p>
-                <h3>{selectedSection ? `Block-${formatSectionShortLabel(selectedSection.sectionCode).replace('-', '')}` : 'Select a section'}</h3>
-              </div>
-              {selectedSection && <span className="registrar-course-card-pill">{selectedSection.currentPopulation}/{selectedSection.capacity}</span>}
-            </header>
-
-            {selectedSection ? (
-              <>
-                <div className="registrar-course-section-meta">
-                  <span>{selectedGroup ? formatBlockGroupLabel(selectedGroup.name) : 'Block group pending'}</span>
-                  <span>{selectedSubject ? `${selectedSubject.code} | ${selectedSubject.title}` : 'Choose a subject to continue'}</span>
-                </div>
-                {sectionStudentsLoading ? (
-                  <p className="registrar-course-alert-empty">Loading section roster...</p>
-                ) : sectionStudents.length > 0 ? (
-                  <div className={`registrar-course-student-list${sectionStudents.length > 8 ? ' is-scrollable' : ''}`}>
-                    {sectionStudents.map((student) => (
-                      <article key={student._id} className="registrar-course-student-row">
-                        <div><strong>{student.lastName}, {student.firstName}</strong><span>{student.studentNumber}</span></div>
-                        <small>{student.studentStatus || 'Enrolled'}</small>
-                      </article>
-                    ))}
+                {selectedProfessorCourseAssignments.length === 0 ? (
+                  <div className="registrar-empty-state">
+                    <p>No assignments found for this professor in the selected course.</p>
                   </div>
                 ) : (
-                  <p className="registrar-course-alert-empty">No students are assigned to this section yet.</p>
+                  <div className="registrar-assignment-table-wrapper">
+                    <table className="registrar-assignment-table">
+                      <thead>
+                        <tr>
+                          <th>Subject</th>
+                          <th>Section</th>
+                          <th>Schedule</th>
+                          <th>Room</th>
+                          <th>Students</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedProfessorCourseAssignments.map((assignment) => (
+                          <tr key={`${assignment.subjectId}-${assignment.sectionId}`}>
+                            <td>
+                              <div className="registrar-assignment-subject">
+                                <span className="registrar-assignment-code">{assignment.subjectCode}</span>
+                                <span className="registrar-assignment-title">{assignment.subjectTitle}</span>
+                              </div>
+                            </td>
+                            <td>{assignment.sectionLabel}</td>
+                            <td>{assignment.schedule}</td>
+                            <td>{assignment.room}</td>
+                            <td>{assignment.studentCount}</td>
+                            <td>
+                              <button
+                                className="registrar-btn-icon registrar-btn-icon--edit"
+                                onClick={() => handleEditProfessorCourseAssignment(selectedProfessor, assignment)}
+                                title="Edit assignment"
+                              >
+                                <PencilLine size={14} />
+                              </button>
+                              <button
+                                className="registrar-btn-icon registrar-btn-icon--delete"
+                                onClick={() => handleDeleteProfessorCourseAssignment(assignment)}
+                                title="Remove assignment"
+                              >
+                                <X size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
-              </>
-            ) : (
-              <div className="registrar-course-empty-state registrar-course-empty-state-compact">
-                <Blocks size={22} />
-                <div>
-                  <h3>Section context appears here</h3>
-                  <p>Pick a block group and section to preview student counts before saving an instructor assignment.</p>
-                </div>
-              </div>
-            )}
-          </section>
-        </div>
-      </div>
+              </section>
 
-      <div
-        className={`registrar-refresh-signal${showRefreshSignal ? ' is-visible' : ''}`}
-        aria-hidden={!showRefreshSignal}
-      >
-        <span className="registrar-refresh-signal-rail" />
-        <span className="registrar-refresh-signal-label">Refreshing load board</span>
+              <section className="registrar-course-workspace-card" ref={workspaceCardRef}>
+                <header className="registrar-course-card-header">
+                  <div>
+                    <p className="registrar-course-card-label">Assignment Workspace</p>
+                    <h3>Assign Subject to Professor</h3>
+                  </div>
+                  {showRefreshSignal && <span className="registrar-refresh-signal">Updated</span>}
+                </header>
+
+                <div className="registrar-workspace-form">
+                  <div className="registrar-form-row">
+                    <label>
+                      <span>Block Group</span>
+                      <select
+                        value={selectedGroupId}
+                        onChange={(e) => setSelectedGroupId(e.target.value)}
+                        disabled={assigning}
+                      >
+                        <option value="">Select block group</option>
+                        {blockGroups.map((group) => (
+                          <option key={group._id} value={group._id}>
+                            {formatBlockGroupLabel(group.name)} ({group.semester} {group.year})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Section</span>
+                      <select
+                        value={selectedSectionId}
+                        onChange={(e) => setSelectedSectionId(e.target.value)}
+                        disabled={assigning || !selectedGroupId}
+                      >
+                        <option value="">Select section</option>
+                        {sortedSections.map((section) => (
+                          <option key={section._id} value={section._id}>
+                            {formatSectionShortLabel(section.sectionCode)} ({section.currentPopulation}/{section.capacity})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="registrar-form-row">
+                    <label>
+                      <span>Subject</span>
+                      <select
+                        value={selectedSubjectId}
+                        onChange={(e) => setSelectedSubjectId(e.target.value)}
+                        disabled={assigning || !selectedGroupId}
+                      >
+                        <option value="">Select subject</option>
+                        {subjects.map((subject) => (
+                          <option key={subject._id} value={subject._id}>
+                            {subject.code} - {subject.title}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Professor</span>
+                      <select
+                        value={subjectInstructorName}
+                        onChange={(e) => setSubjectInstructorName(e.target.value)}
+                        disabled={assigning}
+                      >
+                        <option value="">Select professor</option>
+                        {professorLoads.map((professor) => (
+                          <option key={professor.professorId} value={professor.label}>
+                            {professor.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="registrar-form-row">
+                    <label>
+                      <span>Days</span>
+                      <div className="registrar-day-selector">
+                        {dayOptions.map((day) => (
+                          <button
+                            key={day}
+                            type="button"
+                            className={`registrar-day-btn${subjectDaySelections.includes(day) ? ' registrar-day-btn--active' : ''}`}
+                            onClick={() => {
+                              setSubjectDaySelections((prev) =>
+                                prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
+                              )
+                            }}
+                            disabled={assigning}
+                          >
+                            {day}
+                          </button>
+                        ))}
+                      </div>
+                    </label>
+                    <div className="registrar-form-row-split">
+                      <label>
+                        <span>Start Time</span>
+                        <input
+                          type="time"
+                          value={subjectTimeStart}
+                          onChange={(e) => setSubjectTimeStart(e.target.value)}
+                          disabled={assigning}
+                        />
+                      </label>
+                      <label>
+                        <span>End Time</span>
+                        <input
+                          type="time"
+                          value={subjectTimeEnd}
+                          onChange={(e) => setSubjectTimeEnd(e.target.value)}
+                          disabled={assigning}
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="registrar-form-row">
+                    <label>
+                      <span>Room</span>
+                      <input
+                        type="text"
+                        value={subjectRoom}
+                        onChange={(e) => setSubjectRoom(e.target.value)}
+                        placeholder="e.g., RM-101"
+                        disabled={assigning}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="registrar-workspace-actions">
+                    <button
+                      type="button"
+                      className="registrar-btn registrar-btn-secondary"
+                      onClick={clearAssignmentForm}
+                      disabled={assigning}
+                    >
+                      Clear Form
+                    </button>
+                    <button
+                      type="button"
+                      className="registrar-btn"
+                      onClick={handleAssignSubjectInstructor}
+                      disabled={!canAssign || assigning}
+                    >
+                      {assigning ? 'Assigning...' : 'Assign Subject'}
+                    </button>
+                  </div>
+                </div>
+
+                {selectedSectionId && (
+                  <div className="registrar-section-preview">
+                    <h4>Section Students Preview</h4>
+                    {sectionStudentsLoading ? (
+                      <p>Loading students...</p>
+                    ) : sectionStudents.length === 0 ? (
+                      <p>No students enrolled in this section.</p>
+                    ) : (
+                      <div className="registrar-student-list">
+                        {sectionStudents.map((student) => (
+                          <div key={student._id} className="registrar-student-item">
+                            <span>{student.studentNumber}</span>
+                            <span>{student.firstName} {student.lastName}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {selectedSectionId && sectionAssignments.length > 0 && (
+                  <div className="registrar-section-assignments">
+                    <h4>Current Section Assignments</h4>
+                    <div className="registrar-assignment-list">
+                      {sectionAssignments.map((assignment) => (
+                        <div key={assignment.subjectId} className="registrar-assignment-item">
+                          <div className="registrar-assignment-item-main">
+                            <span className="registrar-assignment-code">{assignment.subjectCode}</span>
+                            <span className="registrar-assignment-schedule">{assignment.schedule}</span>
+                            <span className="registrar-assignment-room">{assignment.room}</span>
+                          </div>
+                          <div className="registrar-assignment-item-actions">
+                            <button
+                              className="registrar-btn-icon registrar-btn-icon--edit"
+                              onClick={() => handleEditAssignment(assignment)}
+                              title="Edit assignment"
+                            >
+                              <PencilLine size={14} />
+                            </button>
+                            <button
+                              className="registrar-btn-icon registrar-btn-icon--delete"
+                              onClick={() => handleDeleteAssignment(assignment)}
+                              title="Remove assignment"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
+            </>
+          ) : (
+            <div className="registrar-empty-state">
+              <p>Select a professor from the directory to view their load and manage assignments.</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

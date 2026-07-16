@@ -527,15 +527,6 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
     return Math.round(change * 10) / 10; // Round to 1 decimal place
   };
 
-  const recentErrorLogs = logs.filter((log) => log.level.toUpperCase() === 'ERROR');
-  const latestErrorLog = recentErrorLogs[0] || null;
-  const errorModuleLabel = latestErrorLog?.module
-    ? `${latestErrorLog.module.charAt(0).toUpperCase()}${latestErrorLog.module.slice(1).toLowerCase()}`
-    : 'System';
-  const errorSummaryLabel = metrics.errorCount === 0
-    ? 'No active errors'
-    : `${metrics.errorCount} ${errorModuleLabel} ${metrics.errorCount === 1 ? 'error' : 'errors'}`;
-  const latestErrorMessage = latestErrorLog?.message || 'No recent error details available.';
   
   if (loading) {
     return (
@@ -706,28 +697,6 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
               )}
             </div>
             <p className="status-card-note">Last: {metrics.lastBackup || 'N/A'}</p>
-          </div>
-
-          <div className="status-card">
-            <div className="status-card-header">
-              <div>
-                <p className="status-card-label">Errors (24h)</p>
-                <div className="error-card-value-row">
-                  <p className="status-card-value status-card-value--error">{metrics.errorCount}</p>
-                  <span>{errorSummaryLabel}</span>
-                </div>
-              </div>
-            </div>
-            <div className="status-card-meta">
-              <span
-                className={`status-badge ${metrics.errorCount > 50 ? 'high' : metrics.errorCount > 20 ? 'medium' : 'low'} ${metrics.errorCount > 20 ? 'clickable-warning' : ''}`}
-                onClick={() => metrics.errorCount > 20 && openWarningDetails('errors')}
-                title={metrics.errorCount > 20 ? 'Click to see details' : ''}
-              >
-                {metrics.errorCount > 50 ? 'High' : metrics.errorCount > 20 ? 'Medium' : 'Low'}
-              </span>
-              <span className="status-card-note">{latestErrorMessage}</span>
-            </div>
           </div>
         </div>
       </div>

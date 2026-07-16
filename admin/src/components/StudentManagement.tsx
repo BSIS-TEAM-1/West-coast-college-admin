@@ -10,7 +10,6 @@ import {
   History,
   Layers3,
   PencilLine,
-  Plus,
   Search,
   Users,
   X
@@ -2319,10 +2318,6 @@ export default function StudentManagement() {
             <button type="button" className="student-workspace__secondary-button" onClick={() => loadStudents('refresh')} disabled={refreshing}>
               <History size={16} />
               {refreshing ? 'Refreshing...' : 'Refresh'}
-            </button>
-            <button type="button" className="student-workspace__primary-button" onClick={() => setFormModal({ mode: 'create' })}>
-              <Plus size={16} />
-              Add Student
             </button>
           </div>
         </header>
