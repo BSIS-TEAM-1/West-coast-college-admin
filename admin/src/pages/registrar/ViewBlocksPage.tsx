@@ -372,7 +372,6 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
                 <div className="block-current-card">
                   <span className="block-current-label">Selected Block Snapshot</span>
                   <strong>{`Block-${formatBlockColumnLabel(selectedGroup.name).replace('-', '')}`}</strong>
-                  <p>{formatBlockLabel(selectedGroup.name)} is loaded and ready for section review.</p>
                   <div className="block-current-meta">
                     <span>{`${selectedGroup.semester} ${selectedGroup.year}`}</span>
                     <span>{selectedYearLevel ? `Year ${selectedYearLevel}` : 'No year selected'}</span>
@@ -383,9 +382,6 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
                 <div className="block-view-actions">
                   <button type="button" className="registrar-btn" onClick={handleOpenWorkspace}>
                     Open Workspace
-                  </button>
-                  <button type="button" className="registrar-btn registrar-btn-secondary" onClick={() => void fetchSections(selectedGroup._id)} disabled={loading}>
-                    Refresh Sections
                   </button>
                   <button type="button" className="section-delete-btn" onClick={() => void handleDeleteGroup()} disabled={loading}>
                     Delete Block

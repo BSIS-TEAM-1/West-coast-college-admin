@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, BookOpen, Users } from 'lucide-react'
 import { API_URL, getStoredToken } from '../lib/authApi'
-import './RegistrarCourseManagement.css'
+import './ProfessorLoad.css'
 import './RegistrarCourseWorkspace.css'
 
 type Semester = '1st' | '2nd' | 'Summer'

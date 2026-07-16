@@ -11,7 +11,7 @@ import PersonalDetails from './PersonalDetails'
 import CorGeneration from './CorGeneration'
 import DocumentManagement from './DocumentManagement'
 import StudentManagement from '../components/StudentManagement'
-import RegistrarCourseManagement from '../components/RegistrarCourseManagement'
+import ProfessorLoad from '../components/ProfessorLoad'
 import RegistrarCourseWorkspace, { type RegistrarCourseWorkspaceSelection } from '../components/RegistrarCourseWorkspace'
 import RegistrarReportsPanel from './RegistrarReportsPanel'
 import ApplicantQueue from './ApplicantQueue'
@@ -20,6 +20,7 @@ import ViewBlocksPage from './registrar/ViewBlocksPage'
 import BlockWorkspace from './registrar/BlockWorkspace'
 import AssignSubjectPage from './registrar/AssignSubjectPage'
 import SubjectManagementPage from './registrar/SubjectManagementPage'
+import StudentWizard from '../components/AddStudent/StudentWizard'
 import './RegistrarDashboard.css'
 
 type Semester = '1st' | '2nd' | 'Summer'
@@ -32,7 +33,7 @@ type BlockWorkspaceSelection = {
   initialSectionId?: string | null
 }
 
-type RegistrarView = 'applicants' | 'students' | 'courses' | 'course-workspace' | 'block-management' | 'view-blocks' | 'block-workspace' | 'subject-management' | 'add-subject' | 'assign-subject' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
+type RegistrarView = 'applicants' | 'students' | 'add-student' | 'courses' | 'course-workspace' | 'block-management' | 'view-blocks' | 'block-workspace' | 'subject-management' | 'add-subject' | 'assign-subject' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
 
 type RegistrarDashboardProps = {
   username: string
@@ -100,11 +101,18 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
     switch (view) {
       case 'students':
         return <StudentManagement />
+      case 'add-student':
+        return (
+          <StudentWizard
+            onClose={() => setView('students')}
+            onSuccess={() => setView('students')}
+          />
+        )
       case 'applicants':
         return <ApplicantQueue />
       case 'courses':
         return (
-          <RegistrarCourseManagement
+          <ProfessorLoad
             onOpenStudents={() => setView('students')}
             onOpenReports={() => setView('reports')}
             onOpenWorkspace={(selection) => {
@@ -198,17 +206,21 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
               || (id === 'courses' && view === 'course-workspace')
               || (id === 'block-management' && (view === 'view-blocks' || view === 'block-workspace'))
               || (id === 'subject-management' && (view === 'add-subject' || view === 'assign-subject'))
+              || (id === 'students' && view === 'add-student')
             )
             const isBlockManagement = id === 'block-management'
             const isSubjectManagement = id === 'subject-management'
+            const isStudentManagement = id === 'students'
             const showBlockSubnav = isBlockManagement && isActive
             const showSubjectSubnav = isSubjectManagement && isActive
+            const showStudentSubnav = isStudentManagement && isActive
             const isAddBlockActive = view === 'block-management'
             const isAddSubjectActive = view === 'add-subject'
             const isSubjectAssignmentActive = view === 'assign-subject'
+            const isAddStudentActive = view === 'add-student'
 
             return (
-              <div key={id} className={isBlockManagement || isSubjectManagement ? 'registrar-sidebar-group' : undefined}>
+              <div key={id} className={isBlockManagement || isSubjectManagement || isStudentManagement ? 'registrar-sidebar-group' : undefined}>
                 <button
                   type="button"
                   className={`registrar-sidebar-link ${isActive ? 'registrar-sidebar-link-active' : ''}`}
@@ -218,6 +230,20 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
                   <Icon size={18} className="registrar-sidebar-icon" />
                   <span>{label}</span>
                 </button>
+
+                {showStudentSubnav && (
+                  <div className="registrar-sidebar-subnav" aria-label="Student management navigation">
+                    <button
+                      type="button"
+                      className={`registrar-sidebar-sublink ${isAddStudentActive ? 'registrar-sidebar-sublink-active' : ''}`}
+                      onClick={() => setView('add-student')}
+                      aria-current={isAddStudentActive ? 'page' : undefined}
+                    >
+                      <Plus size={15} className="registrar-sidebar-icon" />
+                      <span>Add Student</span>
+                    </button>
+                  </div>
+                )}
 
                 {showBlockSubnav && (
                   <div className="registrar-sidebar-subnav" aria-label="Block management navigation">

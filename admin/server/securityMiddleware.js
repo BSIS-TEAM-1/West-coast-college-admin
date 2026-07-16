@@ -171,11 +171,13 @@ function inputValidationMiddleware(options = {}) {
       }
 
       if (querySchema) {
+        console.log('Before validation - req.query:', req.query);
         const { error, value } = querySchema.validate(req.query, {
           abortEarly: false,
           convert: true,
           stripUnknown: true
         });
+        console.log('After validation - value:', value, 'error:', error);
         if (error) {
           return res.status(400).json({
             error: 'Invalid query parameters.',
@@ -429,6 +431,10 @@ const schemas = {
   block: {
     assignableStudents: {
       query: Joi.object({
+        semester: Joi.string().valid('1st', '2nd', 'Summer').required(),
+        year: Joi.number().integer().min(2000).max(3000).required(),
+        q: Joi.string().allow('').optional(),
+        groupId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
         subjectId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
         blockId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
         page: Joi.number().integer().min(1).optional(),

@@ -464,16 +464,6 @@ function App() {
         setShowCollaboratorsPage(false)
         setShowApplicantPortal(true)
       }}
-      onOpenCollaborators={() => {
-        setShowSignIn(false)
-        setShowSignUp(false)
-        setShowCookiePolicyPage(false)
-        setShowCookieSystemPage(false)
-        setShowTermsPolicyPage(false)
-        setShowCollaboratorsPage(true)
-        setShowApplicantPortal(false)
-        setShowAboutPage(false)
-      }}
     />
   )
 }

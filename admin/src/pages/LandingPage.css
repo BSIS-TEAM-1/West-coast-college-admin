@@ -131,6 +131,25 @@
   flex: 0 0 auto;
 }
 
+.landing-nav-signin-btn {
+  border: 1px solid var(--landing-gold);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--landing-gold);
+  padding: 0.45rem 1.1rem;
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: background-color 0.2s ease, color 0.2s ease;
+  margin-right: 0.75rem;
+}
+
+.landing-nav-signin-btn:hover {
+  background: var(--landing-gold);
+  color: #ffffff;
+}
+
 .landing-theme-picker {
   display: flex;
   align-items: center;
@@ -1384,6 +1403,11 @@
 [data-theme='dark'] .landing-theme-picker,
 [data-theme='dark'] .landing-square-btn:hover:not(:disabled) {
   background: #212220;
+}
+
+[data-theme='dark'] .landing-theme-select {
+  background: #212220;
+  color: #f3f0ef;
 }
 
 [data-theme='dark'] .landing-drawer-close {

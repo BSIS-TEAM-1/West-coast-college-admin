@@ -64,8 +64,14 @@ class StudentService {
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.message || 'Failed to create student');
+      const errorData = await response.json().catch(() => ({}));
+      console.error('Server error response:', errorData);
+      console.error('Response status:', response.status);
+      console.error('Error details:', errorData.details);
+      const errorMessage = errorData.details && errorData.details.length > 0
+        ? errorData.details.join(', ')
+        : (errorData.message || errorData.error || 'Failed to create student');
+      throw new Error(errorMessage);
     }
 
     return response.json();

@@ -1,0 +1,616 @@
+/* Student Wizard Styles - Consistent with Block Wizard - Full Page Layout */
+.student-wizard-page {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem 0 1.5rem;
+}
+
+.student-wizard-container {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+  max-width: 940px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: clamp(1rem, 2.2vw, 1.55rem);
+}
+
+/* Wizard Header */
+.wizard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.wizard-header h1 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.wizard-close {
+  background: var(--color-bg-soft);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 24px;
+  line-height: 1;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.wizard-close:hover {
+  background: var(--color-border);
+  color: var(--color-text);
+}
+
+/* Progress Indicator - Block Wizard Style */
+.wizard-progress {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.5rem;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.progress-step {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: var(--color-text-muted);
+}
+
+.progress-step:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: calc(100% - 1.1rem);
+  width: 2.2rem;
+  height: 1px;
+  background: var(--color-border);
+}
+
+.progress-step-number {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-bg-soft);
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.progress-step small,
+.progress-step strong {
+  display: block;
+  line-height: 1.15;
+}
+
+.progress-step small {
+  margin-bottom: 0.16rem;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.055em;
+}
+
+.progress-step strong {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.progress-step.active .progress-step-number,
+.progress-step.completed .progress-step-number {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.progress-step.active strong,
+.progress-step.completed strong {
+  color: var(--color-text);
+}
+
+/* Wizard Content */
+.wizard-content {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 0.5rem;
+}
+
+.wizard-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.wizard-content::-webkit-scrollbar-track {
+  background: var(--color-bg-soft);
+  border-radius: 3px;
+}
+
+.wizard-content::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+.wizard-step {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.wizard-step-header {
+  margin-bottom: 0.75rem;
+}
+
+.wizard-step-header h2 {
+  margin: 0 0 0.25rem 0;
+  color: var(--color-text);
+  font-size: 1.15rem;
+  line-height: 1.2;
+}
+
+.wizard-step-header p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+/* Form Grid - Block Wizard Style */
+.wizard-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.form-group--full {
+  grid-column: 1 / -1;
+}
+
+.form-group {
+  display: grid;
+  gap: 0.38rem;
+  min-width: 0;
+}
+
+.form-group label {
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.055em;
+}
+
+.required {
+  color: #dc2626;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.92rem;
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  transition: all 0.2s;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
+  border-color: var(--color-primary);
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.input-error {
+  border-color: #dc2626;
+}
+
+.input-error:focus {
+  outline-color: color-mix(in srgb, #dc2626 28%, transparent);
+  border-color: #dc2626;
+}
+
+.input-disabled {
+  background: var(--color-bg-soft);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.input-disabled:focus {
+  outline: none;
+}
+
+.field-error {
+  font-size: 0.82rem;
+  color: #dc2626;
+  font-weight: 700;
+}
+
+.field-hint {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.input-with-action {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.input-with-action input {
+  flex: 1;
+}
+
+.input-with-action button {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 1rem;
+}
+
+.form-section {
+  grid-column: 1 / -1;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.form-section h3 {
+  margin: 0 0 1rem 0;
+  color: var(--color-text);
+  font-size: 1rem;
+}
+
+.wizard-note {
+  grid-column: 1 / -1;
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--color-bg-soft);
+  border-left: 3px solid #f59e0b;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+/* Review Step - Block Wizard Style */
+.review-sections {
+  display: grid;
+  gap: 1rem;
+}
+
+.review-section {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-soft);
+  overflow: hidden;
+}
+
+.review-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.review-section-header h3 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.btn-text {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.btn-text:hover {
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+.review-fields {
+  padding: 1rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.review-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.review-field-label {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  font-weight: 700;
+}
+
+.review-field-value {
+  font-size: 0.92rem;
+  color: var(--color-text);
+}
+
+/* Success Step - Block Wizard Style */
+.wizard-step--success {
+  justify-items: center;
+  text-align: center;
+  padding: 1.3rem 0 0.4rem;
+}
+
+.success-header {
+  margin-bottom: 1.5rem;
+}
+
+.success-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 1rem;
+  color: #16a34a;
+}
+
+.success-header h2 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: clamp(1.25rem, 2vw, 1.55rem);
+}
+
+.success-header p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
+}
+
+.success-summary {
+  margin-bottom: 1.5rem;
+}
+
+.summary-card {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-soft);
+  padding: 1rem;
+  text-align: left;
+}
+
+.summary-card h3 {
+  margin: 0 0 1rem 0;
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.summary-field {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.summary-field:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.summary-label {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.summary-value {
+  color: var(--color-text);
+  font-size: 0.92rem;
+  text-align: right;
+}
+
+.summary-value--highlight {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.success-actions {
+  text-align: left;
+}
+
+.success-actions h3 {
+  margin: 0 0 1rem 0;
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.redirect-timer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  background: var(--color-bg-soft);
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+}
+
+.redirect-timer p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
+  text-align: center;
+}
+
+.action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* Wizard Footer - Block Wizard Style */
+.wizard-footer {
+  padding-top: 1rem;
+  margin-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.wizard-error {
+  min-height: 1.25rem;
+  display: grid;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+}
+
+.wizard-error span {
+  color: #dc2626;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.wizard-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* Buttons - Registrar Button Style */
+.btn-primary,
+.btn-secondary,
+.btn-tertiary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.6rem 1.25rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+  font-family: inherit;
+}
+
+.btn-primary {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary) 85%, #000);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: var(--color-bg-soft);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--color-border);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-tertiary {
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.btn-tertiary:hover {
+  color: var(--color-text);
+  background: var(--color-bg-soft);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .student-wizard-page {
+    padding: 0.5rem 0 1rem;
+  }
+
+  .student-wizard-container {
+    padding: 1rem;
+    border-radius: 0;
+  }
+
+  .wizard-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .review-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .wizard-progress {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .progress-step:not(:last-child)::after {
+    display: none;
+  }
+
+  .progress-step {
+    width: 100%;
+  }
+
+  .wizard-header,
+  .wizard-footer {
+    padding: 0;
+  }
+}
