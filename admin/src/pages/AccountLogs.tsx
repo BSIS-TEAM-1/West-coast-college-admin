@@ -104,7 +104,6 @@ export default function AccountLogs() {
 
   const handleExport = () => {
     // TODO: Implement export functionality
-    console.log('Exporting logs...');
   };
 
   const handleDelete = async (account: AccountLog) => {

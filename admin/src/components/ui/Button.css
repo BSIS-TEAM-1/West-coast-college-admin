@@ -1,0 +1,99 @@
+.erp-button {
+  --erp-button-bg: #ffffff;
+  --erp-button-border: var(--color-border, #cbd5e1);
+  --erp-button-color: var(--color-text, #1f2937);
+  --erp-button-hover-bg: var(--color-bg-soft, #f8fafc);
+  --erp-button-hover-border: color-mix(in srgb, var(--color-primary, #1e293b) 38%, var(--color-border, #cbd5e1));
+  align-items: center;
+  border: 1px solid var(--erp-button-border);
+  border-radius: var(--erp-button-radius, 4px);
+  background: var(--erp-button-bg);
+  color: var(--erp-button-color);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: inherit;
+  font-weight: 700;
+  gap: var(--erp-button-gap, 0.5rem);
+  justify-content: center;
+  line-height: 1.2;
+  text-decoration: none;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+  white-space: nowrap;
+}
+
+.erp-button:hover:not(:disabled) {
+  background: var(--erp-button-hover-bg);
+  border-color: var(--erp-button-hover-border);
+}
+
+.erp-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary, #1e293b) 36%, transparent);
+  outline-offset: 2px;
+}
+
+.erp-button:disabled,
+.erp-button.is-loading {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.erp-button--sm {
+  min-height: 32px;
+  padding: 0.38rem 0.65rem;
+  font-size: 0.82rem;
+}
+
+.erp-button--md {
+  min-height: 40px;
+  padding: 0.56rem 0.9rem;
+  font-size: 0.9rem;
+}
+
+.erp-button--lg {
+  min-height: 48px;
+  padding: 0.72rem 1.15rem;
+  font-size: 0.98rem;
+}
+
+.erp-button--primary {
+  --erp-button-bg: var(--color-primary-dark, #1e293b);
+  --erp-button-border: var(--color-primary-dark, #1e293b);
+  --erp-button-color: #ffffff;
+  --erp-button-hover-bg: var(--color-primary-hover, #111827);
+  --erp-button-hover-border: var(--color-primary-hover, #111827);
+}
+
+.erp-button--secondary,
+.erp-button--utility,
+.erp-button--ghost {
+  --erp-button-bg: #ffffff;
+  --erp-button-border: color-mix(in srgb, var(--color-primary, #1e293b) 26%, var(--color-border, #cbd5e1));
+  --erp-button-color: var(--color-text-bold, #111827);
+}
+
+.erp-button--destructive {
+  --erp-button-bg: #ffffff;
+  --erp-button-border: color-mix(in srgb, var(--color-error, #dc2626) 64%, white);
+  --erp-button-color: var(--color-error, #dc2626);
+  --erp-button-hover-bg: color-mix(in srgb, var(--color-error, #dc2626) 10%, white);
+  --erp-button-hover-border: var(--color-error, #dc2626);
+}
+
+.erp-button--success {
+  --erp-button-bg: var(--color-success, #15803d);
+  --erp-button-border: var(--color-success, #15803d);
+  --erp-button-color: #ffffff;
+  --erp-button-hover-bg: color-mix(in srgb, var(--color-success, #15803d) 84%, black);
+  --erp-button-hover-border: color-mix(in srgb, var(--color-success, #15803d) 84%, black);
+}
+
+.erp-button--full {
+  width: 100%;
+}
+
+.erp-button__icon,
+.erp-button svg {
+  flex: 0 0 18px;
+  height: 18px;
+  width: 18px;
+}

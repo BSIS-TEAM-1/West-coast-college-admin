@@ -20,7 +20,7 @@ class SubjectController {
         ];
       }
 
-      const subjects = await Subject.find(query).sort({ isActive: -1, code: 1 });
+      const subjects = await Subject.find(query).sort({ isActive: -1, code: 1 }).lean();
       res.json({ success: true, data: subjects });
     } catch (error) {
       console.error('Error fetching subjects:', error);

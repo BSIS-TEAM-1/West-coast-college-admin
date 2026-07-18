@@ -23,6 +23,19 @@ export const API_URL = resolveApiUrl()
 // Use browser localStorage for secure, user-specific token storage
 const TOKEN_KEY = 'auth_token'
 const DEVICE_ID_KEY = 'client_device_id'
+let cachedProfile: ProfileResponse | null = null
+let profileRequest: Promise<ProfileResponse> | null = null
+
+export function setCachedProfile(profile: ProfileResponse | null): void {
+  cachedProfile = profile
+  if (!profile) {
+    profileRequest = null
+  }
+}
+
+export function clearCachedProfile(): void {
+  setCachedProfile(null)
+}
 
 function getOrCreateDeviceId(): string {
   try {
@@ -53,6 +66,7 @@ export function setStoredToken(token: string): void {
   try {
     // Store token in browser localStorage (user-specific)
     localStorage.setItem(TOKEN_KEY, token)
+    clearCachedProfile()
   } catch (error) {
     console.warn('Failed to store token in localStorage:', error);
   }
@@ -62,6 +76,7 @@ export async function clearStoredToken(): Promise<void> {
   try {
     // Clear token from browser localStorage (user-specific)
     localStorage.removeItem(TOKEN_KEY)
+    clearCachedProfile()
   } catch (error) {
     console.warn('Failed to clear token from localStorage:', error);
   }
@@ -251,12 +266,24 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 export async function getProfile(): Promise<ProfileResponse> {
-  const res = await fetch(`${API_URL}/api/admin/profile`, { headers: await authHeaders() })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    throw new Error((data?.error as string) || 'Failed to load profile.')
+  if (cachedProfile) return cachedProfile
+  if (profileRequest) return profileRequest
+
+  profileRequest = (async () => {
+    const res = await fetch(`${API_URL}/api/admin/profile`, { headers: await authHeaders() })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      throw new Error((data?.error as string) || 'Failed to load profile.')
+    }
+    cachedProfile = data as ProfileResponse
+    return cachedProfile
+  })()
+
+  try {
+    return await profileRequest
+  } finally {
+    profileRequest = null
   }
-  return data as ProfileResponse
 }
 
 export async function updateProfile(updates: UpdateProfileRequest): Promise<ProfileResponse> {
@@ -269,6 +296,7 @@ export async function updateProfile(updates: UpdateProfileRequest): Promise<Prof
   if (!res.ok) {
     throw new Error((data?.error as string) || 'Failed to update profile.')
   }
+  setCachedProfile(data as ProfileResponse)
   return data as ProfileResponse
 }
 
@@ -385,6 +413,7 @@ export async function verifyEmailAddress(code: string): Promise<ProfileResponse>
   if (!res.ok) {
     throw new Error((data?.error as string) || 'Failed to verify email address.')
   }
+  setCachedProfile(data as ProfileResponse)
   return data as ProfileResponse
 }
 
@@ -398,6 +427,7 @@ export async function verifyChangedEmailAddress(code: string): Promise<ProfileRe
   if (!res.ok) {
     throw new Error((data?.error as string) || 'Failed to verify the new email address.')
   }
+  setCachedProfile(data as ProfileResponse)
   return data as ProfileResponse
 }
 
@@ -411,6 +441,7 @@ export async function verifyPhoneNumber(code: string): Promise<ProfileResponse> 
   if (!res.ok) {
     throw new Error((data?.error as string) || 'Failed to verify phone number.')
   }
+  setCachedProfile(data as ProfileResponse)
   return data as ProfileResponse
 }
 
@@ -448,6 +479,9 @@ export async function uploadAvatar(file: File): Promise<{ message: string; avata
   if (!res.ok) {
     throw new Error((data?.error as string) || 'Failed to upload avatar.')
   }
+  if (cachedProfile) {
+    setCachedProfile({ ...cachedProfile, avatar: String((data as { avatar?: string }).avatar || '') })
+  }
   return data as { message: string; avatar: string; avatarUrl: string }
 }
 
@@ -459,6 +493,9 @@ export async function deleteAvatar(): Promise<{ message: string }> {
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
     throw new Error((data?.error as string) || 'Failed to remove avatar.')
+  }
+  if (cachedProfile) {
+    setCachedProfile({ ...cachedProfile, avatar: '' })
   }
   return data as { message: string }
 }

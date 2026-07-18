@@ -67,6 +67,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
   const normalizedBlockNumber = String(newGroupBlockNumber || '').trim().toUpperCase()
   const generatedStorageName = selectedCourse && normalizedBlockNumber ? `${selectedCourse.value}-${normalizedBlockNumber}` : ''
   const generatedDisplayName = selectedCourse && normalizedBlockNumber ? `${selectedCourse.label} - ${normalizedBlockNumber}` : 'No block selected'
+  const [newGroupYearLevel, newGroupSection] = normalizedBlockNumber.split('-')
   const courseIsSelected = Boolean(selectedCourse)
   const blockNumberIsSelected = Boolean(normalizedBlockNumber)
   const blockNumberIsValid = /^([1-5])-([A-D])$/.test(normalizedBlockNumber)
@@ -75,6 +76,13 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
   const hasDuplicate = blockGroups.some((group) => {
     if (group.semester !== newGroupSemester || Number(group.year) !== Number(newGroupYear)) return false
     if (!generatedStorageName) return false
+    if (group.courseId && group.yearLevel && group.section) {
+      return (
+        Number(group.courseId) === Number(newGroupCourse) &&
+        Number(group.yearLevel) === Number(newGroupYearLevel) &&
+        String(group.section).toUpperCase() === String(newGroupSection).toUpperCase()
+      )
+    }
     return String(group.name || '').trim().toUpperCase() === generatedStorageName.toUpperCase()
   })
 
@@ -143,9 +151,14 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: generatedStorageName,
+          name: generatedDisplayName,
+          courseId: selectedCourse?.value,
+          courseCode: selectedCourse?.label,
+          yearLevel: Number(newGroupYearLevel),
           semester: newGroupSemester,
-          year: Number(newGroupYear)
+          schoolYear: `${newGroupYear}-${Number(newGroupYear) + 1}`,
+          year: Number(newGroupYear),
+          section: newGroupSection
         })
       })
       await authorizedFetch(`/api/blocks/groups/${(created as BlockGroup)._id}/sections`, {

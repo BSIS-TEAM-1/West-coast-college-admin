@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Activity, AlertTriangle, FileText, HardDrive, RefreshCw, ShieldCheck, TrendingUp, Users } from 'lucide-react'
 import LiveGraph from '../components/LiveGraph';
 import { API_URL, getStoredToken } from '../lib/authApi'
@@ -114,6 +114,8 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
   const [warningType, setWarningType] = useState<string>('');
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [backupToast, setBackupToast] = useState<BackupToast | null>(null);
+  const systemHealthInFlightRef = useRef(false);
+  const errorLogsInFlightRef = useRef(false);
 
   // Detect dark mode
   useEffect(() => {
@@ -133,21 +135,41 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
 
   useEffect(() => {
     fetchSystemHealth(true); // Force initial scan to get fresh data
-    
-    // Set up real-time updates every 5 seconds for more accurate live data
-    const interval = setInterval(() => fetchSystemHealth(), 5000);
-    
-    // Force refresh every 2 minutes to clear cache
-    const forceRefreshInterval = setInterval(() => fetchSystemHealth(true), 120000);
-    
+
+    const fetchHealthIfVisible = (forceScan = false) => {
+      if (document.visibilityState === 'visible') {
+        fetchSystemHealth(forceScan);
+      }
+    };
+
+    // Live enough for operators, quiet enough for production.
+    const interval = setInterval(() => fetchHealthIfVisible(), 15000);
+
+    // Force refresh periodically to clear cache without hammering the server.
+    const forceRefreshInterval = setInterval(() => fetchHealthIfVisible(true), 300000);
+
     // Fetch error logs separately from database
     fetchErrorLogs();
-    const errorLogsInterval = setInterval(fetchErrorLogs, 30000); // Refresh error logs every 30 seconds
-    
+    const errorLogsInterval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchErrorLogs();
+      }
+    }, 60000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchSystemHealth();
+        fetchErrorLogs();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       clearInterval(interval);
       clearInterval(forceRefreshInterval);
       clearInterval(errorLogsInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
@@ -158,6 +180,8 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
   }, [backupToast]);
 
   const fetchErrorLogs = async () => {
+    if (errorLogsInFlightRef.current) return;
+    errorLogsInFlightRef.current = true;
     try {
       const token = await getStoredToken();
       if (!token) return;
@@ -171,7 +195,6 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
 
       // Handle 404 gracefully - the endpoint might not exist yet
       if (response.status === 404) {
-        console.log('Error logs endpoint not available, using fallback data');
         setLogs([]);
         setError(null);
         return;
@@ -223,10 +246,14 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
     } catch (err) {
       console.error('Failed to fetch error logs:', err);
       setError('Network error while fetching error logs');
+    } finally {
+      errorLogsInFlightRef.current = false;
     }
   };
   
   const fetchSystemHealth = async (forceScan = false) => {
+    if (systemHealthInFlightRef.current) return;
+    systemHealthInFlightRef.current = true;
     try {
       const token = await getStoredToken();
       if (!token) {
@@ -350,6 +377,7 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
       console.error('Failed to fetch system health:', err);
       setError('Network error while fetching system health');
     } finally {
+      systemHealthInFlightRef.current = false;
       setLoading(false);
     }
   };

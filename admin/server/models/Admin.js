@@ -108,4 +108,8 @@ adminSchema.methods.comparePassword = function (candidate) {
   return bcrypt.compare(candidate, this.password)
 }
 
+adminSchema.index({ accountType: 1, status: 1, createdAt: -1 })
+adminSchema.index({ email: 1, emailVerified: 1 })
+adminSchema.index({ uid: 1 }, { sparse: true })
+
 module.exports = mongoose.model('Admin', adminSchema)

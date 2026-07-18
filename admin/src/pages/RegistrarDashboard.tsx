@@ -33,12 +33,13 @@ type BlockWorkspaceSelection = {
   initialSectionId?: string | null
 }
 
-type RegistrarView = 'applicants' | 'students' | 'add-student' | 'courses' | 'course-workspace' | 'block-management' | 'view-blocks' | 'block-workspace' | 'subject-management' | 'add-subject' | 'assign-subject' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
+type RegistrarView = 'applicants' | 'students' | 'add-student' | 'courses' | 'course-workspace' | 'block-management' | 'assign-block' | 'view-blocks' | 'block-workspace' | 'subject-management' | 'add-subject' | 'assign-subject' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
 
 type RegistrarDashboardProps = {
   username: string
   onLogout: () => void
   onProfileUpdated?: (profile: ProfileResponse) => void
+  initialProfile?: ProfileResponse | null
 }
 
 const REGISTRAR_NAV_ITEMS: { id: RegistrarView; label: string; icon: any }[] = [
@@ -54,9 +55,9 @@ const REGISTRAR_NAV_ITEMS: { id: RegistrarView; label: string; icon: any }[] = [
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
 ]
 
-export default function RegistrarDashboard({ username, onLogout, onProfileUpdated }: RegistrarDashboardProps) {
+export default function RegistrarDashboard({ username, onLogout, onProfileUpdated, initialProfile = null }: RegistrarDashboardProps) {
   const [view, setView] = useState<RegistrarView>('applicants')
-  const [profile, setProfile] = useState<ProfileResponse | null>(null)
+  const [profile, setProfile] = useState<ProfileResponse | null>(initialProfile)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string | null>(null)
   const [blockWorkspaceSelection, setBlockWorkspaceSelection] = useState<BlockWorkspaceSelection | null>(null)
@@ -65,6 +66,11 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
   useEffect(() => {
     const controller = new AbortController()
     
+    if (initialProfile) {
+      setProfile(initialProfile)
+      return () => controller.abort()
+    }
+
     getProfile()
       .then(setProfile)
       .catch(() => {
@@ -101,6 +107,8 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
     switch (view) {
       case 'students':
         return <StudentManagement />
+      case 'assign-block':
+        return <StudentManagement mode="assign-block" />
       case 'add-student':
         return (
           <StudentWizard
@@ -204,7 +212,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
             const isActive = (
               view === id
               || (id === 'courses' && view === 'course-workspace')
-              || (id === 'block-management' && (view === 'view-blocks' || view === 'block-workspace'))
+              || (id === 'block-management' && (view === 'assign-block' || view === 'view-blocks' || view === 'block-workspace'))
               || (id === 'subject-management' && (view === 'add-subject' || view === 'assign-subject'))
               || (id === 'students' && view === 'add-student')
             )
@@ -215,6 +223,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
             const showSubjectSubnav = isSubjectManagement && isActive
             const showStudentSubnav = isStudentManagement && isActive
             const isAddBlockActive = view === 'block-management'
+            const isAssignBlockActive = view === 'assign-block'
             const isAddSubjectActive = view === 'add-subject'
             const isSubjectAssignmentActive = view === 'assign-subject'
             const isAddStudentActive = view === 'add-student'
@@ -255,6 +264,15 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
                     >
                       <Plus size={15} className="registrar-sidebar-icon" />
                       <span>Add Block</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`registrar-sidebar-sublink ${isAssignBlockActive ? 'registrar-sidebar-sublink-active' : ''}`}
+                      onClick={() => setView('assign-block')}
+                      aria-current={isAssignBlockActive ? 'page' : undefined}
+                    >
+                      <Users size={15} className="registrar-sidebar-icon" />
+                      <span>Assign Block</span>
                     </button>
                   </div>
                 )}
@@ -301,6 +319,8 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
           profileName={profileName}
           profileRole="Registrar"
           profileAvatar={profileAvatar}
+          onProfileClick={() => setView('profile')}
+          onSettingsClick={() => setView('settings')}
         />
         <main className="registrar-dashboard-main">
           {renderContent()}

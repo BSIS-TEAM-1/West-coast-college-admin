@@ -25,11 +25,12 @@ type DashboardProps = {
   username: string
   onLogout: () => void
   onProfileUpdated?: (profile: ProfileResponse) => void
+  initialProfile?: ProfileResponse | null
 }
 
 type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'documents' | 'announcement-detail' | 'personal-details' | 'system-health' | 'security' | 'cor-docs' | 'calendar'
 
-export default function Dashboard({ username, onLogout, onProfileUpdated }: DashboardProps) {
+export default function Dashboard({ username, onLogout, onProfileUpdated, initialProfile = null }: DashboardProps) {
   const [view, setView] = useState<View>('dashboard')
   const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string>('')
   const [metrics, setMetrics] = useState<any>(null)
@@ -195,6 +196,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
         onNavigate={handleNavigate}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
+        initialProfile={initialProfile}
       />
       <button
         type="button"
@@ -209,6 +211,8 @@ export default function Dashboard({ username, onLogout, onProfileUpdated }: Dash
           isMenuOpen={isSidebarOpen}
           menuId="admin-sidebar-navigation"
           onMenuToggle={() => setIsSidebarOpen((prev) => !prev)}
+          onProfileClick={() => setView('profile')}
+          onSettingsClick={() => setView('settings')}
         />
         <main className="dashboard-main">
           {view === 'profile' ? (

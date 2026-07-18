@@ -9,11 +9,15 @@ import ReviewStep from './ReviewStep'
 import SuccessStep from './SuccessStep'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import StudentService from '../../lib/studentApi'
+import { DEFAULT_WIZARD_FORM_DATA, buildStudentPayloadFromWizardForm } from './formLogic'
 import './StudentWizard.css'
 
 interface StudentWizardProps {
   onClose: () => void
   onSuccess?: (studentId: string, studentNumber: string) => void
+  mode?: 'create' | 'edit'
+  studentId?: string
+  initialData?: Partial<WizardFormData>
 }
 
 const STEPS: WizardStep[] = ['identity', 'personal', 'contact', 'academic', 'review', 'success']
@@ -26,37 +30,13 @@ const STEP_CONFIGS = [
   { id: 'review', title: 'Review & Submit', description: '' }
 ]
 
-const DEFAULT_FORM_DATA: Partial<WizardFormData> = {
-  studentNumber: '',
-  firstName: '',
-  middleName: '',
-  lastName: '',
-  suffix: '',
-  birthDate: '',
-  birthPlace: '',
-  gender: '',
-  civilStatus: '',
-  nationality: 'Filipino',
-  religion: '',
-  email: '',
-  contactNumber: '',
-  currentAddress: '',
-  permanentAddress: '',
-  emergencyContactName: '',
-  emergencyContactRelationship: '',
-  emergencyContactNumber: '',
-  course: '',
-  schoolYear: '',
-  semester: '1st',
-  yearLevel: '',
-  studentStatus: 'Regular',
-  scholarship: '',
-  lifecycleStatus: 'Pending'
-}
-
-export default function StudentWizard({ onClose, onSuccess }: StudentWizardProps) {
+export default function StudentWizard({ onClose, onSuccess, mode = 'create', studentId, initialData }: StudentWizardProps) {
+  const isEditMode = mode === 'edit'
   const [currentStep, setCurrentStep] = useState<WizardStep>('identity')
-  const [formData, setFormData] = useState<Partial<WizardFormData>>(DEFAULT_FORM_DATA)
+  const [formData, setFormData] = useState<Partial<WizardFormData>>({
+    ...DEFAULT_WIZARD_FORM_DATA,
+    ...(initialData || {})
+  })
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
   const [createdStudentNumber, setCreatedStudentNumber] = useState('')
@@ -67,19 +47,19 @@ export default function StudentWizard({ onClose, onSuccess }: StudentWizardProps
     const course = formData.course
     const schoolYear = formData.schoolYear
 
-    if (course && schoolYear && /^\d{4}-\d{4}$/.test(schoolYear)) {
+    if (!isEditMode && course && schoolYear && /^\d{4}-\d{4}$/.test(schoolYear)) {
       fetchStudentNumberPreview(course, schoolYear)
     } else {
       setStudentNumberPreview('')
     }
-  }, [formData.course, formData.schoolYear])
+  }, [formData.course, formData.schoolYear, isEditMode])
 
   // Auto-fill student number when preview is available and field is empty
   useEffect(() => {
-    if (studentNumberPreview && !formData.studentNumber) {
+    if (!isEditMode && studentNumberPreview && !formData.studentNumber) {
       setFormData((prev: Partial<WizardFormData>) => ({ ...prev, studentNumber: studentNumberPreview }))
     }
-  }, [studentNumberPreview, formData.studentNumber])
+  }, [isEditMode, studentNumberPreview, formData.studentNumber])
 
   const fetchStudentNumberPreview = async (course: string, schoolYear: string) => {
     try {
@@ -153,51 +133,31 @@ export default function StudentWizard({ onClose, onSuccess }: StudentWizardProps
         throw new Error('No authentication token found. Please log in again.')
       }
 
-      console.log('Token found, length:', token.length)
+      const payload = buildStudentPayloadFromWizardForm(formData)
 
-      const emergencyContact = {
-        name: formData.emergencyContactName?.trim() || '',
-        relationship: formData.emergencyContactRelationship?.trim() || '',
-        contactNumber: formData.emergencyContactNumber?.trim() || '',
-        address: ''
-      }
+      if (isEditMode) {
+        if (!studentId) {
+          throw new Error('Missing student id for update.')
+        }
 
-      const payload = {
-        firstName: formData.firstName?.trim() || '',
-        middleName: formData.middleName?.trim() || '',
-        lastName: formData.lastName?.trim() || '',
-        suffix: formData.suffix?.trim() || '',
-        course: Number(formData.course) || 101,
-        yearLevel: Number(formData.yearLevel) || 1,
-        semester: formData.semester || '1st',
-        schoolYear: formData.schoolYear?.trim() || '',
-        studentStatus: formData.studentStatus?.trim() || 'Regular',
-        lifecycleStatus: formData.lifecycleStatus || 'Pending',
-        scholarship: formData.scholarship?.trim() || 'N/A',
-        email: formData.email?.trim() || '',
-        contactNumber: formData.contactNumber?.trim() || '',
-        address: formData.currentAddress?.trim() || '',
-        permanentAddress: formData.permanentAddress?.trim() || '',
-        birthDate: formData.birthDate || undefined,
-        birthPlace: formData.birthPlace?.trim() || '',
-        gender: formData.gender?.trim() || '',
-        civilStatus: formData.civilStatus?.trim() || '',
-        nationality: formData.nationality?.trim() || 'Filipino',
-        religion: formData.religion?.trim() || '',
-        emergencyContact
-      }
+        const response = await StudentService.updateStudent(token, studentId, payload)
+        const updatedStudent = (response as any).data || response
+        const studentNumber = updatedStudent.studentNumber || formData.studentNumber || ''
 
-      console.log('Creating student with payload:', payload)
+        if (onSuccess) {
+          onSuccess(studentId, studentNumber)
+        }
+      } else {
+        const response = await StudentService.createStudent(token, payload)
+        const createdStudent = (response as any).data || response
+        const studentNumber = createdStudent.studentNumber || formData.studentNumber || ''
 
-      const response = await StudentService.createStudent(token, payload)
-      const createdStudent = (response as any).data || response
-      const studentNumber = createdStudent.studentNumber || formData.studentNumber || ''
+        setCreatedStudentNumber(studentNumber)
+        setCurrentStep('success')
 
-      setCreatedStudentNumber(studentNumber)
-      setCurrentStep('success')
-
-      if (onSuccess && createdStudent._id) {
-        onSuccess(createdStudent._id, studentNumber)
+        if (onSuccess && createdStudent._id) {
+          onSuccess(createdStudent._id, studentNumber)
+        }
       }
     } catch (error) {
       console.error('Failed to create student:', error)
@@ -299,7 +259,7 @@ export default function StudentWizard({ onClose, onSuccess }: StudentWizardProps
     <div className="student-wizard-page">
       <div className="student-wizard-container">
         <div className="wizard-header">
-          <h1>Add New Student</h1>
+          <h1>{isEditMode ? 'Edit Student' : 'Add New Student'}</h1>
           <button
             type="button"
             onClick={onClose}
@@ -351,7 +311,7 @@ export default function StudentWizard({ onClose, onSuccess }: StudentWizardProps
                 disabled={!canProceed() || submitting}
                 className="btn-primary"
               >
-                {submitting ? 'Creating Student...' : 'Create Student'}
+                {submitting ? (isEditMode ? 'Saving Changes...' : 'Creating Student...') : (isEditMode ? 'Save Changes' : 'Create Student')}
               </button>
             ) : (
               <button

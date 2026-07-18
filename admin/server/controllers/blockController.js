@@ -7,6 +7,7 @@ const BlockActionLog = require('../models/BlockActionLog');
 const Student = require('../models/Student');
 const Enrollment = require('../models/Enrollment');
 const { buildSafeQuery, safeObjectId } = require('../securityMiddleware');
+const { logger } = require('../services/logger');
 
 class BlockController {
   extractBlockSlotFromName(value) {
@@ -165,11 +166,34 @@ class BlockController {
     return null;
   }
 
+  getGroupYearLevel(group) {
+    const structuredYearLevel = Number(group?.yearLevel);
+    if (Number.isFinite(structuredYearLevel) && structuredYearLevel > 0) return structuredYearLevel;
+    return this.extractYearLevelFromGroupName(group?.name);
+  }
+
+  getGroupCourseId(group) {
+    const structuredCourseId = this.normalizeCourseCode(group?.courseId);
+    if (structuredCourseId) return structuredCourseId;
+    return this.extractCourseFromGroupName(group?.name);
+  }
+
+  getGroupSection(group) {
+    const structuredSection = String(group?.section || '').trim().toUpperCase();
+    if (structuredSection) return structuredSection;
+    return this.extractBlockSlotFromName(group?.name)?.letter || '';
+  }
+
+  getSchoolYearFromStartYear(value) {
+    const startYear = Number(value);
+    return Number.isFinite(startYear) && startYear > 0 ? `${startYear}-${startYear + 1}` : '';
+  }
+
   // GET /api/blocks/assignable-students?semester=1st&year=2026&q=juan
   async getAssignableStudents(req, res) {
     try {
       const { semester, year, q = '', limit = 200, groupId } = req.query;
-      console.log('getAssignableStudents called with', req.query);
+      logger.debug('getAssignableStudents called with', req.query);
       if (!semester || !year) {
         return res.status(400).json({ error: 'semester and year are required' });
       }
@@ -179,12 +203,12 @@ class BlockController {
         year: Number(year),
         status: { $in: ['ASSIGNED', 'WAITLISTED'] }
       }).distinct('studentId');
-      console.log('assignedIds length:', assignedIds.length);
+      logger.debug('assignedIds length:', assignedIds.length);
 
       const assignedObjectIds = assignedIds
         .filter((id) => mongoose.isValidObjectId(id))
         .map((id) => new mongoose.Types.ObjectId(id));
-      console.log('assignedObjectIds length:', assignedObjectIds.length);
+      logger.debug('assignedObjectIds length:', assignedObjectIds.length);
 
       const search = String(q).trim();
       const andConditions = [];
@@ -205,9 +229,9 @@ class BlockController {
       }
 
       if (groupId && mongoose.Types.ObjectId.isValid(groupId)) {
-        const group = await BlockGroup.findById(groupId).select('name');
-        const groupYearLevel = this.extractYearLevelFromGroupName(group?.name);
-        const groupCourse = this.extractCourseFromGroupName(group?.name);
+        const group = await BlockGroup.findById(groupId).select('name courseId yearLevel');
+        const groupYearLevel = this.getGroupYearLevel(group);
+        const groupCourse = this.getGroupCourseId(group);
 
         if (groupCourse) {
           andConditions.push({ $or: this.getCourseFilterConditions(groupCourse) });
@@ -226,14 +250,15 @@ class BlockController {
       }
 
       const query = andConditions.length > 0 ? { $and: andConditions } : {};
-      console.log('query:', JSON.stringify(query));
+      logger.debug('query:', JSON.stringify(query));
 
-      console.log('about to find students');
+      logger.debug('about to find students');
       const students = await Student.find(query)
         .select('_id studentNumber firstName middleName lastName suffix yearLevel studentStatus course')
         .sort({ lastName: 1, firstName: 1 })
-        .limit(Math.min(Number(limit) || 200, 500));
-      console.log('found students:', students.length);
+        .limit(Math.min(Number(limit) || 200, 500))
+        .lean();
+      logger.debug('found students:', students.length);
 
       res.json(students);
     } catch (error) {
@@ -245,7 +270,7 @@ class BlockController {
   // POST /api/blocks/groups
   async createBlockGroup(req, res) {
     try {
-      const { name, semester, year, policies } = req.body;
+      const { name, courseId, courseCode, yearLevel, schoolYear, section, semester, year, policies } = req.body;
       if (!name || !semester || !year) {
         return res.status(400).json({ error: 'name, semester, and year are required' });
       }
@@ -257,23 +282,28 @@ class BlockController {
       }
 
       const canonicalName = this.buildCanonicalBlockCode(name);
-      const incomingCourse = this.extractCourseFromGroupName(canonicalName);
       const incomingSlot = this.extractBlockSlotFromName(canonicalName);
+      const structuredCourseId = this.normalizeCourseCode(courseId) || this.normalizeCourseCode(courseCode) || this.extractCourseFromGroupName(canonicalName);
+      const structuredYearLevel = Number(yearLevel) || incomingSlot?.yearLevel || null;
+      const structuredSection = String(section || incomingSlot?.letter || '').trim().toUpperCase();
+      const structuredSchoolYear = String(schoolYear || this.getSchoolYearFromStartYear(normalizedYear)).trim();
 
       const sameTermGroups = await BlockGroup.find({
         semester: normalizedSemester,
         year: normalizedYear
-      }).select('name');
+      }).select('name courseId yearLevel section');
 
       const hasSemanticDuplicate = sameTermGroups.some((group) => {
-        const existingCourse = this.extractCourseFromGroupName(group.name);
-        const existingSlot = this.extractBlockSlotFromName(group.name);
+        const existingCourse = this.getGroupCourseId(group);
+        const existingYearLevel = this.getGroupYearLevel(group);
+        const existingSection = this.getGroupSection(group);
         return (
-          incomingCourse &&
-          incomingSlot &&
-          existingCourse === incomingCourse &&
-          existingSlot?.yearLevel === incomingSlot.yearLevel &&
-          existingSlot?.letter === incomingSlot.letter
+          structuredCourseId &&
+          structuredYearLevel &&
+          structuredSection &&
+          existingCourse === structuredCourseId &&
+          existingYearLevel === structuredYearLevel &&
+          existingSection === structuredSection
         );
       });
 
@@ -282,9 +312,14 @@ class BlockController {
       }
 
       const group = await BlockGroup.create({
-        name: canonicalName || String(name).trim(),
+        name: String(name).trim(),
+        courseId: structuredCourseId || undefined,
+        courseCode: courseCode || undefined,
+        yearLevel: structuredYearLevel || undefined,
         semester: normalizedSemester,
+        schoolYear: structuredSchoolYear || undefined,
         year: normalizedYear,
+        section: structuredSection || undefined,
         policies: {
           ...(policies || {})
         }
@@ -485,8 +520,8 @@ class BlockController {
         return res.status(404).json({ error: 'Student not found' });
       }
 
-      const groupYearLevel = this.extractYearLevelFromGroupName(group?.name);
-      const groupCourse = this.extractCourseFromGroupName(group?.name);
+      const groupYearLevel = this.getGroupYearLevel(group);
+      const groupCourse = this.getGroupCourseId(group);
 
       const normalizedStudentCourse = this.normalizeCourseCode(student.course);
       if (groupCourse && normalizedStudentCourse !== groupCourse) {

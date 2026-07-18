@@ -19,7 +19,7 @@ export default function IdentityStep({
         <p>Enter the student's basic identity details</p>
       </div>
 
-      <div className="wizard-form-grid">
+      <div className="wizard-form-grid wizard-form-grid--identity">
         {/* First Name */}
         <div className="form-group">
           <label htmlFor="firstName">

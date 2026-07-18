@@ -12,7 +12,13 @@ const publicApplicantLimiter = rateLimit({
   message: 'Too many application requests from this IP, please try again later.'
 });
 
-router.get('/courses', cacheMiddleware({ ttlMs: 10 * 60 * 1000 }), ApplicantController.getCourses);
+const publicApplicantReadLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 120,
+  message: 'Too many requests from this IP, please try again later.'
+});
+
+router.get('/courses', publicApplicantReadLimiter, cacheMiddleware({ ttlMs: 10 * 60 * 1000 }), ApplicantController.getCourses);
 router.post('/apply', publicApplicantLimiter, ApplicantController.submitApplicant);
 
 function registerProtectedApplicantRoutes(app, authMiddleware) {

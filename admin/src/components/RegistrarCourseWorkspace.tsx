@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, BookOpen, Users } from 'lucide-react'
+import { ArrowLeft, PencilLine } from 'lucide-react'
 import { API_URL, getStoredToken } from '../lib/authApi'
 import './ProfessorLoad.css'
 import './RegistrarCourseWorkspace.css'
@@ -83,9 +83,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   const [sections, setSections] = useState<BlockSection[]>([])
   const [selectedSectionId, setSelectedSectionId] = useState('')
   const [sectionStudents, setSectionStudents] = useState<SectionStudent[]>([])
-  const [sectionStudentsLoading, setSectionStudentsLoading] = useState(false)
-  const [sectionAssignments, setSectionAssignments] = useState<SectionSubjectAssignment[]>([])
-  const [sectionAssignmentsLoading, setSectionAssignmentsLoading] = useState(false)
   const [subjects, setSubjects] = useState<SubjectItem[]>([])
   const [selectedSubjectId, setSelectedSubjectId] = useState('')
   const [subjectDaySelections, setSubjectDaySelections] = useState<string[]>([])
@@ -99,6 +96,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   const [showRefreshSignal, setShowRefreshSignal] = useState(false)
   const [assigning, setAssigning] = useState(false)
   const [editingAssignmentId, setEditingAssignmentId] = useState('')
+  const [autoPickedAssignmentKey, setAutoPickedAssignmentKey] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
@@ -272,7 +270,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   }
 
   const fetchSectionStudents = async (sectionId: string) => {
-    setSectionStudentsLoading(true)
     try {
       const data = await authorizedFetch(`/api/blocks/sections/${sectionId}/students`)
       setSectionStudents(Array.isArray(data?.students) ? data.students as SectionStudent[] : [])
@@ -280,23 +277,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     } catch (err) {
       setSectionStudents([])
       setError(err instanceof Error ? err.message : 'Failed to fetch section students')
-    } finally {
-      setSectionStudentsLoading(false)
-    }
-  }
-
-  const fetchSectionAssignments = async (sectionId: string) => {
-    setSectionAssignmentsLoading(true)
-    try {
-      const data = await authorizedFetch(`/api/registrar/sections/${sectionId}/subject-assignments`)
-      const nextAssignments = Array.isArray(data?.data?.assignments) ? data.data.assignments as SectionSubjectAssignment[] : []
-      setSectionAssignments(nextAssignments)
-      setError('')
-    } catch (err) {
-      setSectionAssignments([])
-      setError(err instanceof Error ? err.message : 'Failed to fetch section assignments')
-    } finally {
-      setSectionAssignmentsLoading(false)
     }
   }
 
@@ -318,9 +298,9 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     setSelectedSectionId('')
     setSections([])
     setSectionStudents([])
-    setSectionAssignments([])
     setSubjects([])
     clearAssignmentForm()
+    setAutoPickedAssignmentKey('')
     setError('')
     setSuccess('')
   }
@@ -373,7 +353,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
       setSections([])
       setSelectedSectionId('')
       setSectionStudents([])
-      setSectionAssignments([])
       setSubjects([])
       setSelectedSubjectId('')
       return
@@ -385,14 +364,12 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   useEffect(() => {
     if (!selectedSectionId) {
       setSectionStudents([])
-      setSectionAssignments([])
       if (!editingAssignmentId) {
         setSelectedSubjectId('')
       }
       return
     }
     void fetchSectionStudents(selectedSectionId)
-    void fetchSectionAssignments(selectedSectionId)
   }, [selectedSectionId])
 
   const selectedProfessorCourse = selectedProfessor?.courseSummaries.find((course) => course.label === selectedProfessorCourseLabel)
@@ -423,6 +400,37 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     setSubjectTimeEnd(parsedSchedule.end)
     setSubjectRoom(assignment.room === 'TBA' ? '' : assignment.room)
   }
+
+  useEffect(() => {
+    if (editingAssignmentId || selectedSubjectId || selectedGroupId || selectedSectionId) return
+    const assignment = selectedProfessorCourseAssignments[0]
+    if (!assignment) return
+
+    const assignmentKey = `${selectedProfessor?.professorId || ''}|${selectedProfessorCourse?.label || ''}|${assignment.sectionId}|${assignment.subjectId}`
+    if (autoPickedAssignmentKey === assignmentKey) return
+
+    setAutoPickedAssignmentKey(assignmentKey)
+    if (assignment.blockGroupId) {
+      setSelectedGroupId(assignment.blockGroupId)
+    }
+    if (assignment.sectionId) {
+      setSelectedSectionId(assignment.sectionId)
+    }
+    populateAssignmentEditor({
+      subjectId: assignment.subjectId,
+      schedule: assignment.schedule,
+      room: assignment.room
+    })
+  }, [
+    autoPickedAssignmentKey,
+    editingAssignmentId,
+    selectedGroupId,
+    selectedProfessor?.professorId,
+    selectedProfessorCourse?.label,
+    selectedProfessorCourseAssignments,
+    selectedSectionId,
+    selectedSubjectId
+  ])
 
   const handleAssignSubjectInstructor = async () => {
     const assignmentTargetId = editingAssignmentId || selectedSubjectId
@@ -462,7 +470,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
       clearAssignmentForm()
       await fetchProfessorCourseLoads()
       await fetchSectionStudents(selectedSectionId)
-      await fetchSectionAssignments(selectedSectionId)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to assign subject instructor')
     } finally {
@@ -500,9 +507,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
       }
       setSuccess(`${subjectCode} removed from ${subjectOwner} in ${sectionLabel}.`)
       await fetchProfessorCourseLoads()
-      if (selectedSectionId === sectionId) {
-        await fetchSectionAssignments(sectionId)
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove assignment')
     } finally {
@@ -537,17 +541,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     })
   }
 
-  const handleDeleteSectionAssignment = async (assignment: SectionSubjectAssignment) => {
-    if (!selectedSectionId) return
-    await removeSectionAssignment({
-      sectionId: selectedSectionId,
-      subjectId: assignment.subjectId,
-      subjectCode: assignment.subjectCode,
-      sectionLabel: selectedSection ? `Block-${formatSectionShortLabel(selectedSection.sectionCode).replace('-', '')}` : 'the selected block',
-      professorLabel: assignment.instructor
-    })
-  }
-
   const handleRefreshWorkspace = async () => {
     triggerRefreshSignal()
     await fetchProfessorCourseLoads()
@@ -562,7 +555,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
           <span className="registrar-course-eyebrow">Professor Loads / Workspace</span>
           <h2 className="registrar-section-title">Professor Load Workspace</h2>
           <p className="registrar-section-desc">
-            Use one dedicated page to create, update, and delete professor class assignments without mixing the full directory view into the form.
+            Manage the selected professor's class assignments from one focused page.
           </p>
         </div>
         <div className="registrar-course-hero-actions">
@@ -579,11 +572,31 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
       {error && <p className="registrar-feedback registrar-feedback-error">{error}</p>}
       {success && <p className="registrar-feedback registrar-feedback-success">{success}</p>}
 
-      <section className="registrar-course-workspace-overview">
-        <article className="registrar-course-detail-card registrar-course-workspace-overview-card">
+      <section className="registrar-course-workspace-simple">
+        <aside className="registrar-professor-workspace-sidebar" aria-label="Professor assignment navigation">
+          <div className="registrar-professor-workspace-sidebar-head">
+            <p className="registrar-course-card-label">Professors</p>
+            <span>{professorLoads.length}</span>
+          </div>
+          <div className="registrar-professor-workspace-sidebar-list">
+            {professorLoads.map((professor) => (
+              <button
+                key={professor.professorId}
+                type="button"
+                className={`registrar-professor-workspace-link${professor.professorId === selectedProfessorId ? ' is-active' : ''}`}
+                onClick={() => selectProfessorWorkspace(professor.professorId, professor.courseSummaries[0]?.label || '')}
+              >
+                <strong>{professor.label}</strong>
+                <span>{professor.totals.subjects} subjects / {professor.totals.sections} sections</span>
+              </button>
+            ))}
+          </div>
+        </aside>
+
+        <article className="registrar-course-detail-card registrar-course-workspace-controls">
           <div className="registrar-course-card-header">
             <div>
-              <p className="registrar-course-card-label">Active Professor</p>
+              <p className="registrar-course-card-label">Active Load</p>
               <h3>{selectedProfessor?.label || 'Choose a professor'}</h3>
             </div>
             <span className="registrar-course-card-pill">
@@ -592,7 +605,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
           </div>
 
           <p className="registrar-course-helper-copy">
-            The workspace stays focused on one professor. Change the professor here if you need to continue the CRUD flow for another faculty load.
+            Change the professor or course when you need to work on another load.
           </p>
 
           <div className="registrar-course-workspace-control-grid">
@@ -635,61 +648,23 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
           )}
         </article>
 
-        <article className="registrar-course-detail-card registrar-course-workspace-overview-card">
-          <div className="registrar-course-card-header">
-            <div>
-              <p className="registrar-course-card-label">Course Focus</p>
-              <h3>{selectedProfessorCourse?.fullLabel || selectedProfessorCourse?.label || 'Choose a course'}</h3>
-            </div>
-            {selectedProfessorCourse && <span className="registrar-course-card-pill">{selectedProfessorCourse.subjectCount} subjects</span>}
-          </div>
-
-          <p className="registrar-course-helper-copy">
-            Keep the CRUD view tight by selecting one course at a time before choosing the block and section you want to edit.
-          </p>
-
-          {selectedProfessor?.courseSummaries.length ? (
-            <div className="registrar-course-selector" role="tablist" aria-label="Workspace course selector">
-              {selectedProfessor.courseSummaries.map((course) => (
-                <button
-                  key={`${selectedProfessor.professorId}-${course.label}`}
-                  type="button"
-                  role="tab"
-                  aria-selected={selectedProfessorCourse?.label === course.label}
-                  className={`registrar-course-selector-card${selectedProfessorCourse?.label === course.label ? ' registrar-course-selector-card-active' : ''}`}
-                  onClick={() => setSelectedProfessorCourseLabel(course.label)}
-                >
-                  <strong>{course.label}</strong>
-                  <span>{course.fullLabel || course.label}</span>
-                  <small>{course.subjectCount} subjects | {course.sections} sections | {course.studentCount} students</small>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="registrar-course-empty-state registrar-course-empty-state-compact">
-              <BookOpen size={20} />
-              <div>
-                <h3>No course load yet</h3>
-                <p>This professor can still receive a new assignment through the form below.</p>
-              </div>
-            </div>
-          )}
-        </article>
-      </section>
-
-      <div className="registrar-course-workspace-page-grid">
         <section className="assignment-section registrar-course-workspace-card">
           <header className="registrar-course-card-header">
             <div>
-              <p className="registrar-course-card-label">{editingAssignmentId ? 'Update Assignment' : 'Create Assignment'}</p>
-              <h3>{editingAssignmentId ? 'Update professor assignment for this block' : 'Create a new class assignment in this workspace'}</h3>
+              <p className="registrar-course-card-label">{editingAssignmentId ? 'Edit Professor Assignment' : 'Assign Professor'}</p>
+              <h3>{editingAssignmentId ? 'Edit assigned class load' : 'Assign professor to a class'}</h3>
             </div>
             {selectedProfessor && <span className="registrar-course-card-pill">{selectedProfessor.label}</span>}
           </header>
 
           <p className="registrar-course-helper-copy">
-            Select the block group, section, and subject, then save the schedule under the active professor workspace.
+            Choose the block, section, subject, schedule, and room.
           </p>
+          {editingAssignmentId && (
+            <p className="registrar-course-autopick-note">
+              Existing assignment pre-selected. Edit the details below or cancel edit to assign another class.
+            </p>
+          )}
 
           <div className="assignment-form">
             <label className="registrar-course-workspace-static-field">
@@ -733,8 +708,8 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
               </select>
             </label>
 
-            <label className="registrar-course-days-field">
-              Class Days
+            <div className="registrar-course-days-field">
+              <span>Class Days</span>
               <div className="day-checkbox-group">
                 {dayOptions.map((dayCode) => (
                   <label key={dayCode} className="day-checkbox-item">
@@ -748,7 +723,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                   </label>
                 ))}
               </div>
-            </label>
+            </div>
 
             <label>
               Time
@@ -772,24 +747,34 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
               <article><span>Students in section</span><strong>{selectedSection ? `${sectionStudents.length} students` : 'Select a section'}</strong></article>
             </div>
             <div className="registrar-course-footer-actions">
+              {!editingAssignmentId && selectedProfessorCourseAssignments.length > 0 && (
+                <button
+                  type="button"
+                  className="registrar-btn registrar-btn-secondary"
+                  onClick={() => handleEditProfessorCourseAssignment(selectedProfessorCourseAssignments[0])}
+                  disabled={assigning}
+                >
+                  <PencilLine size={15} />
+                  Edit assignment
+                </button>
+              )}
               {editingAssignmentId && (
                 <button className="registrar-btn registrar-btn-secondary" onClick={clearAssignmentForm} disabled={assigning}>
                   Cancel edit
                 </button>
               )}
               <button className="registrar-btn" onClick={() => void handleAssignSubjectInstructor()} disabled={!canAssign}>
-                {assigning ? 'Saving assignment...' : editingAssignmentId ? 'Update assignment' : 'Create assignment'}
+                {assigning ? 'Saving...' : editingAssignmentId ? 'Save changes' : 'Assign professor'}
               </button>
             </div>
           </div>
         </section>
 
-        <div className="registrar-course-support-stack">
-          <section className="registrar-course-detail-card">
+          <section className="registrar-course-detail-card registrar-course-workspace-assignments">
             <header className="registrar-course-card-header">
               <div>
-                <p className="registrar-course-card-label">Focused Load</p>
-                <h3>{selectedProfessorCourse?.fullLabel || selectedProfessorCourse?.label || 'No course selected'}</h3>
+                <p className="registrar-course-card-label">Existing Assignments</p>
+                <h3>{selectedProfessorCourse?.fullLabel || selectedProfessorCourse?.label || 'Select a course'}</h3>
               </div>
               {selectedProfessorCourse && <span className="registrar-course-card-pill">{selectedProfessorCourseAssignments.length} scheduled classes</span>}
             </header>
@@ -815,19 +800,12 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                       <span data-label="Schedule">{assignment.schedule}</span>
                       <span data-label="Room">{assignment.room}</span>
                       <div data-label="Actions" className="registrar-course-subject-actions">
-                        <select onChange={(e) => {
-                          const value = e.target.value
-                          if (value === 'edit') {
-                            handleEditProfessorCourseAssignment(assignment)
-                          } else if (value === 'unassign') {
-                            void handleDeleteProfessorCourseAssignment(assignment)
-                          }
-                          e.target.value = '' // Reset to placeholder
-                        }} disabled={assigning}>
-                          <option value="">...</option>
-                          <option value="edit">Edit</option>
-                          <option value="unassign">Unassign</option>
-                        </select>
+                        <button className="registrar-btn registrar-btn-secondary" onClick={() => handleEditProfessorCourseAssignment(assignment)} disabled={assigning}>
+                          Edit
+                        </button>
+                        <button className="registrar-btn registrar-course-danger-btn" onClick={() => void handleDeleteProfessorCourseAssignment(assignment)} disabled={assigning}>
+                          Unassign
+                        </button>
                       </div>
                     </div>
                     )
@@ -836,10 +814,9 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
               </div>
             ) : (
               <div className="registrar-course-empty-state registrar-course-empty-state-compact">
-                <Users size={20} />
                 <div>
-                  <h3>No classes inside this course focus</h3>
-                  <p>{selectedProfessor ? 'Create a block assignment from the workspace form to start this load.' : 'Choose a professor to start working.'}</p>
+                  <h3>No assignments yet</h3>
+                  <p>{selectedProfessor ? 'Use the form above to create the first class assignment.' : 'Choose a professor to start working.'}</p>
                 </div>
               </div>
             )}
@@ -852,93 +829,12 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
               </div>
             )}
           </section>
-
-          <section className="registrar-course-section-card">
-            <header className="registrar-course-card-header">
-              <div>
-                <p className="registrar-course-card-label">Read / Manage Assignments</p>
-                <h3>{selectedSection ? `Current assignments for Block-${formatSectionShortLabel(selectedSection.sectionCode).replace('-', '')}` : 'Select a section to manage assignments'}</h3>
-              </div>
-              {selectedSection && <span className="registrar-course-card-pill">{sectionAssignments.length} assignments</span>}
-            </header>
-
-            {selectedSection ? (
-              sectionAssignmentsLoading ? (
-                <p className="registrar-course-alert-empty">Loading current block assignments...</p>
-              ) : sectionAssignments.length > 0 ? (
-                <div className="registrar-course-manager-list">
-                  {sectionAssignments.map((assignment) => (
-                    <article key={assignment.subjectId} className="registrar-course-manager-item">
-                      <div className="registrar-course-assignment-row-head">
-                        <div><strong>{assignment.subjectCode}</strong><span>{assignment.subjectTitle}</span></div>
-                        <span className="registrar-course-assignment-chip">{selectedSection.currentPopulation} students</span>
-                      </div>
-                      <div className="registrar-course-assignment-row-meta">
-                        <span>{assignment.instructor}</span>
-                        <span>{assignment.schedule}</span>
-                        <span>{assignment.room}</span>
-                      </div>
-                      <div className="registrar-course-inline-actions">
-                        <button className="registrar-btn registrar-btn-secondary" onClick={() => populateAssignmentEditor(assignment)} disabled={assigning}>
-                          Edit
-                        </button>
-                        <button className="registrar-btn registrar-course-danger-btn" onClick={() => void handleDeleteSectionAssignment(assignment)} disabled={assigning}>
-                          Unassign
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <p className="registrar-course-alert-empty">No professor assignments exist for this section yet. Use the form on the left to create the first one.</p>
-              )
-            ) : (
-              <p className="registrar-course-alert-empty">Choose a block group and section first to read, update, or delete assignments.</p>
-            )}
-          </section>
-
-          <section className="registrar-course-section-card">
-            <header className="registrar-course-card-header">
-              <div>
-                <p className="registrar-course-card-label">Block Snapshot</p>
-                <h3>{selectedSection ? `Block-${formatSectionShortLabel(selectedSection.sectionCode).replace('-', '')}` : 'Select a section'}</h3>
-              </div>
-              {selectedSection && <span className="registrar-course-card-pill">{selectedSection.currentPopulation}/{selectedSection.capacity}</span>}
-            </header>
-
-            {selectedSection ? (
-              <>
-                <div className="registrar-course-section-meta">
-                  <span>{selectedGroup ? formatBlockGroupLabel(selectedGroup.name) : 'Block group pending'}</span>
-                  <span>{selectedSubject ? `${selectedSubject.code} | ${selectedSubject.title}` : 'Choose a subject to continue'}</span>
-                </div>
-                {sectionStudentsLoading ? (
-                  <p className="registrar-course-alert-empty">Loading section roster...</p>
-                ) : sectionStudents.length > 0 ? (
-                  <div className={`registrar-course-student-list${sectionStudents.length > 8 ? ' is-scrollable' : ''}`}>
-                    {sectionStudents.map((student) => (
-                      <article key={student._id} className="registrar-course-student-row">
-                        <div><strong>{student.lastName}, {student.firstName}</strong><span>{student.studentNumber}</span></div>
-                        <small>{student.studentStatus || 'Enrolled'}</small>
-                      </article>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="registrar-course-alert-empty">No students are assigned to this section yet.</p>
-                )}
-              </>
-            ) : (
-              <p className="registrar-course-alert-empty">Select a block group and section to inspect the roster for this assignment target.</p>
-            )}
-          </section>
-        </div>
-      </div>
+      </section>
 
       <div
         className={`registrar-refresh-signal${showRefreshSignal ? ' is-visible' : ''}`}
         aria-hidden={!showRefreshSignal}
       >
-        <span className="registrar-refresh-signal-rail" />
         <span className="registrar-refresh-signal-label">Refreshing workspace</span>
       </div>
     </div>

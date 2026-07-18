@@ -1,35 +1,132 @@
 .registrar-course-workspace-page {
-  gap: 1.1rem;
+  gap: 0.85rem;
 }
 
 .registrar-course-workspace-page-hero {
   align-items: center;
+  padding: 1rem 1.2rem;
 }
 
 .registrar-course-workspace-overview,
 .registrar-course-workspace-page-grid {
   display: grid;
-  gap: 1rem;
+  gap: 0.8rem;
 }
 
 .registrar-course-workspace-overview {
-  grid-template-columns: minmax(320px, 1fr) minmax(380px, 1.2fr);
+  grid-template-columns: minmax(300px, 0.9fr) minmax(360px, 1.1fr);
+}
+
+.registrar-course-workspace-simple {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 0.85rem;
+  align-items: start;
+}
+
+.registrar-course-workspace-controls {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.registrar-professor-workspace-sidebar {
+  position: sticky;
+  top: 0.8rem;
+  display: grid;
+  gap: 0.55rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  padding: 0.8rem;
+}
+
+.registrar-professor-workspace-sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.registrar-professor-workspace-sidebar-head p {
+  margin: 0;
+}
+
+.registrar-professor-workspace-sidebar-head span {
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-bg-soft);
+  color: var(--color-text-secondary);
+  padding: 0.12rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.registrar-professor-workspace-sidebar-list {
+  display: grid;
+  gap: 0.4rem;
+  max-height: calc(100vh - 18rem);
+  overflow: auto;
+}
+
+.registrar-professor-workspace-link {
+  width: 100%;
+  display: grid;
+  gap: 0.16rem;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: 0.58rem 0.65rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.registrar-professor-workspace-link:hover,
+.registrar-professor-workspace-link.is-active {
+  border-color: color-mix(in srgb, var(--color-primary) 44%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
+}
+
+.registrar-professor-workspace-link.is-active {
+  box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
+.registrar-professor-workspace-link strong {
+  font-size: 0.85rem;
+  line-height: 1.25;
+}
+
+.registrar-professor-workspace-link span {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}
+
+.registrar-course-workspace-simple > .registrar-course-workspace-card,
+.registrar-course-workspace-simple > .registrar-course-workspace-assignments {
+  width: 100%;
+  min-width: 0;
+  grid-column: 2;
+}
+
+.registrar-course-workspace-simple > .registrar-course-workspace-controls {
+  grid-column: 2;
 }
 
 .registrar-course-workspace-page-grid {
-  grid-template-columns: minmax(340px, 0.96fr) minmax(380px, 1.14fr);
+  grid-template-columns: minmax(360px, 0.9fr) minmax(420px, 1.1fr);
   align-items: start;
 }
 
 .registrar-course-workspace-overview-card {
   display: grid;
-  gap: 0.9rem;
+  gap: 0.7rem;
+  padding: 0.9rem 1rem;
 }
 
 .registrar-course-workspace-control-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.8rem;
+  gap: 0.7rem;
 }
 
 .registrar-course-workspace-control-grid label,
@@ -43,9 +140,10 @@
 .registrar-course-workspace-control-grid select,
 .registrar-course-workspace-static-field input {
   width: 100%;
-  padding: 0.72rem 0.85rem;
+  min-height: 2.45rem;
+  padding: 0.55rem 0.7rem;
   font-size: 0.83rem;
-  border-radius: 0.8rem;
+  border-radius: 6px;
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   color: var(--color-text);
@@ -55,6 +153,223 @@
 .registrar-course-workspace-static-field input[readonly] {
   color: var(--color-text);
   background: color-mix(in srgb, var(--color-bg-soft) 50%, var(--color-surface));
+}
+
+.registrar-course-workspace-page .registrar-course-card-header {
+  gap: 0.7rem;
+}
+
+.registrar-course-workspace-page .registrar-course-card-header h3 {
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.registrar-course-workspace-page .registrar-course-helper-copy {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.registrar-course-workspace-page .registrar-course-autopick-note {
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
+  color: var(--color-primary-on-surface);
+  padding: 0.55rem 0.65rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.registrar-course-workspace-page .registrar-course-detail-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.registrar-course-workspace-page .registrar-course-detail-summary div {
+  min-width: 0;
+  padding: 0.5rem 0.58rem;
+  display: grid;
+  gap: 0.22rem;
+}
+
+.registrar-course-workspace-page .registrar-course-detail-summary span,
+.registrar-course-workspace-page .registrar-course-detail-summary strong {
+  display: block;
+}
+
+.registrar-course-workspace-page .registrar-course-selector {
+  gap: 0.45rem;
+}
+
+.registrar-course-workspace-page .registrar-course-selector-card {
+  border-radius: 7px;
+  padding: 0.65rem 0.75rem;
+}
+
+.registrar-course-workspace-page .registrar-course-workspace-card,
+.registrar-course-workspace-page .registrar-course-detail-card,
+.registrar-course-workspace-page .registrar-course-section-card {
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  box-shadow: none;
+}
+
+.registrar-course-workspace-page .assignment-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.registrar-course-workspace-page .assignment-form label,
+.registrar-course-workspace-page .registrar-course-days-field {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.registrar-course-workspace-page .registrar-course-days-field > span {
+  color: inherit;
+  font: inherit;
+}
+
+.registrar-course-workspace-page .assignment-form :is(select, input) {
+  min-height: 2.4rem;
+  border-radius: 6px;
+  padding: 0.52rem 0.65rem;
+}
+
+.registrar-course-workspace-page .registrar-course-days-field,
+.registrar-course-workspace-page .assignment-form label:has(.time-box-group) {
+  grid-column: span 2;
+}
+
+.registrar-course-workspace-page .day-checkbox-group {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(2.2rem, 1fr));
+  gap: 0.35rem;
+}
+
+.registrar-course-workspace-page .day-checkbox-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.registrar-course-workspace-page .day-checkbox-item input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.registrar-course-workspace-page .day-checkbox-item:has(input:checked) {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.registrar-course-workspace-page .time-box-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.registrar-course-workspace-page .time-box-separator {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.registrar-course-workspace-page .registrar-course-workspace-footer {
+  align-items: flex-start;
+  margin-top: 0.8rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.registrar-course-workspace-page .registrar-course-workspace-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.registrar-course-workspace-page .registrar-course-workspace-meta article {
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-bg-soft);
+  padding: 0.5rem 0.6rem;
+}
+
+.registrar-course-workspace-page .registrar-course-subject-table {
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.registrar-course-workspace-page .registrar-course-subject-head,
+.registrar-course-workspace-page .registrar-course-subject-row {
+  grid-template-columns: minmax(220px, 1.5fr) minmax(120px, 0.7fr) minmax(160px, 0.9fr) minmax(100px, 0.55fr) minmax(160px, 0.75fr);
+}
+
+.registrar-course-workspace-page .registrar-course-subject-actions {
+  justify-content: flex-start;
+}
+
+.registrar-course-workspace-page .registrar-course-subject-actions .registrar-btn {
+  min-height: 2rem;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.78rem;
+}
+
+.registrar-course-workspace-page .registrar-course-manager-item,
+.registrar-course-workspace-page .registrar-course-student-row {
+  border-radius: 7px;
+  padding: 0.65rem 0.7rem;
+}
+
+.registrar-course-workspace-page .registrar-refresh-signal {
+  top: 4.85rem;
+  right: 1rem;
+  gap: 0;
+  min-height: 2.1rem;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  opacity: 0;
+  transform: translateY(-0.25rem);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.registrar-course-workspace-page .registrar-refresh-signal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.registrar-course-workspace-page .registrar-refresh-signal-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.1rem;
+  padding: 0.42rem 0.72rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.registrar-course-workspace-page .registrar-refresh-signal-rail {
+  display: none;
 }
 
 /* Focused Load panel specific styles */
@@ -70,13 +385,41 @@
 
 @media (max-width: 1120px) {
   .registrar-course-workspace-overview,
-  .registrar-course-workspace-page-grid {
+  .registrar-course-workspace-page-grid,
+  .registrar-course-workspace-simple {
     grid-template-columns: 1fr;
+  }
+
+  .registrar-professor-workspace-sidebar {
+    position: static;
+  }
+
+  .registrar-professor-workspace-sidebar-list {
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    max-height: none;
+  }
+
+  .registrar-course-workspace-simple > .registrar-course-workspace-card,
+  .registrar-course-workspace-simple > .registrar-course-workspace-assignments,
+  .registrar-course-workspace-simple > .registrar-course-workspace-controls {
+    grid-column: auto;
   }
 }
 
 @media (max-width: 640px) {
-  .registrar-course-workspace-control-grid {
+  .registrar-course-workspace-control-grid,
+  .registrar-course-workspace-page .assignment-form,
+  .registrar-course-workspace-page .registrar-course-detail-summary,
+  .registrar-course-workspace-page .registrar-course-workspace-meta {
     grid-template-columns: 1fr;
+  }
+
+  .registrar-course-workspace-page .registrar-course-days-field,
+  .registrar-course-workspace-page .assignment-form label:has(.time-box-group) {
+    grid-column: auto;
+  }
+
+  .registrar-course-workspace-page .day-checkbox-group {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }

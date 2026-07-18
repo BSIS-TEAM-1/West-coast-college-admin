@@ -240,14 +240,17 @@
 }
 
 .registrar-course-search input {
-  padding-left: 2.35rem;
+  padding-left: 2.65rem;
 }
 
 .registrar-course-search-icon {
   position: absolute;
-  left: 0.85rem;
-  bottom: 0.76rem;
+  left: 0.9rem;
+  bottom: 0.7rem;
+  width: 1rem;
+  height: 1rem;
   color: var(--color-text-muted);
+  pointer-events: none;
 }
 
 .registrar-course-checkbox {
@@ -1136,5 +1139,578 @@
   .registrar-refresh-signal-rail::before {
     transition: none;
     animation: none;
+  }
+}
+
+/* Simplified registrar professor load experience */
+.registrar-course-management-page {
+  gap: 0.9rem;
+  font-size: 0.92rem;
+}
+
+.registrar-course-management-page .registrar-section-title {
+  font-size: clamp(1.35rem, 2vw, 1.75rem);
+}
+
+.registrar-course-management-page .registrar-section-desc {
+  max-width: 62rem;
+  font-size: 0.86rem;
+}
+
+.registrar-course-hero,
+.registrar-course-directory-card,
+.registrar-course-detail-card,
+.registrar-course-alert-card,
+.registrar-course-workspace-card,
+.registrar-course-section-card,
+.registrar-course-guide-card,
+.registrar-course-toolbar {
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.registrar-course-hero {
+  padding: 1.15rem 1.25rem;
+}
+
+.registrar-course-stat-bar {
+  grid-template-columns: repeat(5, minmax(132px, 1fr));
+  gap: 0.6rem;
+}
+
+.registrar-course-stat-card {
+  min-height: 5.35rem;
+  border-radius: 8px;
+  padding: 0.75rem 0.85rem;
+  gap: 0.16rem;
+}
+
+.registrar-course-stat-card strong {
+  font-size: 1.32rem;
+}
+
+.registrar-refresh-signal {
+  top: 5.75rem;
+  right: 1.25rem;
+  min-height: 2rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  opacity: 1;
+  transform: none;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.16);
+}
+
+.registrar-course-toolbar {
+  grid-template-columns: minmax(280px, 1.6fr) repeat(4, minmax(132px, 1fr)) auto;
+  gap: 0.65rem;
+  padding: 0.85rem;
+}
+
+.registrar-course-toolbar select,
+.registrar-course-toolbar input,
+.registrar-workspace-form :is(select, input),
+.registrar-select-sm {
+  min-height: 2.4rem;
+  border-radius: 6px;
+  padding: 0.54rem 0.66rem;
+}
+
+.registrar-course-layout {
+  grid-template-columns: minmax(300px, 0.78fr) minmax(0, 1.85fr);
+}
+
+.registrar-course-main-stack {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.registrar-professor-list {
+  gap: 0.45rem;
+  max-height: calc(100vh - 25rem);
+  min-height: 18rem;
+  overflow: auto;
+  padding-right: 0.15rem;
+}
+
+.registrar-professor-list-row {
+  border-radius: 7px;
+  padding: 0.72rem 0.78rem;
+  gap: 0.46rem;
+  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.registrar-professor-list-row:hover,
+.registrar-professor-list-row-active,
+.registrar-professor-list-row--active {
+  border-color: color-mix(in srgb, var(--color-primary) 44%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+}
+
+.registrar-professor-list-row--active {
+  box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
+.registrar-professor-list-row-header,
+.registrar-professor-list-row-meta,
+.registrar-professor-list-row-courses {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.registrar-professor-list-row-header {
+  justify-content: space-between;
+}
+
+.registrar-professor-list-row-meta,
+.registrar-professor-list-row-courses {
+  flex-wrap: wrap;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.registrar-professor-list-row-meta span:nth-child(2) {
+  font-size: 0;
+}
+
+.registrar-professor-list-row-meta span:nth-child(2)::before {
+  content: "/";
+  font-size: 0.8rem;
+}
+
+.registrar-professor-name {
+  min-width: 0;
+  color: var(--color-text);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.registrar-professor-course-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.45rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 0.16rem 0.48rem;
+  background: var(--color-bg-soft);
+  color: var(--color-text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.registrar-professor-detail-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin: 0.85rem 0;
+}
+
+.registrar-professor-detail-stat {
+  display: grid;
+  gap: 0.16rem;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-bg-soft);
+  padding: 0.7rem 0.75rem;
+}
+
+.registrar-professor-detail-stat span,
+.registrar-workspace-form label > span {
+  color: var(--color-text-secondary);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.registrar-professor-detail-stat strong {
+  color: var(--color-text);
+  font-size: 1.25rem;
+  line-height: 1.1;
+}
+
+.registrar-select-sm {
+  max-width: min(100%, 22rem);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.registrar-assignment-table-wrapper {
+  width: 100%;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.registrar-assignment-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  background: var(--color-surface);
+}
+
+.registrar-assignment-table th,
+.registrar-assignment-table td {
+  padding: 0.62rem 0.7rem;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: top;
+  font-size: 0.83rem;
+}
+
+.registrar-assignment-table th {
+  background: var(--color-bg-soft);
+  color: var(--color-text-secondary);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.registrar-assignment-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.registrar-assignment-subject {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.registrar-assignment-code {
+  color: var(--color-text);
+  font-weight: 800;
+}
+
+.registrar-assignment-title {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.registrar-btn-icon {
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-primary-on-surface);
+  cursor: pointer;
+  flex: 0 0 auto;
+  padding: 0;
+  line-height: 1;
+}
+
+.registrar-btn-icon + .registrar-btn-icon {
+  margin-left: 0.3rem;
+}
+
+.registrar-btn-icon svg {
+  width: 1rem;
+  height: 1rem;
+  display: block;
+  flex: 0 0 auto;
+  color: currentColor;
+  stroke: currentColor;
+  stroke-width: 2.25;
+}
+
+.registrar-btn-icon--edit {
+  border-color: color-mix(in srgb, var(--color-primary) 34%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+}
+
+.registrar-btn-icon:hover {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.registrar-btn-icon--delete {
+  color: #b91c1c;
+  border-color: color-mix(in srgb, #dc2626 34%, var(--color-border));
+  background: color-mix(in srgb, #dc2626 7%, var(--color-surface));
+}
+
+.registrar-btn-icon--delete:hover {
+  border-color: #b91c1c;
+  background: #b91c1c;
+  color: #ffffff;
+}
+
+.registrar-workspace-form {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+}
+
+.registrar-form-row,
+.registrar-form-row-split {
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.registrar-workspace-form label,
+.registrar-days-field {
+  display: grid;
+  gap: 0.34rem;
+  min-width: 0;
+}
+
+.registrar-days-field > span {
+  color: var(--color-text-secondary);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.registrar-workspace-form :is(select, input) {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-sizing: border-box;
+}
+
+.registrar-day-selector {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(2.1rem, 1fr));
+  gap: 0.35rem;
+}
+
+.registrar-day-btn {
+  min-height: 2.35rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-weight: 800;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.registrar-day-btn:hover:not(:disabled),
+.registrar-day-btn:focus-visible {
+  border-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface));
+  color: var(--color-primary-on-surface);
+}
+
+.registrar-day-btn--active {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.registrar-day-btn--active:hover:not(:disabled),
+.registrar-day-btn--active:focus-visible {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.registrar-workspace-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.registrar-section-preview,
+.registrar-section-assignments {
+  margin-top: 0.9rem;
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.9rem;
+}
+
+.registrar-section-preview h4,
+.registrar-section-assignments h4 {
+  margin: 0 0 0.6rem;
+  color: var(--color-text);
+  font-size: 0.94rem;
+}
+
+.registrar-student-list,
+.registrar-assignment-list {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 15rem;
+  overflow: auto;
+}
+
+.registrar-student-item,
+.registrar-assignment-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-bg-soft);
+  padding: 0.55rem 0.65rem;
+  color: var(--color-text-secondary);
+  font-size: 0.82rem;
+}
+
+.registrar-student-item span:first-child,
+.registrar-assignment-item-main {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.registrar-assignment-item-main {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.registrar-assignment-schedule,
+.registrar-assignment-room {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.registrar-empty-state {
+  border: 1px dashed var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-soft);
+  padding: 1rem;
+  color: var(--color-text-muted);
+}
+
+.registrar-empty-state p {
+  margin: 0;
+}
+
+@media (max-width: 1220px) {
+  .registrar-course-stat-bar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .registrar-course-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .registrar-course-stat-bar,
+  .registrar-course-layout,
+  .registrar-course-toolbar,
+  .registrar-professor-detail-stats,
+  .registrar-form-row,
+  .registrar-form-row-split {
+    grid-template-columns: 1fr;
+  }
+
+  .registrar-professor-list {
+    max-height: none;
+    min-height: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .registrar-day-selector {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .registrar-refresh-signal {
+    top: auto;
+    right: 0.85rem;
+    bottom: 1rem;
+  }
+}
+
+/* Simple professor directory mode */
+.registrar-professor-simple-page {
+  max-width: none;
+}
+
+.registrar-professor-simple-hero {
+  align-items: flex-start;
+}
+
+.registrar-professor-simple-hero .registrar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  white-space: nowrap;
+}
+
+.registrar-professor-simple-toolbar {
+  grid-template-columns: minmax(260px, 1fr) auto;
+  align-items: end;
+}
+
+.registrar-professor-simple-toolbar .registrar-course-search input {
+  padding-left: 2.75rem;
+}
+
+.registrar-professor-simple-toolbar .registrar-course-search-icon {
+  left: 1rem;
+  bottom: 0.72rem;
+  width: 1rem;
+  height: 1rem;
+  pointer-events: none;
+}
+
+.registrar-professor-simple-toolbar .registrar-course-card-pill {
+  min-height: 2.4rem;
+  align-self: end;
+}
+
+.registrar-professor-simple-card {
+  padding: 0.85rem;
+}
+
+.registrar-professor-simple-list {
+  max-height: none;
+  min-height: 0;
+  overflow: visible;
+  padding-right: 0;
+}
+
+.registrar-professor-simple-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.9rem;
+  cursor: default;
+}
+
+.registrar-professor-simple-row:hover {
+  background: var(--color-surface);
+  box-shadow: none;
+}
+
+.registrar-professor-workspace-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-width: 10.5rem;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .registrar-professor-simple-toolbar,
+  .registrar-professor-simple-row {
+    grid-template-columns: 1fr;
+  }
+
+  .registrar-professor-simple-toolbar .registrar-course-card-pill,
+  .registrar-professor-workspace-btn {
+    width: 100%;
   }
 }

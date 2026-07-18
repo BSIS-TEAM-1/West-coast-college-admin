@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Joi = require('joi');
+const { logger } = require('./services/logger');
 
 const { ANNOUNCEMENT_AUDIENCES, validateAnnouncementAudience } = require('./announcementAudience');
 
@@ -171,13 +172,13 @@ function inputValidationMiddleware(options = {}) {
       }
 
       if (querySchema) {
-        console.log('Before validation - req.query:', req.query);
+        logger.debug('Before validation - req.query:', req.query);
         const { error, value } = querySchema.validate(req.query, {
           abortEarly: false,
           convert: true,
           stripUnknown: true
         });
-        console.log('After validation - value:', value, 'error:', error);
+        logger.debug('After validation - value:', value, 'error:', error);
         if (error) {
           return res.status(400).json({
             error: 'Invalid query parameters.',
@@ -444,12 +445,19 @@ const schemas = {
     createBlockGroup: {
       body: Joi.object({
         name: Joi.string().trim().min(1).max(100).required(),
+        courseId: Joi.number().integer().min(1).max(999).optional(),
+        courseCode: Joi.string().trim().min(1).max(50).optional(),
+        section: Joi.string().trim().min(1).max(10).optional(),
         semester: Joi.string().valid('1st', '2nd', 'Summer').required(),
         year: Joi.number().integer().min(2000).max(3000).optional(),
+        schoolYear: Joi.string().pattern(/^\d{4}-\d{4}$/).optional(),
         academicYear: Joi.string().pattern(/^\d{4}-\d{4}$/).optional(),
         department: Joi.string().trim().min(1).max(100).optional(),
         program: Joi.string().trim().min(1).max(100).optional(),
-        yearLevel: Joi.string().valid('1st', '2nd', '3rd', '4th').optional(),
+        yearLevel: Joi.alternatives().try(
+          Joi.number().integer().min(1).max(5),
+          Joi.string().valid('1st', '2nd', '3rd', '4th', '5th', '1', '2', '3', '4', '5')
+        ).optional(),
         policies: Joi.object({
           overcapPolicy: Joi.string().valid('allow', 'deny', 'waitlist').optional(),
           maxOvercap: Joi.number().integer().min(0).optional(),
