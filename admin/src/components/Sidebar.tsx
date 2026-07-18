@@ -13,6 +13,7 @@ type SidebarProps = {
   profileUpdateTrigger?: number; // Add this to trigger re-fetch
   isOpen?: boolean;
   onClose?: () => void;
+  initialProfile?: ProfileResponse | null;
 };
 
 const NAV_ITEMS: { id: View; label: string; icon: any }[] = [
@@ -28,21 +29,22 @@ const NAV_ITEMS: { id: View; label: string; icon: any }[] = [
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
-export default function Sidebar({ id, activeLink = 'dashboard', onNavigate, profileUpdateTrigger, isOpen = false, onClose }: SidebarProps) {
-  const [profile, setProfile] = useState<ProfileResponse | null>(null);
+export default function Sidebar({ id, activeLink = 'dashboard', onNavigate, profileUpdateTrigger, isOpen = false, onClose, initialProfile = null }: SidebarProps) {
+  const [profile, setProfile] = useState<ProfileResponse | null>(initialProfile);
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
-    const controller = new AbortController();
+    if (initialProfile) {
+      setProfile(initialProfile);
+      return;
+    }
     
     getProfile()
       .then(setProfile)
       .catch(() => {
         // Fallback handled in JSX
       });
-
-    return () => controller.abort();
-  }, [profileUpdateTrigger]); // Re-fetch when trigger changes
+  }, [profileUpdateTrigger, initialProfile]); // Re-fetch when trigger changes
 
   // Update time every second
   useEffect(() => {

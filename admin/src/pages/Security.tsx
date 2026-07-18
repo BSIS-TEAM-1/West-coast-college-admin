@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getStoredToken, API_URL } from '../lib/authApi';
 import { Shield, AlertTriangle, CheckCircle, XCircle, Lock, Activity, FileText, Settings, Ban, Globe, ShieldAlert } from 'lucide-react';
 import './Security.css';
@@ -158,14 +158,30 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
   const [systemScanLoading, setSystemScanLoading] = useState(false);
   const [headersScanLoading, setHeadersScanLoading] = useState(false);
   const [activeScanTab, setActiveScanTab] = useState<'findings' | 'recommendations' | 'headers'>('findings');
+  const metricsInFlightRef = useRef(false);
 
   useEffect(() => {
     fetchSecurityMetrics();
-    const interval = setInterval(fetchSecurityMetrics, 10000); // Update every 10 seconds
-    return () => clearInterval(interval);
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchSecurityMetrics();
+      }
+    }, 60000);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchSecurityMetrics();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
 
   const fetchSecurityMetrics = async () => {
+    if (metricsInFlightRef.current) return;
+    metricsInFlightRef.current = true;
     try {
       const token = await getStoredToken();
       
@@ -209,6 +225,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
       console.error('Failed to fetch security metrics:', err);
       setError('Network error while fetching security metrics');
     } finally {
+      metricsInFlightRef.current = false;
       setLoading(false);
     }
   };
@@ -240,7 +257,6 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
       }
 
       setSystemScanLoading(true);
-      console.log('Starting security scan...');
 
       const response = await fetch(`${API_URL}/api/admin/security-scan`, {
         method: 'POST',
@@ -257,7 +273,6 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
       }
 
       const responseData = await response.json();
-      console.log('Raw scan response:', JSON.stringify(responseData, null, 2));
 
       if (!responseData) {
         throw new Error('Empty response from server');
@@ -313,14 +328,11 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
         warnings: mediumFindings
       };
 
-      console.log('Formatted scan results:', JSON.stringify(formattedResults, null, 2));
-
       // Update the scan results state
       setScanResults(formattedResults);
       setShowScanResults(true);
       
       // Also update the metrics with the scan results
-      console.log('Updating security score:', score);
       setMetrics(prev => ({
         ...prev,
         securityScore: score,

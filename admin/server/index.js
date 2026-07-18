@@ -14,6 +14,9 @@ envFileCandidates.forEach(({ filePath, override }) => {
   }
 })
 
+const { logger, installConsoleGuards, isDevelopment } = require('./services/logger')
+installConsoleGuards()
+
 const express = require('express')
 const cors = require('cors')
 const mongoose = require('mongoose')
@@ -25,6 +28,8 @@ const rateLimit = require('express-rate-limit')
 const { applySecurityHeaders } = require('./security-config')
 const securityMiddleware = require('./securityMiddleware')
 const Joi = require('joi')
+const compressionMiddleware = require('./services/compressionMiddleware')
+const createOperationsMonitor = require('./services/operationsMonitor')
 const Admin = require('./models/Admin')
 const Announcement = require('./models/Announcement')
 const AuditLog = require('./models/AuditLog')
@@ -56,7 +61,7 @@ const semaphoreSmsService = new SemaphoreSmsService()
 const smsApiPhService = new SmsApiPhService()
 const verificationEmailService = new VerificationEmailService()
 
-console.log('Verification email service status:', {
+logger.debug('Verification email service status:', {
   configured: verificationEmailService.isConfigured(),
   providerPriority: verificationEmailService.providerPriority,
   gmailApiConfigured: verificationEmailService.gmailApiService.isConfigured(),
@@ -64,18 +69,20 @@ console.log('Verification email service status:', {
   sendGridConfigured: verificationEmailService.sendGridService.isConfigured()
 })
 
+let initialBackupTimeout = null
+
 // Schedule automatic backups (every 6 hours)
-setInterval(async () => {
-  console.log('Running scheduled backup...');
+const scheduledBackupInterval = setInterval(async () => {
+  logger.info('Running scheduled backup...');
   try {
     const result = await backupSystem.createBackup('scheduled', 'system');
     if (result.success) {
-      console.log(`Scheduled backup completed: ${result.fileName}`);
+      logger.info(`Scheduled backup completed: ${result.fileName}`);
     } else {
-      console.error('Scheduled backup failed:', result.error);
+      logger.error('Scheduled backup failed:', result.error);
     }
   } catch (error) {
-    console.error('Scheduled backup error:', error);
+    logger.error('Scheduled backup error:', error);
   }
 }, 6 * 60 * 60 * 1000); // 6 hours
 
@@ -83,6 +90,7 @@ setInterval(async () => {
 
 const app = express()
 const PORT = process.env.PORT || 3001
+const operationsMonitor = createOperationsMonitor()
 const JWT_SECRET = process.env.JWT_SECRET || 'wcc-admin-dev-secret-change-in-production'
 const UPLOADS_ROOT_DIR = path.join(__dirname, 'uploads')
 const DOCUMENT_UPLOADS_DIR = path.join(UPLOADS_ROOT_DIR, 'documents')
@@ -111,6 +119,10 @@ const parsedArchiveBinCleanupIntervalMs = Number(process.env.ARCHIVE_BIN_CLEANUP
 const ARCHIVE_BIN_CLEANUP_INTERVAL_MS = Number.isFinite(parsedArchiveBinCleanupIntervalMs) && parsedArchiveBinCleanupIntervalMs > 0
   ? parsedArchiveBinCleanupIntervalMs
   : 60 * 60 * 1000
+const parsedAuthLastUsedUpdateIntervalMs = Number(process.env.AUTH_LAST_USED_UPDATE_INTERVAL_MS)
+const AUTH_LAST_USED_UPDATE_INTERVAL_MS = Number.isFinite(parsedAuthLastUsedUpdateIntervalMs) && parsedAuthLastUsedUpdateIntervalMs > 0
+  ? parsedAuthLastUsedUpdateIntervalMs
+  : 60 * 1000
 
 // Hide Express server information
 app.disable('x-powered-by')
@@ -194,6 +206,8 @@ app.use(cors({
 
 // Apply security headers middleware
 app.use(applySecurityHeaders)
+app.use(compressionMiddleware())
+app.use(operationsMonitor.middleware)
 
 // General API rate limiting (relaxed, configurable)
 const apiRateLimitMax = Number(process.env.API_RATE_LIMIT_MAX || 240)
@@ -202,6 +216,51 @@ const apiLimiter = rateLimit({
   max: Number.isFinite(apiRateLimitMax) && apiRateLimitMax > 0 ? apiRateLimitMax : 240,
   message: {
     error: 'Too many requests from this IP, please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+})
+
+const parseRateLimitMax = (value, fallback) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: parseRateLimitMax(process.env.AUTH_RATE_LIMIT_MAX, 30),
+  message: {
+    error: 'Too many sign-in attempts from this IP, please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+})
+
+const verificationLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: parseRateLimitMax(process.env.VERIFICATION_RATE_LIMIT_MAX, 12),
+  message: {
+    error: 'Too many verification requests from this IP, please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+})
+
+const publicReadLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: parseRateLimitMax(process.env.PUBLIC_READ_RATE_LIMIT_MAX, 120),
+  message: {
+    error: 'Too many public requests from this IP, please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+})
+
+const adminActionLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: parseRateLimitMax(process.env.ADMIN_ACTION_RATE_LIMIT_MAX, 60),
+  message: {
+    error: 'Too many action requests, please try again later.'
   },
   standardHeaders: true,
   legacyHeaders: false
@@ -234,6 +293,8 @@ const loginAttemptStateByIp = new Map()
 const loginAttemptStateByUsername = new Map()
 const loginAttemptStateByDevice = new Map()
 let systemAuditActorIdCache = null
+let shuttingDown = false
+const serviceStartedAt = new Date()
 
 const createDefaultLoginAttemptState = (now = Date.now()) => ({
   failedAttempts: 0,
@@ -1631,7 +1692,7 @@ async function authMiddleware(req, res, next) {
     }
 
     // Find token in MongoDB (including inactive to return better session-revoked reason).
-    const authToken = await AuthToken.findOne({ token }).populate('adminId')
+    const authToken = await AuthToken.findOne({ token }).populate('adminId', 'username accountType')
     
     if (!authToken) {
       return res.status(401).json({ error: 'Invalid or expired token.' })
@@ -1657,9 +1718,20 @@ async function authMiddleware(req, res, next) {
       return res.status(401).json({ error: 'Invalid token - no admin associated.' })
     }
     
-    // Update last used timestamp
-    authToken.lastUsed = new Date()
-    await authToken.save()
+    // Avoid turning every authenticated API request into a token write.
+    const lastUsedAt = authToken.lastUsed ? new Date(authToken.lastUsed).getTime() : 0
+    if (!lastUsedAt || Date.now() - lastUsedAt >= AUTH_LAST_USED_UPDATE_INTERVAL_MS) {
+      void AuthToken.updateOne(
+        {
+          _id: authToken._id,
+          $or: [
+            { lastUsed: { $exists: false } },
+            { lastUsed: { $lte: new Date(Date.now() - AUTH_LAST_USED_UPDATE_INTERVAL_MS) } }
+          ]
+        },
+        { $set: { lastUsed: new Date() } }
+      ).catch((error) => logger.warn('Failed to update auth token lastUsed:', error.message))
+    }
     
     // Set request data
     req.adminId = authToken.adminId._id
@@ -1669,7 +1741,7 @@ async function authMiddleware(req, res, next) {
     
     next()
   } catch (error) {
-    console.error('Auth middleware error:', error)
+    logger.error('Auth middleware error:', error)
     return res.status(401).json({ error: 'Authentication failed.' })
   }
 }
@@ -1853,7 +1925,7 @@ mongoose.connect(uri)
     migrateExistingAccounts()
     
     // Run initial backup after connection
-    setTimeout(async () => {
+    initialBackupTimeout = setTimeout(async () => {
       console.log('Running initial backup...');
       try {
         const result = await backupSystem.createBackup('initial', 'system');
@@ -1887,8 +1959,8 @@ async function cleanupExpiredTokens() {
 }
 
 // Schedule token cleanup every hour
-setInterval(cleanupExpiredTokens, 60 * 60 * 1000)
-setInterval(() => {
+const tokenCleanupInterval = setInterval(cleanupExpiredTokens, 60 * 60 * 1000)
+const archiveBinCleanupInterval = setInterval(() => {
   void purgeExpiredArchiveBinItems().catch((error) => {
     console.error('Archive bin cleanup error:', error)
   })
@@ -1927,9 +1999,47 @@ async function migrateExistingAccounts() {
   }
 }
 
-// Health check (server is up even if DB is not)
-app.get('/api/health', (req, res) => {
-  res.json({ ok: true, db: dbReady })
+function buildServiceHealthPayload(status) {
+  return {
+    status,
+    service: process.env.SERVICE_NAME || 'wcc-admin-api',
+    environment: process.env.NODE_ENV || 'development',
+    uptimeSeconds: Math.round(process.uptime()),
+    startedAt: serviceStartedAt.toISOString(),
+    database: {
+      ready: dbReady,
+      state: mongoose.connection.readyState
+    },
+    shuttingDown
+  }
+}
+
+// Liveness: process is running. Keep this cheap for load balancers.
+app.get(['/live', '/api/live'], (req, res) => {
+  res.status(shuttingDown ? 503 : 200).json(buildServiceHealthPayload(shuttingDown ? 'shutting_down' : 'live'))
+})
+
+// Readiness: only receive traffic after dependencies are ready.
+app.get(['/ready', '/api/ready'], (req, res) => {
+  const ready = dbReady && !shuttingDown
+  res.status(ready ? 200 : 503).json(buildServiceHealthPayload(ready ? 'ready' : 'not_ready'))
+})
+
+// Compatibility health check for existing infrastructure.
+app.get(['/health', '/api/health'], (req, res) => {
+  const statusCode = shuttingDown ? 503 : 200
+  res.status(statusCode).json(buildServiceHealthPayload(shuttingDown ? 'shutting_down' : 'ok'))
+})
+
+app.get('/api/admin/operations-metrics', authMiddleware, requireAdminRole, (req, res) => {
+  res.json({
+    ...operationsMonitor.snapshot(),
+    database: {
+      ready: dbReady,
+      state: mongoose.connection.readyState
+    },
+    shuttingDown
+  })
 })
 
 /**
@@ -2161,8 +2271,6 @@ async function verifyGoogleSignInCredential(credential) {
 }
 
 async function completeAdminLogin({ admin, clientIp, userAgent, deviceId, loginMeta, auditDescription }) {
-  console.log('Login - admin.accountType:', admin.accountType, 'typeof:', typeof admin.accountType)
-
   const token = crypto.randomBytes(32).toString('hex')
 
   await AuthToken.create({
@@ -2202,7 +2310,6 @@ async function completeAdminLogin({ admin, clientIp, userAgent, deviceId, loginM
     token,
     accountType: admin.accountType
   }
-  console.log('Login response being sent:', loginResponse)
 
   await logAudit(
     'LOGIN',
@@ -2367,7 +2474,7 @@ async function beginLoginEmailVerification({ admin, deviceId, authProvider }) {
 }
 
 // POST /api/admin/signup
-app.post('/api/admin/signup', async (req, res) => {
+app.post('/api/admin/signup', authLimiter, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable. Check server logs and Atlas IP whitelist.' })
   }
@@ -2397,7 +2504,7 @@ app.post('/api/admin/signup', async (req, res) => {
 })
 
 // POST /api/admin/login
-app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.login), async (req, res) => {
+app.post('/api/admin/login', authLimiter, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.login), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable. Check server logs and Atlas IP whitelist.' })
   }
@@ -2776,7 +2883,7 @@ app.post('/api/admin/login', securityMiddleware.inputValidationMiddleware(securi
   }
 })
 
-app.post('/api/admin/google-login', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.googleLogin), async (req, res) => {
+app.post('/api/admin/google-login', authLimiter, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.googleLogin), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable. Check server logs and Atlas IP whitelist.' })
   }
@@ -2864,7 +2971,7 @@ app.post('/api/admin/google-login', securityMiddleware.inputValidationMiddleware
   }
 })
 
-app.post('/api/admin/login/verify-email', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.verifyLoginEmailVerification), async (req, res) => {
+app.post('/api/admin/login/verify-email', authLimiter, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.verifyLoginEmailVerification), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable. Check server logs and Atlas IP whitelist.' })
   }
@@ -3028,21 +3135,19 @@ app.get('/api/admin/profile', authMiddleware, securityMiddleware.inputValidation
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
-    const admin = await Admin.findById(req.adminId).select('-password')
+    const admin = await Admin.findById(req.adminId)
+      .select('username displayName email emailVerified primaryLoginMethod loginEmailVerificationEnabled phone phoneVerified avatar accountType additionalInfo')
+      .lean()
     if (!admin) return res.status(404).json({ error: 'Admin not found.' })
     
     const profileData = buildAdminProfileResponse(admin)
-    
-    console.log('Profile data being returned:', {
-      username: profileData.username,
-      accountType: profileData.accountType
-    })
     res.json(profileData)
   } catch (err) {
-    console.error('Profile get error:', err.message)
+    logger.error('Profile get error:', err.message)
     res.status(500).json({ error: 'Failed to load profile.' })
   }
 })
+
 
 // PATCH /api/admin/profile – update profile (username, displayName, email, password)
 app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.updateProfile), async (req, res) => {
@@ -3172,7 +3277,7 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
 })
 
 // POST /api/admin/profile/email/send-code - send email verification code
-app.post('/api/admin/profile/email/send-code', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.sendEmailVerificationCode), async (req, res) => {
+app.post('/api/admin/profile/email/send-code', verificationLimiter, authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.sendEmailVerificationCode), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -3232,13 +3337,6 @@ app.post('/api/admin/profile/email/send-code', authMiddleware, securityMiddlewar
       })
     }
 
-    console.log('Email verification request accepted.', {
-      recipient: deliveryResult.recipient,
-      status: deliveryResult.status,
-      messageId: deliveryResult.messageId,
-      emailProvider: deliveryResult.emailProvider
-    })
-
     res.json({
       message: 'Verification code sent.',
       email: requestedEmail,
@@ -3257,7 +3355,7 @@ app.post('/api/admin/profile/email/send-code', authMiddleware, securityMiddlewar
 })
 
 // POST /api/admin/profile/email/verify - verify email code
-app.post('/api/admin/profile/email/verify', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.verifyEmailVerificationCode), async (req, res) => {
+app.post('/api/admin/profile/email/verify', verificationLimiter, authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.verifyEmailVerificationCode), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -3313,7 +3411,7 @@ app.post('/api/admin/profile/email/verify', authMiddleware, securityMiddleware.i
   }
 })
 
-app.post('/api/admin/profile/email/change/request', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.requestEmailChangeVerification), async (req, res) => {
+app.post('/api/admin/profile/email/change/request', verificationLimiter, authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.requestEmailChangeVerification), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -3394,7 +3492,7 @@ app.post('/api/admin/profile/email/change/request', authMiddleware, securityMidd
   }
 })
 
-app.post('/api/admin/profile/email/change/verify', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.verifyEmailChangeVerification), async (req, res) => {
+app.post('/api/admin/profile/email/change/verify', verificationLimiter, authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.verifyEmailChangeVerification), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -3441,7 +3539,7 @@ app.post('/api/admin/profile/email/change/verify', authMiddleware, securityMiddl
 })
 
 // POST /api/admin/profile/phone/send-code - send SMS verification code
-app.post('/api/admin/profile/phone/send-code', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.sendPhoneVerificationCode), async (req, res) => {
+app.post('/api/admin/profile/phone/send-code', verificationLimiter, authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.sendPhoneVerificationCode), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -3497,13 +3595,6 @@ app.post('/api/admin/profile/phone/send-code', authMiddleware, securityMiddlewar
     const channel = deliveryResult.channel === 'email' ? 'email' : 'sms'
     const usedEmailFallback = Boolean(channel === 'email' || deliveryResult.fallbackUsed)
     const emailProvider = channel === 'email' ? 'sms-api-ph' : null
-    console.log('Phone verification gateway request accepted.', {
-      channel,
-      recipient: deliveryResult.recipient,
-      status: deliveryResult.status,
-      messageId: deliveryResult.messageId,
-      fallbackUsed: usedEmailFallback
-    })
 
     res.json({
       message: 'Verification code sent.',
@@ -3525,7 +3616,7 @@ app.post('/api/admin/profile/phone/send-code', authMiddleware, securityMiddlewar
 })
 
 // POST /api/admin/profile/phone/verify - verify SMS code
-app.post('/api/admin/profile/phone/verify', authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.verifyPhoneVerificationCode), async (req, res) => {
+app.post('/api/admin/profile/phone/verify', verificationLimiter, authMiddleware, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.verifyPhoneVerificationCode), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -3632,6 +3723,7 @@ app.get('/api/admin/accounts', authMiddleware, requireAdminRole, securityMiddlew
     const accounts = await Admin.find({})
       .select('-password')
       .sort({ createdAt: -1 })
+      .lean()
     
     res.json(accounts)
   } catch (err) {
@@ -3978,7 +4070,7 @@ function validateAnnouncementPayload(payload = {}, { isUpdate = false } = {}) {
 }
 
 // GET /api/announcements - get all active announcements
-app.get('/api/announcements', async (req, res) => {
+app.get('/api/announcements', publicReadLimiter, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -4009,7 +4101,7 @@ app.get('/api/announcements', async (req, res) => {
 })
 
 // GET /api/announcements/:id - get individual announcement (public)
-app.get('/api/announcements/:id', async (req, res) => {
+app.get('/api/announcements/:id', publicReadLimiter, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -4668,7 +4760,7 @@ app.delete('/api/admin/document-folders/:id', authMiddleware, requireAdminOrRegi
 })
 
 // GET /api/documents - get public documents
-app.get('/api/documents', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.documents.query), async (req, res) => {
+app.get('/api/documents', publicReadLimiter, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.documents.query), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -5693,14 +5785,6 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
       failedLogins
     })
     
-    // Additional debug for Admin collection
-    console.log('Admin collection debug:', {
-      totalAdminsQuery: totalAdmins,
-      adminCountQuery: adminCount,
-      registrarCountQuery: registrarCount,
-      professorCountQuery: professorCount
-    })
-    
     // Cache the response data
     global.cachedSystemHealth = healthData
     
@@ -5716,7 +5800,6 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
 app.get('/api/admin/test-account-types', authMiddleware, requireAdminRole, async (req, res) => {
   try {
     const allAdmins = await Admin.find({}, 'username accountType displayName').lean()
-    console.log('All Admins:', allAdmins)
     
     const accountTypeCounts = await Admin.aggregate([
       { $group: { _id: '$accountType', count: { $sum: 1 } } }
@@ -5789,13 +5872,6 @@ app.get('/api/admin/debug-admins', authMiddleware, requireAdminRole, async (req,
 // Test endpoint for Atlas API
 app.get('/api/admin/test-atlas', authMiddleware, requireAdminRole, async (req, res) => {
   try {
-    console.log('Testing Atlas API...')
-    console.log('Environment variables:', {
-      ATLAS_PUBLIC_KEY: process.env.ATLAS_PUBLIC_KEY ? 'SET' : 'NOT SET',
-      ATLAS_PRIVATE_KEY: process.env.ATLAS_PRIVATE_KEY ? 'SET' : 'NOT SET',
-      ATLAS_GROUP_ID: process.env.ATLAS_GROUP_ID ? 'SET' : 'NOT SET'
-    })
-    
     const measurements = await getAtlasMeasurements()
     const basicMetrics = await getAtlasMetrics()
     
@@ -5907,7 +5983,7 @@ app.post('/api/admin/sms/send-test', authMiddleware, requireAdminRole, async (re
 })
 
 // Backup endpoints
-app.post('/api/admin/backup/create', authMiddleware, requireAdminRole, async (req, res) => {
+app.post('/api/admin/backup/create', adminActionLimiter, authMiddleware, requireAdminRole, async (req, res) => {
   const performedBy = req.adminId || null
   const performedByRole = req.accountType === 'registrar' ? 'registrar' : 'admin'
   const ipAddress = req.ip || req.connection?.remoteAddress || null
@@ -6017,7 +6093,7 @@ app.get('/api/admin/backup/history', authMiddleware, requireAdminRole, async (re
   }
 });
 
-app.post('/api/admin/backup/restore', authMiddleware, requireAdminRole, async (req, res) => {
+app.post('/api/admin/backup/restore', adminActionLimiter, authMiddleware, requireAdminRole, async (req, res) => {
   const performedBy = req.adminId || null
   const performedByRole = req.accountType === 'registrar' ? 'registrar' : 'admin'
   const ipAddress = req.ip || req.connection?.remoteAddress || null
@@ -6089,7 +6165,7 @@ app.get('/api/admin/backup/stats', authMiddleware, requireAdminRole, async (req,
 });
 
 // POST /api/admin/security-scan - Run a security scan
-app.post('/api/admin/security-scan', authMiddleware, requireAdminRole, async (req, res) => {
+app.post('/api/admin/security-scan', adminActionLimiter, authMiddleware, requireAdminRole, async (req, res) => {
   console.log('Security scan initiated by admin:', req.adminId);
   
   if (!dbReady) {
@@ -6278,7 +6354,7 @@ app.get('/api/admin/blocked-ips/logs', authMiddleware, requireAdminRole, async (
 })
 
 // POST /api/admin/security-headers-scan - Scan security headers
-app.post('/api/admin/security-headers-scan', authMiddleware, requireAdminRole, async (req, res) => {
+app.post('/api/admin/security-headers-scan', adminActionLimiter, authMiddleware, requireAdminRole, async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' });
   }
@@ -6979,10 +7055,9 @@ app.get('/api/admin/server-stats', authMiddleware, requireAdminRole, async (req,
     res.json(formattedMetrics);
 
   } catch (error) {
-    console.error('Render API error:', error);
+    logger.error('Render API error:', error?.message || error);
     res.status(500).json({ 
-      error: 'Failed to fetch Render metrics',
-      details: error.message
+      error: 'Failed to fetch Render metrics'
     });
   }
 })
@@ -7028,32 +7103,97 @@ app.get('/api/admin/bandwidth-stats', authMiddleware, requireAdminRole, async (r
     });
 
   } catch (error) {
-    console.error('Bandwidth stats error:', error);
+    logger.error('Bandwidth stats error:', error?.message || error);
     res.status(500).json({ 
-      error: 'Failed to fetch bandwidth stats',
-      details: error.message
+      error: 'Failed to fetch bandwidth stats'
     });
   }
 })
 
+app.use((err, req, res, next) => {
+  logger.error('Unhandled request error:', err?.message || err)
+
+  if (res.headersSent) {
+    return next(err)
+  }
+
+  if (req.path.startsWith('/api/')) {
+    const statusCode = Number.isInteger(err?.statusCode) && err.statusCode >= 400 && err.statusCode < 600
+      ? err.statusCode
+      : 500
+    return res.status(statusCode).json({
+      error: statusCode >= 500 ? 'Internal server error.' : (err.message || 'Request failed.')
+    })
+  }
+
+  res.status(500).send('Internal server error.')
+})
+
 // Catch-all route for debugging
 app.all('/{*path}', (req, res, next) => {
-  console.log(`Route not found: ${req.method} ${req.path}`);
+  logger.debug(`Route not found: ${req.method} ${req.path}`);
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'API endpoint not found.' })
   }
   res.status(404).end()
 })
 
-app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`)
-  console.log('Available routes:')
-  console.log('  GET /api/admin/server-stats')
-  console.log('  GET /api/admin/bandwidth-stats')
-  console.log('  GET /api/admin/security-metrics')
-  console.log('  GET /api/admin/error-logs')
-  console.log('  POST /api/admin/profile/phone/send-code')
-  console.log('  POST /api/admin/profile/phone/verify')
-  console.log('  POST /api/admin/sms/send-test')
-  console.log('  POST /api/admin/security-scan')
+const server = app.listen(PORT, () => {
+  logger.info(`Server running at http://localhost:${PORT}`)
+})
+
+async function shutdown(signal) {
+  if (shuttingDown) return
+
+  shuttingDown = true
+  logger.warn(`${signal} received. Starting graceful shutdown.`)
+
+  clearInterval(scheduledBackupInterval)
+  clearInterval(tokenCleanupInterval)
+  clearInterval(archiveBinCleanupInterval)
+  if (initialBackupTimeout) clearTimeout(initialBackupTimeout)
+  operationsMonitor.stop()
+
+  const forceExitTimeout = setTimeout(() => {
+    logger.critical('Graceful shutdown timed out. Exiting process.')
+    process.exit(1)
+  }, Number(process.env.GRACEFUL_SHUTDOWN_TIMEOUT_MS || 30000))
+
+  try {
+    await new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error) reject(error)
+        else resolve()
+      })
+    })
+
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.connection.close(false)
+    }
+
+    clearTimeout(forceExitTimeout)
+    logger.warn('Graceful shutdown completed.')
+    process.exit(0)
+  } catch (error) {
+    clearTimeout(forceExitTimeout)
+    logger.critical('Graceful shutdown failed:', error?.message || error)
+    process.exit(1)
+  }
+}
+
+process.on('SIGTERM', () => {
+  void shutdown('SIGTERM')
+})
+
+process.on('SIGINT', () => {
+  void shutdown('SIGINT')
+})
+
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled promise rejection:', reason?.message || reason)
+})
+
+process.on('uncaughtException', (error) => {
+  logger.critical('Uncaught exception:', error?.message || error)
+  void shutdown('uncaughtException')
 })

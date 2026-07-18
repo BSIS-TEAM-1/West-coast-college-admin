@@ -507,7 +507,8 @@ export default function LandingPage({
     setIsNavOpen(false)
   }
 
-  const handleAboutClick = () => {
+  const handleAboutClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault()
     setActiveNavItem('about')
     setIsNavOpen(false)
     onOpenAbout()
@@ -604,14 +605,14 @@ export default function LandingPage({
                 </a>
               </li>
               <li className="nav-item">
-                <button
-                  type="button"
-                  className={`nav-link landing-nav-button ${activeNavItem === 'about' ? 'active' : ''}`}
+                <a
+                  className={`nav-link ${activeNavItem === 'about' ? 'active' : ''}`}
+                  href="#about-page"
                   onClick={handleAboutClick}
                   aria-current={activeNavItem === 'about' ? 'page' : undefined}
                 >
                   About
-                </button>
+                </a>
               </li>
               <li className="nav-item">
                 <a

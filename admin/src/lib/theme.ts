@@ -297,6 +297,7 @@ const enableThemeTransition = (root: HTMLElement) => {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
 
   root.classList.add(THEME_TRANSITION_CLASS)
+  document.body.classList.add(THEME_TRANSITION_CLASS)
 
   if (themeTransitionTimeout !== null) {
     window.clearTimeout(themeTransitionTimeout)
@@ -304,6 +305,7 @@ const enableThemeTransition = (root: HTMLElement) => {
 
   themeTransitionTimeout = window.setTimeout(() => {
     root.classList.remove(THEME_TRANSITION_CLASS)
+    document.body.classList.remove(THEME_TRANSITION_CLASS)
     themeTransitionTimeout = null
   }, THEME_TRANSITION_MS)
 }
@@ -353,6 +355,7 @@ export const applyThemePreference = (
   { animate = false, persist = true, scope }: ApplyThemeOptions = {}
 ): ResolvedTheme => {
   const root = document.documentElement
+  const body = document.body
   const resolvedTheme = resolveTheme(theme)
   const resolvedScope = resolveThemeScope(scope)
 
@@ -361,6 +364,9 @@ export const applyThemePreference = (
   }
 
   root.setAttribute('data-theme', resolvedTheme)
+  body.setAttribute('data-theme', resolvedTheme)
+  root.style.colorScheme = resolvedTheme
+  body.style.colorScheme = resolvedTheme
   applyAccentColorPreference(getStoredAccentColor(resolvedScope), { persist: false, scope: resolvedScope })
 
   if (persist) {

@@ -36,7 +36,13 @@ const parseAcademicYearStart = (value: string) => {
   return match ? Number(match[1]) : null
 }
 
-const getBlockGroupCourse = (groupName: string) => {
+const getBlockGroupCourse = (group: BlockGroup) => {
+  if (group.courseId) return String(group.courseId)
+  if (group.courseCode) {
+    const byCode = courseOptions.find((option) => option.label.toUpperCase() === String(group.courseCode).toUpperCase())
+    if (byCode) return byCode.value
+  }
+  const groupName = group.name
   const normalized = String(groupName || '').trim().toUpperCase()
   const firstPart = normalized.split('-')[0]
   const matchedCourse = courseOptions.find((option) => (
@@ -47,7 +53,9 @@ const getBlockGroupCourse = (groupName: string) => {
   return matchedCourse?.value || ''
 }
 
-const getBlockGroupYearLevel = (groupName: string) => {
+const getBlockGroupYearLevel = (group: BlockGroup) => {
+  if (group.yearLevel) return String(group.yearLevel)
+  const groupName = group.name
   const normalized = String(groupName || '').trim().toUpperCase()
   const numericPrefixMatch = normalized.match(/^\d{3}-(\d+)/)
   if (numericPrefixMatch) return numericPrefixMatch[1]
@@ -108,13 +116,13 @@ function AssignSubjectPage() {
   const academicYearStart = parseAcademicYearStart(academicYear)
   const filteredBlockGroups = useMemo(() => (
     blockGroups.filter((group) => {
-      if (course && getBlockGroupCourse(group.name) !== course) return false
-      if (yearLevel && getBlockGroupYearLevel(group.name) !== yearLevel) return false
+      if (course && getBlockGroupCourse(group) !== course) return false
+      if (yearLevel && getBlockGroupYearLevel(group) !== yearLevel) return false
       if (semester && group.semester !== semester) return false
-      if (academicYearStart && Number(group.year) !== academicYearStart) return false
+      if (academicYearStart && (group.schoolYear || `${group.year}-${Number(group.year) + 1}`) !== academicYear) return false
       return true
     })
-  ), [blockGroups, course, yearLevel, semester, academicYearStart])
+  ), [blockGroups, course, yearLevel, semester, academicYear, academicYearStart])
   const selectedSubjects = subjects.filter((subject) => selectedSubjectIds.includes(subject._id))
   const assignedSubjectIds = useMemo(
     () => new Set(assignments.map((assignment) => assignment.subject?._id).filter(Boolean)),

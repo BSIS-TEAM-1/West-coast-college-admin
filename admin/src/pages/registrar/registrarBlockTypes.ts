@@ -11,8 +11,13 @@ export type BlockWorkspaceSelection = {
 export type BlockGroup = {
   _id: string
   name: string
+  courseId?: number
+  courseCode?: string
+  yearLevel?: number
   semester: Semester
+  schoolYear?: string
   year: number
+  section?: string
   policies?: {
     maxOvercap?: number
   }

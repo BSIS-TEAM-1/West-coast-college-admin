@@ -69,11 +69,20 @@ export default function AboutPage({ onBack }: AboutPageProps) {
       }
     }
 
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null
+      if (!target?.closest('.about-nav-panel') && !target?.closest('.about-menu-btn')) {
+        setIsNavOpen(false)
+      }
+    }
+
     document.body.classList.add('about-drawer-open')
     window.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('pointerdown', handlePointerDown)
     return () => {
       document.body.classList.remove('about-drawer-open')
       window.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('pointerdown', handlePointerDown)
     }
   }, [isNavOpen])
 

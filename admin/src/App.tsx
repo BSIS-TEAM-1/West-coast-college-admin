@@ -7,6 +7,7 @@ import {
   getStoredToken,
   clearStoredToken,
   getProfile,
+  setCachedProfile,
   logout
 } from './lib/authApi'
 import { isNetworkRequestError, sleep, waitForOnline } from './lib/network'
@@ -61,6 +62,7 @@ function App() {
   const [loginLoading, setLoginLoading] = useState(false)
   const [sessionBootstrapping, setSessionBootstrapping] = useState(true)
   const [sessionReconnectMessage, setSessionReconnectMessage] = useState('')
+  const [profile, setProfile] = useState<ProfileResponse | null>(null)
 
   const finalizeLogin = useCallback(async (token: string, username: string) => {
     setStoredToken(token)
@@ -69,6 +71,8 @@ function App() {
 
     setActiveThemeScope(profile.username)
     applyThemePreference(getStoredTheme(profile.username), { persist: false, scope: profile.username })
+    setCachedProfile(profile)
+    setProfile(profile)
     setUser({ username, accountType: profile.accountType })
     setShowApplicantPortal(false)
     setShowSignUp(false)
@@ -102,6 +106,8 @@ function App() {
           setSessionReconnectMessage('')
           setActiveThemeScope(profile.username)
           applyThemePreference(getStoredTheme(profile.username), { persist: false, scope: profile.username })
+          setCachedProfile(profile)
+          setProfile(profile)
           setUser({ username: profile.username, accountType: profile.accountType })
           break
         } catch (error) {
@@ -128,6 +134,7 @@ function App() {
           setSessionReconnectMessage('')
           setActiveThemeScope(null)
           applyThemePreference(getStoredTheme(null), { persist: false, scope: null })
+          setProfile(null)
           const message = error instanceof Error ? error.message : 'Your session has ended. Please sign in again.'
           if (isAuthSessionError(message)) {
             setLoginError(message)
@@ -215,6 +222,7 @@ function App() {
       setActiveThemeScope(null)
       applyThemePreference(getStoredTheme(null), { persist: false, scope: null })
       setUser(null)
+      setProfile(null)
       setShowSignIn(false)
       setShowSignUp(false)
       setShowAboutPage(false)
@@ -251,38 +259,10 @@ function App() {
     }
 
     setUser(prev => prev ? { ...prev, username: profile.username, accountType: profile.accountType } : null)
+    setCachedProfile(profile)
+    setProfile(profile)
     setActiveThemeScope(profile.username)
     applyThemePreference(getStoredTheme(profile.username), { persist: false, scope: profile.username })
-  }, [user])
-
-  useEffect(() => {
-    if (!user) return
-
-    let cancelled = false
-    const intervalId = window.setInterval(() => {
-      void (async () => {
-        try {
-          await getProfile()
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Your session has ended. Please sign in again.'
-          if (!isAuthSessionError(message)) return
-
-          await clearStoredToken()
-          if (cancelled) return
-
-          setActiveThemeScope(null)
-          applyThemePreference(getStoredTheme(null), { persist: false, scope: null })
-          setUser(null)
-          setLoginError(message)
-          setShowSignIn(true)
-        }
-      })()
-    }, 10000)
-
-    return () => {
-      cancelled = true
-      window.clearInterval(intervalId)
-    }
   }, [user])
 
   if (user) {
@@ -298,6 +278,7 @@ function App() {
             username={user.username}
             onLogout={handleLogout}
             onProfileUpdated={handleProfileUpdated}
+            initialProfile={profile}
           />
         )
       : user.accountType === 'professor'
@@ -306,6 +287,7 @@ function App() {
               username={user.username}
               onLogout={handleLogout}
               onProfileUpdated={handleProfileUpdated}
+              initialProfile={profile}
             />
           )
         : (
@@ -313,6 +295,7 @@ function App() {
               username={user.username}
               onLogout={handleLogout}
               onProfileUpdated={handleProfileUpdated}
+              initialProfile={profile}
             />
           )
   }

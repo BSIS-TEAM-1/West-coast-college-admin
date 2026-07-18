@@ -70,7 +70,7 @@
 .about-menu-btn,
 .about-mobile-backdrop,
 .about-drawer-head {
-  display: none;
+  display: none !important;
 }
 
 .about-nav-panel {
@@ -590,13 +590,16 @@
   color: #f3f0ef;
 }
 
-@media (max-width: 991.98px) {
+@media (max-width: 767.98px) {
   body.about-drawer-open {
     overflow: hidden;
   }
 
   .about-nav {
+    position: sticky;
     padding: 0.85rem 0;
+    top: 0;
+    z-index: 92;
   }
 
   .about-nav .about-container {
@@ -610,7 +613,7 @@
     border-radius: 999px;
     background: var(--about-surface-soft);
     color: var(--about-primary);
-    display: inline-flex;
+    display: inline-flex !important;
     align-items: center;
     justify-content: center;
     margin-left: auto;
@@ -619,7 +622,7 @@
   .about-mobile-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 38;
+    z-index: 90;
     display: block;
     border: 0;
     background: rgba(0, 10, 30, 0.5);
@@ -638,7 +641,7 @@
     top: 0;
     right: 0;
     bottom: 0;
-    z-index: 39;
+    z-index: 91;
     width: min(86vw, 360px);
     height: 100vh;
     padding: 1rem;
@@ -727,7 +730,7 @@
   }
 }
 
-@media (max-width: 767.98px) {
+@media (max-width: 575.98px) {
   .about-nav .about-container {
     justify-content: space-between;
   }

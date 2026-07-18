@@ -20,6 +20,7 @@ type ProfessorDashboardProps = {
   username: string
   onLogout: () => void
   onProfileUpdated?: (profile: ProfileResponse) => void
+  initialProfile?: ProfileResponse | null
 }
 
 const PROFESSOR_NAV_ITEMS: { id: ProfessorView; label: string; icon: any }[] = [
@@ -31,10 +32,10 @@ const PROFESSOR_NAV_ITEMS: { id: ProfessorView; label: string; icon: any }[] = [
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
 ]
 
-export default function ProfessorDashboard({ username, onLogout, onProfileUpdated }: ProfessorDashboardProps) {
+export default function ProfessorDashboard({ username, onLogout, onProfileUpdated, initialProfile = null }: ProfessorDashboardProps) {
   const [view, setView] = useState<ProfessorView>('courses')
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-  const [profile, setProfile] = useState<ProfileResponse | null>(null)
+  const [profile, setProfile] = useState<ProfileResponse | null>(initialProfile)
   const [assignedCourses, setAssignedCourses] = useState<ProfessorAssignedCourse[]>([])
   const [coursesLoading, setCoursesLoading] = useState(false)
   const [coursesError, setCoursesError] = useState('')
@@ -50,6 +51,11 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
   const dashboardRef = useRef<HTMLDivElement>(null)
 
   const loadProfile = async () => {
+    if (initialProfile) {
+      setProfile(initialProfile)
+      return
+    }
+
     try {
       const nextProfile = await getProfile()
       setProfile(nextProfile)
@@ -61,8 +67,12 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
   }
 
   useEffect(() => {
+    if (initialProfile) {
+      setProfile(initialProfile)
+      return
+    }
     void loadProfile()
-  }, [])
+  }, [initialProfile])
 
   // Animation effects
   useEffect(() => {
@@ -128,7 +138,9 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
   useEffect(() => {
     const handleOnline = () => {
       setIsOffline(false)
-      void loadProfile()
+      if (!initialProfile) {
+        void loadProfile()
+      }
 
       if (view === 'courses' || view === 'students' || view === 'grades' || view === 'schedule' || view === 'subject-detail') {
         void fetchAssignedCourses()
@@ -391,6 +403,8 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
           isMenuOpen={isSidebarOpen}
           menuId="professor-sidebar-navigation"
           onMenuToggle={() => setIsSidebarOpen((prev) => !prev)}
+          onProfileClick={() => setView('profile')}
+          onSettingsClick={() => setView('settings')}
         />
         <main className="professor-dashboard-main">
           {isOffline ? (
