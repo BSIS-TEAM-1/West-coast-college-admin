@@ -678,7 +678,7 @@ export default function LandingPage({
                   community to help learners take the next confident step toward their future.
                 </p>
                 <div className="landing-hero-actions">
-                  <button type="button" className="landing-gold-btn btn" onClick={handleApplicantClick}>
+                  <button type="button" className="landing-gold-btn btn" onClick={handleOpenApplyModal}>
                     Apply Now
                   </button>
                   <a className="landing-outline-btn btn" href="#programs" onClick={() => handleSectionLinkClick('programs')}>
@@ -937,7 +937,7 @@ export default function LandingPage({
               </article>
             </div>
             <div className="text-end mt-5">
-              <button type="button" className="landing-gold-btn btn" onClick={handleApplicantClick}>
+              <button type="button" className="landing-gold-btn btn" onClick={handleOpenApplyModal}>
                 Apply Now
               </button>
             </div>
