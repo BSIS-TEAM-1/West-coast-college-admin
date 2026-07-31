@@ -5,7 +5,7 @@ import './index.css'
 import App from './App.tsx'
 import { applyThemePreference, getStoredTheme } from './lib/theme'
 
-// Initialize theme before React renders to prevent flash
+// Initialize theme before React renders to prevent flash style issues
 const theme = getStoredTheme()
 applyThemePreference(theme, { persist: false })
 
