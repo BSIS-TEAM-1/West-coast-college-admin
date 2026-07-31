@@ -1,5 +1,3 @@
-const fs = require('fs')
-const path = require('path')
 const SendGridEmailService = require('./sendGridEmailService')
 const SemaphoreEmailService = require('./semaphoreEmailService')
 const GmailApiEmailService = require('./gmailApiEmailService')
@@ -21,126 +19,74 @@ function escapeHtmlAttribute(value) {
   return escapeHtml(value).replace(/`/g, '&#96;')
 }
 
-function getBrandBaseUrl() {
-  const candidates = [
+function getVerificationBrandMarkup() {
+  const candidateUrls = [
+    process.env.WCC_WEBSITE_URL,
     process.env.PUBLIC_URL,
     process.env.APP_URL,
     process.env.FRONTEND_URL,
     process.env.RENDER_EXTERNAL_URL
   ]
+  const brandUrl = candidateUrls
+    .map((value) => String(value || '').trim())
+    .find((value) => /^https:\/\//i.test(value))
+  const brandStyle = 'display:inline-block;width:72px;height:72px;border:2px solid #fde68a;border-radius:50%;background:#ffffff;color:#7c2d12;font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:700;line-height:68px;text-align:center;text-decoration:none;'
 
-  for (const candidate of candidates) {
-    const normalized = String(candidate || '').trim().replace(/\/+$/, '')
-    if (normalized) {
-      return normalized
-    }
+  if (brandUrl) {
+    return `<a href="${escapeHtmlAttribute(brandUrl)}" target="_blank" aria-label="Visit West Coast College" style="${brandStyle}">WCC</a>`
   }
 
-  return ''
+  return `<span aria-label="West Coast College" style="${brandStyle}">WCC</span>`
 }
 
-function getInlineBrandLogoAsset() {
-  const candidateFiles = [
-    { filePath: path.join(__dirname, '../../public/logo-header.jpg'), filename: 'Logo.jpg', contentType: 'image/jpeg' },
-    { filePath: path.join(__dirname, '../../public/logo-header.jpg'), filename: 'logo-header.jpg', contentType: 'image/jpeg' },
-    { filePath: path.join(__dirname, '../../public/logo.svg'), filename: 'logo.svg', contentType: 'image/svg+xml' }
-  ]
+function getSupportMarkup() {
+  const supportUrl = String(process.env.SUPPORT_URL || process.env.SUPPORT_EMAIL || '').trim()
+  if (!supportUrl) return ''
 
-  for (const candidate of candidateFiles) {
-    try {
-      if (!fs.existsSync(candidate.filePath)) continue
-      const content = fs.readFileSync(candidate.filePath)
-      if (!content || content.length === 0) continue
+  const href = isValidEmail(supportUrl) ? `mailto:${supportUrl}` : supportUrl
+  if (!/^(https:\/\/|mailto:)/i.test(href)) return ''
 
-      return {
-        filename: candidate.filename,
-        contentType: candidate.contentType,
-        content: content.toString('base64')
-      }
-    } catch (error) {
-      console.error('Unable to load inline verification email logo asset.', {
-        filePath: candidate.filePath,
-        message: error?.message || 'Unknown file read error.'
-      })
-    }
-  }
-
-  return null
-}
-
-function getVerificationLogoPayload(providerKey) {
-  const inlineCapableProviders = new Set(['gmail-api', 'sendgrid'])
-  const inlineAsset = inlineCapableProviders.has(providerKey) ? getInlineBrandLogoAsset() : null
-
-  if (inlineAsset) {
-    return {
-      logoMarkup: '<img src="cid:wcc-brand-logo" alt="West Coast College" width="64" height="64" style="display:block;width:64px;height:64px;border-radius:16px;border:1px solid rgba(245,158,11,0.25);box-shadow:0 8px 18px rgba(15,23,42,0.12);object-fit:cover;" />',
-      attachments: [{
-        filename: inlineAsset.filename,
-        contentType: inlineAsset.contentType,
-        content: inlineAsset.content,
-        disposition: 'inline',
-        contentId: 'wcc-brand-logo'
-      }]
-    }
-  }
-
-  const brandBaseUrl = getBrandBaseUrl()
-  const logoUrl = brandBaseUrl ? `${brandBaseUrl}/logo-header.jpg` : ''
-  if (logoUrl) {
-    return {
-      logoMarkup: `<img src="${escapeHtmlAttribute(logoUrl)}" alt="West Coast College" width="64" height="64" style="display:block;width:64px;height:64px;border-radius:16px;border:1px solid rgba(245,158,11,0.25);box-shadow:0 8px 18px rgba(15,23,42,0.12);object-fit:cover;" />`,
-      attachments: []
-    }
-  }
-
-  return {
-    logoMarkup: '<div style="width:64px;height:64px;border-radius:16px;background:linear-gradient(135deg,#f59e0b,#b45309);color:#ffffff;font-size:24px;font-weight:800;line-height:64px;text-align:center;box-shadow:0 10px 24px rgba(180,83,9,0.25);">WCC</div>',
-    attachments: []
-  }
+  return `<a href="${escapeHtmlAttribute(href)}" style="color:#b45309;text-decoration:underline;font-weight:600;">Contact support</a>`
 }
 
 function buildVerificationEmailHtml({
   logoMarkup,
   safeDisplayName,
   verificationCode,
-  expiresLabel
+  expiresLabel,
+  supportMarkup = ''
 }) {
   return [
-    '<div style="margin:0;padding:32px 16px;background:#f8fafc;">',
-    '<div style="max-width:600px;margin:0 auto;border:1px solid #e2e8f0;border-radius:24px;overflow:hidden;background:#ffffff;box-shadow:0 24px 60px rgba(15,23,42,0.12);font-family:Arial,sans-serif;color:#0f172a;">',
-    '<div style="padding:28px 32px;background:linear-gradient(135deg,#fff7ed 0%,#fef3c7 55%,#ffffff 100%);border-bottom:1px solid rgba(245,158,11,0.18);">',
-    '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">',
-    '<tr>',
-    '<td style="vertical-align:middle;width:80px;">',
-    logoMarkup,
-    '</td>',
-    '<td style="vertical-align:middle;padding-left:16px;">',
-    '<div style="font-size:12px;letter-spacing:0.18em;text-transform:uppercase;font-weight:700;color:#b45309;">West Coast College</div>',
-    '<div style="margin-top:6px;font-size:24px;line-height:1.2;font-weight:800;color:#0f172a;">Verification Code</div>',
-    '<div style="margin-top:6px;font-size:14px;line-height:1.6;color:#475569;">Secure confirmation for your West Coast College account.</div>',
-    '</td>',
-    '</tr>',
-    '</table>',
-    '</div>',
-    '<div style="padding:32px;">',
-    `<p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#334155;">Hello ${safeDisplayName},</p>`,
-    '<p style="margin:0 0 18px;font-size:15px;line-height:1.7;color:#334155;">Use the code below to continue your West Coast College verification request.</p>',
-    '<div style="margin:24px 0;padding:22px 20px;border:1px dashed rgba(245,158,11,0.35);border-radius:20px;background:linear-gradient(135deg,#fffdf7,#fff7ed);text-align:center;">',
-    '<div style="font-size:12px;line-height:1.4;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:#b45309;">One-Time Code</div>',
-    `<div style="margin-top:14px;font-size:34px;line-height:1.1;font-weight:800;letter-spacing:0.28em;color:#92400e;">${verificationCode}</div>`,
-    `<div style="margin-top:14px;font-size:14px;line-height:1.6;color:#475569;">This code expires in <strong>${expiresLabel} minute${expiresLabel === 1 ? '' : 's'}</strong>.</div>`,
-    '</div>',
-    '<div style="margin-top:24px;padding:16px 18px;border-radius:16px;background:#f8fafc;border:1px solid #e2e8f0;">',
-    '<p style="margin:0;font-size:13px;line-height:1.7;color:#475569;">If you did not request this code, you can safely ignore this email. No changes will be made to your account without the verification code.</p>',
-    '</div>',
-    '<div style="margin-top:28px;padding-top:18px;border-top:1px solid #e2e8f0;">',
-    '<p style="margin:0;font-size:12px;line-height:1.7;color:#94a3b8;">West Coast College Admin Portal</p>',
-    '<p style="margin:4px 0 0;font-size:12px;line-height:1.7;color:#94a3b8;">This is an automated message. Please do not reply directly to this email.</p>',
-    '</div>',
-    '</div>',
-    '</div>',
-    '</div>'
+    '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
+    '<meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark">',
+    '<style>@media only screen and (max-width:620px){.email-shell{width:100%!important}.email-pad{padding-left:24px!important;padding-right:24px!important}.code{font-size:34px!important;letter-spacing:6px!important}}@media (prefers-color-scheme:dark){.email-bg{background:#111827!important}.email-shell,.email-body{background:#1f2937!important}.email-text{color:#e5e7eb!important}.email-muted{color:#cbd5e1!important}.email-panel{background:#292524!important;border-color:#92400e!important}.email-footer{background:#172033!important;color:#94a3b8!important}}</style>',
+    '</head><body class="email-bg" style="margin:0;padding:0;background:#f1f5f9;-webkit-text-size-adjust:100%;word-spacing:normal;">',
+    '<div style="display:none;max-height:0;overflow:hidden;opacity:0;">Your West Coast College verification code is ready and expires soon.</div>',
+    '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" class="email-bg" style="width:100%;background:#f1f5f9;border-collapse:collapse;"><tr><td align="center" style="padding:32px 12px;">',
+    '<table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" class="email-shell" style="width:600px;max-width:600px;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;border-collapse:separate;overflow:hidden;">',
+    '<tr><td align="center" style="padding:32px 32px 24px;background:#7c2d12;">',
+    `<table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr><td align="center">${logoMarkup}</td></tr></table>`,
+    '<p style="margin:16px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:20px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#fde68a;">West Coast College</p>',
+    '<h1 style="margin:6px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:26px;line-height:34px;color:#ffffff;">Verify your identity</h1>',
+    '</td></tr>',
+    '<tr><td class="email-body email-pad" style="padding:36px 40px;background:#ffffff;font-family:Arial,Helvetica,sans-serif;">',
+    `<p class="email-text" style="margin:0 0 14px;font-size:16px;line-height:25px;color:#1e293b;">Hello ${safeDisplayName},</p>`,
+    '<p class="email-text" style="margin:0;font-size:16px;line-height:25px;color:#1e293b;">Enter this verification code to continue securely:</p>',
+    '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:26px 0;border-collapse:separate;"><tr><td align="center" class="email-panel" style="padding:24px 12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:12px;">',
+    '<p style="margin:0 0 10px;font-size:12px;line-height:18px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#92400e;">Verification code</p>',
+    `<p class="code" style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:40px;line-height:48px;font-weight:700;letter-spacing:8px;color:#7c2d12;">${verificationCode}</p>`,
+    `<p class="email-muted" style="margin:10px 0 0;font-size:14px;line-height:22px;color:#64748b;">Expires in <strong>${expiresLabel} minute${expiresLabel === 1 ? '' : 's'}</strong></p>`,
+    '</td></tr></table>',
+    '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:separate;"><tr><td style="padding:16px 18px;background:#f8fafc;border-left:4px solid #d97706;border-radius:6px;">',
+    '<p class="email-muted" style="margin:0;font-size:13px;line-height:21px;color:#475569;"><strong>Security notice:</strong> Never share this code. West Coast College staff will never ask for it. If you did not request this email, you can safely ignore it.</p>',
+    '</td></tr></table>',
+    supportMarkup ? `<p class="email-muted" style="margin:24px 0 0;font-size:13px;line-height:21px;color:#64748b;">Need help? ${supportMarkup}.</p>` : '',
+    '</td></tr>',
+    '<tr><td align="center" class="email-footer email-pad" style="padding:24px 40px;background:#f8fafc;border-top:1px solid #e2e8f0;font-family:Arial,Helvetica,sans-serif;color:#64748b;">',
+    `<p style="margin:0;font-size:12px;line-height:19px;">&copy; ${new Date().getFullYear()} West Coast College. All rights reserved.</p>`,
+    '<p style="margin:4px 0 0;font-size:12px;line-height:19px;">West Coast College Admin Portal &bull; Automated security message</p>',
+    '</td></tr></table>',
+    '</td></tr></table></body></html>'
   ].join('')
 }
 
@@ -209,7 +155,9 @@ class VerificationEmailService {
       : 10
 
     const safeDisplayName = escapeHtml(displayName || 'Administrator')
-    const subject = 'West Coast College verification code'
+    // Keep the new attachment-free template out of Gmail threads that contain
+    // verification messages sent by the legacy Logo.jpg MIME implementation.
+    const subject = 'Your West Coast College security code'
     const text = [
       `Hello ${displayName || 'Administrator'},`,
       '',
@@ -218,11 +166,7 @@ class VerificationEmailService {
       '',
       'If you did not request this code, you can ignore this email.'
     ].join('\n')
-    const html = buildVerificationEmailHtml({
-      safeDisplayName,
-      verificationCode,
-      expiresLabel
-    })
+    const supportMarkup = getSupportMarkup()
 
     let lastError = null
 
@@ -232,19 +176,19 @@ class VerificationEmailService {
       }
 
       try {
-        const { logoMarkup, attachments } = getVerificationLogoPayload(providerKey)
+        const logoMarkup = getVerificationBrandMarkup()
         const html = buildVerificationEmailHtml({
           logoMarkup,
           safeDisplayName,
           verificationCode,
-          expiresLabel
+          expiresLabel,
+          supportMarkup
         })
         const result = await service.sendEmail({
           to: recipientEmail,
           subject,
           text,
-          html,
-          attachments
+          html
         })
 
         return {

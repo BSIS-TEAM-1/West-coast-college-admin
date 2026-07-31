@@ -224,6 +224,9 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
     }
 
     let cancelled = false
+    let resizeFrame = 0
+    let lastRenderedWidth = 0
+    let resizeObserver: ResizeObserver | null = null
     const scriptId = 'google-identity-services-client'
 
     const renderGoogleButton = () => {
@@ -250,15 +253,15 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
           }
         })
 
-        const availableWidth = Math.round(
+        const availableWidth = Math.floor(
           googleButtonHostRef.current.parentElement?.clientWidth
           || googleButtonHostRef.current.clientWidth
           || 320
         )
-        const hostWidth = Math.max(180, Math.min(320, availableWidth - 4))
+        const hostWidth = Math.max(180, Math.min(400, availableWidth))
 
         googleButtonHostRef.current.style.width = `${hostWidth}px`
-        
+
         window.google.accounts.id.renderButton(googleButtonHostRef.current, {
           type: 'standard',
           theme: 'outline',
@@ -268,6 +271,7 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
           logo_alignment: 'left',
           width: hostWidth
         })
+        lastRenderedWidth = hostWidth
         setGoogleButtonReady(true)
       } catch (googleRenderError) {
         setGoogleButtonReady(false)
@@ -283,6 +287,22 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
       setGoogleButtonReady(false)
     }
 
+    const observeButtonWidth = () => {
+      const frame = googleButtonHostRef.current?.parentElement
+      if (!frame || typeof ResizeObserver === 'undefined') return
+
+      resizeObserver = new ResizeObserver(([entry]) => {
+        const nextWidth = Math.max(180, Math.min(400, Math.floor(entry.contentRect.width)))
+        if (Math.abs(nextWidth - lastRenderedWidth) < 2) return
+
+        window.cancelAnimationFrame(resizeFrame)
+        resizeFrame = window.requestAnimationFrame(renderGoogleButton)
+      })
+      resizeObserver.observe(frame)
+    }
+
+    observeButtonWidth()
+
     const existingScript = document.getElementById(scriptId) as HTMLScriptElement | null
     if (existingScript) {
       if (window.google?.accounts?.id) {
@@ -294,6 +314,8 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
 
       return () => {
         cancelled = true
+        resizeObserver?.disconnect()
+        window.cancelAnimationFrame(resizeFrame)
         existingScript.removeEventListener('load', handleScriptLoad)
         existingScript.removeEventListener('error', handleScriptError)
       }
@@ -310,6 +332,8 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
 
     return () => {
       cancelled = true
+      resizeObserver?.disconnect()
+      window.cancelAnimationFrame(resizeFrame)
       script.removeEventListener('load', handleScriptLoad)
       script.removeEventListener('error', handleScriptError)
     }
@@ -589,11 +613,22 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
                 <div className="login-google-section">
                   <div className="login-google-button-frame">
                     {googleSignInAvailable ? (
-                      <div
-                        ref={googleButtonHostRef}
-                        className={`login-google-button-host ${(loading && googleAuthPending) ? 'is-busy' : ''}`}
-                        aria-live="polite"
-                      />
+                      <>
+                        {!googleButtonReady && (
+                          <button type="button" className="login-google-fallback is-loading" disabled>
+                            <span className="login-google-fallback-icon">
+                              <GoogleIcon />
+                            </span>
+                            <span className="login-google-fallback-text">Loading Google sign-in...</span>
+                          </button>
+                        )}
+                        <div
+                          ref={googleButtonHostRef}
+                          className={`login-google-button-host ${googleButtonReady ? 'is-ready' : ''} ${(loading && googleAuthPending) ? 'is-busy' : ''}`}
+                          aria-live="polite"
+                          aria-busy={!googleButtonReady || (loading && googleAuthPending)}
+                        />
+                      </>
                     ) : (
                       <button type="button" className="login-google-fallback" disabled>
                         <span className="login-google-fallback-icon">
@@ -603,9 +638,6 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
                       </button>
                     )}
                   </div>
-                  {googleSignInAvailable && !googleButtonReady && (
-                    <p className="login-google-status">Preparing Google sign-in...</p>
-                  )}
                   {googleSignInAvailable && loading && googleAuthPending && (
                     <p className="login-google-status">Completing Google sign-in...</p>
                   )}
