@@ -2623,6 +2623,7 @@ app.post('/api/admin/login', authLimiter, securityMiddleware.inputValidationMidd
     const devBypassToken = 'dev-bypass'
     const recaptchaMinScoreRaw = Number(process.env.RECAPTCHA_MIN_SCORE || 0.5)
     const recaptchaMinScore = Number.isFinite(recaptchaMinScoreRaw) ? recaptchaMinScoreRaw : 0.5
+    const recaptchaDebugEnabled = String(process.env.RECAPTCHA_DEBUG || '').toLowerCase() === 'true'
     const allowedRecaptchaActions = String(process.env.RECAPTCHA_ALLOWED_ACTIONS || 'admin_login,registrar_login,login')
       .split(',')
       .map(action => action.trim())
@@ -2638,6 +2639,16 @@ app.post('/api/admin/login', authLimiter, securityMiddleware.inputValidationMidd
       }
 
       const recaptchaSecret = String(process.env.RECAPTCHA_SECRET_KEY || '').trim()
+      if (recaptchaDebugEnabled) {
+        logger.warn('[reCAPTCHA debug] verification requested', {
+          production: isProduction,
+          tokenPresent: Boolean(captchaToken),
+          secretConfigured: Boolean(recaptchaSecret),
+          minimumScore: recaptchaMinScore,
+          allowedActions: allowedRecaptchaActions
+        })
+      }
+
       if (!recaptchaSecret) {
         console.error('reCAPTCHA is required but RECAPTCHA_SECRET_KEY is not configured.')
         return res.status(500).json({ error: 'CAPTCHA verification misconfigured.' })
@@ -2664,6 +2675,18 @@ app.post('/api/admin/login', authLimiter, securityMiddleware.inputValidationMidd
           }
         )
 
+        if (recaptchaDebugEnabled) {
+          logger.warn('[reCAPTCHA debug] Google verification response', {
+            success: recaptchaResponse.data?.success === true,
+            score: typeof recaptchaResponse.data?.score === 'number' ? recaptchaResponse.data.score : null,
+            action: String(recaptchaResponse.data?.action || '') || null,
+            hostname: String(recaptchaResponse.data?.hostname || '') || null,
+            errorCodes: Array.isArray(recaptchaResponse.data?.['error-codes'])
+              ? recaptchaResponse.data['error-codes']
+              : []
+          })
+        }
+
         if (!recaptchaResponse.data?.success) {
           return res.status(400).json({ error: 'reCAPTCHA verification failed. Please try again.' })
         }
@@ -2683,7 +2706,7 @@ app.post('/api/admin/login', authLimiter, securityMiddleware.inputValidationMidd
           return res.status(400).json({ error: 'Invalid reCAPTCHA action.' })
         }
       } catch (recaptchaError) {
-        console.error('reCAPTCHA verification error:', recaptchaError.message)
+        logger.error('reCAPTCHA verification error:', recaptchaError.message)
         return res.status(500).json({ error: 'CAPTCHA verification service unavailable.' })
       }
     } else if (captchaToken && captchaToken !== devBypassToken) {
