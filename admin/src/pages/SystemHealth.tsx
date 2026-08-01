@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { Activity, AlertTriangle, FileText, HardDrive, RefreshCw, ShieldCheck, TrendingUp, Users } from 'lucide-react'
 import LiveGraph from '../components/LiveGraph';
+import BackupDashboard from '../components/BackupDashboard'
+import { DashboardCard, StatCard } from '../components/DashboardPrimitives'
 import { API_URL, getStoredToken } from '../lib/authApi'
 import './SystemHealth.css'
 
@@ -13,6 +15,17 @@ interface SystemMetrics {
   serverLoad: number;
   memoryUsage: number;
   lastBackup: string;
+  backupDetails?: {
+    lastSuccessfulBackup: string | null;
+    nextScheduledBackup: string | null;
+    verificationStatus: 'pending' | 'verified' | 'failed' | 'missing';
+    storageUsage: number;
+    totalBackups: number;
+    failedBackups: number;
+    lastDurationMs: number | null;
+    successRate: number;
+    activeOperation: { type: string; startedAt: string } | null;
+  };
   statistics: {
     totalAdmins: number;
     totalDocuments: number;
@@ -77,6 +90,7 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
     serverLoad: 0,
     memoryUsage: 0,
     lastBackup: '',
+    backupDetails: undefined,
     statistics: {
       totalAdmins: 0,
       totalDocuments: 0,
@@ -102,7 +116,6 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(false);
   const [memoryHistory, setMemoryHistory] = useState<number[]>([]);
   const [serverLoadHistory, setServerLoadHistory] = useState<number[]>([]);
   const [atlasDiskHistory, setAtlasDiskHistory] = useState<number[]>([]);
@@ -114,24 +127,9 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
   const [warningType, setWarningType] = useState<string>('');
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [backupToast, setBackupToast] = useState<BackupToast | null>(null);
+  const [backupHistoryVersion, setBackupHistoryVersion] = useState(0)
   const systemHealthInFlightRef = useRef(false);
   const errorLogsInFlightRef = useRef(false);
-
-  // Detect dark mode
-  useEffect(() => {
-    const checkDarkMode = () => {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      setIsDarkMode(prefersDark);
-    };
-
-    checkDarkMode();
-    
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = (e: MediaQueryListEvent) => setIsDarkMode(e.matches);
-    
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, []);
 
   useEffect(() => {
     fetchSystemHealth(true); // Force initial scan to get fresh data
@@ -508,6 +506,7 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
           title: 'Backup completed',
           message: result.fileName || 'Backup created successfully.'
         });
+        setBackupHistoryVersion(version => version + 1)
       } else {
         setBackupToast({
           type: 'error',
@@ -558,7 +557,7 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
   
   if (loading) {
     return (
-      <div className={`system-health ${isDarkMode ? 'dark-mode' : ''}`}>
+      <div className="system-health">
         <div className="health-header">
           <h1>System Health & Performance</h1>
         </div>
@@ -572,12 +571,12 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
   
   if (error) {
     return (
-      <div className={`system-health ${isDarkMode ? 'dark-mode' : ''}`}>
+      <div className="system-health">
         <div className="health-header">
           <h1>System Health & Performance</h1>
         </div>
         <div className="error-container">
-          <AlertTriangle size={48} color="#ef4444" />
+          <AlertTriangle size={48} />
           <h3>Error Loading System Health</h3>
           <p>{error}</p>
           <button onClick={() => fetchSystemHealth()} className="retry-button">
@@ -589,7 +588,7 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
   }
 
   return (
-    <div className={`system-health ${isDarkMode ? 'dark-mode' : ''}`}>
+    <div className="system-health">
       <div className="health-header">
         <div>
           <span className="system-health-eyebrow">Academic Administration</span>
@@ -613,65 +612,34 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
 
       <div className="dashboard-shell">
         <div className="dashboard-summary-grid">
-          <div className="summary-card">
-            <div className="summary-card-header">
-              <h3>User Statistics</h3>
-              <Users size={20} />
-            </div>
+          <DashboardCard title="User Statistics" icon={<Users size={20} />}>
             <div className="summary-card-body">
-              <div className="summary-stat">
-                <span className="summary-stat-label">Active Users (1h)</span>
-                <span className="summary-stat-value">{formatNumber(metrics.activeUsers)}</span>
-                <span className={`summary-stat-change ${getActiveUsersChange() >= 0 ? 'positive' : 'negative'}`}>
+              <StatCard
+                label="Active Users (1h)"
+                value={formatNumber(metrics.activeUsers)}
+                tone={getActiveUsersChange() >= 0 ? 'success' : 'critical'}
+                status={<span className={`summary-stat-change ${getActiveUsersChange() >= 0 ? 'positive' : 'negative'}`}>
                   <TrendingUp size={13} />
                   {getActiveUsersChange() >= 0 ? '+' : ''}{getActiveUsersChange()}%
-                </span>
-              </div>
-              <div className="summary-stat">
-                <span className="summary-stat-label">Total Admins</span>
-                <span className="summary-stat-value">{formatNumber(metrics.statistics.accountTypes?.admins || 0)}</span>
-                <span className="summary-stat-note">Stable</span>
-              </div>
+                </span>}
+              />
+              <StatCard label="Total Admins" value={formatNumber(metrics.statistics.accountTypes?.admins || 0)} status="Stable" />
             </div>
-          </div>
+          </DashboardCard>
 
-          <div className="summary-card">
-            <div className="summary-card-header">
-              <h3>Performance</h3>
-              <Activity size={20} />
-            </div>
+          <DashboardCard title="Performance" icon={<Activity size={20} />}>
             <div className="summary-card-body">
-              <div className="summary-stat">
-                <span className="summary-stat-label">Server Load</span>
-                <span className="summary-stat-value">{formatMetricPercent(metrics.serverLoad)}</span>
-                <span className="summary-stat-note">{getStatusLabel(metrics.serverLoad, { good: 50, warning: 75 })}</span>
-              </div>
-              <div className="summary-stat">
-                <span className="summary-stat-label">Memory</span>
-                <span className="summary-stat-value">{formatMetricPercent(metrics.memoryUsage)}</span>
-                <span className="summary-stat-note">{metrics.memoryUsage > 80 ? 'Warning' : 'Normal'}</span>
-              </div>
+              <StatCard label="Server Load" value={formatMetricPercent(metrics.serverLoad)} status={getStatusLabel(metrics.serverLoad, { good: 50, warning: 75 })} />
+              <StatCard label="Memory" value={formatMetricPercent(metrics.memoryUsage)} tone={metrics.memoryUsage > 80 ? 'warning' : 'success'} status={metrics.memoryUsage > 80 ? 'Warning' : 'Normal'} />
             </div>
-          </div>
+          </DashboardCard>
 
-          <div className="summary-card">
-            <div className="summary-card-header">
-              <h3>Resources</h3>
-              <HardDrive size={20} />
-            </div>
+          <DashboardCard title="Resources" icon={<HardDrive size={20} />}>
             <div className="summary-card-body">
-              <div className="summary-stat disabled">
-                <span className="summary-stat-label">DB Usage</span>
-                <span className="summary-stat-value">{formatMetricPercent(metrics.databaseUsage)}</span>
-                <span className="summary-stat-note">{metrics.atlasMetrics?.enabled ? 'Atlas enabled' : 'Disabled'}</span>
-              </div>
-              <div className="summary-stat">
-                <span className="summary-stat-label">Total Docs</span>
-                <span className="summary-stat-value">{formatNumber(metrics.statistics.totalDocuments)}</span>
-                <span className="summary-stat-note">Current</span>
-              </div>
+              <StatCard label="DB Usage" value={formatMetricPercent(metrics.databaseUsage)} tone="info" status={metrics.atlasMetrics?.enabled ? 'Atlas enabled' : 'Disabled'} />
+              <StatCard label="Total Docs" value={formatNumber(metrics.statistics.totalDocuments)} status="Current" />
             </div>
-          </div>
+          </DashboardCard>
         </div>
 
         <div className="operational-status-grid">
@@ -684,6 +652,14 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
               <span
                 className={`status-pill ${getStatusColor(metrics.uptime, { good: 99, warning: 95 })} ${getStatusColor(metrics.uptime, { good: 99, warning: 95 }) !== 'success' ? 'clickable-warning' : 'no-click'}`}
                 onClick={() => getStatusColor(metrics.uptime, { good: 99, warning: 95 }) !== 'success' && openWarningDetails('uptime')}
+                onKeyDown={(event) => {
+                  if ((event.key === 'Enter' || event.key === ' ') && getStatusColor(metrics.uptime, { good: 99, warning: 95 }) !== 'success') {
+                    event.preventDefault()
+                    openWarningDetails('uptime')
+                  }
+                }}
+                role={getStatusColor(metrics.uptime, { good: 99, warning: 95 }) !== 'success' ? 'button' : 'status'}
+                tabIndex={getStatusColor(metrics.uptime, { good: 99, warning: 95 }) !== 'success' ? 0 : undefined}
                 title={getStatusColor(metrics.uptime, { good: 99, warning: 95 }) !== 'success' ? 'Click to see details' : ''}
               >
                 {getStatusLabel(metrics.uptime, { good: 99, warning: 95 })}
@@ -704,6 +680,14 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
                 <span
                   className={`backup-status ${isBackingUp ? 'in-progress' : metrics.backupStatus} ${!isBackingUp && metrics.backupStatus !== 'success' ? 'clickable-warning' : ''}`}
                   onClick={() => !isBackingUp && metrics.backupStatus !== 'success' && openWarningDetails('backup')}
+                  onKeyDown={(event) => {
+                    if ((event.key === 'Enter' || event.key === ' ') && !isBackingUp && metrics.backupStatus !== 'success') {
+                      event.preventDefault()
+                      openWarningDetails('backup')
+                    }
+                  }}
+                  role={!isBackingUp && metrics.backupStatus !== 'success' ? 'button' : 'status'}
+                  tabIndex={!isBackingUp && metrics.backupStatus !== 'success' ? 0 : undefined}
                   title={!isBackingUp && metrics.backupStatus !== 'success' ? 'Click to see details' : ''}
                 >
                   {isBackingUp ? 'RUNNING' : metrics.backupStatus === 'success' ? 'SUCCESS' : 'ERROR'}
@@ -724,10 +708,18 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
                 </div>
               )}
             </div>
-            <p className="status-card-note">Last: {metrics.lastBackup || 'N/A'}</p>
+            <div className="backup-health-details">
+              <span>Last verified: {metrics.lastBackup || 'N/A'}</span>
+              <span>{metrics.backupDetails?.totalBackups ?? 0} backups</span>
+              <span>{metrics.backupDetails?.failedBackups ?? 0} failed</span>
+              <span>{metrics.backupDetails?.successRate ?? 0}% success</span>
+              <span>{metrics.backupDetails?.storageUsage ? `${(metrics.backupDetails.storageUsage / 1024 / 1024).toFixed(1)} MB` : '0 MB'} stored</span>
+            </div>
           </div>
         </div>
       </div>
+
+      <BackupDashboard refreshKey={backupHistoryVersion} />
 
       <div className="graphs-section">
         <div className="section-heading-row">
@@ -743,7 +735,7 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
               data={memoryHistory}
               maxValue={100}
               unit="%"
-              color="#775a19"
+              color="var(--color-warning)"
             />
           </div>
           <div className="graph-container">
@@ -752,7 +744,7 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
               data={serverLoadHistory}
               maxValue={100}
               unit="%"
-              color="#002147"
+              color="var(--color-info)"
             />
           </div>
         </div>
@@ -769,7 +761,7 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
                   data={atlasDiskHistory}
                   maxValue={100}
                   unit="%"
-                  color="#10b981"
+                  color="var(--color-success)"
                 />
               </div>
             )}
@@ -780,7 +772,7 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
                   data={atlasDetailedDiskHistory}
                   maxValue={Math.max(...atlasDetailedDiskHistory) * 1.2 || 5}
                   unit="GB"
-                  color="#8b5cf6"
+                  color="var(--color-info)"
                 />
               </div>
             )}
@@ -791,7 +783,7 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
                   data={atlasConnectionHistory}
                   maxValue={Math.max(...atlasConnectionHistory) * 1.2 || 25}
                   unit=""
-                  color="#f59e0b"
+                  color="var(--color-warning)"
                 />
               </div>
             )}
@@ -840,9 +832,9 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
       {/* Warning Modal */}
       {showWarningModal && (
         <div className="warning-modal-overlay" onClick={() => setShowWarningModal(false)}>
-          <div className="warning-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="warning-modal" role="dialog" aria-modal="true" aria-labelledby="warning-modal-title" onClick={(e) => e.stopPropagation()}>
             <div className="warning-modal-header">
-              <h3>{getWarningDetails(warningType).title}</h3>
+              <h3 id="warning-modal-title">{getWarningDetails(warningType).title}</h3>
               <button 
                 className="warning-modal-close" 
                 onClick={() => setShowWarningModal(false)}

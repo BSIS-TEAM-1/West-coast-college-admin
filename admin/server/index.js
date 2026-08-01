@@ -86,6 +86,14 @@ const scheduledBackupInterval = setInterval(async () => {
   }
 }, 6 * 60 * 60 * 1000); // 6 hours
 
+const restoreVerificationIntervalMs = Math.max(60 * 60 * 1000, Number.parseInt(process.env.BACKUP_RESTORE_TEST_INTERVAL_HOURS || '168', 10) * 60 * 60 * 1000)
+const scheduledRestoreVerificationInterval = setInterval(async () => {
+  logger.info('Running isolated scheduled backup restore verification...')
+  const result = await backupSystem.runScheduledRestoreVerification()
+  if (result.success) logger.info(`Scheduled restore verification passed: ${result.report?.fileName || 'latest backup'}`)
+  else logger.error(`Scheduled restore verification failed: ${result.error || 'validation failed'}`)
+}, restoreVerificationIntervalMs)
+
 // Initial backup will run after database connects
 
 const app = express()
@@ -5761,7 +5769,7 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
     // Get real backup status
     const backupStats = await backupSystem.getBackupStats();
     const backupStatus = backupStats.backupEnabled && backupStats.latestBackup ? 'success' : 'error';
-    const lastBackup = backupStats.latestBackup ? backupStats.latestBackup.createdAt.toISOString() : 'N/A';
+    const lastBackup = backupStats.latestBackup ? new Date(backupStats.latestBackup.createdAt).toISOString() : 'N/A';
     
     const healthData = {
       uptime: parseFloat(uptimePercentage.toFixed(1)),
@@ -5772,6 +5780,18 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
       serverLoad: parseFloat(serverLoad.toFixed(1)),
       memoryUsage: parseFloat(systemMemoryUsagePercent.toFixed(1)),
       lastBackup: lastBackup,
+      backupDetails: {
+        lastSuccessfulBackup: backupStats.lastSuccessfulBackup || null,
+        nextScheduledBackup: backupStats.nextScheduledBackup || null,
+        verificationStatus: backupStats.latestBackup?.verificationStatus || 'missing',
+        storageUsage: backupStats.totalSize || 0,
+        totalBackups: backupStats.totalBackups || 0,
+        failedBackups: backupStats.failedBackups || 0,
+        lastDurationMs: backupStats.latestBackup?.durationMs || null,
+        lastRestore: backupStats.lastRestore || null,
+        successRate: backupStats.successRate || 0,
+        activeOperation: backupStats.activeOperation || null
+      },
       statistics: {
         totalAdmins, // This should be real data from Admin.countDocuments()
         totalDocuments,
@@ -6042,7 +6062,7 @@ app.post('/api/admin/backup/create', adminActionLimiter, authMiddleware, require
     global.lastSystemHealthScan = new Date(0); // Force fresh scan on next request
     
     console.log('Backup created and system health cache cleared');
-    res.json(result);
+    res.status(result?.code === 'BACKUP_BUSY' ? 409 : 200).json(result);
   } catch (error) {
     await logAudit(
       'CREATE',
@@ -6066,12 +6086,8 @@ app.post('/api/admin/backup/create', adminActionLimiter, authMiddleware, require
 
 app.get('/api/admin/backup/history', authMiddleware, requireAdminRole, async (req, res) => {
   try {
-    // Get backup history from database
-    const backups = await Backup.find()
-      .sort({ createdAt: -1 })
-      .limit(20)
-      .select('-__v')
-      .lean();
+    // Reconcile storage and metadata before returning the unified history.
+    const backups = (await backupSystem.getBackupHistory()).slice(0, 20);
 
     const manualTriggeredByIds = Array.from(
       new Set(
@@ -6096,6 +6112,7 @@ app.get('/api/admin/backup/history', authMiddleware, requireAdminRole, async (re
     }
 
     const backupsWithTrigger = backups.map((backup) => {
+      const { filePath: _filePath, compressedPath: _compressedPath, encryptionProvider: _encryptionProvider, ...publicBackup } = backup;
       const type = String(backup.backupType || '').toLowerCase();
       const rawTriggeredBy = String(backup.triggeredBy || '').trim();
       const isManual = type === 'manual';
@@ -6104,7 +6121,7 @@ app.get('/api/admin/backup/history', authMiddleware, requireAdminRole, async (re
         : 'System';
 
       return {
-        ...backup,
+        ...publicBackup,
         triggeredBy: resolvedTriggeredBy
       };
     });
@@ -6127,7 +6144,7 @@ app.post('/api/admin/backup/restore', adminActionLimiter, authMiddleware, requir
       return res.status(400).json({ success: false, error: 'Backup filename required' });
     }
     
-    const result = await backupSystem.restoreBackup(backupFileName);
+    const result = await backupSystem.restoreBackup(backupFileName, { confirmCompatibility: req.body?.confirmCompatibility === true });
     await logAudit(
       'RESTORE',
       'SYSTEM',
@@ -6151,7 +6168,7 @@ app.post('/api/admin/backup/restore', adminActionLimiter, authMiddleware, requir
       ipAddress,
       userAgent
     )
-    res.json(result);
+    res.status(result?.code === 'BACKUP_BUSY' ? 409 : 200).json(result);
   } catch (error) {
     const backupFileName = String(req.body?.backupFileName || 'backup').trim()
     await logAudit(
@@ -6184,6 +6201,129 @@ app.get('/api/admin/backup/stats', authMiddleware, requireAdminRole, async (req,
       error: 'Failed to fetch latest security scan results',
       details: error.message 
     });
+  }
+});
+
+app.get('/api/admin/backup/health', authMiddleware, requireAdminRole, async (req, res) => {
+  try { res.json({ success: true, ...(await backupSystem.getBackupStats()) }); }
+  catch (error) { res.status(500).json({ success: false, error: error.message }); }
+});
+
+app.get('/api/admin/backup/analytics', authMiddleware, requireAdminRole, async (req, res) => {
+  try { res.json({ success: true, ...(await backupSystem.getAnalytics({ from: req.query.from, to: req.query.to })) }); }
+  catch (error) { res.status(500).json({ success: false, error: error.message }); }
+});
+
+app.get('/api/admin/backup/preview/:fileName', authMiddleware, requireAdminRole, async (req, res) => {
+  try {
+    const result = await backupSystem.getRestorePreview(req.params.fileName);
+    res.status(result.success ? 200 : 404).json(result);
+  } catch (error) { res.status(500).json({ success: false, error: error.message }); }
+});
+
+app.post('/api/admin/backup/compare', authMiddleware, requireAdminRole, async (req, res) => {
+  try {
+    const result = await backupSystem.compareBackups(req.body?.firstFileName, req.body?.secondFileName);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) { res.status(500).json({ success: false, error: error.message }); }
+});
+
+app.post('/api/admin/backup/restore-test', adminActionLimiter, authMiddleware, requireAdminRole, async (req, res) => {
+  try {
+    const result = await backupSystem.runScheduledRestoreVerification();
+    await logAudit('VERIFY', 'SYSTEM', String(result.report?.fileName || 'latest-backup'), 'Backup', result.success ? 'Isolated restore verification passed' : `Isolated restore verification failed: ${result.error || 'validation failed'}`, req.adminId || null, req.accountType === 'registrar' ? 'registrar' : 'admin', null, { verificationType: 'scheduled_restore', durationMs: result.report?.durationMs || null }, result.success ? 'SUCCESS' : 'FAILED', result.success ? 'MEDIUM' : 'HIGH', req.ip || null, req.get('user-agent') || null);
+    res.status(result.code === 'BACKUP_BUSY' ? 409 : result.success ? 200 : 422).json(result);
+  } catch (error) { res.status(error.code === 'BACKUP_BUSY' ? 409 : 500).json({ success: false, code: error.code, error: error.message }); }
+});
+
+app.post('/api/admin/backup/cleanup', adminActionLimiter, authMiddleware, requireAdminRole, async (req, res) => {
+  try {
+    const removed = await backupSystem.withLock('retention_cleanup', {}, () => backupSystem.cleanupOldBackups());
+    backupSystem.statsCache = null;
+    await logAudit('DELETE', 'SYSTEM', 'automatic-backups', 'Backup', `Retention cleanup removed ${removed.length} old automatic backup(s)`, req.adminId || null, req.accountType === 'registrar' ? 'registrar' : 'admin', null, { removed }, 'SUCCESS', 'MEDIUM', req.ip || null, req.get('user-agent') || null);
+    res.json({ success: true, removed, removedCount: removed.length });
+  } catch (error) {
+    res.status(error.code === 'BACKUP_BUSY' ? 409 : 500).json({ success: false, code: error.code, error: error.message });
+  }
+});
+
+app.post('/api/admin/backup/verify', adminActionLimiter, authMiddleware, requireAdminRole, async (req, res) => {
+  try {
+    const backupFileName = String(req.body?.backupFileName || '').trim();
+    if (!backupFileName) return res.status(400).json({ success: false, error: 'Backup filename required' });
+    const result = await backupSystem.withLock('verify', { backupFileName }, () => backupSystem.verifyBackup(backupFileName));
+    await logAudit(
+      'VERIFY', 'SYSTEM', backupFileName, 'Backup',
+      result.success ? `Backup verified: ${backupFileName}` : `Backup verification failed: ${backupFileName} (${result.error})`,
+      req.adminId || null, req.accountType === 'registrar' ? 'registrar' : 'admin', null,
+      { backupFileName, checksum: result.checksum || null, verificationStatus: result.verificationStatus || null },
+      result.success ? 'SUCCESS' : 'FAILED', result.success ? 'LOW' : 'HIGH', req.ip || null, req.get('user-agent') || null
+    );
+    res.json(result);
+  } catch (error) {
+    res.status(error.code === 'BACKUP_BUSY' ? 409 : 500).json({ success: false, code: error.code, error: error.message });
+  }
+});
+
+app.patch('/api/admin/backup/protection', adminActionLimiter, authMiddleware, requireAdminRole, async (req, res) => {
+  try {
+    const backupFileName = String(req.body?.backupFileName || '').trim();
+    if (!backupFileName || typeof req.body?.isProtected !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'Backup filename and boolean isProtected are required' });
+    }
+    const result = await backupSystem.setProtection(backupFileName, req.body.isProtected);
+    await logAudit('UPDATE', 'SYSTEM', backupFileName, 'Backup', `${req.body.isProtected ? 'Protected' : 'Unprotected'} backup: ${backupFileName}`, req.adminId || null, req.accountType === 'registrar' ? 'registrar' : 'admin', null, { backupFileName, isProtected: req.body.isProtected }, result.success ? 'SUCCESS' : 'FAILED', 'MEDIUM', req.ip || null, req.get('user-agent') || null);
+    res.status(result.success ? 200 : 404).json(result.success ? { success: true, fileName: result.backup.fileName, isProtected: result.backup.isProtected } : result);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.patch('/api/admin/backup/rename', adminActionLimiter, authMiddleware, requireAdminRole, async (req, res) => {
+  try {
+    const backupFileName = String(req.body?.backupFileName || '').trim();
+    const newName = String(req.body?.newName || '').trim();
+    const result = await backupSystem.withLock('rename', { backupFileName }, () => backupSystem.renameBackup(backupFileName, newName));
+    await logAudit('UPDATE', 'SYSTEM', backupFileName, 'Backup', result.success ? `Renamed backup ${backupFileName} to ${result.fileName}` : `Backup rename failed: ${result.error}`, req.adminId || null, req.accountType === 'registrar' ? 'registrar' : 'admin', null, { backupFileName, newName: result.fileName || newName }, result.success ? 'SUCCESS' : 'FAILED', 'MEDIUM', req.ip || null, req.get('user-agent') || null);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    res.status(error.code === 'BACKUP_BUSY' ? 409 : 500).json({ success: false, code: error.code, error: error.message });
+  }
+});
+
+app.delete('/api/admin/backup/delete', adminActionLimiter, authMiddleware, requireAdminRole, async (req, res) => {
+  try {
+    const backupFileName = String(req.body?.backupFileName || '').trim();
+    if (!backupFileName) return res.status(400).json({ success: false, error: 'Backup filename required' });
+    const result = await backupSystem.withLock('delete', { backupFileName }, () => backupSystem.deleteBackup(backupFileName, { force: req.body?.confirm === true, confirmationToken: String(req.body?.confirmationToken || '') }));
+    await logAudit(
+      'DELETE', 'SYSTEM', backupFileName, 'Backup',
+      result.success ? `Backup deleted: ${backupFileName}` : `Backup deletion rejected: ${backupFileName} (${result.error})`,
+      req.adminId || null, req.accountType === 'registrar' ? 'registrar' : 'admin', null,
+      { backupFileName, confirmed: req.body?.confirm === true }, result.success ? 'SUCCESS' : 'FAILED',
+      result.success ? 'MEDIUM' : 'HIGH', req.ip || null, req.get('user-agent') || null
+    );
+    res.status(result.success ? 200 : result.confirmationRequired ? 409 : 400).json(result);
+  } catch (error) {
+    res.status(error.code === 'BACKUP_BUSY' ? 409 : 500).json({ success: false, code: error.code, error: error.message });
+  }
+});
+
+app.get('/api/admin/backup/download/:fileName', adminActionLimiter, authMiddleware, requireAdminRole, async (req, res) => {
+  try {
+    const backupFileName = path.basename(String(req.params.fileName || ''));
+    const backup = await Backup.findOne({ fileName: backupFileName }).lean();
+    if (!backup) return res.status(404).json({ success: false, error: 'Backup not found' });
+    const archiveName = path.basename(backup.compressedPath || `${backup.fileName}.gz`);
+    if (!backupSystem.storage.exists(archiveName)) return res.status(404).json({ success: false, error: 'Backup archive missing' });
+    await logAudit(
+      'DOWNLOAD', 'SYSTEM', backupFileName, 'Backup', `Backup downloaded: ${backupFileName}`,
+      req.adminId || null, req.accountType === 'registrar' ? 'registrar' : 'admin', null,
+      { backupFileName }, 'SUCCESS', 'MEDIUM', req.ip || null, req.get('user-agent') || null
+    );
+    res.download(backupSystem.storage.resolve(archiveName), archiveName);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -7172,6 +7312,7 @@ async function shutdown(signal) {
   logger.warn(`${signal} received. Starting graceful shutdown.`)
 
   clearInterval(scheduledBackupInterval)
+  clearInterval(scheduledRestoreVerificationInterval)
   clearInterval(tokenCleanupInterval)
   clearInterval(archiveBinCleanupInterval)
   if (initialBackupTimeout) clearTimeout(initialBackupTimeout)

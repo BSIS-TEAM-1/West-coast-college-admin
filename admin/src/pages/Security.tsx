@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getStoredToken, API_URL } from '../lib/authApi';
-import { Shield, AlertTriangle, CheckCircle, XCircle, Lock, Activity, FileText, Settings, Ban, Globe, ShieldAlert } from 'lucide-react';
+import { Shield, AlertTriangle, ArrowUpRight, CheckCircle, XCircle, Lock, Activity, FileText, Settings, Ban, Globe, ShieldAlert } from 'lucide-react';
 import './Security.css';
 
 interface SecurityMetrics {
@@ -1023,7 +1023,7 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
           <h2>Recent Security Threats</h2>
           <div className="threats-container">
             {metrics.recentThreats.length === 0 ? (
-              <div className="no-threats" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3rem', color: '#94a3b8', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1' }}>
+              <div className="no-threats">
                 <Shield size={48} style={{ marginBottom: '1rem', opacity: 0.5 }} />
                 <p style={{ margin: 0, fontWeight: 500 }}>No recent security threats detected</p>
                 <span style={{ fontSize: '0.875rem', opacity: 0.8, marginTop: '0.5rem' }}>Your system is currently secure</span>
@@ -1055,152 +1055,78 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
         </div>
 
         <div className="security-section">
-          <h2>Security Actions</h2>
-          <div className="security-actions-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
-            <div 
-              className="action-card" 
-              onClick={!systemScanLoading ? handleSecurityScan : undefined}
-              style={{ 
-                backgroundColor: 'var(--bg-secondary, #fff)', 
-                padding: '24px', 
-                borderRadius: '12px', 
-                border: '1px solid var(--border-color, #e2e8f0)',
-                cursor: systemScanLoading ? 'wait' : 'pointer',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                textAlign: 'center',
-                transition: 'transform 0.2s, box-shadow 0.2s',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)'; }}
+          <div className="security-section-heading">
+            <h2>Security Actions</h2>
+            <p>Manage diagnostics, monitoring, and security settings.</p>
+          </div>
+          <div className="security-actions-grid">
+            <button
+              type="button"
+              className="action-card"
+              onClick={handleSecurityScan}
+              disabled={systemScanLoading}
             >
-              <div style={{ 
-                padding: '12px', 
-                borderRadius: '50%', 
-                backgroundColor: 'rgba(59, 130, 246, 0.1)', 
-                color: '#3b82f6', 
-                marginBottom: '16px' 
-              }}>
+              <span className="action-card__icon">
                 <Activity size={24} className={systemScanLoading ? "spin" : ""} />
-              </div>
-              <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', fontWeight: 600 }}>System Scan</h3>
-              <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b', lineHeight: 1.4 }}>
-                {systemScanLoading ? 'Scanning system...' : 'Run full system diagnostic'}
-              </p>
-            </div>
+              </span>
+              <span className="action-card__content">
+                <strong>{systemScanLoading ? 'Scanning system…' : 'System Scan'}</strong>
+                <small>Run a full system diagnostic</small>
+              </span>
+              <ArrowUpRight className="action-card__arrow" size={18} />
+            </button>
 
-            <div 
-              className="action-card" 
-              onClick={!headersScanLoading ? handleSecurityHeadersScan : undefined}
-              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)'; }}
+            <button
+              type="button"
+              className="action-card"
+              onClick={handleSecurityHeadersScan}
+              disabled={headersScanLoading}
             >
-              <div>
+              <span className="action-card__icon">
                 <Shield size={24} className={headersScanLoading ? "spin" : ""} />
-              </div>
-              <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', fontWeight: 600 }}>Headers Scan</h3>
-              <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b', lineHeight: 1.4 }}>
-                {headersScanLoading ? 'Checking headers...' : 'Verify security headers'}
-              </p>
-            </div>
+              </span>
+              <span className="action-card__content">
+                <strong>{headersScanLoading ? 'Checking headers…' : 'Headers Scan'}</strong>
+                <small>Verify HTTP security headers</small>
+              </span>
+              <ArrowUpRight className="action-card__arrow" size={18} />
+            </button>
 
-            <div 
-              className="action-card" 
+            <button
+              type="button"
+              className="action-card"
               onClick={handleViewAuditLogs}
-              style={{ 
-                backgroundColor: 'var(--bg-secondary, #fff)', 
-                padding: '24px', 
-                borderRadius: '12px', 
-                border: '1px solid var(--border-color, #e2e8f0)',
-                cursor: 'pointer',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                textAlign: 'center',
-                transition: 'transform 0.2s, box-shadow 0.2s',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)'; }}
             >
-              <div style={{ 
-                padding: '12px', 
-                borderRadius: '50%', 
-                backgroundColor: 'rgba(245, 158, 11, 0.1)', 
-                color: '#f59e0b', 
-                marginBottom: '16px' 
-              }}>
+              <span className="action-card__icon">
                 <FileText size={24} />
-              </div>
-              <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', fontWeight: 600 }}>Audit Logs</h3>
-              <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b', lineHeight: 1.4 }}>Review system activity logs</p>
-            </div>
+              </span>
+              <span className="action-card__content"><strong>Audit Logs</strong><small>Review security activity</small></span>
+              <ArrowUpRight className="action-card__arrow" size={18} />
+            </button>
 
-            <div 
-              className="action-card" 
+            <button
+              type="button"
+              className="action-card action-card--blocked"
               onClick={handleManageBlockedIPs}
-              style={{ 
-                backgroundColor: 'var(--bg-secondary, #fff)', 
-                padding: '24px', 
-                borderRadius: '12px', 
-                border: '1px solid var(--border-color, #e2e8f0)',
-                cursor: 'pointer',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                textAlign: 'center',
-                transition: 'transform 0.2s, box-shadow 0.2s',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)'; }}
             >
-              <div style={{ 
-                padding: '12px', 
-                borderRadius: '50%', 
-                backgroundColor: 'rgba(239, 68, 68, 0.1)', 
-                color: '#ef4444', 
-                marginBottom: '16px' 
-              }}>
+              <span className="action-card__icon">
                 <Ban size={24} />
-              </div>
-              <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', fontWeight: 600 }}>Blocked IPs</h3>
-              <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b', lineHeight: 1.4 }}>Manage blocked addresses</p>
-            </div>
+              </span>
+              <span className="action-card__content"><strong>Blocked IPs</strong><small>Manage blocked addresses</small></span>
+              <ArrowUpRight className="action-card__arrow" size={18} />
+            </button>
 
-            <div 
-              className="action-card" 
+            <button
+              type="button"
+              className="action-card"
               onClick={handleSecuritySettings}
-              style={{ 
-                backgroundColor: 'var(--bg-secondary, #fff)', 
-                padding: '24px', 
-                borderRadius: '12px', 
-                border: '1px solid var(--border-color, #e2e8f0)',
-                cursor: 'pointer',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                textAlign: 'center',
-                transition: 'transform 0.2s, box-shadow 0.2s',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)'; }}
             >
-              <div style={{ 
-                padding: '12px', 
-                borderRadius: '50%', 
-                backgroundColor: 'rgba(107, 114, 128, 0.1)', 
-                color: '#6b7280', 
-                marginBottom: '16px' 
-              }}>
+              <span className="action-card__icon">
                 <Settings size={24} />
-              </div>
-              <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', fontWeight: 600 }}>Settings</h3>
-              <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b', lineHeight: 1.4 }}>Configure security preferences</p>
-            </div>
+              </span>
+              <span className="action-card__content"><strong>Settings</strong><small>Configure security preferences</small></span>
+              <ArrowUpRight className="action-card__arrow" size={18} />
+            </button>
           </div>
         </div>
       </div>
@@ -1468,8 +1394,8 @@ const Security: React.FC<SecurityProps> = ({ onBack }) => {
 
       {/* Security Scan Results Modal */}
       {showScanResults && scanResults && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(8px)', fontFamily: "'Inter', sans-serif" }}>
-          <div style={{ backgroundColor: '#0f172a', color: '#e2e8f0', borderRadius: '16px', width: '90%', maxWidth: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)', border: '1px solid #334155', overflow: 'hidden' }}>
+        <div className="security-scan-results" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(8px)', fontFamily: "'Inter', sans-serif" }}>
+          <div className="security-scan-dialog" style={{ backgroundColor: '#0f172a', color: '#e2e8f0', borderRadius: '16px', width: '90%', maxWidth: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)', border: '1px solid #334155', overflow: 'hidden' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem', borderBottom: '1px solid #334155', flexShrink: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <Shield size={24} style={{ color: '#3b82f6' }} />
