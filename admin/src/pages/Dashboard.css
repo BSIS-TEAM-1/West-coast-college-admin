@@ -67,6 +67,13 @@
   pointer-events: auto;
 }
 
+/* The admin navigation trigger is mobile-only. */
+@media (min-width: 769px) {
+  .dashboard .navbar-menu-btn {
+    display: none;
+  }
+}
+
 .dashboard-header-content {
   display: flex;
   justify-content: space-between;

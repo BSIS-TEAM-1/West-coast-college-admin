@@ -55,6 +55,35 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
     let width = container.clientWidth
     let height = container.clientHeight
 
+    const resolveColor = (value: string) => {
+      const probe = document.createElement('span')
+      probe.style.color = value
+      probe.style.display = 'none'
+      container.appendChild(probe)
+      const resolved = window.getComputedStyle(probe).color
+      probe.remove()
+      return resolved || value
+    }
+
+    const withAlpha = (value: string, alpha: number) => {
+      const channels = value.match(/[\d.]+/g)
+      if (!channels || channels.length < 3) return 'transparent'
+      return `rgba(${channels[0]}, ${channels[1]}, ${channels[2]}, ${alpha})`
+    }
+
+    const readThemeColors = () => ({
+      chart: resolveColor(color),
+      surface: resolveColor('var(--color-surface)'),
+      surfaceSoft: resolveColor('var(--color-bg-soft)'),
+      border: resolveColor('var(--color-border)'),
+      text: resolveColor('var(--color-text-bold)'),
+      muted: resolveColor('var(--color-text-muted)'),
+      success: resolveColor('var(--color-success)'),
+      error: resolveColor('var(--color-error)')
+    })
+
+    let themeColors = readThemeColors()
+
     const drawGraph = (pulse = 0) => {
       const dpr = window.devicePixelRatio || 1
       canvas.width = width * dpr
@@ -77,12 +106,12 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
       const chartBottomReserve = small ? 74 : compact ? 92 : 120
 
       const bgGradient = ctx.createLinearGradient(0, 0, 0, height)
-      bgGradient.addColorStop(0, '#f8f9fa')
-      bgGradient.addColorStop(1, '#f1f3f5')
+      bgGradient.addColorStop(0, themeColors.surface)
+      bgGradient.addColorStop(1, themeColors.surfaceSoft)
       ctx.fillStyle = bgGradient
       ctx.fillRect(0, 0, width, height)
 
-      ctx.strokeStyle = 'rgba(108, 117, 125, 0.1)'
+      ctx.strokeStyle = withAlpha(themeColors.border, 0.55)
       ctx.lineWidth = 0.5
       ctx.setLineDash([5, 5])
 
@@ -103,8 +132,8 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
         const xStep = chartWidth / (dataRef.current.length - 1)
 
         const areaGradient = ctx.createLinearGradient(0, startY, 0, startY + chartHeight)
-        areaGradient.addColorStop(0, color + '30')
-        areaGradient.addColorStop(1, color + '05')
+        areaGradient.addColorStop(0, withAlpha(themeColors.chart, 0.19))
+        areaGradient.addColorStop(1, withAlpha(themeColors.chart, 0.02))
         ctx.fillStyle = areaGradient
         ctx.beginPath()
         ctx.moveTo(startX, startY + chartHeight)
@@ -117,7 +146,7 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
         ctx.closePath()
         ctx.fill()
 
-        ctx.strokeStyle = color
+        ctx.strokeStyle = themeColors.chart
         ctx.lineWidth = 3
         ctx.lineCap = 'round'
         ctx.lineJoin = 'round'
@@ -139,27 +168,27 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
 
         const pulseRadius = 12 + Math.sin(pulse) * 4
         const glowGradient = ctx.createRadialGradient(lastX, lastY, 0, lastX, lastY, pulseRadius)
-        glowGradient.addColorStop(0, color + '60')
-        glowGradient.addColorStop(0.7, color + '20')
+        glowGradient.addColorStop(0, withAlpha(themeColors.chart, 0.38))
+        glowGradient.addColorStop(0.7, withAlpha(themeColors.chart, 0.13))
         glowGradient.addColorStop(1, 'transparent')
         ctx.fillStyle = glowGradient
         ctx.beginPath()
         ctx.arc(lastX, lastY, pulseRadius, 0, 2 * Math.PI)
         ctx.fill()
 
-        ctx.fillStyle = color
+        ctx.fillStyle = themeColors.chart
         ctx.beginPath()
         ctx.arc(lastX, lastY, 5, 0, 2 * Math.PI)
         ctx.fill()
       }
 
-      ctx.fillStyle = '#1f2937'
+      ctx.fillStyle = themeColors.text
       ctx.font = `bold ${titleFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
       ctx.textAlign = 'left'
       ctx.fillText(title, leftPadding, topPadding + titleFontSize)
 
       const lastValue = dataRef.current[dataRef.current.length - 1] || 0
-      ctx.fillStyle = color
+      ctx.fillStyle = themeColors.chart
       ctx.font = `bold ${valueFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
       ctx.textAlign = 'left'
       ctx.fillText(`${lastValue.toFixed(1)}${unit}`, leftPadding, height - (small ? 42 : compact ? 50 : 60))
@@ -168,7 +197,7 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
         const trend = dataRef.current[dataRef.current.length - 1] - dataRef.current[dataRef.current.length - 2]
         const previousValue = dataRef.current[dataRef.current.length - 2]
         const trendPercentage = previousValue ? (trend / previousValue) * 100 : 0
-        const trendColor = trend > 0 ? '#10b981' : trend < 0 ? '#ef4444' : '#64748b'
+        const trendColor = trend > 0 ? themeColors.success : trend < 0 ? themeColors.error : themeColors.muted
         const trendSign = trend > 0 ? '^' : trend < 0 ? 'v' : '->'
 
         ctx.fillStyle = trendColor
@@ -181,7 +210,7 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
         )
       }
 
-      ctx.fillStyle = '#6b7280'
+      ctx.fillStyle = themeColors.muted
       ctx.font = `${axisFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
       ctx.textAlign = 'right'
 
@@ -209,11 +238,16 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
     }
 
     const resizeObserver = new ResizeObserver(handleResize)
+    const themeObserver = new MutationObserver(() => {
+      themeColors = readThemeColors()
+    })
     resizeObserver.observe(container)
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'style', 'class'] })
     animate()
 
     return () => {
       resizeObserver.disconnect()
+      themeObserver.disconnect()
       if (animationIdRef.current) {
         cancelAnimationFrame(animationIdRef.current)
         animationIdRef.current = null
@@ -227,11 +261,10 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
       style={{
         width: '100%',
         height: 'clamp(240px, 52vw, 400px)',
-        borderRadius: '12px',
+        borderRadius: 'var(--health-radius, 8px)',
         overflow: 'hidden',
-        background: '#ffffff',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06)',
-        border: '1px solid rgba(0, 0, 0, 0.06)',
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
       }}
     >
       <canvas

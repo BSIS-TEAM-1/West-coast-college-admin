@@ -37,6 +37,17 @@ export default function Dashboard({ username, onLogout, onProfileUpdated, initia
   const [registrationLogs, setRegistrationLogs] = useState<any[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const profileName = initialProfile?.displayName || initialProfile?.username || username
+  const profileRole = initialProfile?.accountType === 'registrar'
+    ? 'Registrar'
+    : initialProfile?.accountType === 'professor'
+      ? 'Professor'
+      : 'Administrator'
+  const profileAvatar = initialProfile?.avatar
+    ? initialProfile.avatar.startsWith('data:')
+      ? initialProfile.avatar
+      : `data:image/jpeg;base64,${initialProfile.avatar}`
+    : null
 
   // Debug view changes
   useEffect(() => {
@@ -51,7 +62,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated, initia
   }, [view])
 
   useEffect(() => {
-    const mediaQuery = window.matchMedia('(min-width: 1025px)')
+    const mediaQuery = window.matchMedia('(min-width: 769px)')
     const handleViewportChange = (event: MediaQueryListEvent) => {
       if (event.matches) {
         setIsSidebarOpen(false)
@@ -207,6 +218,9 @@ export default function Dashboard({ username, onLogout, onProfileUpdated, initia
       <div className="dashboard-body">
         <Navbar
           username={username}
+          profileName={profileName}
+          profileRole={profileRole}
+          profileAvatar={profileAvatar}
           onLogout={onLogout}
           isMenuOpen={isSidebarOpen}
           menuId="admin-sidebar-navigation"

@@ -137,39 +137,6 @@ export default function Sidebar({ id, activeLink = 'dashboard', onNavigate, prof
         </div>
       </div>
 
-      <div className="sidebar-footer">
-        <div className="profile-section">
-          <div className="profile-avatar">
-            {profile?.avatar ? (
-              <img 
-                src={profile.avatar.startsWith('data:') ? profile.avatar : `data:image/jpeg;base64,${profile.avatar}`} 
-                alt="Profile" 
-                className="profile-avatar-img"
-                onError={(e) => {
-                  // Fallback if image fails to load
-                  const target = e.target as HTMLImageElement;
-                  target.style.display = 'none';
-                  target.nextElementSibling?.classList.remove('hidden');
-                }}
-              />
-            ) : (
-              <div className="profile-avatar-placeholder">
-                <User size={16} />
-              </div>
-            )}
-            {/* Fallback placeholder */}
-            <div className="profile-avatar-placeholder hidden" style={{ display: 'none' }}>
-              <User size={16} />
-            </div>
-          </div>
-          <div className="profile-info">
-            <div className="profile-name">
-              {profile?.displayName || profile?.username || 'Admin User'}
-            </div>
-            <div className="profile-role">{profile?.accountType === 'registrar' ? 'Registrar' : 'Administrator'}</div>
-          </div>
-        </div>
-      </div>
     </aside>
   );
 }

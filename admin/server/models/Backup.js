@@ -26,6 +26,50 @@ const backupSchema = new mongoose.Schema({
     type: Number,
     required: false
   },
+  checksum: {
+    type: String,
+    default: null
+  },
+  jsonChecksum: {
+    type: String,
+    default: null
+  },
+  verificationStatus: {
+    type: String,
+    enum: ['pending', 'verified', 'failed', 'missing'],
+    default: 'pending'
+  },
+  verifiedAt: {
+    type: Date,
+    default: null
+  },
+  durationMs: {
+    type: Number,
+    default: null
+  },
+  isProtected: {
+    type: Boolean,
+    default: false
+  },
+  storageProvider: {
+    type: String,
+    default: 'local'
+  },
+  appVersion: { type: String, default: 'unknown' },
+  schemaVersion: { type: String, default: '1' },
+  backupEngineVersion: { type: String, default: '2.0.0' },
+  backupFormatVersion: { type: String, default: '1.0' },
+  isEncrypted: { type: Boolean, default: false },
+  encryptionProvider: { type: String, default: null },
+  validationResults: { type: mongoose.Schema.Types.Mixed, default: null },
+  performance: {
+    exportDurationMs: { type: Number, default: null },
+    compressionDurationMs: { type: Number, default: null },
+    encryptionDurationMs: { type: Number, default: null },
+    verificationDurationMs: { type: Number, default: null },
+    storageWriteBytesPerSecond: { type: Number, default: null },
+    storageReadBytesPerSecond: { type: Number, default: null }
+  },
   documentCount: {
     type: Number,
     required: false
@@ -41,7 +85,7 @@ const backupSchema = new mongoose.Schema({
   },
   backupType: {
     type: String,
-    enum: ['manual', 'scheduled', 'initial'],
+    enum: ['manual', 'scheduled', 'initial', 'emergency', 'legacy'],
     default: 'manual'
   },
   triggeredBy: {
@@ -67,7 +111,7 @@ const backupSchema = new mongoose.Schema({
 // Custom validation to ensure required fields are present when status is 'completed'
 backupSchema.pre('save', function(next) {
   if (this.status === 'completed') {
-    if (!this.size || !this.compressedSize || !this.documentCount) {
+    if (!Number.isFinite(this.size) || !Number.isFinite(this.compressedSize) || !Number.isFinite(this.documentCount)) {
       return next(new Error('Completed backup must have size, compressedSize, and documentCount'));
     }
   }
@@ -78,5 +122,7 @@ backupSchema.pre('save', function(next) {
 backupSchema.index({ createdAt: -1 });
 backupSchema.index({ status: 1 });
 backupSchema.index({ backupType: 1 });
+backupSchema.index({ verificationStatus: 1 });
+backupSchema.index({ isProtected: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Backup', backupSchema);
