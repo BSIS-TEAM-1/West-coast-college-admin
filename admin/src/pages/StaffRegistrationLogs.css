@@ -679,3 +679,117 @@
   }
 }
 
+/* Align Staff Registration Logs with the shared admin dark theme */
+[data-theme="dark"] .staff-registration-logs {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+[data-theme="dark"] .staff-registration-logs .header-title h1,
+[data-theme="dark"] .staff-registration-logs .col-account .user-name,
+[data-theme="dark"] .staff-registration-logs .col-created-by,
+[data-theme="dark"] .staff-registration-logs .detail-item p {
+  color: var(--color-text-bold);
+}
+
+[data-theme="dark"] .staff-registration-logs .header-title svg {
+  color: var(--color-primary);
+}
+
+[data-theme="dark"] .staff-registration-logs .header-title p,
+[data-theme="dark"] .staff-registration-logs .search-box svg,
+[data-theme="dark"] .staff-registration-logs .toolbar-field label,
+[data-theme="dark"] .staff-registration-logs .sort-wrap,
+[data-theme="dark"] .staff-registration-logs .col-account .user-email,
+[data-theme="dark"] .staff-registration-logs .created-time,
+[data-theme="dark"] .staff-registration-logs .loading-state,
+[data-theme="dark"] .staff-registration-logs .error-state,
+[data-theme="dark"] .staff-registration-logs .empty-state,
+[data-theme="dark"] .staff-registration-logs .empty-state span,
+[data-theme="dark"] .staff-registration-logs .pagination-info,
+[data-theme="dark"] .staff-registration-logs .detail-item label {
+  color: var(--color-text-muted);
+}
+
+[data-theme="dark"] .staff-registration-logs .search-box,
+[data-theme="dark"] .staff-registration-logs .toolbar-card,
+[data-theme="dark"] .staff-registration-logs .sort-wrap,
+[data-theme="dark"] .staff-registration-logs .logs-table-card,
+[data-theme="dark"] .staff-registration-logs .modal {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+[data-theme="dark"] .staff-registration-logs .search-box input,
+[data-theme="dark"] .staff-registration-logs .toolbar-field select,
+[data-theme="dark"] .staff-registration-logs .sort-wrap select {
+  background: transparent;
+  color: var(--color-text);
+}
+
+[data-theme="dark"] .staff-registration-logs .search-box input::placeholder {
+  color: var(--color-text-muted);
+}
+
+[data-theme="dark"] .staff-registration-logs .toolbar-field select,
+[data-theme="dark"] .staff-registration-logs .uid-chip,
+[data-theme="dark"] .staff-registration-logs .modal-close,
+[data-theme="dark"] .staff-registration-logs .pagination-btn {
+  background: var(--color-bg-soft);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+[data-theme="dark"] .staff-registration-logs .table-header {
+  border-bottom-color: var(--color-border);
+  background: var(--color-bg-soft);
+  color: var(--color-text-muted);
+}
+
+[data-theme="dark"] .staff-registration-logs .table-row {
+  border-bottom-color: var(--color-border);
+}
+
+[data-theme="dark"] .staff-registration-logs .table-row:hover {
+  background: var(--color-surface-hover);
+}
+
+[data-theme="dark"] .staff-registration-logs .pagination,
+[data-theme="dark"] .staff-registration-logs .modal-header,
+[data-theme="dark"] .staff-registration-logs .modal-footer {
+  border-color: var(--color-border);
+}
+
+[data-theme="dark"] .staff-registration-logs .modal-overlay {
+  background: color-mix(in srgb, var(--color-bg) 78%, transparent);
+}
+
+[data-theme="dark"] .staff-registration-logs .spinner {
+  border-color: var(--color-border);
+  border-top-color: var(--color-primary);
+}
+
+[data-theme="dark"] .staff-registration-logs .view-btn {
+  background: var(--color-bg-soft);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 26%, var(--color-border));
+  color: var(--color-text-bold);
+}
+
+[data-theme="dark"] .staff-registration-logs .delete-btn {
+  background: color-mix(in srgb, var(--color-error) 10%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-error) 64%, var(--color-border));
+  color: var(--color-error);
+}
+
+@media (max-width: 768px) {
+  [data-theme="dark"] .staff-registration-logs .table-row {
+    background: var(--color-surface);
+    border-color: var(--color-border);
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--color-text) 8%, transparent);
+  }
+
+  [data-theme="dark"] .staff-registration-logs .table-row > [data-label]::before {
+    color: var(--color-text-muted);
+  }
+}
+

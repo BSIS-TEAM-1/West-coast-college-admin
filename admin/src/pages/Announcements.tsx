@@ -930,7 +930,6 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                             title="Remove file"
                           >
                             <X size={20} strokeWidth={2.5} />
-                            <span className="remove-text">×</span>
                           </button>
                         </div>
                       )
@@ -1197,7 +1196,6 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                             title="Remove file"
                           >
                             <X size={20} strokeWidth={2.5} />
-                            <span className="remove-text">×</span>
                           </button>
                         </div>
                       )

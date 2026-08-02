@@ -1,7 +1,7 @@
 .document-archive {
-  --archive-color-primary: var(--color-primary);
+  --archive-color-primary: #4f46e5;
   --archive-color-secondary: var(--color-text-secondary);
-  --archive-color-accent: var(--color-accent);
+  --archive-color-accent: #4f46e5;
   --archive-color-background: var(--color-bg-soft);
   --archive-color-text: var(--color-text);
   --archive-color-surface: var(--color-surface);
@@ -837,8 +837,8 @@ button.document-archive__breadcrumb:focus-visible {
 }
 
 .document-archive__grid-badge.is-pdf {
-  background: color-mix(in srgb, #ef4444 16%, var(--color-surface));
-  color: #b91c1c;
+  background: color-mix(in srgb, #4f46e5 14%, var(--color-surface));
+  color: color-mix(in srgb, #4f46e5 84%, var(--archive-text));
 }
 
 .document-archive__grid-badge.is-image {
@@ -989,8 +989,8 @@ button.document-archive__breadcrumb:focus-visible {
 }
 
 .document-archive__grid-preview-icon.is-pdf {
-  background: color-mix(in srgb, #ef4444 14%, white);
-  color: #b91c1c;
+  background: color-mix(in srgb, #4f46e5 14%, white);
+  color: color-mix(in srgb, #4f46e5 84%, #18233a);
 }
 
 .document-archive__grid-preview-page.is-loading,
@@ -1705,4 +1705,441 @@ button.document-archive__breadcrumb:focus-visible {
   .document-archive__section-head {
     flex-direction: column;
   }
+}
+
+/* Google Drive-inspired friendly archive polish */
+.document-archive {
+  --archive-drive-bg: color-mix(in srgb, var(--color-bg) 88%, var(--color-bg-soft));
+  --archive-drive-panel: color-mix(in srgb, var(--color-surface) 98%, var(--color-bg));
+  --archive-drive-panel-soft: color-mix(in srgb, var(--color-bg-soft) 72%, var(--color-surface));
+  --archive-page-primary: #4f46e5;
+  --archive-page-primary-hover: #4338ca;
+  --archive-page-primary-dark: #3730a3;
+  --archive-page-primary-soft: color-mix(in srgb, var(--archive-page-primary) 12%, var(--color-surface));
+  --archive-drive-hover: color-mix(in srgb, var(--archive-page-primary) 8%, var(--color-surface));
+  --archive-drive-selected: color-mix(in srgb, var(--archive-page-primary) 13%, var(--color-surface));
+  --archive-drive-shadow: 0 1px 2px color-mix(in srgb, var(--color-text) 7%, transparent), 0 8px 24px color-mix(in srgb, var(--archive-page-primary) 5%, transparent);
+  --archive-folder-bg: color-mix(in srgb, var(--archive-page-primary) 16%, var(--archive-drive-panel));
+  --archive-folder-bg-strong: color-mix(in srgb, var(--archive-page-primary) 24%, var(--archive-drive-panel));
+  --archive-folder-text: color-mix(in srgb, var(--archive-page-primary) 84%, var(--archive-text));
+  min-height: calc(100vh - 6.5rem);
+  padding: clamp(0.75rem, 1.5vw, 1.1rem);
+  border-radius: 0;
+  background: var(--archive-drive-bg);
+}
+
+.document-archive__topbar {
+  top: 0.5rem;
+  grid-template-columns: minmax(13rem, auto) minmax(18rem, 1fr) auto;
+  padding: 0.7rem 0.85rem;
+  border-radius: 1.4rem;
+  background: color-mix(in srgb, var(--archive-drive-panel) 92%, transparent);
+  border-color: color-mix(in srgb, var(--archive-border) 72%, transparent);
+  box-shadow: var(--archive-drive-shadow);
+}
+
+.document-archive__topbar .document-archive__icon-button {
+  border-color: color-mix(in srgb, var(--archive-page-primary) 34%, var(--archive-border)) !important;
+  color: var(--archive-page-primary) !important;
+}
+
+.document-archive__brand-mark {
+  width: 2.45rem;
+  height: 2.45rem;
+  border-radius: 0.8rem;
+  background: color-mix(in srgb, var(--archive-page-primary) 12%, var(--archive-drive-panel));
+  border-color: color-mix(in srgb, var(--archive-page-primary) 24%, var(--archive-border));
+}
+
+.document-archive__brand-mark img {
+  filter: saturate(0.72) hue-rotate(18deg);
+}
+
+.document-archive__brand-copy strong {
+  font-size: 0.95rem;
+}
+
+.document-archive__brand-copy span {
+  font-size: 0.76rem;
+}
+
+.document-archive__global-search {
+  min-height: 2.8rem;
+  border-radius: 999px;
+  background: var(--archive-drive-panel-soft);
+  border-color: transparent;
+  transition: background 160ms ease, box-shadow 160ms ease;
+}
+
+.document-archive__global-search:focus-within {
+  background: var(--archive-drive-panel);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--archive-page-primary) 22%, transparent), var(--archive-drive-shadow);
+}
+
+.document-archive__workspace {
+  grid-template-columns: minmax(210px, 236px) minmax(0, 1fr);
+  gap: 1.25rem;
+}
+
+.document-archive__sidebar {
+  top: 5.6rem;
+  height: calc(100vh - 8.25rem);
+  padding: 0.25rem;
+}
+
+.document-archive__button--new {
+  min-height: 3.15rem;
+  justify-content: center;
+  border-radius: 1rem;
+  background: var(--archive-page-primary) !important;
+  color: var(--color-on-primary);
+  border-color: var(--archive-page-primary) !important;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--archive-page-primary) 20%, transparent);
+}
+
+.document-archive__button--new:hover:not(:disabled) {
+  background: var(--archive-page-primary-hover) !important;
+  border-color: var(--archive-page-primary-hover) !important;
+}
+
+.document-archive__drive-nav {
+  gap: 0.1rem;
+}
+
+.document-archive__drive-link {
+  min-height: 2.55rem;
+  padding: 0 0.8rem;
+  border-radius: 999px;
+  color: var(--archive-soft-text) !important;
+}
+
+.document-archive__drive-link:hover {
+  background: var(--archive-drive-hover);
+  color: var(--archive-page-primary) !important;
+}
+
+.document-archive__drive-link.is-active {
+  background: var(--archive-drive-selected);
+  color: var(--archive-page-primary) !important;
+  font-weight: 700;
+}
+
+.document-archive__drive-link svg,
+.document-archive__button svg,
+.document-archive__icon-button svg,
+.document-archive__view-toggle button svg {
+  color: currentColor !important;
+  stroke: currentColor !important;
+}
+
+.document-archive .document-archive__drive-link,
+.document-archive .document-archive__drive-link:not(.is-active),
+.document-archive .document-archive__destination-link,
+.document-archive .document-archive__button--storage,
+.document-archive .document-archive__menu-item:not(.is-danger),
+.document-archive .document-archive__grid-card .document-archive__icon-button:not(.is-danger) {
+  color: var(--archive-page-primary) !important;
+}
+
+.document-archive .document-archive__drive-link:not(.is-active):hover,
+.document-archive .document-archive__destination-link:hover,
+.document-archive .document-archive__menu-item:not(.is-danger):hover,
+.document-archive .document-archive__grid-card .document-archive__icon-button:not(.is-danger):hover {
+  color: var(--archive-page-primary-hover) !important;
+}
+
+.document-archive .document-archive__grid-card .document-archive__icon-button:not(.is-danger) {
+  border-color: color-mix(in srgb, var(--archive-page-primary) 38%, var(--archive-border)) !important;
+}
+
+.document-archive .document-archive__grid-card .document-archive__icon-button:not(.is-danger) svg,
+.document-archive .document-archive__menu-item:not(.is-danger) svg,
+.document-archive .document-archive__destination-link svg {
+  color: currentColor !important;
+  stroke: currentColor !important;
+}
+
+.document-archive__storage-card {
+  border-radius: 1.15rem;
+  background: var(--archive-drive-panel);
+  border-color: color-mix(in srgb, var(--archive-border) 74%, transparent);
+  box-shadow: var(--archive-drive-shadow);
+}
+
+.document-archive__content {
+  gap: 0.85rem;
+}
+
+.document-archive__page-header {
+  padding: 0 0.2rem;
+}
+
+.document-archive__page-copy h1 {
+  font-size: clamp(1.35rem, 2.2vw, 1.85rem);
+  letter-spacing: -0.02em;
+}
+
+.document-archive__page-copy p {
+  font-size: 0.9rem;
+}
+
+.document-archive__toolbar {
+  padding: 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--archive-border) 70%, transparent);
+  border-radius: 1.25rem;
+  background: var(--archive-drive-panel);
+  box-shadow: var(--archive-drive-shadow);
+}
+
+.document-archive__toolbar-actions {
+  width: auto;
+  flex: 1 1 auto;
+  align-items: center;
+}
+
+.document-archive__button {
+  min-height: 2.45rem;
+  border-radius: 999px;
+  font-weight: 650;
+}
+
+.document-archive__icon-button,
+.document-archive__view-toggle button {
+  width: 2.45rem;
+  height: 2.45rem;
+  border-radius: 999px;
+}
+
+.document-archive__button--ghost,
+.document-archive__icon-button,
+.document-archive__view-toggle button,
+.document-archive__button--primary.is-secondary {
+  background: var(--archive-drive-panel-soft);
+  border-color: color-mix(in srgb, var(--archive-page-primary) 24%, transparent) !important;
+  color: var(--archive-page-primary) !important;
+}
+
+.document-archive__button--ghost:not(.document-archive__button--danger):not(.is-danger),
+.document-archive__button--primary.is-secondary,
+.document-archive__view-toggle button,
+.document-archive__topbar .document-archive__icon-button,
+.document-archive__toolbar .document-archive__icon-button {
+  border-color: color-mix(in srgb, var(--archive-page-primary) 38%, var(--archive-border)) !important;
+  color: var(--archive-page-primary) !important;
+}
+
+.document-archive__button--primary {
+  background: var(--archive-page-primary) !important;
+  border-color: var(--archive-page-primary) !important;
+  color: var(--color-on-primary) !important;
+}
+
+.document-archive__button--primary:hover:not(:disabled) {
+  background: var(--archive-page-primary-hover) !important;
+  border-color: var(--archive-page-primary-hover) !important;
+}
+
+.document-archive__button--ghost:hover:not(:disabled),
+.document-archive__icon-button:hover:not(:disabled),
+.document-archive__view-toggle button:hover:not(:disabled) {
+  background: var(--archive-drive-hover);
+}
+
+.document-archive__filters,
+.document-archive__browser,
+.document-archive__section-block,
+.document-archive__empty--panel {
+  border-radius: 1.25rem;
+  background: var(--archive-drive-panel);
+  border-color: color-mix(in srgb, var(--archive-border) 72%, transparent);
+  box-shadow: var(--archive-drive-shadow);
+}
+
+.document-archive__filters {
+  padding: 0.75rem;
+}
+
+.document-archive__filters select,
+.document-archive__sort select,
+.document-archive__form input,
+.document-archive__form select,
+.document-archive__form textarea {
+  border-radius: 0.85rem;
+  background: var(--archive-drive-panel-soft);
+  border-color: transparent;
+}
+
+.document-archive__browser {
+  overflow: hidden;
+}
+
+.document-archive__browser-topline {
+  min-height: 3rem;
+  padding: 0.75rem 1rem;
+  background: var(--archive-drive-panel);
+}
+
+.document-archive__table-head {
+  min-height: 2.65rem;
+  background: var(--archive-drive-panel-soft);
+  letter-spacing: 0.04em;
+}
+
+.document-archive__table-row {
+  height: 3.75rem;
+  background: var(--archive-drive-panel);
+  border-bottom-color: color-mix(in srgb, var(--archive-border) 62%, transparent);
+}
+
+.document-archive__table-row:hover {
+  background: var(--archive-drive-hover);
+}
+
+.document-archive__table-row.is-selected,
+.document-archive__grid-card.is-selected {
+  background: var(--archive-drive-selected);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--archive-page-primary) 28%, transparent);
+}
+
+.document-archive__item-icon {
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--archive-page-primary) 10%, var(--archive-drive-panel));
+  color: var(--archive-page-primary);
+}
+
+.document-archive__item-icon.is-folder,
+.document-archive__grid-preview-folder,
+.document-archive__grid-avatar.is-folder {
+  background: var(--archive-folder-bg);
+  color: var(--archive-folder-text);
+}
+
+.document-archive__grid {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.9rem;
+}
+
+.document-archive__grid-card {
+  min-height: 16.5rem;
+  padding: 0.75rem;
+  border-radius: 1.15rem;
+  background: var(--archive-drive-panel);
+  border-color: color-mix(in srgb, var(--archive-border) 66%, transparent);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--color-text) 7%, transparent);
+  transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.document-archive__grid-card:hover {
+  background: var(--archive-drive-panel);
+  border-color: color-mix(in srgb, var(--archive-page-primary) 28%, var(--archive-border));
+  box-shadow: var(--archive-drive-shadow);
+  transform: translateY(-2px);
+}
+
+.document-archive__grid-card-topline {
+  min-height: 1.8rem;
+}
+
+.document-archive__grid-preview {
+  height: 150px;
+  min-height: 150px;
+  border-radius: 0.95rem;
+  background: var(--archive-drive-panel-soft);
+}
+
+.document-archive__grid-preview.is-folder {
+  background:
+    linear-gradient(180deg, var(--archive-folder-bg-strong), var(--archive-folder-bg)),
+    var(--archive-drive-panel);
+}
+
+.document-archive__grid-preview-folder {
+  width: 3.8rem;
+  height: 3.8rem;
+  border-radius: 1.05rem;
+}
+
+.document-archive__grid-card-head strong {
+  font-size: 0.95rem;
+}
+
+.document-archive__grid-card-footer {
+  padding-top: 0.25rem;
+  border-top: 1px solid color-mix(in srgb, var(--archive-border) 54%, transparent);
+}
+
+.document-archive__menu,
+.document-archive__create-menu,
+.document-archive__modal {
+  background: var(--archive-drive-panel);
+  border-color: color-mix(in srgb, var(--archive-border) 72%, transparent);
+  box-shadow: 0 18px 42px color-mix(in srgb, var(--color-text) 16%, transparent);
+}
+
+.document-archive__modal {
+  border-radius: 1.25rem;
+}
+
+@media (max-width: 1260px) {
+  .document-archive__sidebar {
+    height: auto;
+    padding: 0;
+  }
+}
+
+@media (max-width: 920px) {
+  .document-archive__topbar {
+    top: 0;
+    grid-template-columns: 1fr;
+    border-radius: 1.1rem;
+  }
+
+  .document-archive__workspace {
+    gap: 0.85rem;
+  }
+
+  .document-archive__toolbar {
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 640px) {
+  .document-archive {
+    padding: 0.6rem;
+  }
+
+  .document-archive__drive-nav {
+    grid-template-columns: 1fr;
+  }
+
+  .document-archive__global-search {
+    min-width: 0;
+  }
+
+  .document-archive__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Final button color lock: keep archive primary controls indigo, not theme-red */
+.document-archive button.document-archive__button.document-archive__button--primary,
+.document-archive .document-archive__create-menu-shell > button.document-archive__button,
+.document-archive .document-archive__toolbar-actions > .document-archive__create-menu-shell > button.document-archive__button,
+.document-archive .document-archive__sidebar-main .document-archive__create-menu-shell > button.document-archive__button {
+  background: #4f46e5 !important;
+  border-color: #4f46e5 !important;
+  color: #ffffff !important;
+}
+
+.document-archive button.document-archive__button.document-archive__button--primary:hover:not(:disabled),
+.document-archive .document-archive__create-menu-shell > button.document-archive__button:hover:not(:disabled) {
+  background: #4338ca !important;
+  border-color: #4338ca !important;
+  color: #ffffff !important;
+}
+
+.document-archive button.document-archive__button.document-archive__button--primary svg,
+.document-archive .document-archive__create-menu-shell > button.document-archive__button svg {
+  color: currentColor !important;
+  stroke: currentColor !important;
 }

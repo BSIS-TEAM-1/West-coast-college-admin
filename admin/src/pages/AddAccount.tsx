@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, BookOpen, Crown } from 'lucide-react';
+import { BookOpen, Check, Crown, Shield } from 'lucide-react';
 import { getProfile, createAccount, getAccountCount } from '../lib/authApi';
 import type { ProfileResponse } from '../lib/authApi';
 import './AddAccount.css';
@@ -13,6 +13,27 @@ interface AccountFormData {
   password: string;
   confirmPassword: string;
   uid: string;
+}
+
+type AccountInputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'className'> & {
+  label: string;
+};
+
+function AccountInput({ id, label, required, ...inputProps }: AccountInputProps) {
+  return (
+    <div className="form-group">
+      <label htmlFor={id} className="form-label">
+        {label}
+        {required ? <span aria-hidden="true"> *</span> : null}
+      </label>
+      <input
+        id={id}
+        required={required}
+        className="form-input"
+        {...inputProps}
+      />
+    </div>
+  );
 }
 
 const accountTypes = [
@@ -102,6 +123,8 @@ export default function AddAccount() {
   const [status, setStatus] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
   const [accountCount, setAccountCount] = useState<number>(0);
   const [currentAdmin, setCurrentAdmin] = useState<ProfileResponse | null>(null);
+  const selectedAccountType = accountTypes.find(({ type }) => type === selectedType) || accountTypes[0];
+  const SelectedRoleIcon = selectedAccountType.icon;
 
   // Get current admin profile
   useEffect(() => {
@@ -219,31 +242,20 @@ export default function AddAccount() {
         <p className="add-account-desc">Add a new staff to the system</p>
       </header>
 
-      {/* Current Admin Role Display */}
-      <div className="current-role-section">
+      <section className="current-role-section" aria-labelledby="current-session-title">
         <div className="role-display-card">
-          <div className="role-header">
-            <Crown size={20} className="role-icon" />
-            <h3 className="role-title">Current Session</h3>
-          </div>
-          <div className="role-info">
-            <div className="role-details">
-              <span className="role-label">Logged in as:</span>
-              <span className="role-value">
+          <div>
+            <h2 id="current-session-title" className="role-title">Current Session</h2>
+            <div className="session-identity">
+              <span className="session-name">
                 {currentAdmin?.displayName || currentAdmin?.username || 'Super Admin'}
               </span>
-            </div>
-            <div className="role-details">
-              <span className="role-label">Role:</span>
-              <span className="role-value super-admin">Super Admin</span>
-            </div>
-            <div className="role-details">
-              <span className="role-label">Permissions:</span>
-              <span className="role-value">Full system access</span>
+              <span className="session-access">Full system access</span>
             </div>
           </div>
+          <span className="session-role-badge">Super Administrator</span>
         </div>
-      </div>
+      </section>
 
       <form className="add-account-form" onSubmit={handleSubmit}>
         {status && (
@@ -252,151 +264,137 @@ export default function AddAccount() {
           </div>
         )}
 
-        {/* Account Type Selection */}
-        <div className="account-type-section">
-          <h2 className="section-title">Select Account Type</h2>
-          <div className="account-types-grid">
-            {accountTypes.map(({ type, label, icon: Icon, description, permissions }) => (
-              <div
-                key={type}
-                className={`account-type-card ${selectedType === type ? 'selected' : ''}`}
-                onClick={() => handleAccountTypeSelect(type as AccountType)}
-              >
-                <div className="account-type-header">
-                  <Icon size={24} className="account-type-icon" />
-                  <h3 className="account-type-label">{label}</h3>
-                </div>
-                <p className="account-type-description">{description}</p>
-                <div className="account-type-permissions">
-                  <h4>Permissions:</h4>
-                  <ul>
-                    {permissions.map((permission, index) => (
-                      <li key={index}>{permission}</li>
-                    ))}
-                  </ul>
+        <section className="account-type-section" aria-labelledby="account-role-title">
+          <div className="section-heading">
+            <h2 id="account-role-title" className="section-title">Choose User Role</h2>
+            <p className="section-description">Select the access level for this new portal account.</p>
+          </div>
+          <div className="role-selection-layout">
+            <fieldset className="role-radio-list">
+              <legend className="sr-only">Account role</legend>
+              {accountTypes.map(({ type, label, icon: Icon, description }) => (
+                <label key={type} className={`role-radio-option ${selectedType === type ? 'selected' : ''}`}>
+                  <input
+                    type="radio"
+                    name="accountType"
+                    value={type}
+                    checked={selectedType === type}
+                    onChange={() => handleAccountTypeSelect(type as AccountType)}
+                  />
+                  <span className="role-radio-control" aria-hidden="true" />
+                  <Icon size={18} className="account-type-icon" />
+                  <span className="role-radio-copy">
+                    <span className="account-type-label">{label}</span>
+                    <span className="account-type-description">{description}</span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+
+            <aside className="selected-role-details" aria-live="polite">
+              <div className="selected-role-header">
+                <SelectedRoleIcon size={20} className="account-type-icon" />
+                <div>
+                  <h3>{selectedAccountType.label}</h3>
+                  <p>{selectedAccountType.description}.</p>
                 </div>
               </div>
-            ))}
+              <div className="account-type-permissions">
+                <h4>Permissions</h4>
+                <ul>
+                  {selectedAccountType.permissions.map((permission) => (
+                    <li key={permission}>
+                      <Check size={14} aria-hidden="true" />
+                      <span>{permission}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </aside>
           </div>
-        </div>
+        </section>
 
         {/* Account Details */}
-        <div className="account-details-section">
-          <h2 className="section-title">Account Details</h2>
-          <div className="form-grid">
-            <div className="form-group">
-              <label htmlFor="username" className="form-label">Username *</label>
-              <input
-                type="text"
-                id="username"
-                name="username"
-                value={formData.username}
-                onChange={handleChange}
-                className="form-input"
-                placeholder="Enter username"
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="displayName" className="form-label">Display Name (Optional)</label>
-              <input
-                type="text"
-                id="displayName"
-                name="displayName"
-                value={formData.displayName}
-                onChange={handleChange}
-                className="form-input"
-                placeholder="Leave blank to auto-generate"
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="role" className="form-label">Account Role</label>
-              <input
-                type="text"
-                id="role"
-                name="role"
-                value={selectedType.charAt(0).toUpperCase() + selectedType.slice(1)}
-                onChange={handleChange}
-                className="form-input"
-                placeholder="Account role"
-                readOnly
-                style={{ background: 'var(--color-surface-hover, rgba(0, 0, 0, 0.05))' }}
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="uid" className="form-label">Unique ID (UID)</label>
-              <input
-                type="text"
-                id="uid"
-                name="uid"
-                value={formData.uid}
-                onChange={handleChange}
-                className="form-input"
-                placeholder="Auto-generated UID"
-                readOnly
-                style={{ background: 'var(--color-surface-hover, rgba(0, 0, 0, 0.05))' }}
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="password" className="form-label">Password *</label>
-              <input
-                type="password"
-                id="password"
-                name="password"
-                value={formData.password}
-                onChange={handleChange}
-                className="form-input"
-                placeholder="Enter password (min. 8 characters)"
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="confirmPassword" className="form-label">Confirm Password *</label>
-              <input
-                type="password"
-                id="confirmPassword"
-                name="confirmPassword"
-                value={formData.confirmPassword}
-                onChange={handleChange}
-                className="form-input"
-                placeholder="Confirm password"
-                required
-              />
-            </div>
+        <section className="account-details-section" aria-labelledby="account-details-title">
+          <div className="section-heading">
+            <h2 id="account-details-title" className="section-title">Account Details</h2>
           </div>
-        </div>
+          <div className="form-grid">
+            <AccountInput
+              type="text"
+              id="username"
+              name="username"
+              label="Username"
+              value={formData.username}
+              onChange={handleChange}
+              placeholder="Enter username"
+              required
+            />
+
+            <AccountInput
+              type="text"
+              id="displayName"
+              name="displayName"
+              label="Display Name (Optional)"
+              value={formData.displayName}
+              onChange={handleChange}
+              placeholder="Leave blank to auto-generate"
+            />
+
+            <AccountInput
+              type="text"
+              id="role"
+              name="role"
+              label="Account Role"
+              value={selectedType.charAt(0).toUpperCase() + selectedType.slice(1)}
+              onChange={handleChange}
+              placeholder="Account role"
+              readOnly
+            />
+
+            <AccountInput
+              type="text"
+              id="uid"
+              name="uid"
+              label="Unique ID (UID)"
+              value={formData.uid}
+              onChange={handleChange}
+              placeholder="Auto-generated UID"
+              readOnly
+            />
+
+            <AccountInput
+              type="password"
+              id="password"
+              name="password"
+              label="Password"
+              value={formData.password}
+              onChange={handleChange}
+              placeholder="Enter password (min. 8 characters)"
+              required
+            />
+
+            <AccountInput
+              type="password"
+              id="confirmPassword"
+              name="confirmPassword"
+              label="Confirm Password"
+              value={formData.confirmPassword}
+              onChange={handleChange}
+              placeholder="Confirm password"
+              required
+            />
+          </div>
+        </section>
 
         <div className="form-actions">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <button
-              type="submit"
-              className="add-account-submit"
-              disabled={loading}
-              style={{ minWidth: '200px' }}
-            >
-              {loading ? 'Creating Account...' : 'Create Account'}
-            </button>
-            <div 
-              className="role-indicator"
-              style={{
-                padding: '0.5rem 1rem',
-                background: 'var(--color-surface-hover, rgba(0, 0, 0, 0.05))',
-                borderRadius: '8px',
-                fontSize: '0.875rem',
-                color: 'var(--color-text-muted)',
-                fontWeight: '500',
-                textTransform: 'capitalize',
-                textAlign: 'center'
-              }}
-            >
-              {selectedType}
-            </div>
-          </div>
+          <button
+            type="submit"
+            className="add-account-submit"
+            disabled={loading}
+          >
+            {loading ? 'Creating Account...' : 'Create Account'}
+          </button>
         </div>
       </form>
     </div>

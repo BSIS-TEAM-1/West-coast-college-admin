@@ -43,7 +43,7 @@
 }
 
 .sidebar-close-btn {
-  display: none;
+  display: none !important;
   align-items: center;
   justify-content: center;
   width: 2rem;
@@ -358,7 +358,7 @@
   }
 
   .sidebar-close-btn {
-    display: inline-flex;
+    display: inline-flex !important;
   }
 
   .sidebar-nav {
