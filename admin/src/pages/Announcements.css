@@ -1098,44 +1098,48 @@
   background: var(--color-primary-hover);
 }
 [data-theme="dark"] .announcements-page {
-  background: #334155;
+  background: linear-gradient(155deg, rgba(18, 18, 18, 0.88), rgba(38, 38, 38, 0.82));
 }
 
 [data-theme="dark"] .announcements-list {
-  background: #334155;
-  border-color: #1f2937;
+  background: var(--color-surface);
+  border-color: var(--color-border);
 }
 
 [data-theme="dark"] .announcements-table-header {
-  background: #1e293b;
-  border-bottom-color: #1c2025;
-  color: #e5e7eb;
+  background: var(--color-bg-soft);
+  border-bottom-color: var(--color-border);
+  color: var(--color-text-muted);
 }
 
 [data-theme="dark"] .announcements-table-row {
-  border-bottom-color: #111827;
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.24);
 }
 
 [data-theme="dark"] .announcements-table-row:hover {
-  background: #111827;
+  background: var(--color-surface-hover);
+  border-color: var(--color-primary-subtle);
 }
 
 [data-theme="dark"] .announcements-search,
 [data-theme="dark"] .announcements-filters,
 [data-theme="dark"] .announcements-filter-btn,
-[data-theme="dark"] .announcements-refresh-btn {
-  background: #334155;
-  border-color: #1f2937;
-  color: #e5e7eb;
+[data-theme="dark"] .announcements-refresh-btn,
+[data-theme="dark"] .announcements-archive-selected-btn {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  color: var(--color-text);
 }
 
 [data-theme="dark"] .announcements-search input {
-  background: #334155;
-  color: #e5e7eb;
+  background: transparent;
+  color: var(--color-text);
 }
 
 body[data-theme="dark"] .filter-section {
-  background: #475569 !important;
+  background: var(--color-bg-soft) !important;
 }
 
 [data-theme="dark"] .announcement-title-content,
@@ -1144,25 +1148,25 @@ body[data-theme="dark"] .filter-section {
 [data-theme="dark"] .announcement-message,
 [data-theme="dark"] .table-audience,
 [data-theme="dark"] .table-date {
-  color: #e5e7eb;
+  color: var(--color-text);
 }
 
 [data-theme="dark"] .announcements-edit-form {
-  background: #020617;
-  border: 1px solid #1f2937;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
 }
 
 [data-theme="dark"] .form-group input,
 [data-theme="dark"] .form-group textarea,
 [data-theme="dark"] .form-group select {
-  background: #334155;
-  border-color: #1f2937;
-  color: #e5e7eb;
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  color: var(--color-text);
 }
 
 [data-theme="dark"] .media-file-item {
-  background: #020617;
-  border-color: #1f2937;
+  background: var(--color-surface);
+  border-color: var(--color-border);
 }
 
 /* Responsive Design */

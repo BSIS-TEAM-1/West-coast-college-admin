@@ -775,3 +775,189 @@
   background: #1e293b;
   border-color: #334155;
 }
+
+/* Final scoped dark-mode alignment for the rendered Staff Registration Logs page */
+[data-theme="dark"] .account-logs-page {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+[data-theme="dark"] .account-logs-page .logs-hero,
+[data-theme="dark"] .account-logs-page .logs-controls,
+[data-theme="dark"] .account-logs-page .logs-table-container,
+[data-theme="dark"] .account-logs-page .modal-content {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+
+[data-theme="dark"] .account-logs-page .logs-kpi-card,
+[data-theme="dark"] .account-logs-page .filters-section,
+[data-theme="dark"] .account-logs-page .search-box,
+[data-theme="dark"] .account-logs-page .detail-item {
+  background: var(--color-bg-soft);
+  border-color: var(--color-border);
+}
+
+[data-theme="dark"] .account-logs-page .logs-title,
+[data-theme="dark"] .account-logs-page .account-name,
+[data-theme="dark"] .account-logs-page .uid-code,
+[data-theme="dark"] .account-logs-page .modal-header h3,
+[data-theme="dark"] .account-logs-page .detail-item span,
+[data-theme="dark"] .account-logs-page .logs-table th {
+  color: var(--color-text-bold);
+}
+
+[data-theme="dark"] .account-logs-page .logs-desc,
+[data-theme="dark"] .account-logs-page .logs-kpi-label,
+[data-theme="dark"] .account-logs-page .filter-label,
+[data-theme="dark"] .account-logs-page .search-icon,
+[data-theme="dark"] .account-logs-page .account-username,
+[data-theme="dark"] .account-logs-page .date-info,
+[data-theme="dark"] .account-logs-page .detail-item label,
+[data-theme="dark"] .account-logs-page .no-results-content {
+  color: var(--color-text-muted);
+}
+
+[data-theme="dark"] .account-logs-page .logs-kpi-value,
+[data-theme="dark"] .account-logs-page .logs-table-filter-chip {
+  color: var(--color-primary);
+}
+
+[data-theme="dark"] .account-logs-page .search-input,
+[data-theme="dark"] .account-logs-page .filter-select {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+[data-theme="dark"] .account-logs-page .search-input::placeholder {
+  color: var(--color-text-muted);
+}
+
+[data-theme="dark"] .account-logs-page .filter-select:focus,
+[data-theme="dark"] .account-logs-page .search-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-subtle);
+}
+
+[data-theme="dark"] .account-logs-page .logs-table-meta,
+[data-theme="dark"] .account-logs-page .logs-table th {
+  background: var(--color-bg-soft);
+  border-color: var(--color-border);
+}
+
+[data-theme="dark"] .account-logs-page .logs-table-count,
+[data-theme="dark"] .account-logs-page .logs-table td,
+[data-theme="dark"] .account-logs-page .creator-cell {
+  color: var(--color-text);
+}
+
+[data-theme="dark"] .account-logs-page .logs-table td,
+[data-theme="dark"] .account-logs-page .modal-header {
+  border-color: var(--color-border);
+}
+
+[data-theme="dark"] .account-logs-page .logs-table-filter-chip {
+  background: var(--color-primary-subtle);
+  border-color: color-mix(in srgb, var(--color-primary) 34%, var(--color-border));
+}
+
+[data-theme="dark"] .account-logs-page .log-row:hover {
+  background: var(--color-surface-hover);
+}
+
+[data-theme="dark"] .account-logs-page .uid-code,
+[data-theme="dark"] .account-logs-page .close-btn:hover {
+  background: var(--color-surface-hover);
+}
+
+[data-theme="dark"] .account-logs-page .action-btn {
+  background: var(--color-surface);
+  border-color: color-mix(in srgb, var(--color-primary) 26%, var(--color-border));
+  color: var(--color-text-bold);
+}
+
+[data-theme="dark"] .account-logs-page .action-btn:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+[data-theme="dark"] .account-logs-page .action-btn.delete-btn {
+  background: color-mix(in srgb, var(--color-error) 10%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-error) 64%, var(--color-border));
+  color: var(--color-error);
+}
+
+[data-theme="dark"] .account-logs-page .action-btn.delete-btn:hover {
+  background: color-mix(in srgb, var(--color-error) 16%, var(--color-surface));
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+
+[data-theme="dark"] .account-logs-page .export-btn {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+[data-theme="dark"] .account-logs-page .export-btn:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+  color: var(--color-on-primary);
+}
+
+[data-theme="dark"] .account-logs-page .logs-table {
+  background: var(--color-surface);
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+[data-theme="dark"] .account-logs-page .logs-table thead tr {
+  background: var(--color-bg-soft);
+}
+
+[data-theme="dark"] .account-logs-page .logs-table tbody tr {
+  background: var(--color-surface);
+}
+
+[data-theme="dark"] .account-logs-page .logs-table tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--color-bg-soft) 42%, var(--color-surface));
+}
+
+[data-theme="dark"] .account-logs-page .logs-table tbody tr:hover {
+  background: var(--color-surface-hover);
+}
+
+[data-theme="dark"] .account-logs-page .logs-table th,
+[data-theme="dark"] .account-logs-page .logs-table td {
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
+}
+
+[data-theme="dark"] .account-logs-page .logs-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+[data-theme="dark"] .account-logs-page .account-details,
+[data-theme="dark"] .account-logs-page .uid-cell,
+[data-theme="dark"] .account-logs-page .type-cell,
+[data-theme="dark"] .account-logs-page .date-cell,
+[data-theme="dark"] .account-logs-page .creator-cell,
+[data-theme="dark"] .account-logs-page .actions-cell {
+  background: transparent;
+}
+
+[data-theme="dark"] .account-logs-page .uid-code {
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-soft);
+  color: var(--color-text-bold);
+}
+
+[data-theme="dark"] .account-logs-page .type-badge {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, white 22%, transparent);
+}
+
+[data-theme="dark"] .account-logs-page .date-info svg {
+  color: var(--color-text-muted);
+}

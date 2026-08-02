@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'
-import { Search, Filter, Download, AlertTriangle, CheckCircle, XCircle, Clock } from 'lucide-react'
+import React, { useState, useEffect, useMemo } from 'react'
+import { Search, Download, AlertTriangle, CheckCircle, XCircle, Clock } from 'lucide-react'
 import { getStoredToken } from '../lib/authApi'
 import { API_URL } from '../lib/authApi'
 import './auditlogs-test.css'
@@ -46,6 +46,8 @@ const AuditLogs: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [performedByInput, setPerformedByInput] = useState('')
+  const [searchInput, setSearchInput] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
   const [filters, setFilters] = useState({
     action: '',
     resourceType: '',
@@ -143,6 +145,8 @@ const AuditLogs: React.FC = () => {
       startDate: '',
       endDate: ''
     })
+    setSearchInput('')
+    setSearchTerm('')
     setPerformedByInput('')
     setCurrentPage(1)
   }
@@ -150,7 +154,7 @@ const AuditLogs: React.FC = () => {
   const exportLogs = () => {
     const csvContent = [
       ['Date', 'Action', 'Resource', 'Description', 'User', 'Status', 'Severity'].join(','),
-      ...logs.map(log => [
+      ...displayedLogs.map(log => [
         new Date(log.createdAt).toLocaleString(),
         log.action,
         log.resourceName,
@@ -228,15 +232,40 @@ const AuditLogs: React.FC = () => {
     }
   }
 
+  const displayedLogs = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase()
+    if (!query) return logs
+
+    return logs.filter((log) => {
+      const user = getUserDisplayForLog(log)
+      return [
+        log.action,
+        log.resourceType,
+        log.resourceName,
+        log.resourceId,
+        log.description,
+        log.status,
+        log.severity,
+        log.ipAddress,
+        user.name,
+        user.role,
+        log.performedBy?.displayName,
+        log.performedBy?.username
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query))
+    })
+  }, [logs, searchTerm])
+
   if (loading && currentPage === 1) return <div className="loading">Loading audit logs...</div>
 
   return (
     <div className="audit-logs-container">
       <div className="header">
-        <h1>System Audit Logs</h1>
-        <button className="btn-export" onClick={exportLogs}>
-          <Download size={20} /> Export CSV
-        </button>
+        <div>
+          <span className="audit-eyebrow">Security & Compliance</span>
+          <h1>System Audit Logs</h1>
+        </div>
       </div>
 
       {!loading && (
@@ -260,91 +289,140 @@ const AuditLogs: React.FC = () => {
         </div>
       )}
 
-      <div className="filters-section">
-        <div className="filters-header">
-          <h3><Filter size={20} /> Filters</h3>
-          <button className="btn-clear" onClick={clearFilters}>Clear All</button>
+      <section className="filters-section" aria-label="Audit log filters">
+        <div className="filters-toolbar">
+          <label className="filter-control filter-search">
+            <span>Search</span>
+            <div className="filter-input-icon">
+              <Search size={16} aria-hidden="true" />
+              <input
+                type="search"
+                placeholder="Action, resource, user, IP..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    setSearchTerm(searchInput.trim())
+                    setCurrentPage(1)
+                  }
+                }}
+                onBlur={() => {
+                  if (searchInput.trim() !== searchTerm) {
+                    setSearchTerm(searchInput.trim())
+                    setCurrentPage(1)
+                  }
+                }}
+              />
+            </div>
+          </label>
+
+          <label className="filter-control">
+            <span>Action</span>
+            <select
+              value={filters.action}
+              onChange={(e) => handleFilterChange('action', e.target.value)}
+            >
+              <option value="">All Actions</option>
+              <option value="CREATE_ACCOUNT">Create Account</option>
+              <option value="LOGIN">Login</option>
+              <option value="LOGOUT">Logout</option>
+              <option value="DELETE_ACCOUNT">Delete Account</option>
+              <option value="UPDATE_PROFILE">Update Profile</option>
+              <option value="DELETE_AVATAR">Delete Avatar</option>
+              <option value="UPLOAD_AVATAR">Upload Avatar</option>
+              <option value="UPDATE_PASSWORD">Update Password</option>
+              <option value="RESET_PASSWORD">Reset Password</option>
+            </select>
+          </label>
+
+          <label className="filter-control">
+            <span>Resource</span>
+            <select
+              value={filters.resourceType}
+              onChange={(e) => handleFilterChange('resourceType', e.target.value)}
+            >
+              <option value="">All Resources</option>
+              <option value="USER">User</option>
+              <option value="ANNOUNCEMENT">Announcement</option>
+              <option value="DOCUMENT">Document</option>
+              <option value="SYSTEM">System</option>
+            </select>
+          </label>
+
+          <label className="filter-control filter-compact">
+            <span>Severity</span>
+            <select
+              value={filters.severity}
+              onChange={(e) => handleFilterChange('severity', e.target.value)}
+            >
+              <option value="">All</option>
+              <option value="LOW">Low</option>
+              <option value="MEDIUM">Medium</option>
+              <option value="HIGH">High</option>
+              <option value="CRITICAL">Critical</option>
+            </select>
+          </label>
+
+          <label className="filter-control filter-compact">
+            <span>Sort</span>
+            <select
+              value={filters.sortOrder}
+              onChange={(e) => handleFilterChange('sortOrder', e.target.value)}
+            >
+              <option value="newest">Newest</option>
+              <option value="oldest">Oldest</option>
+            </select>
+          </label>
+
+          <label className="filter-control">
+            <span>User</span>
+            <input
+              type="text"
+              placeholder="Performed by"
+              value={performedByInput}
+              onChange={(e) => setPerformedByInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleFilterChange('performedBy', performedByInput.trim())
+                }
+              }}
+              onBlur={() => {
+                if (performedByInput.trim() !== filters.performedBy) {
+                  handleFilterChange('performedBy', performedByInput.trim())
+                }
+              }}
+            />
+          </label>
+
+          <div className="filter-date-range" aria-label="Date Range">
+            <label className="filter-control filter-date">
+              <span>From</span>
+              <input
+                type="date"
+                value={filters.startDate}
+                onChange={(e) => handleFilterChange('startDate', e.target.value)}
+              />
+            </label>
+            <label className="filter-control filter-date">
+              <span>To</span>
+              <input
+                type="date"
+                value={filters.endDate}
+                onChange={(e) => handleFilterChange('endDate', e.target.value)}
+              />
+            </label>
+          </div>
+
+          <div className="filter-actions">
+            <button className="btn-clear" onClick={clearFilters} type="button">
+              Clear Filters
+            </button>
+            <button className="btn-export" onClick={exportLogs} type="button">
+              <Download size={16} /> Export
+            </button>
+          </div>
         </div>
-        
-        <div className="filters-grid">
-          <select 
-            value={filters.action} 
-            onChange={(e) => handleFilterChange('action', e.target.value)}
-          >
-            <option value="">All Actions</option>
-            <option value="CREATE_ACCOUNT">Create Account</option>
-            <option value="LOGIN">Login</option>
-            <option value="LOGOUT">Logout</option>
-            <option value="DELETE_ACCOUNT">Delete Account</option>
-            <option value="UPDATE_PROFILE">Update Profile</option>
-            <option value="DELETE_AVATAR">Delete Avatar</option>
-            <option value="UPLOAD_AVATAR">Upload Avatar</option>
-            <option value="UPDATE_PASSWORD">Update Password</option>
-            <option value="RESET_PASSWORD">Reset Password</option>
-          </select>
-
-          <select 
-            value={filters.resourceType} 
-            onChange={(e) => handleFilterChange('resourceType', e.target.value)}
-          >
-            <option value="">All Resources</option>
-            <option value="USER">User</option>
-            <option value="ANNOUNCEMENT">Announcement</option>
-            <option value="DOCUMENT">Document</option>
-            <option value="SYSTEM">System</option>
-          </select>
-
-          <select 
-            value={filters.severity} 
-            onChange={(e) => handleFilterChange('severity', e.target.value)}
-          >
-            <option value="">All Severities</option>
-            <option value="LOW">Low</option>
-            <option value="MEDIUM">Medium</option>
-            <option value="HIGH">High</option>
-            <option value="CRITICAL">Critical</option>
-          </select>
-
-          <select
-            value={filters.sortOrder}
-            onChange={(e) => handleFilterChange('sortOrder', e.target.value)}
-          >
-            <option value="newest">Newest First</option>
-            <option value="oldest">Oldest First</option>
-          </select>
-
-          <input
-            type="text"
-            placeholder="Performed by"
-            value={performedByInput}
-            onChange={(e) => setPerformedByInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                handleFilterChange('performedBy', performedByInput.trim())
-              }
-            }}
-            onBlur={() => {
-              if (performedByInput.trim() !== filters.performedBy) {
-                handleFilterChange('performedBy', performedByInput.trim())
-              }
-            }}
-          />
-
-          <input
-            type="date"
-            placeholder="Start date"
-            value={filters.startDate}
-            onChange={(e) => handleFilterChange('startDate', e.target.value)}
-          />
-
-          <input
-            type="date"
-            placeholder="End date"
-            value={filters.endDate}
-            onChange={(e) => handleFilterChange('endDate', e.target.value)}
-          />
-        </div>
-      </div>
+      </section>
 
       <div className="logs-table">
         <div className="table-header">
@@ -357,7 +435,7 @@ const AuditLogs: React.FC = () => {
           <div>Severity</div>
         </div>
 
-        {logs.map((log) => (
+        {displayedLogs.map((log) => (
           <div key={log._id} className="table-row">
             <div className="date-cell">{formatDate(log.createdAt)}</div>
             <div className="action-cell">{log.action}</div>
@@ -407,7 +485,7 @@ const AuditLogs: React.FC = () => {
         </div>
       )}
 
-      {logs.length === 0 && !loading && (
+      {displayedLogs.length === 0 && !loading && (
         <div className="no-results">
           <Search size={48} />
           <h3>No audit logs found</h3>

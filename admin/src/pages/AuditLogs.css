@@ -323,6 +323,74 @@
   color: #6b7280;
 }
 
+[data-theme="dark"] .audit-logs-container {
+  background: linear-gradient(155deg, rgba(18, 18, 18, 0.88), rgba(38, 38, 38, 0.82));
+  min-height: 100vh;
+}
+
+[data-theme="dark"] .header h1,
+[data-theme="dark"] .filters-header h3,
+[data-theme="dark"] .stat-card p,
+[data-theme="dark"] .top-item span:last-child,
+[data-theme="dark"] .action-cell,
+[data-theme="dark"] .no-results h3 {
+  color: var(--color-text);
+}
+
+[data-theme="dark"] .stat-card,
+[data-theme="dark"] .filters-section,
+[data-theme="dark"] .logs-table {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+[data-theme="dark"] .table-header {
+  background: var(--color-bg-soft);
+  border-bottom-color: var(--color-border);
+  color: var(--color-text-muted);
+}
+
+[data-theme="dark"] .table-row {
+  border-bottom-color: var(--color-border);
+  color: var(--color-text);
+}
+
+[data-theme="dark"] .table-row:hover {
+  background: var(--color-surface-hover);
+}
+
+[data-theme="dark"] .stat-card h3,
+[data-theme="dark"] .top-item span:first-child,
+[data-theme="dark"] .date-cell,
+[data-theme="dark"] .resource-name,
+[data-theme="dark"] .description-cell,
+[data-theme="dark"] .user-role,
+[data-theme="dark"] .no-results,
+[data-theme="dark"] .loading {
+  color: var(--color-text-muted);
+}
+
+[data-theme="dark"] .filters-grid select,
+[data-theme="dark"] .filters-grid input,
+[data-theme="dark"] .pagination button,
+[data-theme="dark"] .btn-clear {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+[data-theme="dark"] .filters-grid select::placeholder,
+[data-theme="dark"] .filters-grid input::placeholder {
+  color: var(--color-text-muted);
+}
+
+[data-theme="dark"] .pagination button:hover:not(:disabled),
+[data-theme="dark"] .btn-clear:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
 @media (max-width: 1200px) {
   .table-header,
   .table-row {
@@ -364,7 +432,7 @@
   .table-row > div::before {
     content: attr(data-label);
     font-weight: 600;
-    color: #374151;
+    color: var(--color-text);
     display: block;
     font-size: 0.75rem;
     margin-bottom: 0.25rem;
