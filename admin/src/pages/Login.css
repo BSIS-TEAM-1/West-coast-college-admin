@@ -701,6 +701,15 @@
   --auth-outline-soft: #44474e;
 }
 
+[data-theme='light'] .login-input,
+[data-theme='light'] .login-google-fallback,
+[data-theme='light'] .login-theme-trigger,
+[data-theme='light'] .login-theme-menu,
+[data-theme='light'] .login-verify-otp-input {
+  background: #ffffff;
+  color: #1c1b1b;
+}
+
 [data-theme='dark'] .login-input,
 [data-theme='dark'] .login-google-fallback,
 [data-theme='dark'] .login-theme-trigger,

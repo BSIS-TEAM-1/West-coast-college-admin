@@ -3002,6 +3002,360 @@ app.post('/api/admin/google-login', authLimiter, securityMiddleware.inputValidat
   }
 })
 
+// ==================== STUDENT AUTHENTICATION ====================
+
+// POST /api/student/login
+app.post('/api/student/login', authLimiter, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable. Check server logs and Atlas IP whitelist.' })
+  }
+
+  try {
+    const { studentNumber, password } = req.body
+    const normalizedStudentNumber = String(studentNumber || '').trim()
+    const clientIpCandidates = getClientIpCandidates(req)
+    const clientIp = getClientIpAddress(req)
+    const userAgent = req.get('User-Agent')
+    const deviceId = String(req.get('x-device-id') || '').trim()
+
+    if (!normalizedStudentNumber || !password) {
+      return res.status(400).json({ error: 'Student number and password are required.' })
+    }
+
+    const blockedIpRecord = await findActiveBlockedIp(clientIpCandidates)
+    if (blockedIpRecord) {
+      await BlockedIP.findByIdAndUpdate(blockedIpRecord._id, {
+        $inc: { attemptCount: 1 },
+        $set: { lastAttemptAt: new Date() }
+      })
+
+      return res.status(403).json({
+        error: 'Access denied. This IP address is blocked.',
+        code: 'IP_BLOCKED',
+        reason: blockedIpRecord.reason,
+        blockedUntil: blockedIpRecord.expiresAt
+      })
+    }
+
+    const student = await Student.findOne({ 
+      studentNumber: normalizedStudentNumber,
+      isActive: true 
+    }).select('+password')
+
+    if (!student) {
+      return res.status(401).json({ error: 'Invalid student number or password.' })
+    }
+
+    const isPasswordValid = await student.comparePassword(password)
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: 'Invalid student number or password.' })
+    }
+
+    // Generate JWT token for student
+    const token = jwt.sign(
+      { 
+        sub: student._id.toString(),
+        studentNumber: student.studentNumber,
+        type: 'student'
+      },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    )
+
+    // Update last login
+    student.lastLogin = new Date()
+    await student.save()
+
+    res.json({
+      success: true,
+      message: 'Login successful',
+      data: {
+        accessToken: token,
+        refreshToken: token, // For simplicity, using same token as refresh
+        student: {
+          id: student._id.toString(),
+          studentNumber: student.studentNumber,
+          firstName: student.firstName,
+          middleName: student.middleName,
+          lastName: student.lastName,
+          suffix: student.suffix,
+          fullName: student.fullName,
+          course: student.course,
+          yearLevel: student.yearLevel,
+          section: student.section,
+          email: student.email,
+          googleEmail: student.googleEmail,
+          googleEmailVerified: student.googleEmailVerified
+        }
+      }
+    })
+  } catch (error) {
+    console.error('Student login error:', error)
+    res.status(500).json({ error: 'Login failed. Please try again.' })
+  }
+})
+
+// POST /api/student/logout
+app.post('/api/student/logout', async (req, res) => {
+  try {
+    // For JWT tokens, logout is handled client-side by removing the token
+    // This endpoint exists for future token invalidation if needed
+    res.json({ success: true, message: 'Logout successful' })
+  } catch (error) {
+    console.error('Student logout error:', error)
+    res.status(500).json({ error: 'Logout failed.' })
+  }
+})
+
+// POST /api/student/refresh-token
+app.post('/api/student/refresh-token', async (req, res) => {
+  try {
+    const { refreshToken } = req.body
+
+    if (!refreshToken) {
+      return res.status(400).json({ error: 'Refresh token is required.' })
+    }
+
+    try {
+      const decoded = jwt.verify(refreshToken, JWT_SECRET)
+      
+      if (decoded.type !== 'student') {
+        return res.status(401).json({ error: 'Invalid token type.' })
+      }
+
+      const student = await Student.findById(decoded.sub).select('+password')
+      if (!student || !student.isActive) {
+        return res.status(401).json({ error: 'Student not found or inactive.' })
+      }
+
+      // Generate new access token
+      const newAccessToken = jwt.sign(
+        { 
+          sub: student._id.toString(),
+          studentNumber: student.studentNumber,
+          type: 'student'
+        },
+        JWT_SECRET,
+        { expiresIn: '7d' }
+      )
+
+      res.json({
+        success: true,
+        data: {
+          accessToken: newAccessToken
+        }
+      })
+    } catch (jwtError) {
+      return res.status(401).json({ error: 'Invalid or expired refresh token.' })
+    }
+  } catch (error) {
+    console.error('Token refresh error:', error)
+    res.status(500).json({ error: 'Token refresh failed.' })
+  }
+})
+
+// GET /api/student/me
+app.get('/api/student/me', async (req, res) => {
+  try {
+    const auth = req.headers.authorization
+    const token = auth && auth.startsWith('Bearer ') ? auth.slice(7) : null
+
+    if (!token) {
+      return res.status(401).json({ error: 'Unauthorized.' })
+    }
+
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET)
+      
+      if (decoded.type !== 'student') {
+        return res.status(401).json({ error: 'Invalid token type.' })
+      }
+
+      const student = await Student.findById(decoded.sub)
+      if (!student || !student.isActive) {
+        return res.status(404).json({ error: 'Student not found.' })
+      }
+
+      res.json({
+        success: true,
+        data: {
+          id: student._id.toString(),
+          studentNumber: student.studentNumber,
+          firstName: student.firstName,
+          middleName: student.middleName,
+          lastName: student.lastName,
+          suffix: student.suffix,
+          fullName: student.fullName,
+          course: student.course,
+          major: student.major,
+          yearLevel: student.yearLevel,
+          section: student.section,
+          semester: student.semester,
+          schoolYear: student.schoolYear,
+          studentStatus: student.studentStatus,
+          lifecycleStatus: student.lifecycleStatus,
+          enrollmentStatus: student.enrollmentStatus,
+          corStatus: student.corStatus,
+          scholarship: student.scholarship,
+          email: student.email,
+          contactNumber: student.contactNumber,
+          address: student.address,
+          permanentAddress: student.permanentAddress,
+          birthDate: student.birthDate,
+          birthPlace: student.birthPlace,
+          gender: student.gender,
+          civilStatus: student.civilStatus,
+          nationality: student.nationality,
+          religion: student.religion,
+          emergencyContact: student.emergencyContact,
+          googleEmail: student.googleEmail,
+          googleEmailVerified: student.googleEmailVerified,
+          googlePicture: student.googlePicture,
+          lastLogin: student.lastLogin,
+          createdAt: student.createdAt
+        }
+      })
+    } catch (jwtError) {
+      return res.status(401).json({ error: 'Invalid or expired token.' })
+    }
+  } catch (error) {
+    console.error('Get student profile error:', error)
+    res.status(500).json({ error: 'Failed to fetch student profile.' })
+  }
+})
+
+// PUT /api/student/settings
+app.put('/api/student/settings', async (req, res) => {
+  try {
+    const auth = req.headers.authorization
+    const token = auth && auth.startsWith('Bearer ') ? auth.slice(7) : null
+
+    if (!token) {
+      return res.status(401).json({ error: 'Unauthorized.' })
+    }
+
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET)
+      
+      if (decoded.type !== 'student') {
+        return res.status(401).json({ error: 'Invalid token type.' })
+      }
+
+      const student = await Student.findById(decoded.sub)
+      if (!student || !student.isActive) {
+        return res.status(404).json({ error: 'Student not found.' })
+      }
+
+      const { googleEmail, unlinkGoogle } = req.body
+
+      if (unlinkGoogle) {
+        student.googleId = null
+        student.googleEmail = null
+        student.googleEmailVerified = false
+        student.googlePicture = null
+      } else if (googleEmail) {
+        // For now, just store the email - OAuth integration would be separate
+        student.googleEmail = googleEmail.toLowerCase().trim()
+        student.googleEmailVerified = false // Would be true after OAuth verification
+      }
+
+      await student.save()
+
+      res.json({
+        success: true,
+        message: 'Settings updated successfully',
+        data: {
+          googleEmail: student.googleEmail,
+          googleEmailVerified: student.googleEmailVerified
+        }
+      })
+    } catch (jwtError) {
+      return res.status(401).json({ error: 'Invalid or expired token.' })
+    }
+  } catch (error) {
+    console.error('Update student settings error:', error)
+    res.status(500).json({ error: 'Failed to update settings.' })
+  }
+})
+
+// POST /api/student/google-login (placeholder for future OAuth implementation)
+app.post('/api/student/google-login', async (req, res) => {
+  try {
+    const { googleId, email, name, picture } = req.body
+
+    if (!googleId || !email) {
+      return res.status(400).json({ error: 'Google ID and email are required.' })
+    }
+
+    // Find student by linked Google account
+    let student = await Student.findOne({ 
+      googleId: googleId,
+      isActive: true 
+    })
+
+    if (!student) {
+      // Try to find by email if not linked yet
+      student = await Student.findOne({ 
+        email: email.toLowerCase(),
+        isActive: true 
+      })
+
+      if (student) {
+        // Link the Google account
+        student.googleId = googleId
+        student.googleEmail = email.toLowerCase()
+        student.googleEmailVerified = true
+        student.googlePicture = picture
+        await student.save()
+      } else {
+        return res.status(404).json({ error: 'No student account found with this email. Please contact the registrar.' })
+      }
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { 
+        sub: student._id.toString(),
+        studentNumber: student.studentNumber,
+        type: 'student'
+      },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    )
+
+    // Update last login
+    student.lastLogin = new Date()
+    await student.save()
+
+    res.json({
+      success: true,
+      message: 'Google login successful',
+      data: {
+        accessToken: token,
+        refreshToken: token,
+        student: {
+          id: student._id.toString(),
+          studentNumber: student.studentNumber,
+          firstName: student.firstName,
+          middleName: student.middleName,
+          lastName: student.lastName,
+          suffix: student.suffix,
+          fullName: student.fullName,
+          course: student.course,
+          yearLevel: student.yearLevel,
+          section: student.section,
+          email: student.email,
+          googleEmail: student.googleEmail,
+          googleEmailVerified: student.googleEmailVerified
+        }
+      }
+    })
+  } catch (error) {
+    console.error('Student Google login error:', error)
+    res.status(500).json({ error: 'Google login failed. Please try again.' })
+  }
+})
+
 app.post('/api/admin/login/verify-email', authLimiter, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.verifyLoginEmailVerification), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable. Check server logs and Atlas IP whitelist.' })
@@ -6958,6 +7312,120 @@ app.get('/api/admin/blocked-ips/:ipAddress', authMiddleware, requireAdminRole, a
     res.status(500).json({ error: 'Failed to check IP status.' })
   }
 })
+
+// ==================== STUDENT PASSWORD MIGRATION ====================
+
+// POST /api/admin/migrate-student-passwords - Generate passwords for students without them
+app.post('/api/admin/migrate-student-passwords', authMiddleware, requireAnyRole('admin', 'registrar'), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  
+  try {
+    const StudentPasswordService = require('./services/studentPasswordService');
+    
+    // Find all students without passwords
+    const studentsWithoutPasswords = await Student.find({
+      $or: [
+        { password: { $exists: false } },
+        { password: null },
+        { password: '' }
+      ]
+    });
+
+    console.log(`Found ${studentsWithoutPasswords.length} students without passwords`);
+
+    if (studentsWithoutPasswords.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No students need password migration. All students already have passwords.',
+        results: []
+      });
+    }
+
+    let successCount = 0;
+    let failureCount = 0;
+    const results = [];
+
+    for (const student of studentsWithoutPasswords) {
+      try {
+        // Generate default password
+        const defaultPassword = StudentPasswordService.generateDefaultPassword(student);
+        
+        // Set the password (will be hashed by the pre-save hook)
+        student.password = defaultPassword;
+        
+        await student.save();
+        
+        successCount++;
+        results.push({
+          studentNumber: student.studentNumber,
+          name: `${student.firstName} ${student.lastName}`,
+          password: defaultPassword,
+          status: 'success'
+        });
+        
+        console.log(`✓ Generated password for ${student.studentNumber}: ${defaultPassword}`);
+      } catch (error) {
+        failureCount++;
+        results.push({
+          studentNumber: student.studentNumber,
+          name: `${student.firstName} ${student.lastName}`,
+          error: error.message,
+          status: 'failed'
+        });
+        console.error(`✗ Failed to generate password for ${student.studentNumber}:`, error.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Password migration completed. Success: ${successCount}, Failed: ${failureCount}`,
+      summary: {
+        total: studentsWithoutPasswords.length,
+        successful: successCount,
+        failed: failureCount
+      },
+      results: results
+    });
+
+  } catch (error) {
+    console.error('Student password migration error:', error);
+    res.status(500).json({ error: 'Password migration failed.' });
+  }
+});
+
+// POST /api/admin/clear-student-passwords - Clear all student passwords
+app.post('/api/admin/clear-student-passwords', authMiddleware, requireAnyRole('admin', 'registrar'), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  
+  try {
+    // Clear passwords for all students
+    const result = await Student.updateMany(
+      {},
+      { $unset: { password: '' } }
+    );
+
+    console.log(`Cleared passwords for ${result.modifiedCount} students`);
+
+    res.json({
+      success: true,
+      message: `Cleared passwords for ${result.modifiedCount} students`,
+      summary: {
+        total: result.modifiedCount,
+        successful: result.modifiedCount,
+        failed: 0
+      },
+      results: []
+    });
+
+  } catch (error) {
+    console.error('Student password clear error:', error);
+    res.status(500).json({ error: 'Password clear failed.' });
+  }
+});
 
 // ==================== BLOCK MANAGEMENT ====================
 

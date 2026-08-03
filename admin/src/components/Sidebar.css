@@ -205,7 +205,7 @@
   padding: 0.875rem var(--sidebar-item-x);
   margin: 0 var(--sidebar-gutter) var(--sidebar-gutter);
   border-radius: 6px;
-  text-align: left;
+  text-align: center;
   border: 1px solid color-mix(in srgb, var(--sidebar-gold) 34%, var(--sidebar-border));
   background: color-mix(in srgb, var(--sidebar-gold-soft) 30%, #ffffff);
 }
