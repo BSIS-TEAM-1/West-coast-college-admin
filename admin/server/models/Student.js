@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
+const bcrypt = require('bcryptjs');
 
 const studentSchema = new Schema({
   // Student Information
@@ -203,7 +204,40 @@ const studentSchema = new Schema({
     trim: true,
     index: true
   },
-  
+
+  // Authentication
+  password: {
+    type: String,
+    trim: true
+  },
+  googleId: {
+    type: String,
+    trim: true,
+    sparse: true,
+    unique: true
+  },
+  googleEmail: {
+    type: String,
+    lowercase: true,
+    trim: true,
+    sparse: true
+  },
+  googleEmailVerified: {
+    type: Boolean,
+    default: false
+  },
+  googlePicture: {
+    type: String,
+    trim: true
+  },
+  passwordResetToken: {
+    type: String,
+    trim: true
+  },
+  passwordResetExpires: {
+    type: Date
+  },
+
   // System Information
   isActive: { 
     type: Boolean, 
@@ -270,6 +304,19 @@ studentSchema.pre('validate', async function(next) {
   next();
 });
 
+// Pre-save hook to hash password if modified
+studentSchema.pre('save', async function(next) {
+  if (!this.isModified('password')) return next();
+  
+  try {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Static method to find by student number
 studentSchema.statics.findByStudentNumber = function(studentNumber) {
   return this.findOne({ studentNumber });
@@ -279,6 +326,34 @@ studentSchema.statics.findByStudentNumber = function(studentNumber) {
 studentSchema.methods.getAcademicStanding = function() {
   // Implement logic to determine academic standing
   return 'Good Standing'; // Placeholder
+};
+
+// Method to compare password
+studentSchema.methods.comparePassword = async function(candidatePassword) {
+  try {
+    return await bcrypt.compare(candidatePassword, this.password);
+  } catch (error) {
+    return false;
+  }
+};
+
+// Method to generate default password
+studentSchema.methods.generateDefaultPassword = function() {
+  const firstName = this.firstName || '';
+  const middleName = this.middleName || '';
+  const lastName = this.lastName || '';
+  const studentNumber = this.studentNumber || '';
+  
+  // Get first letter of each name part (lowercase)
+  const firstInitial = firstName.charAt(0).toLowerCase();
+  const middleInitial = middleName.charAt(0).toLowerCase();
+  const lastInitial = lastName.charAt(0).toLowerCase();
+  
+  // Get last 4 digits of student number
+  const lastFourDigits = studentNumber.slice(-4);
+  
+  // Format: first + middle + last initials + last 4 digits
+  return `${firstInitial}${middleInitial}${lastInitial}${lastFourDigits}`;
 };
 
 const Student = mongoose.model('Student', studentSchema);

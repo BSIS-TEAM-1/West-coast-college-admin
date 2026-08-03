@@ -12,6 +12,7 @@ const path = require('path');
 const fs = require('fs');
 const securityMiddleware = require('../securityMiddleware');
 const StudentNumberService = require('../services/studentNumberService');
+const StudentPasswordService = require('../services/studentPasswordService');
 
 const STUDENT_MUTABLE_FIELDS = [
   'firstName',
@@ -809,6 +810,12 @@ class StudentController {
     }
 
     const student = new Student(set);
+    
+    // Generate default password if not provided
+    if (!student.password) {
+      student.password = StudentPasswordService.generateDefaultPassword(student);
+    }
+    
     await student.save();
     return student;
   }
