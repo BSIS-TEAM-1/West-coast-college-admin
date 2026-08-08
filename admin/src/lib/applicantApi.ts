@@ -16,6 +16,18 @@ export type ApplicantStatus =
   | 'Rejected'
   | 'Cancelled'
 
+export type LocationPayload = {
+  regionCode?: string
+  regionName?: string
+  provinceCode?: string
+  provinceName?: string
+  cityCode?: string
+  cityName?: string
+  barangayCode?: string
+  barangayName?: string
+  streetAddress?: string
+}
+
 export type ApplicantPayload = {
   applicantType: 'New' | 'Transferee' | 'Returnee'
   firstName: string
@@ -32,6 +44,8 @@ export type ApplicantPayload = {
   religion?: string
   currentAddress: string
   permanentAddress?: string
+  currentLocation?: LocationPayload
+  permanentLocation?: LocationPayload
   fatherName?: string
   motherName?: string
   guardianName?: string
@@ -59,11 +73,27 @@ export type ApplicantPayload = {
       gradesSummary?: string
       strandOrTrack?: string
     }
+    seniorHighSchool?: {
+      schoolName: string
+      schoolAddress?: string
+      yearGraduated: string
+      generalAverage?: string
+      gradesSummary?: string
+      strandOrTrack?: string
+    }
+    college?: {
+      schoolName: string
+      schoolAddress?: string
+      yearGraduated: string
+      generalAverage?: string
+      gradesSummary?: string
+      strandOrTrack?: string
+    }
   }
-  selectedCourse: number
-  requestedYearLevel: number
-  semester: '1st' | '2nd' | 'Summer'
-  schoolYear: string
+  selectedCourse: string | number
+  requestedYearLevel?: number
+  semester?: string
+  schoolYear?: string
 }
 
 export type ApplicantRecord = ApplicantPayload & {
@@ -106,14 +136,44 @@ export async function getApplicantCourses(): Promise<CourseOption[]> {
   return payload.data
 }
 
-export async function submitApplicant(payload: ApplicantPayload): Promise<ApplicantRecord> {
+export type EmailNotification = {
+  sent: boolean
+  provider: string | null
+  recipient?: string
+  messageId?: string | null
+  error: string | null
+}
+
+export type SubmitApplicantResponse = {
+  data: ApplicantRecord
+  emailNotification: EmailNotification | null
+}
+
+export async function submitApplicant(payload: ApplicantPayload): Promise<SubmitApplicantResponse> {
   const response = await fetch(`${API_URL}/api/applicants/apply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   })
-  const data = await readJson<{ success: boolean; data: ApplicantRecord }>(response)
-  return data.data
+  const data = await readJson<{ success: boolean; data: ApplicantRecord; emailNotification: EmailNotification | null }>(response)
+  return { data: data.data, emailNotification: data.emailNotification ?? null }
+}
+
+export type SchoolResult = {
+  _id: string
+  name: string
+  region: string
+  division: string
+  municipality: string
+  district: string
+  barangay: string
+  sector: string
+}
+
+export async function searchSchools(query: string, limit = 20): Promise<SchoolResult[]> {
+  const response = await fetch(`${API_URL}/api/schools/search?q=${encodeURIComponent(query)}&limit=${limit}`)
+  const payload = await readJson<{ schools: SchoolResult[] }>(response)
+  return payload.schools
 }
 
 export async function getRegistrarApplicants(params: { status?: string; q?: string } = {}): Promise<ApplicantRecord[]> {
@@ -128,15 +188,20 @@ export async function getRegistrarApplicants(params: { status?: string; q?: stri
   return payload.data
 }
 
+export type UpdateStatusResponse = {
+  data: ApplicantRecord
+  emailNotification: EmailNotification | null
+}
+
 export async function updateApplicantStatus(
   applicantId: string,
   payload: { status: ApplicantStatus; registrarRemarks?: string }
-): Promise<ApplicantRecord> {
+): Promise<UpdateStatusResponse> {
   const response = await fetch(`${API_URL}/api/registrar/applicants/${applicantId}/status`, {
     method: 'PATCH',
     headers: await authHeaders(),
     body: JSON.stringify(payload)
   })
-  const data = await readJson<{ success: boolean; data: ApplicantRecord }>(response)
-  return data.data
+  const data = await readJson<{ success: boolean; data: ApplicantRecord; emailNotification: EmailNotification | null }>(response)
+  return { data: data.data, emailNotification: data.emailNotification ?? null }
 }
