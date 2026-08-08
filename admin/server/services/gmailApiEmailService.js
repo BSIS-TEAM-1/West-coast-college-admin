@@ -131,16 +131,18 @@ class GmailApiEmailService {
       const contentType = String(attachment.contentType || 'application/octet-stream').trim() || 'application/octet-stream'
       const disposition = String(attachment.disposition || 'attachment').trim() || 'attachment'
       const contentId = String(attachment.contentId || '').trim()
+      const isInline = disposition === 'inline' && contentId
 
       parts.push(
         '',
         `--${relatedBoundary}`,
-        `Content-Type: ${contentType}; name="${filename}"`,
+        `Content-Type: ${contentType}${isInline ? '' : `; name="${filename}"`}`,
         'Content-Transfer-Encoding: base64',
-        `Content-Disposition: ${disposition}; filename="${filename}"`,
+        isInline
+          ? 'Content-Disposition: inline'
+          : `Content-Disposition: ${disposition}; filename="${filename}"`,
         ...(contentId ? [`Content-ID: <${contentId}>`] : []),
         ...(contentId ? [`X-Attachment-Id: ${contentId}`] : []),
-        `Content-Location: ${filename}`,
         '',
         toMimeBase64(attachment.content)
       )
