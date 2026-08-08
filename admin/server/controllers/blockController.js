@@ -335,6 +335,86 @@ class BlockController {
     }
   }
 
+  // PATCH /api/blocks/groups/:groupId
+  async updateBlockGroup(req, res) {
+    try {
+      const { groupId } = req.params;
+
+      let validatedGroupId;
+      try {
+        validatedGroupId = safeObjectId(groupId);
+      } catch (error) {
+        return res.status(400).json({ error: 'Invalid block group id' });
+      }
+
+      const group = await BlockGroup.findById(validatedGroupId);
+      if (!group) {
+        return res.status(404).json({ error: 'Block group not found' });
+      }
+
+      const { name, courseId, courseCode, yearLevel, schoolYear, section, semester, year, policies } = req.body;
+
+      const nextCourseId = (courseId !== undefined || courseCode !== undefined)
+        ? (this.normalizeCourseCode(courseId) || this.normalizeCourseCode(courseCode))
+        : this.getGroupCourseId(group);
+      const nextYearLevel = yearLevel !== undefined ? Number(yearLevel) : this.getGroupYearLevel(group);
+      const nextSection = section !== undefined ? String(section).trim().toUpperCase() : this.getGroupSection(group);
+      const nextSemester = semester !== undefined ? String(semester).trim() : group.semester;
+      const nextYear = year !== undefined ? Number(year) : group.year;
+      if (!Number.isFinite(nextYear)) {
+        return res.status(400).json({ error: 'year must be a valid number' });
+      }
+      const nextSchoolYear = schoolYear !== undefined
+        ? String(schoolYear).trim()
+        : (year !== undefined ? this.getSchoolYearFromStartYear(nextYear) : group.schoolYear);
+
+      const sameTermGroups = await BlockGroup.find({
+        _id: { $ne: group._id },
+        semester: nextSemester,
+        year: nextYear
+      }).select('name courseId yearLevel section');
+
+      const hasSemanticDuplicate = sameTermGroups.some((other) => {
+        const existingCourse = this.getGroupCourseId(other);
+        const existingYearLevel = this.getGroupYearLevel(other);
+        const existingSection = this.getGroupSection(other);
+        return (
+          nextCourseId &&
+          nextYearLevel &&
+          nextSection &&
+          existingCourse === nextCourseId &&
+          existingYearLevel === nextYearLevel &&
+          existingSection === nextSection
+        );
+      });
+
+      if (hasSemanticDuplicate) {
+        return res.status(409).json({ error: 'Another block group already exists for this course/year/section in the selected term' });
+      }
+
+      if (name !== undefined) group.name = String(name).trim();
+      if (nextCourseId) group.courseId = nextCourseId;
+      if (courseCode !== undefined) group.courseCode = courseCode;
+      if (nextYearLevel) group.yearLevel = nextYearLevel;
+      group.semester = nextSemester;
+      if (nextSchoolYear) group.schoolYear = nextSchoolYear;
+      group.year = nextYear;
+      if (nextSection) group.section = nextSection;
+      if (policies) {
+        group.policies = { ...(group.policies || {}), ...policies };
+      }
+
+      await group.save();
+      res.json(group);
+    } catch (error) {
+      if (error && error.code === 11000) {
+        return res.status(409).json({ error: 'Block group already exists for this semester/year' });
+      }
+      console.error('Update block group error:', error);
+      res.status(500).json({ error: 'Failed to update block group' });
+    }
+  }
+
   // POST /api/blocks/groups/:groupId/sections
   async createSectionInGroup(req, res) {
     try {
@@ -376,6 +456,103 @@ class BlockController {
     }
   }
 
+  // PATCH /api/blocks/sections/:sectionId
+  async updateSection(req, res) {
+    try {
+      const { sectionId } = req.params;
+
+      let validatedSectionId;
+      try {
+        validatedSectionId = safeObjectId(sectionId);
+      } catch (error) {
+        return res.status(400).json({ error: 'Invalid section id' });
+      }
+
+      const section = await BlockSection.findById(validatedSectionId);
+      if (!section) {
+        return res.status(404).json({ error: 'Section not found' });
+      }
+
+      const { sectionCode, capacity, schedule } = req.body;
+
+      if (capacity !== undefined) {
+        const nextCapacity = Number(capacity);
+        if (!Number.isFinite(nextCapacity) || nextCapacity < 1) {
+          return res.status(400).json({ error: 'capacity must be a positive number' });
+        }
+        if (nextCapacity < section.currentPopulation) {
+          return res.status(400).json({ error: `capacity cannot be lower than the current population (${section.currentPopulation})` });
+        }
+        section.capacity = nextCapacity;
+      }
+
+      if (sectionCode !== undefined) {
+        const canonicalSectionCode = this.buildCanonicalBlockCode(sectionCode) || String(sectionCode).trim();
+        const siblingSections = await BlockSection.find({
+          blockGroupId: section.blockGroupId,
+          _id: { $ne: section._id }
+        }).select('sectionCode').lean();
+        const duplicateSection = siblingSections.some((sibling) =>
+          this.buildCanonicalBlockCode(sibling.sectionCode) === canonicalSectionCode
+        );
+        if (duplicateSection) {
+          return res.status(409).json({ error: 'Section code already exists in this group' });
+        }
+        section.sectionCode = canonicalSectionCode;
+      }
+
+      if (schedule !== undefined) {
+        section.schedule = String(schedule).trim();
+      }
+
+      await section.save();
+      res.json(section);
+    } catch (error) {
+      if (error && error.code === 11000) {
+        return res.status(409).json({ error: 'Section code already exists in this group' });
+      }
+      console.error('Update section error:', error);
+      res.status(500).json({ error: 'Failed to update section' });
+    }
+  }
+
+  // DELETE /api/blocks/sections/:sectionId
+  async deleteSection(req, res) {
+    try {
+      const { sectionId } = req.params;
+
+      let validatedSectionId;
+      try {
+        validatedSectionId = safeObjectId(sectionId);
+      } catch (error) {
+        return res.status(400).json({ error: 'Invalid section id' });
+      }
+
+      const section = await BlockSection.findById(validatedSectionId);
+      if (!section) {
+        return res.status(404).json({ error: 'Section not found' });
+      }
+
+      const assignedCount = await StudentBlockAssignment.countDocuments({
+        sectionId: section._id,
+        status: { $in: ['ASSIGNED', 'WAITLISTED'] }
+      });
+      const waitlistCount = await SectionWaitlist.countDocuments({ sectionId: section._id });
+
+      if (assignedCount > 0 || waitlistCount > 0) {
+        return res.status(409).json({
+          error: `Cannot delete section. It still has ${assignedCount} assigned/waitlisted and ${waitlistCount} waitlisted record(s).`
+        });
+      }
+
+      await BlockSection.deleteOne({ _id: section._id });
+      res.json({ message: 'Section deleted successfully' });
+    } catch (error) {
+      console.error('Delete section error:', error);
+      res.status(500).json({ error: 'Failed to delete section' });
+    }
+  }
+
   // DELETE /api/blocks/groups/:groupId
   async deleteBlockGroup(req, res) {
     try {
@@ -394,7 +571,7 @@ class BlockController {
         return res.status(404).json({ error: 'Block group not found' });
       }
 
-      const sections = await BlockSection.find({ blockGroupId: groupId }).select('_id currentPopulation sectionCode');
+      const sections = await BlockSection.find({ blockGroupId: validatedGroupId }).select('_id currentPopulation sectionCode');
       const sectionIds = sections.map((s) => s._id);
 
       if (sectionIds.length > 0) {
@@ -480,10 +657,10 @@ class BlockController {
           );
         }
 
-        await BlockSection.deleteMany({ blockGroupId: groupId });
+        await BlockSection.deleteMany({ blockGroupId: validatedGroupId });
       }
 
-      await BlockGroup.findByIdAndDelete(groupId);
+      await BlockGroup.findByIdAndDelete(validatedGroupId);
       res.json({ message: 'Block group deleted successfully' });
     } catch (error) {
       console.error('Delete block group error:', error);

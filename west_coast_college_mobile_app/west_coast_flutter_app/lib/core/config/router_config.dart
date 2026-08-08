@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../features/auth/auth_provider.dart';
-import '../../features/auth/login/login_page.dart';
 import '../../features/auth/splash/splash_page.dart';
 import '../../features/dashboard/dashboard_page.dart';
 import '../../features/profile/profile_page.dart';
@@ -32,11 +31,6 @@ final routerConfig = GoRouter(
       path: '/splash',
       name: AppRoute.splash.name,
       builder: (context, state) => const SplashPage(),
-    ),
-    GoRoute(
-      path: '/login',
-      name: AppRoute.login.name,
-      builder: (context, state) => const LoginPage(),
     ),
     GoRoute(
       path: '/dashboard',
@@ -171,3 +165,6 @@ class SupportPlaceholder extends StatelessWidget {
     );
   }
 }
+
+
+

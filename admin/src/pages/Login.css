@@ -254,7 +254,7 @@
   border: 1px solid var(--auth-outline);
   border-radius: 2px;
   background: #ffffff;
-  color: var(--auth-text);
+  color: #1c1b1b;
   font-size: 1rem;
   padding: 0.82rem 3rem 0.82rem 1rem;
   box-shadow: none;

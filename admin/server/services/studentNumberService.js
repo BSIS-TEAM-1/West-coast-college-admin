@@ -73,7 +73,8 @@ class StudentNumberService {
 
   static formatStudentNumber(courseNumber, schoolYear, sequence) {
     const { courseCode, startYear } = StudentNumberService.getGenerationMeta(courseNumber, schoolYear);
-    return `${startYear}-${courseCode}-${StudentNumberService.encodeSequence(courseNumber, schoolYear, sequence)}`;
+    // New format: YYYYCourseCodeSequence (no dashes)
+    return `${startYear}${courseCode}${StudentNumberService.encodeSequence(courseNumber, schoolYear, sequence)}`;
   }
 
   static async studentNumberExists(studentNumber) {

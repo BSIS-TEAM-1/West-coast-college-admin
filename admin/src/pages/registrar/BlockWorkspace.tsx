@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import type { BlockGroup, BlockSection, BlockStudent, SectionStudent, BlockWorkspaceSelection } from './registrarBlockTypes'
+import BlockStatusBadge from '../../components/BlockStatusBadge'
+import CapacityIndicator from '../../components/CapacityIndicator'
+import { formatStudentNumber as formatStudentNumberShared } from '../../lib/blockAssignmentShared'
+import './BlockManagement.css'
 
 type BlockWorkspaceProps = {
   selection: BlockWorkspaceSelection | null
@@ -109,22 +113,7 @@ function BlockWorkspace({ selection, onBack }: BlockWorkspaceProps) {
   const formatStudentName = (student: BlockStudent) =>
     `${student.firstName} ${student.middleName || ''} ${student.lastName} ${student.suffix || ''}`.replace(/\s+/g, ' ').trim()
 
-  const formatStudentNumber = (student: BlockStudent) => {
-    const raw = String(student.studentNumber || '').trim()
-    const fallbackCourseCode = courseCodeFromValue(student.course)
-
-    if (!raw) return `0000-${fallbackCourseCode}-00000`
-
-    const parts = raw.split('-').map((part) => part.trim()).filter(Boolean)
-    const year = /^\d{4}$/.test(parts[0] || '') ? parts[0] : '0000'
-    const seqPart = [...parts].reverse().find((part) => /^\d+$/.test(part)) || '00000'
-    const seq = seqPart.slice(-5).padStart(5, '0')
-    const courseCode = fallbackCourseCode !== '000'
-      ? fallbackCourseCode
-      : courseCodeFromValue(parts.find((part) => /[A-Za-z]/.test(part)))
-
-    return `${year}-${courseCode}-${seq}`
-  }
+  const formatStudentNumber = (student: BlockStudent) => formatStudentNumberShared(student.studentNumber, student.course)
 
   const formatAssignedAt = (value?: string | null) => {
     if (!value) return 'N/A'
@@ -527,11 +516,20 @@ function BlockWorkspace({ selection, onBack }: BlockWorkspaceProps) {
                 const studentsInSection = sectionStudentsById[section._id] || []
                 const sectionLoading = Boolean(sectionLoadingById[section._id])
                 return (
-                  <div key={section._id} className="section-students-panel">
-                    <h4>{formatBlockColumnLabel(section.sectionCode)}</h4>
-                    <p className="section-students-summary">
-                      Capacity: {section.currentPopulation}/{section.capacity} | Status: {section.status}
-                    </p>
+                  <div key={section._id} className="section-students-panel block-card">
+                    <div className="section-students-panel-header">
+                      <h4>{formatBlockColumnLabel(section.sectionCode)}</h4>
+                      <BlockStatusBadge status={(section.status || 'OPEN') as 'OPEN' | 'CLOSED'} size="sm" />
+                    </div>
+                    <div className="section-students-summary">
+                      <CapacityIndicator
+                        current={section.currentPopulation}
+                        capacity={section.capacity}
+                        showLabel={true}
+                        showText={true}
+                        size="sm"
+                      />
+                    </div>
 
                     {sectionLoading ? (
                       <p className="section-students-empty">Loading students...</p>

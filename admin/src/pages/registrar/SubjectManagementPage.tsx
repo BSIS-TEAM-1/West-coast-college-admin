@@ -237,20 +237,24 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
       {showSubjectWizard && (
         <div className="sis-wizard-shell">
           <section className="sis-wizard-card">
-            <div className="block-wizard-stepper" aria-label="Subject management progress">
+            <div className="block-stepper" role="navigation" aria-label="Subject management progress">
+              <div className="block-stepper-line" aria-hidden="true" />
               {[
-                { step: 1, title: isEditing ? 'Edit Subject' : 'Create Subject' },
-                { step: 2, title: 'Review' },
-                { step: 3, title: 'Finish' }
+                { step: 1, title: isEditing ? 'Edit Subject' : 'Create Subject', description: isEditing ? 'Edit details' : 'Enter details' },
+                { step: 2, title: 'Review', description: 'Confirm details' },
+                { step: 3, title: 'Finish', description: 'Subject saved' }
               ].map((item) => (
                 <div
                   key={item.step}
-                  className={`block-wizard-step ${wizardStep === item.step ? 'is-active' : ''} ${wizardStep > item.step ? 'is-complete' : ''}`}
+                  className={`block-stepper-item ${wizardStep === item.step ? 'is-active' : ''} ${wizardStep > item.step ? 'is-complete' : ''}`}
                 >
-                  <span className="block-wizard-step-number">{wizardStep > item.step ? <CheckCircle size={16} /> : item.step}</span>
-                  <span>
-                    <small>Step {item.step}</small>
+                  <span className="block-stepper-dot">
+                    {wizardStep > item.step ? <CheckCircle size={18} /> : item.step}
+                  </span>
+                  <span className="block-stepper-label">
+                    <span className="block-stepper-step-label">Step {item.step}</span>
                     <strong>{item.title}</strong>
+                    <span className="block-stepper-desc">{item.description}</span>
                   </span>
                 </div>
               ))}

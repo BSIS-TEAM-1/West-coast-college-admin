@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react'
 import type { WizardFormData, ValidationError, Semester } from './types'
 import { getFieldError } from './validation'
+import { getAcademicTerm } from '../../lib/settingsApi'
 
 interface AcademicStepProps {
   data: Partial<WizardFormData>
@@ -40,11 +42,35 @@ const LIFECYCLE_STATUS_OPTIONS = [
 
 export default function AcademicStep({ data, onChange, errors }: AcademicStepProps) {
   const currentYear = new Date().getFullYear()
-  const schoolYearOptions = [
+  const [currentTerm, setCurrentTerm] = useState<{ schoolYear: string; semester: Semester } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    getAcademicTerm()
+      .then((term) => {
+        if (!cancelled) setCurrentTerm(term)
+      })
+      .catch(() => {
+        // Silently fall back to calendar-year defaults if the setting can't be loaded.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!currentTerm) return
+    if (!data.schoolYear) onChange('schoolYear', currentTerm.schoolYear)
+    if (!data.semester) onChange('semester', currentTerm.semester)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTerm])
+
+  const schoolYearOptions = Array.from(new Set([
     `${currentYear - 1}-${currentYear}`,
     `${currentYear}-${currentYear + 1}`,
-    `${currentYear + 1}-${currentYear + 2}`
-  ]
+    `${currentYear + 1}-${currentYear + 2}`,
+    ...(currentTerm ? [currentTerm.schoolYear] : [])
+  ])).sort()
 
   return (
     <div className="wizard-step">

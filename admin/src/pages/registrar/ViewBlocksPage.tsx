@@ -1,6 +1,20 @@
 import { useEffect, useState } from 'react'
-import { API_URL, getStoredToken } from '../../lib/authApi'
+import { Pencil, Save, Trash2, X } from 'lucide-react'
 import type { BlockGroup, BlockSection, BlockWorkspaceSelection } from './registrarBlockTypes'
+import BlockStatusBadge from '../../components/BlockStatusBadge'
+import CapacityIndicator from '../../components/CapacityIndicator'
+import {
+  authorizedFetch,
+  compareBlockOrder,
+  COURSE_OPTIONS,
+  formatBlockColumnLabel,
+  formatBlockLabel,
+  getBlockGroupCompatibilityMeta,
+  getCourseAbbreviation,
+  parseBlockSlot,
+  type Semester
+} from '../../lib/blockAssignmentShared'
+import './BlockManagement.css'
 
 type ViewBlocksPageProps = {
   onBack: () => void
@@ -16,105 +30,21 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-
-  const courseAbbreviationByCode: Record<string, string> = {
-    '101': 'BEED',
-    '102': 'BSEd-English',
-    '103': 'BSEd-Math',
-    '201': 'BSBA-HRM'
-  }
-
-  const formatBlockLabel = (value: string) => {
-    const text = String(value || '').trim()
-    if (!text) return value
-    const parts = text.split('-')
-    if (parts.length === 0) return text
-    const first = parts[0]
-    const mapped = courseAbbreviationByCode[first] || first
-    return [mapped, ...parts.slice(1)].join('-')
-  }
-
-  const parseBlockSlot = (value: string) => {
-    const text = String(value || '').trim().toUpperCase()
-    if (!text) return null
-
-    const directMatch = text.match(/(?:^|-)(\d+)([A-Z])$/)
-    if (directMatch) {
-      return {
-        yearLevel: Number(directMatch[1]) || 99,
-        letter: directMatch[2]
-      }
-    }
-
-    const dashedMatch = text.match(/(?:^|-)(\d+)-([A-Z])$/)
-    if (dashedMatch) {
-      return {
-        yearLevel: Number(dashedMatch[1]) || 99,
-        letter: dashedMatch[2]
-      }
-    }
-
-    return null
-  }
-
-  const formatBlockColumnLabel = (value: string) => {
-    const slot = parseBlockSlot(value)
-    if (!slot) return formatBlockLabel(value)
-    return `${slot.yearLevel}-${slot.letter}`
-  }
-
-  const getCourseAbbreviation = (value: string) => {
-    const text = String(value || '').trim()
-    if (!text) return 'N/A'
-    const first = text.split('-')[0]
-    const mapped = courseAbbreviationByCode[first]
-    if (mapped) return mapped
-
-    const normalized = first.toUpperCase().replace(/\s+/g, '')
-    if (normalized.includes('BEED')) return 'BEED'
-    if (normalized.includes('BSED') && normalized.includes('ENGLISH')) return 'BSEd-English'
-    if (normalized.includes('BSED') && (normalized.includes('MATH') || normalized.includes('MATHEMATICS'))) return 'BSEd-Math'
-    if (normalized.includes('BSBA') && normalized.includes('HRM')) return 'BSBA-HRM'
-    return first
-  }
-
-  const compareBlockOrder = (a: string, b: string) => {
-    const slotA = parseBlockSlot(a)
-    const slotB = parseBlockSlot(b)
-
-    if (slotA && slotB) {
-      if (slotA.yearLevel !== slotB.yearLevel) {
-        return slotA.yearLevel - slotB.yearLevel
-      }
-      return slotA.letter.localeCompare(slotB.letter)
-    }
-
-    if (slotA) return -1
-    if (slotB) return 1
-    return String(a || '').localeCompare(String(b || ''))
-  }
-
-  const authorizedFetch = async (path: string, init: RequestInit = {}) => {
-    const token = await getStoredToken()
-    if (!token) throw new Error('No authentication token found')
-
-    const response = await fetch(`${API_URL}${path}`, {
-      ...init,
-      headers: {
-        ...(init.headers || {}),
-        Authorization: `Bearer ${token}`
-      }
-    })
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      throw new Error((data?.error as string) || (data?.message as string) || `Request failed (${response.status})`)
-    }
-    return data
-  }
+  const [groupEditForm, setGroupEditForm] = useState<{
+    courseId: string
+    yearLevel: string
+    section: string
+    semester: Semester
+    year: string
+  } | null>(null)
+  const [savingGroupEdit, setSavingGroupEdit] = useState(false)
+  const [editingSectionId, setEditingSectionId] = useState<string | null>(null)
+  const [sectionCapacityDraft, setSectionCapacityDraft] = useState('')
+  const [savingSectionId, setSavingSectionId] = useState<string | null>(null)
 
   const fetchBlockGroups = async () => {
     try {
-      const data = await authorizedFetch('/api/blocks/groups')
+      const data = await authorizedFetch<BlockGroup[]>('/api/blocks/groups')
       setBlockGroups(Array.isArray(data) ? data : [])
       setError('')
     } catch (err) {
@@ -124,7 +54,7 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
 
   const fetchSections = async (groupId: string) => {
     try {
-      const data = await authorizedFetch(`/api/blocks/groups/${groupId}/sections`)
+      const data = await authorizedFetch<BlockSection[]>(`/api/blocks/groups/${groupId}/sections`)
       setSections(Array.isArray(data) ? data : [])
       setError('')
     } catch (err) {
@@ -211,17 +141,17 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
 
   const handleDeleteGroup = async () => {
     if (!selectedGroup) return
-    const confirmed = window.confirm(`Delete block "${selectedGroup.name}"? This cannot be undone.`)
+    const confirmed = window.confirm(`Delete block "${formatBlockLabel(selectedGroup.name)}"? This cannot be undone.`)
     if (!confirmed) return
 
     setLoading(true)
     setError('')
     setSuccess('')
     try {
-      const data = await authorizedFetch(`/api/blocks/groups/${selectedGroup._id}`, {
+      const data = await authorizedFetch<{ message?: string }>(`/api/blocks/groups/${selectedGroup._id}`, {
         method: 'DELETE'
       })
-      setSuccess((data?.message as string) || 'Block deleted successfully')
+      setSuccess(data?.message || 'Block deleted successfully')
       setSelectedGroup(null)
       setSections([])
       await fetchBlockGroups()
@@ -229,6 +159,120 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
       setError(err instanceof Error ? err.message : 'Failed to delete block')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleStartEditGroup = () => {
+    if (!selectedGroup) return
+    const meta = getBlockGroupCompatibilityMeta(selectedGroup)
+    const slot = parseBlockSlot(selectedGroup.name)
+    setGroupEditForm({
+      courseId: meta.course || '',
+      yearLevel: String(meta.yearLevel || slot?.yearLevel || ''),
+      section: selectedGroup.section || slot?.letter || '',
+      semester: selectedGroup.semester,
+      year: String(selectedGroup.year)
+    })
+    setError('')
+    setSuccess('')
+  }
+
+  const handleCancelEditGroup = () => {
+    setGroupEditForm(null)
+  }
+
+  const handleSaveGroupEdit = async () => {
+    if (!selectedGroup || !groupEditForm) return
+
+    setSavingGroupEdit(true)
+    setError('')
+    setSuccess('')
+    try {
+      const courseOption = COURSE_OPTIONS.find((course) => String(course.value) === groupEditForm.courseId)
+      const yearLevelNum = Number(groupEditForm.yearLevel)
+      const yearNum = Number(groupEditForm.year)
+      const sectionLetter = groupEditForm.section.trim().toUpperCase()
+      const name = courseOption && yearLevelNum && sectionLetter
+        ? `${courseOption.value}-${yearLevelNum}-${sectionLetter}`
+        : selectedGroup.name
+
+      const updated = await authorizedFetch<BlockGroup>(`/api/blocks/groups/${selectedGroup._id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          courseId: courseOption?.value,
+          courseCode: courseOption?.label,
+          yearLevel: yearLevelNum || undefined,
+          section: sectionLetter || undefined,
+          semester: groupEditForm.semester,
+          year: yearNum
+        })
+      })
+      setSuccess('Block group updated successfully')
+      setGroupEditForm(null)
+      setSelectedGroup(updated)
+      await fetchBlockGroups()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update block group')
+    } finally {
+      setSavingGroupEdit(false)
+    }
+  }
+
+  const handleStartEditSection = (section: BlockSection) => {
+    setEditingSectionId(section._id)
+    setSectionCapacityDraft(String(section.capacity))
+    setError('')
+    setSuccess('')
+  }
+
+  const handleCancelEditSection = () => {
+    setEditingSectionId(null)
+    setSectionCapacityDraft('')
+  }
+
+  const handleSaveSectionEdit = async (section: BlockSection) => {
+    const nextCapacity = Number(sectionCapacityDraft)
+    if (!Number.isFinite(nextCapacity) || nextCapacity < 1) {
+      setError('Capacity must be a positive number')
+      return
+    }
+
+    setSavingSectionId(section._id)
+    setError('')
+    setSuccess('')
+    try {
+      await authorizedFetch(`/api/blocks/sections/${section._id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ capacity: nextCapacity })
+      })
+      setSuccess('Section updated successfully')
+      setEditingSectionId(null)
+      if (selectedGroup) await fetchSections(selectedGroup._id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update section')
+    } finally {
+      setSavingSectionId(null)
+    }
+  }
+
+  const handleDeleteSection = async (section: BlockSection) => {
+    const confirmed = window.confirm(`Delete section "${formatBlockColumnLabel(section.sectionCode)}"? This cannot be undone.`)
+    if (!confirmed) return
+
+    setSavingSectionId(section._id)
+    setError('')
+    setSuccess('')
+    try {
+      await authorizedFetch(`/api/blocks/sections/${section._id}`, { method: 'DELETE' })
+      setSuccess('Section deleted successfully')
+      if (selectedGroup) await fetchSections(selectedGroup._id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete section')
+    } finally {
+      setSavingSectionId(null)
     }
   }
 
@@ -264,22 +308,22 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
         {success && <p className="registrar-feedback registrar-feedback-success">{success}</p>}
 
         <div className="block-summary-grid">
-          <div className="assignment-section block-summary-card">
+          <div className="assignment-section block-summary-card block-card">
             <span className="block-summary-label">Created Blocks</span>
             <strong className="block-summary-value">{blockGroups.length}</strong>
             <small>All registrar block groups</small>
           </div>
-          <div className="assignment-section block-summary-card">
+          <div className="assignment-section block-summary-card block-card">
             <span className="block-summary-label">Filtered Results</span>
             <strong className="block-summary-value">{filteredBlockGroups.length}</strong>
             <small>{selectedCourseFilter || selectedYearFilter ? 'Matching current filters' : 'Showing all blocks'}</small>
           </div>
-          <div className="assignment-section block-summary-card">
+          <div className="assignment-section block-summary-card block-card">
             <span className="block-summary-label">Sections</span>
             <strong className="block-summary-value">{sections.length}</strong>
             <small>{selectedGroup ? 'Inside selected block' : 'Select a block to inspect'}</small>
           </div>
-          <div className="assignment-section block-summary-card">
+          <div className="assignment-section block-summary-card block-card">
             <span className="block-summary-label">Open Sections</span>
             <strong className="block-summary-value">{openSections.length}</strong>
             <small>{selectedGroup ? 'Ready for assignment' : 'No block selected'}</small>
@@ -369,24 +413,103 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
 
             {selectedGroup ? (
               <>
-                <div className="block-current-card">
-                  <span className="block-current-label">Selected Block Snapshot</span>
-                  <strong>{`Block-${formatBlockColumnLabel(selectedGroup.name).replace('-', '')}`}</strong>
-                  <div className="block-current-meta">
-                    <span>{`${selectedGroup.semester} ${selectedGroup.year}`}</span>
-                    <span>{selectedYearLevel ? `Year ${selectedYearLevel}` : 'No year selected'}</span>
-                    <span>{`${totalSectionPopulation}/${totalSectionCapacity || 0} seats used`}</span>
+                {groupEditForm ? (
+                  <div className="block-current-card">
+                    <span className="block-current-label">Edit Block Group</span>
+                    <div className="block-view-filter-row">
+                      <label className="block-picker-field">
+                        <span>Course</span>
+                        <select
+                          value={groupEditForm.courseId}
+                          onChange={(event) => setGroupEditForm((current) => current && { ...current, courseId: event.target.value })}
+                        >
+                          <option value="">Select course</option>
+                          {COURSE_OPTIONS.map((course) => (
+                            <option key={course.value} value={course.value}>{course.fullLabel}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block-picker-field">
+                        <span>Year Level</span>
+                        <select
+                          value={groupEditForm.yearLevel}
+                          onChange={(event) => setGroupEditForm((current) => current && { ...current, yearLevel: event.target.value })}
+                        >
+                          <option value="">Select year</option>
+                          {[1, 2, 3, 4, 5].map((level) => (
+                            <option key={level} value={level}>{`Year ${level}`}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block-picker-field">
+                        <span>Section</span>
+                        <select
+                          value={groupEditForm.section}
+                          onChange={(event) => setGroupEditForm((current) => current && { ...current, section: event.target.value })}
+                        >
+                          <option value="">Select section</option>
+                          {['A', 'B', 'C', 'D'].map((letter) => (
+                            <option key={letter} value={letter}>{letter}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block-picker-field">
+                        <span>Semester</span>
+                        <select
+                          value={groupEditForm.semester}
+                          onChange={(event) => setGroupEditForm((current) => current && { ...current, semester: event.target.value as Semester })}
+                        >
+                          <option value="1st">1st Semester</option>
+                          <option value="2nd">2nd Semester</option>
+                          <option value="Summer">Summer Semester</option>
+                        </select>
+                      </label>
+                      <label className="block-picker-field">
+                        <span>Academic Year</span>
+                        <input
+                          type="number"
+                          value={groupEditForm.year}
+                          onChange={(event) => setGroupEditForm((current) => current && { ...current, year: event.target.value })}
+                        />
+                      </label>
+                    </div>
+                    <div className="block-view-actions">
+                      <button type="button" className="registrar-btn" onClick={() => void handleSaveGroupEdit()} disabled={savingGroupEdit}>
+                        <Save size={16} />
+                        {savingGroupEdit ? 'Saving...' : 'Save Changes'}
+                      </button>
+                      <button type="button" className="registrar-btn registrar-btn-secondary" onClick={handleCancelEditGroup} disabled={savingGroupEdit}>
+                        <X size={16} />
+                        Cancel
+                      </button>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="block-current-card">
+                    <span className="block-current-label">Selected Block Snapshot</span>
+                    <strong>{`Block-${formatBlockColumnLabel(selectedGroup.name).replace('-', '')}`}</strong>
+                    <div className="block-current-meta">
+                      <span>{`${selectedGroup.semester} ${selectedGroup.year}`}</span>
+                      <span>{selectedYearLevel ? `Year ${selectedYearLevel}` : 'No year selected'}</span>
+                      <span>{`${totalSectionPopulation}/${totalSectionCapacity || 0} seats used`}</span>
+                    </div>
+                  </div>
+                )}
 
-                <div className="block-view-actions">
-                  <button type="button" className="registrar-btn" onClick={handleOpenWorkspace}>
-                    Open Workspace
-                  </button>
-                  <button type="button" className="section-delete-btn" onClick={() => void handleDeleteGroup()} disabled={loading}>
-                    Delete Block
-                  </button>
-                </div>
+                {!groupEditForm && (
+                  <div className="block-view-actions">
+                    <button type="button" className="registrar-btn" onClick={handleOpenWorkspace}>
+                      Open Workspace
+                    </button>
+                    <button type="button" className="registrar-btn registrar-btn-secondary" onClick={handleStartEditGroup}>
+                      <Pencil size={16} />
+                      Edit Block
+                    </button>
+                    <button type="button" className="section-delete-btn" onClick={() => void handleDeleteGroup()} disabled={loading}>
+                      Delete Block
+                    </button>
+                  </div>
+                )}
 
                 {sections.length === 0 ? (
                   <p className="block-view-empty">No sections found for this block yet.</p>
@@ -396,15 +519,67 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
                       .slice()
                       .sort((a, b) => compareBlockOrder(a.sectionCode, b.sectionCode))
                       .map((section) => (
-                        <article key={section._id} className="created-block-section-card">
+                        <article key={section._id} className="created-block-section-card block-card">
                           <div>
                             <strong>{formatBlockColumnLabel(section.sectionCode)}</strong>
-                            <p>{(section.status || 'OPEN').toUpperCase()} section</p>
+                            <BlockStatusBadge status={(section.status || 'OPEN') as 'OPEN' | 'CLOSED'} size="sm" />
                           </div>
-                          <div className="created-block-section-meta">
-                            <span>{`${section.currentPopulation}/${section.capacity} seats`}</span>
-                            <span>{(section.status || 'OPEN').toUpperCase()}</span>
-                          </div>
+                          {editingSectionId === section._id ? (
+                            <div className="created-block-section-meta">
+                              <input
+                                type="number"
+                                min={1}
+                                value={sectionCapacityDraft}
+                                onChange={(event) => setSectionCapacityDraft(event.target.value)}
+                                aria-label="New capacity"
+                              />
+                              <button
+                                type="button"
+                                className="registrar-btn registrar-btn-secondary"
+                                onClick={() => void handleSaveSectionEdit(section)}
+                                disabled={savingSectionId === section._id}
+                                aria-label="Save section capacity"
+                              >
+                                <Save size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                className="registrar-btn registrar-btn-secondary"
+                                onClick={handleCancelEditSection}
+                                disabled={savingSectionId === section._id}
+                                aria-label="Cancel editing section"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="created-block-section-meta">
+                              <CapacityIndicator
+                                current={section.currentPopulation}
+                                capacity={section.capacity}
+                                showLabel={false}
+                                showText={true}
+                                size="sm"
+                              />
+                              <button
+                                type="button"
+                                className="registrar-btn registrar-btn-secondary"
+                                onClick={() => handleStartEditSection(section)}
+                                aria-label={`Edit ${formatBlockColumnLabel(section.sectionCode)}`}
+                              >
+                                <Pencil size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                className="section-delete-btn"
+                                onClick={() => void handleDeleteSection(section)}
+                                disabled={savingSectionId === section._id}
+                                aria-label={`Delete ${formatBlockColumnLabel(section.sectionCode)}`}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          )}
                         </article>
                       ))}
                   </div>

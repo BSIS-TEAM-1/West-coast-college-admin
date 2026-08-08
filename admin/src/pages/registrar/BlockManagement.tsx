@@ -1,27 +1,22 @@
-import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle, ChevronLeft, ChevronRight, LayoutList, Plus, RotateCcw } from 'lucide-react'
-import { API_URL, getStoredToken } from '../../lib/authApi'
-import type { BlockGroup, Semester } from './registrarBlockTypes'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
+import { CheckCircle, ChevronLeft, ChevronRight, LayoutList, Pencil, Plus, RotateCcw, AlertCircle, Save, Clock, X } from 'lucide-react'
+import type { BlockGroup, Semester, BlockDraft } from './registrarBlockTypes'
+import {
+  authorizedFetch,
+  COURSE_OPTIONS as blockCourseOptions,
+  formatBlockLabel,
+  getBlockGroupCompatibilityMeta,
+  parseBlockSlot
+} from '../../lib/blockAssignmentShared'
+import { getAcademicTerm } from '../../lib/settingsApi'
+import './BlockManagement.css'
 
 type BlockManagementProps = {
   onOpenBlocksPage: () => void
   onGoDashboard?: () => void
 }
 
-type CourseOption = {
-  value: number
-  label: string
-  fullLabel: string
-}
-
 type WizardStep = 1 | 2 | 3
-
-const blockCourseOptions: CourseOption[] = [
-  { value: 101, label: 'BEED', fullLabel: 'Bachelor of Elementary Education (BEED)' },
-  { value: 102, label: 'BSEd-English', fullLabel: 'Bachelor of Secondary Education - Major in English' },
-  { value: 103, label: 'BSEd-Math', fullLabel: 'Bachelor of Secondary Education - Major in Mathematics' },
-  { value: 201, label: 'BSBA-HRM', fullLabel: 'Bachelor of Science in Business Administration - Major in HRM' }
-]
 
 const blockNumberOptions = [
   '1-A',
@@ -47,6 +42,8 @@ const blockNumberOptions = [
 ]
 
 const currentYear = new Date().getFullYear()
+const DRAFT_STORAGE_KEY = 'block-management-drafts'
+const AUTO_SAVE_INTERVAL = 30000 // 30 seconds
 
 function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementProps) {
   const [wizardStep, setWizardStep] = useState<WizardStep>(1)
@@ -59,6 +56,35 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
   const [newGroupSemester, setNewGroupSemester] = useState<Semester>('1st')
   const [newGroupYear, setNewGroupYear] = useState<number>(currentYear)
   const [newGroupCapacity, setNewGroupCapacity] = useState<number>(30)
+  const [draft, setDraft] = useState<BlockDraft | null>(null)
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [lastAutoSaveTime, setLastAutoSaveTime] = useState<Date | null>(null)
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const [editGroupId, setEditGroupId] = useState<string | null>(null)
+  const [editGroupForm, setEditGroupForm] = useState<{
+    courseId: string
+    yearLevel: string
+    section: string
+    semester: Semester
+    year: string
+  } | null>(null)
+  const [savingEditGroup, setSavingEditGroup] = useState(false)
+
+  // Estimated completion time based on wizard step
+  const getEstimatedTime = useCallback(() => {
+    switch (wizardStep) {
+      case 1:
+        return '2-3 minutes remaining'
+      case 2:
+        return '1-2 minutes remaining'
+      case 3:
+        return 'Completed'
+      default:
+        return 'Unknown'
+    }
+  }, [wizardStep])
+
+
 
   const selectedCourse = useMemo(
     () => blockCourseOptions.find((course) => course.value === Number(newGroupCourse)) || null,
@@ -88,35 +114,267 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
 
   useEffect(() => {
     void fetchBlockGroups()
+    // Check for existing drafts on component mount
+    loadExistingDraft()
+
+    // Default the wizard's term to the configured "Current School Year" setting.
+    getAcademicTerm()
+      .then((term) => {
+        const startYear = Number(term.schoolYear.split('-')[0])
+        if (Number.isFinite(startYear) && startYear > 0) setNewGroupYear(startYear)
+        setNewGroupSemester(term.semester)
+      })
+      .catch(() => {
+        // Silently fall back to the calendar-year default if the setting can't be loaded.
+      })
   }, [])
 
-  const authorizedFetch = async (path: string, init: RequestInit = {}) => {
-    const token = await getStoredToken()
-    if (!token) throw new Error('No authentication token found')
-
-    const response = await fetch(`${API_URL}${path}`, {
-      ...init,
-      headers: {
-        ...(init.headers || {}),
-        Authorization: `Bearer ${token}`
-      }
-    })
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      throw new Error((data?.error as string) || (data?.message as string) || `Request failed (${response.status})`)
+  // Auto-save effect
+  useEffect(() => {
+    if (wizardStep === 1 && (newGroupCourse || newGroupBlockNumber || newGroupSemester || newGroupYear || newGroupCapacity)) {
+      // Start auto-save timer
+      autoSaveTimerRef.current = setTimeout(() => {
+        void handleAutoSave()
+      }, AUTO_SAVE_INTERVAL)
     }
-    return data
-  }
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current)
+      }
+    }
+  }, [wizardStep, newGroupCourse, newGroupBlockNumber, newGroupSemester, newGroupYear, newGroupCapacity])
+
+  // Clear draft after successful creation
+  useEffect(() => {
+    if (wizardStep === 3) {
+      clearDraft()
+    }
+  }, [wizardStep])
 
   const fetchBlockGroups = async () => {
     try {
-      const data = await authorizedFetch('/api/blocks/groups')
+      const data = await authorizedFetch<BlockGroup[]>('/api/blocks/groups')
       setBlockGroups(Array.isArray(data) ? data : [])
       setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch block groups')
     }
   }
+
+  const handleStartEditExistingGroup = (group: BlockGroup) => {
+    const meta = getBlockGroupCompatibilityMeta(group)
+    const slot = parseBlockSlot(group.name)
+    setEditGroupId(group._id)
+    setEditGroupForm({
+      courseId: meta.course || '',
+      yearLevel: String(meta.yearLevel || slot?.yearLevel || ''),
+      section: group.section || slot?.letter || '',
+      semester: group.semester,
+      year: String(group.year)
+    })
+    setError('')
+    setSuccess('')
+  }
+
+  const handleCancelEditExistingGroup = () => {
+    setEditGroupId(null)
+    setEditGroupForm(null)
+  }
+
+  const handleSaveEditExistingGroup = async () => {
+    if (!editGroupId || !editGroupForm) return
+
+    setSavingEditGroup(true)
+    setError('')
+    setSuccess('')
+    try {
+      const courseOption = blockCourseOptions.find((course) => String(course.value) === editGroupForm.courseId)
+      const yearLevelNum = Number(editGroupForm.yearLevel)
+      const yearNum = Number(editGroupForm.year)
+      const sectionLetter = editGroupForm.section.trim().toUpperCase()
+      const name = courseOption && yearLevelNum && sectionLetter
+        ? `${courseOption.value}-${yearLevelNum}-${sectionLetter}`
+        : undefined
+
+      await authorizedFetch(`/api/blocks/groups/${editGroupId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...(name ? { name } : {}),
+          courseId: courseOption?.value,
+          courseCode: courseOption?.label,
+          yearLevel: yearLevelNum || undefined,
+          section: sectionLetter || undefined,
+          semester: editGroupForm.semester,
+          year: yearNum
+        })
+      })
+      setSuccess('Block group updated successfully')
+      setEditGroupId(null)
+      setEditGroupForm(null)
+      await fetchBlockGroups()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update block group')
+    } finally {
+      setSavingEditGroup(false)
+    }
+  }
+
+  const handleNext = () => {
+    const validationMessage = validateForm()
+    setError(validationMessage)
+    setSuccess('')
+    if (validationMessage) return
+    setWizardStep(2)
+  }
+
+  // Draft storage utilities
+  const getDrafts = useCallback((): BlockDraft[] => {
+    try {
+      const stored = localStorage.getItem(DRAFT_STORAGE_KEY)
+      return stored ? JSON.parse(stored) : []
+    } catch {
+      return []
+    }
+  }, [])
+
+  const saveDraft = useCallback((draftData: Omit<BlockDraft, 'id' | 'createdAt' | 'updatedAt'>) => {
+    try {
+      const drafts = getDrafts()
+      const existingDraftIndex = drafts.findIndex(
+        (d) => d.course === draftData.course && d.blockNumber === draftData.blockNumber
+      )
+
+      const now = new Date().toISOString()
+      let updatedDrafts: BlockDraft[]
+
+      if (existingDraftIndex >= 0) {
+        // Update existing draft
+        updatedDrafts = drafts.map((d, index) =>
+          index === existingDraftIndex
+            ? { ...d, ...draftData, updatedAt: now }
+            : d
+        )
+      } else {
+        // Create new draft
+        const newDraft: BlockDraft = {
+          ...draftData,
+          id: `${draftData.course}-${draftData.blockNumber}-${Date.now()}`,
+          createdAt: now,
+          updatedAt: now
+        }
+        updatedDrafts = [...drafts, newDraft]
+      }
+
+      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(updatedDrafts))
+      setDraft(updatedDrafts.find((d) => d.course === draftData.course && d.blockNumber === draftData.blockNumber) || null)
+      return true
+    } catch {
+      return false
+    }
+  }, [getDrafts])
+
+  const loadExistingDraft = useCallback(() => {
+    try {
+      const drafts = getDrafts()
+      if (drafts.length > 0) {
+        // Load the most recent draft
+        const mostRecent = drafts.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0]
+        setDraft(mostRecent)
+        // Optionally auto-fill the form with the draft data
+        // setNewGroupCourse(mostRecent.course)
+        // setNewGroupBlockNumber(mostRecent.blockNumber)
+        // setNewGroupSemester(mostRecent.semester)
+        // setNewGroupYear(mostRecent.year)
+        // setNewGroupCapacity(mostRecent.capacity)
+      }
+    } catch {
+      // Silently fail if draft loading fails
+    }
+  }, [getDrafts])
+
+  const restoreDraft = useCallback((draftToRestore: BlockDraft) => {
+    setNewGroupCourse(draftToRestore.course)
+    setNewGroupBlockNumber(draftToRestore.blockNumber)
+    setNewGroupSemester(draftToRestore.semester)
+    setNewGroupYear(draftToRestore.year)
+    setNewGroupCapacity(draftToRestore.capacity)
+    setDraft(draftToRestore)
+    setError('')
+    setSuccess('')
+  }, [])
+
+  const clearDraft = useCallback(() => {
+    try {
+      const drafts = getDrafts()
+      const updatedDrafts = drafts.filter((d) => d.id !== draft?.id)
+      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(updatedDrafts))
+      setDraft(null)
+    } catch {
+      // Silently fail if draft clearing fails
+    }
+  }, [draft, getDrafts])
+
+  const handleAutoSave = useCallback(async () => {
+    if (wizardStep !== 1) return
+
+    setAutoSaveStatus('saving')
+    const success = saveDraft({
+      course: newGroupCourse,
+      blockNumber: newGroupBlockNumber,
+      semester: newGroupSemester,
+      year: newGroupYear,
+      capacity: newGroupCapacity
+    })
+
+    if (success) {
+      setAutoSaveStatus('saved')
+      setLastAutoSaveTime(new Date())
+      setTimeout(() => setAutoSaveStatus('idle'), 3000)
+    } else {
+      setAutoSaveStatus('error')
+      setTimeout(() => setAutoSaveStatus('idle'), 3000)
+    }
+  }, [wizardStep, newGroupCourse, newGroupBlockNumber, newGroupSemester, newGroupYear, newGroupCapacity, saveDraft])
+
+  const handleSaveDraft = useCallback(() => {
+    const success = saveDraft({
+      course: newGroupCourse,
+      blockNumber: newGroupBlockNumber,
+      semester: newGroupSemester,
+      year: newGroupYear,
+      capacity: newGroupCapacity
+    })
+
+    if (success) {
+      setSuccess('Draft saved successfully')
+      setTimeout(() => setSuccess(''), 3000)
+    } else {
+      setError('Failed to save draft')
+      setTimeout(() => setError(''), 3000)
+    }
+  }, [newGroupCourse, newGroupBlockNumber, newGroupSemester, newGroupYear, newGroupCapacity, saveDraft])
+
+  // Keyboard navigation handler
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // Ctrl+S to save draft
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault()
+      if (courseIsSelected && blockNumberIsSelected) {
+        handleSaveDraft()
+      }
+      return
+    }
+
+    if (e.key === 'Enter' && wizardStep === 1) {
+      e.preventDefault()
+      handleNext()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      onOpenBlocksPage()
+    }
+  }, [wizardStep, handleNext, onOpenBlocksPage, handleSaveDraft, courseIsSelected, blockNumberIsSelected])
 
   const validateForm = () => {
     if (!courseIsSelected) return 'Please select a course'
@@ -128,12 +386,18 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
     return ''
   }
 
-  const handleNext = () => {
-    const validationMessage = validateForm()
-    setError(validationMessage)
-    setSuccess('')
-    if (validationMessage) return
-    setWizardStep(2)
+  const getCapacityRecommendation = () => {
+    const courseCapacityMap: Record<string, number> = {
+      '101': 35, // BEED typically has smaller classes
+      '102': 30, // BSEd-English - smaller for discussion-heavy classes
+      '103': 30, // BSEd-Math - smaller for problem-solving focus
+      '201': 40  // BSBA-HRM - can accommodate larger classes
+    }
+    return courseCapacityMap[newGroupCourse] || 30
+  }
+
+  const handleCapacityRecommendation = () => {
+    setNewGroupCapacity(getCapacityRecommendation())
   }
 
   const handleCreateGroup = async () => {
@@ -147,11 +411,11 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
     setError('')
     setSuccess('')
     try {
-      const created = await authorizedFetch('/api/blocks/groups', {
+      const created = await authorizedFetch<BlockGroup>('/api/blocks/groups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: generatedDisplayName,
+          name: generatedStorageName,
           courseId: selectedCourse?.value,
           courseCode: selectedCourse?.label,
           yearLevel: Number(newGroupYearLevel),
@@ -161,7 +425,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
           section: newGroupSection
         })
       })
-      await authorizedFetch(`/api/blocks/groups/${(created as BlockGroup)._id}/sections`, {
+      await authorizedFetch(`/api/blocks/groups/${created._id}/sections`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -190,7 +454,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
   }
 
   return (
-    <div className="registrar-section block-management-page">
+    <div className="registrar-section block-management-page block-management-system" onKeyDown={handleKeyDown} role="main" aria-label="Block Management Wizard">
       {(error || success) && (
         <div
           className={`block-management-notice ${error ? 'block-management-notice-error' : 'block-management-notice-success'}`}
@@ -203,13 +467,14 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
           </div>
           <button
             type="button"
+            className="block-management-notice-close"
             aria-label="Close notification"
             onClick={() => {
               setError('')
               setSuccess('')
             }}
           >
-            x
+            ×
           </button>
         </div>
       )}
@@ -219,36 +484,82 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
 
       <div className="block-wizard-shell">
         <div className="block-wizard-card">
-          <div className="block-wizard-stepper" aria-label="Block creation progress">
+          <div className="block-stepper" role="navigation" aria-label="Block creation progress">
+            <div className="block-stepper-line" aria-hidden="true" />
             {[
-              { step: 1, title: 'Create Block' },
-              { step: 2, title: 'Review' },
-              { step: 3, title: 'Finish' }
+              { step: 1, title: 'Create Block', description: 'Enter block details' },
+              { step: 2, title: 'Review', description: 'Review and confirm' },
+              { step: 3, title: 'Finish', description: 'Block created' }
             ].map((item) => (
               <div
                 key={item.step}
-                className={`block-wizard-step ${wizardStep === item.step ? 'is-active' : ''} ${wizardStep > item.step ? 'is-complete' : ''}`}
+                className={`block-stepper-item ${wizardStep === item.step ? 'is-active' : ''} ${wizardStep > item.step ? 'is-complete' : ''}`}
               >
-                <span className="block-wizard-step-number">{wizardStep > item.step ? <CheckCircle size={16} /> : item.step}</span>
-                <span>
-                  <small>Step {item.step}</small>
+                <span className="block-stepper-dot">
+                  {wizardStep > item.step ? <CheckCircle size={18} /> : item.step}
+                </span>
+                <span className="block-stepper-label">
+                  <span className="block-stepper-step-label">Step {item.step}</span>
                   <strong>{item.title}</strong>
+                  <span className="block-stepper-desc">{item.description}</span>
                 </span>
               </div>
             ))}
+          </div>
+          <div className="block-stepper-estimated-time" aria-live="polite">
+            Estimated time: {getEstimatedTime()}
           </div>
 
           {wizardStep === 1 && (
             <div className="block-wizard-panel">
               <div className="block-wizard-panel-head">
-                <h3>Create Block</h3>
+                <div className="block-wizard-panel-header">
+                  {draft && (
+                    <div className="block-draft-banner">
+                      <Save size={18} className="block-draft-banner-icon" />
+                      <span className="block-draft-banner-text">Draft available</span>
+                      <button
+                        type="button"
+                        className="block-draft-restore-btn"
+                        onClick={() => restoreDraft(draft)}
+                        title="Restore draft"
+                      >
+                        Restore
+                      </button>
+                      <button
+                        type="button"
+                        className="block-draft-delete-btn"
+                        onClick={clearDraft}
+                        title="Delete draft"
+                        aria-label="Delete draft"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {autoSaveStatus !== 'idle' && (
+                  <div className={`block-autosave-status block-autosave-status--${autoSaveStatus}`}>
+                    <Clock size={14} />
+                    {autoSaveStatus === 'saving' && <span>Saving...</span>}
+                    {autoSaveStatus === 'saved' && <span>Saved {lastAutoSaveTime && `(${Math.floor((Date.now() - lastAutoSaveTime.getTime()) / 1000)}s ago)`}</span>}
+                    {autoSaveStatus === 'error' && <span>Save failed</span>}
+                  </div>
+                )}
               </div>
 
               <div className="block-wizard-form-grid">
                 <div className="block-wizard-fields">
-                  <label>
-                    <span>Course</span>
-                    <select value={newGroupCourse} onChange={(e) => setNewGroupCourse(e.target.value)}>
+                  <label className="block-form-group">
+                    <span className="block-form-label">Course</span>
+                    <select
+                      id="course-select"
+                      className="block-form-select"
+                      value={newGroupCourse}
+                      onChange={(e) => setNewGroupCourse(e.target.value)}
+                      aria-describedby="course-help"
+                      aria-required="true"
+                    >
                       <option value="">Select course</option>
                       {blockCourseOptions.map((course) => (
                         <option key={course.value} value={course.value}>
@@ -256,11 +567,21 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                         </option>
                       ))}
                     </select>
+                    <span id="course-help" className="block-form-help">
+                      Select the academic program for this block
+                    </span>
                   </label>
 
-                  <label>
-                    <span>Block Number</span>
-                    <select value={newGroupBlockNumber} onChange={(e) => setNewGroupBlockNumber(e.target.value)}>
+                  <label className="block-form-group">
+                    <span className="block-form-label">Block Number</span>
+                    <select
+                      id="block-number-select"
+                      className="block-form-select"
+                      value={newGroupBlockNumber}
+                      onChange={(e) => setNewGroupBlockNumber(e.target.value)}
+                      aria-describedby="block-number-help"
+                      aria-required="true"
+                    >
                       <option value="">Select block</option>
                       {blockNumberOptions.map((value) => (
                         <option key={value} value={value}>
@@ -268,37 +589,83 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                         </option>
                       ))}
                     </select>
+                    <span id="block-number-help" className="block-form-help">
+                      Select the year level and section (e.g., 1-A for first year, section A)
+                    </span>
                   </label>
 
-                  <label>
-                    <span>Semester</span>
-                    <select value={newGroupSemester} onChange={(e) => setNewGroupSemester(e.target.value as Semester)}>
-                      <option value="1st">1st</option>
-                      <option value="2nd">2nd</option>
-                      <option value="Summer">Summer</option>
+                  <label className="block-form-group">
+                    <span className="block-form-label">Semester</span>
+                    <select
+                      id="semester-select"
+                      className="block-form-select"
+                      value={newGroupSemester}
+                      onChange={(e) => setNewGroupSemester(e.target.value as Semester)}
+                      aria-describedby="semester-help"
+                      aria-required="true"
+                    >
+                      <option value="1st">1st Semester</option>
+                      <option value="2nd">2nd Semester</option>
+                      <option value="Summer">Summer Semester</option>
                     </select>
+                    <span id="semester-help" className="block-form-help">
+                      Select the academic semester for this block
+                    </span>
                   </label>
 
-                  <label>
-                    <span>Academic Year</span>
+                  <label className="block-form-group">
+                    <span className="block-form-label">Academic Year</span>
                     <input
+                      id="academic-year-input"
+                      className="block-form-input"
                       type="number"
                       min={2000}
                       max={2100}
                       value={newGroupYear}
                       onChange={(e) => setNewGroupYear(parseInt(e.target.value || `${currentYear}`, 10))}
+                      aria-describedby="academic-year-help"
+                      aria-required="true"
                     />
+                    <span id="academic-year-help" className="block-form-help">
+                      Enter the starting academic year (e.g., 2024 for 2024-2025)
+                    </span>
                   </label>
 
-                  <label>
-                    <span>Default Capacity</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={50}
-                      value={newGroupCapacity}
-                      onChange={(e) => setNewGroupCapacity(parseInt(e.target.value || '30', 10))}
-                    />
+                  <label className="block-form-group">
+                    <span className="block-form-label">Default Capacity</span>
+                    <div className="block-form-input-with-action">
+                      <input
+                        id="capacity-input"
+                        className="block-form-input"
+                        type="number"
+                        min={1}
+                        max={50}
+                        value={newGroupCapacity === 0 ? '' : newGroupCapacity}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          if (value === '') {
+                            setNewGroupCapacity(0)
+                          } else {
+                            const parsed = parseInt(value, 10)
+                            setNewGroupCapacity(isNaN(parsed) ? 30 : parsed)
+                          }
+                        }}
+                        aria-describedby="capacity-help"
+                        aria-required="true"
+                      />
+                      <button
+                        type="button"
+                        className="block-form-action-btn"
+                        onClick={handleCapacityRecommendation}
+                        title="Get recommended capacity based on course"
+                        aria-label="Use recommended capacity"
+                      >
+                        Auto
+                      </button>
+                    </div>
+                    <span id="capacity-help" className="block-form-help">
+                      Recommended: {getCapacityRecommendation()} students for this course type. Enter between 1-50 students.
+                    </span>
                   </label>
                 </div>
 
@@ -327,23 +694,83 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
               </div>
 
               <div className="block-wizard-validation" aria-live="polite">
-                {!courseIsSelected && <span>Select a course before creating a block.</span>}
-                {!blockNumberIsSelected && <span>Select a block number before creating a block.</span>}
-                {blockNumberIsSelected && !blockNumberIsValid && <span>Block number must use the format 1-A.</span>}
-                {!yearIsValid && <span>Academic year must be between 2000 and 2100.</span>}
-                {!capacityIsValid && <span>Capacity must be 1 to 50 students.</span>}
-                {hasDuplicate && <span>This block already exists for the selected term.</span>}
+                {!courseIsSelected && (
+                  <div className="block-validation-item block-validation-item--error">
+                    <AlertCircle size={16} />
+                    <span>Select a course before creating a block.</span>
+                  </div>
+                )}
+                {!blockNumberIsSelected && (
+                  <div className="block-validation-item block-validation-item--error">
+                    <AlertCircle size={16} />
+                    <span>Select a block number before creating a block.</span>
+                  </div>
+                )}
+                {blockNumberIsSelected && !blockNumberIsValid && (
+                  <div className="block-validation-item block-validation-item--error">
+                    <AlertCircle size={16} />
+                    <span>Block number must use the format 1-A.</span>
+                  </div>
+                )}
+                {!yearIsValid && (
+                  <div className="block-validation-item block-validation-item--error">
+                    <AlertCircle size={16} />
+                    <span>Academic year must be between 2000 and 2100.</span>
+                  </div>
+                )}
+                {!capacityIsValid && (
+                  <div className="block-validation-item block-validation-item--error">
+                    <AlertCircle size={16} />
+                    <span>Capacity must be 1 to 50 students.</span>
+                  </div>
+                )}
+                {hasDuplicate && (
+                  <div className="block-validation-item block-validation-item--warning">
+                    <AlertCircle size={16} />
+                    <span>This block already exists for the selected term.</span>
+                  </div>
+                )}
+                {courseIsSelected && blockNumberIsSelected && blockNumberIsValid && yearIsValid && capacityIsValid && !hasDuplicate && (
+                  <div className="block-validation-item block-validation-item--success">
+                    <CheckCircle size={16} />
+                    <span>All fields are valid. Ready to create block.</span>
+                  </div>
+                )}
               </div>
 
               <div className="block-wizard-actions">
-                <button type="button" className="registrar-btn registrar-btn-secondary" onClick={onOpenBlocksPage}>
+                <button
+                  type="button"
+                  className="registrar-btn registrar-btn-secondary"
+                  onClick={onOpenBlocksPage}
+                  aria-label="Cancel and go back to blocks page"
+                >
                   <ChevronLeft size={16} />
                   Back
                 </button>
-                <button type="button" className="registrar-btn" onClick={handleNext}>
+                <button
+                  type="button"
+                  className="registrar-btn registrar-btn-secondary"
+                  onClick={handleSaveDraft}
+                  disabled={!courseIsSelected || !blockNumberIsSelected}
+                  title="Save current form as draft (Ctrl+S)"
+                  aria-label="Save draft"
+                >
+                  <Save size={16} />
+                  Save Draft
+                </button>
+                <button
+                  type="button"
+                  className="registrar-btn"
+                  onClick={handleNext}
+                  aria-label="Proceed to review step (Enter)"
+                >
                   Next
                   <ChevronRight size={16} />
                 </button>
+              </div>
+              <div className="block-wizard-keyboard-hint">
+                <small>Keyboard shortcuts: Enter to continue, Escape to cancel, Ctrl+S to save draft</small>
               </div>
             </div>
           )}

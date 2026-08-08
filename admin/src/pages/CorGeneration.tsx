@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Check, Eye, Filter, Layers, RefreshCw, Users } from 'lucide-react'
 import { API_URL, getStoredToken } from '../lib/authApi'
+import { formatStudentNumber as formatStudentNumberShared } from '../lib/blockAssignmentShared'
 import './CorGeneration.css'
 
 type CourseCode = '101' | '102' | '103' | '201'
@@ -46,19 +47,6 @@ const COURSE_LABELS: Record<CourseCode, string> = {
   '201': 'BSBA-HRM'
 }
 
-function getCourseCode(value: string | number): string {
-  const text = String(value ?? '').trim()
-  if (!text) return ''
-  if (/^\d+$/.test(text)) return text
-
-  const normalized = text.toUpperCase().replace(/\s+/g, '').replace(/_/g, '-')
-  if (normalized.includes('BEED')) return '101'
-  if (normalized.includes('BSED-ENGLISH') || normalized === 'ENGLISH') return '102'
-  if (normalized.includes('BSED-MATH') || normalized === 'MATH' || normalized === 'MATHEMATICS') return '103'
-  if (normalized.includes('BSBA-HRM') || normalized === 'HRM') return '201'
-  return ''
-}
-
 function extractCourseCode(value: string): string {
   const text = String(value || '').toUpperCase().trim()
   const codeMatch = text.match(/(?:^|[^0-9])(101|102|103|201)(?:[^0-9]|$)/)
@@ -78,19 +66,7 @@ function getCourseLabel(code: string | number): string {
 }
 
 function formatStudentNumber(student: SectionStudent): string {
-  const raw = String(student.studentNumber || '').trim()
-  const fallbackCourseCode = getCourseCode(student.course ?? '')
-
-  if (!raw) return fallbackCourseCode ? `0000-${fallbackCourseCode}-00000` : 'N/A'
-
-  const parts = raw.split('-').map((part) => part.trim()).filter(Boolean)
-  const year = /^\d{4}$/.test(parts[0] || '') ? parts[0] : '0000'
-  const seqPart = [...parts].reverse().find((part) => /^\d+$/.test(part)) || '00000'
-  const seq = seqPart.slice(-5).padStart(5, '0')
-  const codeFromRaw = getCourseCode(parts.find((part) => /[A-Za-z]/.test(part)) || parts[1] || '')
-  const courseCode = fallbackCourseCode || codeFromRaw || '000'
-
-  return `${year}-${courseCode}-${seq}`
+  return formatStudentNumberShared(student.studentNumber, student.course)
 }
 
 function formatStudentName(student: SectionStudent): string {

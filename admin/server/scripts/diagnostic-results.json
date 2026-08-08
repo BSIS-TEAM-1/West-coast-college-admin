@@ -1,0 +1,29 @@
+{
+  "timestamp": "2026-08-05T00:19:49.712Z",
+  "totalStudents": 10,
+  "noCourseStudents": 0,
+  "stringCourseStudents": 0,
+  "stringCourseSamples": [],
+  "invalidCourseStudents": 0,
+  "invalidCourseSamples": [],
+  "courseCounts": [
+    {
+      "_id": 101,
+      "count": 2
+    },
+    {
+      "_id": 102,
+      "count": 4
+    },
+    {
+      "_id": 103,
+      "count": 2
+    },
+    {
+      "_id": 201,
+      "count": 2
+    }
+  ],
+  "studentsNeedingFix": 0,
+  "studentsWithValidCourses": 10
+}

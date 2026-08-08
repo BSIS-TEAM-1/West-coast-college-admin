@@ -8,7 +8,8 @@ const studentSchema = new Schema({
     type: String, 
     required: true, 
     unique: true,
-    index: true
+    index: true,
+    match: [/^\d{12}$/, 'Student number must be a 12-digit value (YYYY + course code + sequence)']
   },
   firstName: { 
     type: String, 
@@ -39,6 +40,12 @@ const studentSchema = new Schema({
   major: {
     type: String,
     trim: true
+  },
+  curriculumVersion: {
+    type: String,
+    trim: true,
+    default: null,
+    description: 'Curriculum version under which the student entered. Set at enrollment, never changes.',
   },
   yearLevel: { 
     type: Number, 
@@ -293,6 +300,18 @@ studentSchema.index({ createdAt: -1 });
 
 // Pre-save hook to ensure student number format
 studentSchema.pre('validate', async function(next) {
+  // Validate course field (should already be converted to number by controller)
+  const VALID_COURSES = [101, 102, 103, 201];
+  
+  if (this.course === undefined || this.course === null || this.course === '') {
+    return next(new Error('Course is required and cannot be empty'));
+  }
+  
+  // Final validation to ensure it's a valid number
+  if (!VALID_COURSES.includes(Number(this.course))) {
+    return next(new Error('Invalid course value. Must be 101, 102, 103, or 201'));
+  }
+  
   if (this.isNew && !this.studentNumber) {
     const StudentNumber = require('../services/studentNumberService');
     try {

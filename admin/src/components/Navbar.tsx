@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, LogOut, Menu, Monitor, Moon, Settings, Sun, User, UserCircle } from 'lucide-react'
 import { applyThemePreference, getStoredTheme, resolveTheme, type ThemePreference } from '../lib/theme'
+import { getAcademicTerm } from '../lib/settingsApi'
 import './Navbar.css'
 
 type NavbarProps = {
@@ -34,13 +35,22 @@ export default function Navbar({
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false)
   const themeMenuRef = useRef<HTMLDivElement>(null)
   const accountMenuRef = useRef<HTMLDivElement>(null)
-  const dateLabel = new Date().toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  })
+  const [schoolYearLabel, setSchoolYearLabel] = useState('')
   const displayProfileName = profileName || username
+
+  useEffect(() => {
+    let cancelled = false
+    getAcademicTerm()
+      .then((term) => {
+        if (!cancelled) setSchoolYearLabel(`${term.semester} Sem · S.Y. ${term.schoolYear}`)
+      })
+      .catch(() => {
+        // Leave blank if the setting can't be loaded.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     setResolvedTheme(applyThemePreference(theme, { persist: false }))
@@ -110,7 +120,7 @@ export default function Navbar({
       </div>
       <div className="navbar-spacer" />
       <div className="navbar-user">
-        <span className="navbar-date">{dateLabel}</span>
+        {schoolYearLabel ? <span className="navbar-date">{schoolYearLabel}</span> : null}
         <div className="navbar-theme" ref={themeMenuRef}>
           <button
             type="button"

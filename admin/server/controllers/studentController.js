@@ -13,6 +13,7 @@ const fs = require('fs');
 const securityMiddleware = require('../securityMiddleware');
 const StudentNumberService = require('../services/studentNumberService');
 const StudentPasswordService = require('../services/studentPasswordService');
+const AuditLog = require('../models/AuditLog');
 
 const STUDENT_MUTABLE_FIELDS = [
   'firstName',
@@ -796,6 +797,42 @@ class StudentController {
   static async createStudentRecord(studentData) {
     const { set } = this.normalizeStudentMutationData(studentData);
 
+    // Enhanced course validation - convert string courses to numbers before Student creation
+    const VALID_COURSES = [101, 102, 103, 201];
+    const COURSE_MAPPING = {
+      'BEED': 101,
+      'BSED': 102,
+      'BSED-ENGLISH': 102,
+      'BSED-MATH': 103,
+      'BSBA': 201,
+      'BSBA-HRM': 201
+    };
+    
+    if (!set.course || set.course === '' || set.course === null) {
+      const err = new Error('Valid course is required (101, 102, 103, 201, or BEED, BSED, BSBA)');
+      err.statusCode = 400;
+      throw err;
+    }
+    
+    // Convert string courses to numbers
+    if (typeof set.course === 'string') {
+      const upperCourse = set.course.toUpperCase().trim();
+      if (COURSE_MAPPING[upperCourse]) {
+        set.course = COURSE_MAPPING[upperCourse];
+      } else {
+        const err = new Error('Invalid course value. Must be 101, 102, 103, 201, or BEED, BSED, BSBA');
+        err.statusCode = 400;
+        throw err;
+      }
+    }
+    
+    // Validate it's a valid number
+    if (!VALID_COURSES.includes(Number(set.course))) {
+      const err = new Error('Invalid course value. Must be 101, 102, 103, 201, or BEED, BSED, BSBA');
+      err.statusCode = 400;
+      throw err;
+    }
+
     if (set.email) {
       const existingStudent = await Student.findOne({ email: set.email });
       if (existingStudent) {
@@ -1037,6 +1074,11 @@ class StudentController {
         value = value.trim();
       }
 
+      // Special handling for course field - allow string values that will be converted by controller
+      if (field === 'course' && typeof value === 'string') {
+        value = value.trim();
+      }
+
       if (
         CLEARABLE_STUDENT_FIELDS.has(field) &&
         (value === '' || value === null)
@@ -1235,6 +1277,19 @@ class StudentController {
         ...req.body,
         createdBy: req.adminId
       });
+      await AuditLog.create({
+        action: 'CREATE',
+        resourceType: 'STUDENT',
+        resourceId: String(student._id),
+        resourceName: `${student.studentNumber} — ${student.lastName}, ${student.firstName}`,
+        description: `Created student record: ${student.studentNumber} (${student.course})`,
+        performedBy: req.adminId,
+        performedByRole: String(req.accountType || 'registrar').toLowerCase() === 'admin' ? 'admin' : 'registrar',
+        newValue: { studentNumber: student.studentNumber, course: student.course, yearLevel: student.yearLevel, enrollmentStatus: student.enrollmentStatus },
+        status: 'SUCCESS',
+        severity: 'MEDIUM',
+      });
+
       res.status(201).json({
         success: true,
         data: student,
@@ -1381,6 +1436,30 @@ class StudentController {
         await StudentController.cleanupBlockMembershipForStudent(id);
       }
 
+      const gradeChanged = req.body?.latestGrade !== undefined && Number(req.body.latestGrade) !== Number(previous.latestGrade);
+
+      let description = `Updated student record: ${student.studentNumber}`;
+      if (gradeChanged) {
+        description += ` — Grade updated from ${previous.latestGrade ?? 'none'} to ${student.latestGrade}`;
+      }
+      if (hasAcademicChange) {
+        description += ' (academic change — block membership cleared)';
+      }
+
+      await AuditLog.create({
+        action: 'UPDATE',
+        resourceType: 'STUDENT',
+        resourceId: String(student._id),
+        resourceName: `${student.studentNumber} — ${student.lastName}, ${student.firstName}`,
+        description,
+        performedBy: req.adminId,
+        performedByRole: String(req.accountType || 'registrar').toLowerCase() === 'admin' ? 'admin' : 'registrar',
+        oldValue: { course: previous.course, yearLevel: previous.yearLevel, studentStatus: previous.studentStatus, enrollmentStatus: previous.enrollmentStatus, latestGrade: previous.latestGrade },
+        newValue: { course: student.course, yearLevel: student.yearLevel, studentStatus: student.studentStatus, enrollmentStatus: student.enrollmentStatus, latestGrade: student.latestGrade },
+        status: 'SUCCESS',
+        severity: hasAcademicChange ? 'HIGH' : 'MEDIUM',
+      });
+
       res.json({
         success: true,
         data: student,
@@ -1410,6 +1489,19 @@ class StudentController {
           message: 'Student not found'
         });
       }
+
+      await AuditLog.create({
+        action: 'DELETE',
+        resourceType: 'STUDENT',
+        resourceId: String(student._id),
+        resourceName: `${student.studentNumber} — ${student.lastName}, ${student.firstName}`,
+        description: `Deleted student record: ${student.studentNumber}`,
+        performedBy: req.adminId,
+        performedByRole: String(req.accountType || 'registrar').toLowerCase() === 'admin' ? 'admin' : 'registrar',
+        oldValue: { studentNumber: student.studentNumber, course: student.course, yearLevel: student.yearLevel },
+        status: 'SUCCESS',
+        severity: 'HIGH',
+      });
 
       res.json({
         success: true,
@@ -1472,6 +1564,19 @@ class StudentController {
         semester,
         subjectIds,
         createdBy: req.adminId
+      });
+
+      await AuditLog.create({
+        action: 'CREATE',
+        resourceType: 'REGISTRATION',
+        resourceId: String(enrollment._id),
+        resourceName: `${student.studentNumber} — ${schoolYear} ${semester}`, 
+        description: `Enrolled student: ${student.studentNumber} for ${schoolYear} ${semester} (${subjectIds.length} subjects)`,
+        performedBy: req.adminId,
+        performedByRole: String(req.accountType || 'registrar').toLowerCase() === 'admin' ? 'admin' : 'registrar',
+        newValue: { studentId: String(student._id), studentNumber: student.studentNumber, schoolYear, semester, subjectCount: subjectIds.length },
+        status: 'SUCCESS',
+        severity: 'MEDIUM',
       });
 
       res.status(201).json({
@@ -1931,10 +2036,22 @@ class StudentController {
         .split('-')
         .map((part) => part.trim())
         .filter(Boolean);
-      const yearPart = /^\d{4}$/.test(parts[0] || '') ? parts[0] : '0000';
-      const seqRaw = [...parts].reverse().find((part) => /^\d+$/.test(part)) || '00000';
-      const seqPart = seqRaw.slice(-5).padStart(5, '0');
-      const studentNumber = `${yearPart}-${courseCode}-${seqPart}`;
+      
+      let yearPart, seqPart;
+      
+      if (parts.length === 1 && /^\d{12}$/.test(parts[0])) {
+        // New format: YYYYCourseCodeSequence (12 digits)
+        const fullNumber = parts[0];
+        yearPart = fullNumber.substring(0, 4);
+        seqPart = fullNumber.substring(7);
+      } else {
+        // Old format: YYYY-CourseCode-Sequence
+        yearPart = /^\d{4}$/.test(parts[0] || '') ? parts[0] : '0000';
+        const seqRaw = [...parts].reverse().find((part) => /^\d+$/.test(part)) || '00000';
+        seqPart = seqRaw.slice(-5).padStart(5, '0');
+      }
+      
+      const studentNumber = `${yearPart}${courseCode}${seqPart}`;
       const studentName = `${student.firstName} ${student.middleName ?? ''} ${student.lastName} ${student.suffix ?? ''}`.trim();
       const registrationNumber = student.registrationNumber || `${new Date().getFullYear()}${Math.floor(100000 + Math.random() * 900000)}`;
       if (!student.registrationNumber) {

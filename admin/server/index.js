@@ -33,6 +33,7 @@ const createOperationsMonitor = require('./services/operationsMonitor')
 const Admin = require('./models/Admin')
 const Announcement = require('./models/Announcement')
 const AuditLog = require('./models/AuditLog')
+const ArchiveSnapshot = require('./models/ArchiveSnapshot')
 const AuthToken = require('./models/AuthToken')
 const Document = require('./models/Document')
 const DocumentFolder = require('./models/DocumentFolder')
@@ -43,6 +44,8 @@ const Student = require('./models/Student')
 const Enrollment = require('./models/Enrollment')
 const BlockSection = require('./models/BlockSection')
 const StudentBlockAssignment = require('./models/StudentBlockAssignment')
+const BlockGroup = require('./models/BlockGroup')
+const BlockActionLog = require('./models/BlockActionLog')
 const BackupSystem = require('./backup')
 const { getAnnouncementAudienceQueryValues, normalizeAnnouncementAudience, validateAnnouncementAudience } = require('./announcementAudience')
 const SemaphoreSmsService = require('./services/semaphoreSmsService')
@@ -51,9 +54,17 @@ const VerificationEmailService = require('./services/verificationEmailService')
 const { apiCache, cacheMiddleware } = require('./services/apiCache')
 const registrarRoutes = require('./routes/registrarRoutes')
 const applicantRoutes = require('./routes/applicantRoutes')
+const schoolRoutes = require('./routes/schoolRoutes')
+const locationRoutes = require('./routes/locationRoutes')
 const blockController = require('./controllers/blockController')
+const settingsController = require('./controllers/settingsController')
+const AcademicYearRolloverService = require('./services/academicYearRolloverService')
 const BlockSubjectAssignmentController = require('./controllers/blockSubjectAssignmentController')
 const { requireAnyRole, requireAdminRole, isOwnerOrAdmin, normalizeAccountType } = require('./authorization')
+
+// Register domain event handlers
+const { registerArchiveEventHandlers } = require('./domains/archive/eventHandlers')
+registerArchiveEventHandlers()
 
 // Initialize backup system
 const backupSystem = new BackupSystem()
@@ -962,8 +973,18 @@ app.get('/assets/:assetName', staleAssetFallbackLimiter, (req, res, next) => {
 
 // Registrar module API routes (supports both legacy and /api-prefixed paths)
 app.use('/api/applicants', applicantRoutes)
+app.use('/api/schools', schoolRoutes)
+app.use('/api/locations', locationRoutes)
 app.use('/registrar', apiLimiter, authMiddleware, registrarRoutes)
 app.use('/api/registrar', authMiddleware, registrarRoutes)
+
+// Archive domain routes (audit logs, snapshots)
+const archiveRoutes = require('./domains/archive/routes/archiveRoutes')
+app.use('/api/admin/audit-logs', authMiddleware, requireAdminRole, (req, res, next) => {
+  req.app.locals.dbReady = dbReady
+  req.app.locals.redactSensitiveAuditData = redactSensitiveAuditData
+  next()
+}, archiveRoutes)
 app.get(
   ['/registrar/block-subject-assignments', '/api/registrar/block-subject-assignments'],
   authMiddleware,
@@ -3154,6 +3175,104 @@ app.post('/api/student/refresh-token', async (req, res) => {
   }
 })
 
+// GET /api/student/schedule
+app.get('/api/student/schedule', async (req, res) => {
+  try {
+    const auth = req.headers.authorization
+    const token = auth && auth.startsWith('Bearer ') ? auth.slice(7) : null
+
+    if (!token) {
+      return res.status(401).json({ error: 'Unauthorized.' })
+    }
+
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET)
+      
+      if (decoded.type !== 'student') {
+        return res.status(401).json({ error: 'Invalid token type.' })
+      }
+
+      const student = await Student.findById(decoded.sub)
+      if (!student || !student.isActive) {
+        return res.status(404).json({ error: 'Student not found.' })
+      }
+
+      // Get student's current enrollment with subjects
+      const enrollment = await Enrollment.findOne({
+        studentId: student._id,
+        isCurrent: true,
+        status: { $in: ['Enrolled', 'Pending'] }
+      }).populate('subjects.subjectId')
+
+      if (!enrollment) {
+        return res.json({
+          success: true,
+          data: {
+            schedule: [],
+            message: 'No current enrollment found'
+          }
+        })
+      }
+
+      // Get student's block assignment
+      let blockSchedule = null
+      try {
+        const blockAssignment = await StudentBlockAssignment.findOne({
+          studentId: student._id.toString(),
+          semester: enrollment.semester,
+          year: parseInt(enrollment.schoolYear.split('-')[0]),
+          status: 'ASSIGNED'
+        }).populate('sectionId')
+
+        if (blockAssignment && blockAssignment.sectionId) {
+          const section = blockAssignment.sectionId
+          const blockGroup = await BlockGroup.findById(section.blockGroupId)
+          
+          blockSchedule = {
+            sectionCode: section.sectionCode,
+            schedule: section.schedule || 'TBA',
+            blockGroupName: blockGroup ? blockGroup.name : null,
+            semester: blockAssignment.semester,
+            schoolYear: enrollment.schoolYear
+          }
+        }
+      } catch (blockError) {
+        console.error('Error fetching block schedule:', blockError)
+      }
+
+      // Format subjects with schedule information
+      const subjects = enrollment.subjects.map(subject => ({
+        subjectId: subject.subjectId ? subject.subjectId._id.toString() : null,
+        code: subject.code,
+        title: subject.title,
+        units: subject.units,
+        schedule: subject.schedule || 'TBA',
+        room: subject.room || 'TBA',
+        instructor: subject.instructor || 'TBA',
+        grade: subject.grade,
+        status: subject.status
+      }))
+
+      res.json({
+        success: true,
+        data: {
+          subjects: subjects,
+          blockSchedule: blockSchedule,
+          semester: enrollment.semester,
+          schoolYear: enrollment.schoolYear,
+          yearLevel: enrollment.yearLevel,
+          course: enrollment.course
+        }
+      })
+    } catch (jwtError) {
+      return res.status(401).json({ error: 'Invalid or expired token.' })
+    }
+  } catch (error) {
+    console.error('Get student schedule error:', error)
+    res.status(500).json({ error: 'Failed to fetch student schedule.' })
+  }
+})
+
 // GET /api/student/me
 app.get('/api/student/me', async (req, res) => {
   try {
@@ -3174,6 +3293,46 @@ app.get('/api/student/me', async (req, res) => {
       const student = await Student.findById(decoded.sub)
       if (!student || !student.isActive) {
         return res.status(404).json({ error: 'Student not found.' })
+      }
+
+      // Get student's block assignment with schedule
+      let blockInfo = null
+      try {
+        const currentYear = new Date().getFullYear()
+        const currentMonth = new Date().getMonth() + 1
+        let currentSemester = '1st'
+        if (currentMonth >= 6 && currentMonth <= 10) {
+          currentSemester = '1st'
+        } else {
+          currentSemester = '2nd'
+        }
+        
+        const blockAssignment = await StudentBlockAssignment.findOne({
+          studentId: student._id.toString(),
+          semester: student.semester || currentSemester,
+          year: student.schoolYear ? parseInt(student.schoolYear.split('-')[0]) : currentYear,
+          status: 'ASSIGNED'
+        }).populate('sectionId')
+
+        if (blockAssignment && blockAssignment.sectionId) {
+          const section = blockAssignment.sectionId
+          const blockGroup = await BlockGroup.findById(section.blockGroupId)
+          
+          blockInfo = {
+            sectionId: section._id.toString(),
+            sectionCode: section.sectionCode,
+            schedule: section.schedule || 'TBA',
+            blockGroupId: section.blockGroupId ? section.blockGroupId.toString() : null,
+            blockGroupName: blockGroup ? blockGroup.name : null,
+            semester: blockAssignment.semester,
+            year: blockAssignment.year,
+            capacity: section.capacity,
+            currentPopulation: section.currentPopulation
+          }
+        }
+      } catch (blockError) {
+        console.error('Error fetching block info:', blockError)
+        // Continue without block info if there's an error
       }
 
       res.json({
@@ -3212,7 +3371,8 @@ app.get('/api/student/me', async (req, res) => {
           googleEmailVerified: student.googleEmailVerified,
           googlePicture: student.googlePicture,
           lastLogin: student.lastLogin,
-          createdAt: student.createdAt
+          createdAt: student.createdAt,
+          blockInfo: blockInfo
         }
       })
     } catch (jwtError) {
@@ -4725,141 +4885,8 @@ app.delete('/api/admin/announcements/:id', authMiddleware, requireAdminOrRegistr
 })
 
 // ==================== AUDIT LOGS ====================
-
-// GET /api/admin/audit-logs - get audit logs with pagination and filtering
-app.get('/api/admin/audit-logs', authMiddleware, requireAdminRole, async (req, res) => {
-  if (!dbReady) {
-    return res.status(503).json({ error: 'Database unavailable.' })
-  }
-  try {
-    const { 
-      page = 1, 
-      limit = 20, 
-      action, 
-      resourceType, 
-      severity, 
-      sortOrder = 'newest',
-      performedBy,
-      startDate,
-      endDate 
-    } = req.query
-    
-    // Coerce pagination parameters to numbers to avoid unexpected types
-    const pageNumber = Number.parseInt(page, 10) || 1
-    const limitNumber = Number.parseInt(limit, 10) || 20
-    
-    const filter = {}
-    
-    if (action) {
-      const actionFilters = String(action)
-        .split(',')
-        .map((value) => value.trim())
-        .filter(Boolean)
-      if (actionFilters.length === 1) {
-        filter.action = actionFilters[0]
-      } else if (actionFilters.length > 1) {
-        filter.action = { $in: actionFilters }
-      }
-    }
-
-    if (typeof resourceType === 'string' && resourceType.trim() !== '') {
-      filter.resourceType = { $eq: resourceType.trim() }
-    }
-
-    if (typeof severity === 'string' && severity.trim() !== '') {
-      filter.severity = { $eq: severity.trim() }
-    }
-
-    if (typeof performedBy === 'string' && performedBy.trim() !== '') {
-      filter.performedBy = { $eq: performedBy.trim() }
-    }
-    
-    if (startDate || endDate) {
-      filter.createdAt = {}
-      if (startDate) filter.createdAt.$gte = new Date(startDate)
-      if (endDate) filter.createdAt.$lte = new Date(endDate)
-    }
-
-    const normalizedSortOrder = String(sortOrder || 'newest').toLowerCase()
-    const sortDirection = normalizedSortOrder === 'oldest' ? 1 : -1
-
-    const logs = await AuditLog.find(filter)
-      .populate('performedBy', 'username displayName')
-      .sort({ createdAt: sortDirection })
-      .limit(limitNumber * 1)
-      .skip((pageNumber - 1) * limitNumber)
-    
-    const total = await AuditLog.countDocuments(filter)
-    const normalizeAuditDescription = (value) => {
-      const text = String(value || '')
-      return text.replace(/^Deleted admin account:/i, 'Deleted an account:')
-    }
-
-    const sanitizedLogs = logs.map((entry) => {
-      const logEntry = entry?.toObject ? entry.toObject() : entry
-      return {
-        ...logEntry,
-        description: normalizeAuditDescription(logEntry.description),
-        oldValue: redactSensitiveAuditData(logEntry.oldValue),
-        newValue: redactSensitiveAuditData(logEntry.newValue)
-      }
-    })
-    
-    res.json({
-      logs: sanitizedLogs,
-      totalPages: Math.ceil(total / limitNumber),
-      currentPage: pageNumber,
-      total
-    })
-  } catch (err) {
-    console.error('Get audit logs error:', err)
-    res.status(500).json({ error: 'Failed to load audit logs.' })
-  }
-})
-
-// GET /api/admin/audit-logs/stats - get audit log statistics
-app.get('/api/admin/audit-logs/stats', authMiddleware, requireAdminRole, async (req, res) => {
-  if (!dbReady) {
-    return res.status(503).json({ error: 'Database unavailable.' })
-  }
-  try {
-    const last30Days = new Date()
-    last30Days.setDate(last30Days.getDate() - 30)
-
-    const [
-      totalLogs,
-      recentLogs,
-      criticalLogs,
-      actionStats,
-      resourceStats
-    ] = await Promise.all([
-      AuditLog.countDocuments(),
-      AuditLog.countDocuments({ createdAt: { $gte: last30Days } }),
-      AuditLog.countDocuments({ severity: 'CRITICAL' }),
-      AuditLog.aggregate([
-        { $match: { createdAt: { $gte: last30Days } } },
-        { $group: { _id: '$action', count: { $sum: 1 } } },
-        { $sort: { count: -1 } }
-      ]),
-      AuditLog.aggregate([
-        { $match: { createdAt: { $gte: last30Days } } },
-        { $group: { _id: '$resourceType', count: { $sum: 1 } } },
-        { $sort: { count: -1 } }
-      ])
-    ])
-
-    res.json({
-      totalLogs,
-      recentLogs,
-      criticalLogs,
-      actionStats,
-      resourceStats
-    })
-  } catch (err) {
-    console.error('Get audit log stats error:', err)
-    res.status(500).json({ error: 'Failed to load audit log statistics.' })
-  }
-})
+// Audit log routes have been extracted to domains/archive/routes/archiveRoutes.js
+// and mounted at /api/admin above.
 
 // ==================== DOCUMENTS ====================
 
@@ -7427,6 +7454,364 @@ app.post('/api/admin/clear-student-passwords', authMiddleware, requireAnyRole('a
   }
 });
 
+// ==================== SYSTEM SETTINGS ====================
+
+// GET /api/settings/academic-term
+app.get('/api/settings/academic-term', authMiddleware, cacheMiddleware({ ttlMs: 30 * 1000 }), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await settingsController.getAcademicTerm(req, res);
+  } catch (error) {
+    console.error('Get academic term error:', error);
+    res.status(500).json({ error: 'Failed to get academic term setting.' });
+  }
+});
+
+// PUT /api/settings/academic-term
+app.put('/api/settings/academic-term', authMiddleware, requireBlockManagementRole, invalidateApiCacheOnSuccess('/api/settings/academic-term'), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await settingsController.updateAcademicTerm(req, res);
+  } catch (error) {
+    console.error('Update academic term error:', error);
+    res.status(500).json({ error: 'Failed to update academic term setting.' });
+  }
+});
+
+// ==================== ACADEMIC YEAR ROLLOVER ====================
+
+// POST /api/rollover/preview - dry-run evaluation of the closing school year (read-only)
+app.post('/api/rollover/preview', authMiddleware, requireBlockManagementRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const { fromSchoolYear, toSchoolYear, semester } = req.body || {}
+    const preview = await AcademicYearRolloverService.previewRollover({ fromSchoolYear, toSchoolYear, semester })
+    res.json({ success: true, data: preview })
+  } catch (error) {
+    console.error('Rollover preview error:', error)
+    res.status(error.statusCode || 500).json({ error: error.message || 'Failed to evaluate rollover.' })
+  }
+})
+
+// POST /api/rollover/preview-summary - hierarchical aggregate counts (no student records, scales to 100k+)
+app.post('/api/rollover/preview-summary', authMiddleware, requireBlockManagementRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const { fromSchoolYear, toSchoolYear, semester } = req.body || {}
+    const summary = await AcademicYearRolloverService.previewSummary({ fromSchoolYear, toSchoolYear, semester })
+    res.json({ success: true, data: summary })
+  } catch (error) {
+    console.error('Rollover preview-summary error:', error)
+    res.status(error.statusCode || 500).json({ error: error.message || 'Failed to generate rollover summary.' })
+  }
+})
+
+// POST /api/rollover/preview-students - lazy-load paginated students for a specific group
+app.post('/api/rollover/preview-students', authMiddleware, requireBlockManagementRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const { fromSchoolYear, course, yearLevel, section, page, limit, search, filter } = req.body || {}
+    const result = await AcademicYearRolloverService.previewStudents({ fromSchoolYear, course, yearLevel, section, page, limit, search, filter })
+    res.json({ success: true, data: result })
+  } catch (error) {
+    console.error('Rollover preview-students error:', error)
+    res.status(error.statusCode || 500).json({ error: error.message || 'Failed to load students.' })
+  }
+})
+
+// POST /api/rollover/preview-exceptions - lazy-load paginated exception students (needsReview only)
+app.post('/api/rollover/preview-exceptions', authMiddleware, requireBlockManagementRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const { fromSchoolYear, page, limit, search, course, yearLevel } = req.body || {}
+    const result = await AcademicYearRolloverService.previewExceptions({ fromSchoolYear, page, limit, search, course, yearLevel })
+    res.json({ success: true, data: result })
+  } catch (error) {
+    console.error('Rollover preview-exceptions error:', error)
+    res.status(error.statusCode || 500).json({ error: error.message || 'Failed to load exceptions.' })
+  }
+});
+
+// POST /api/rollover/execute - transactional school year rollover
+app.post('/api/rollover/execute', authMiddleware, requireBlockManagementRole, invalidateApiCacheOnSuccess('/api/settings/academic-term', ...blockManagementCachePrefixes), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const { fromSchoolYear, toSchoolYear, semester, decisions, groupDecisions, decisionOverrides } = req.body || {}
+    const result = await AcademicYearRolloverService.executeRollover({
+      fromSchoolYear,
+      toSchoolYear,
+      semester,
+      decisions,
+      groupDecisions,
+      decisionOverrides,
+      adminId: req.adminId,
+      adminRole: normalizeAccountType(req.accountType)
+    })
+    res.json({ success: true, data: result })
+  } catch (error) {
+    console.error('Rollover execution error:', error)
+    res.status(error.statusCode || 500).json({
+      error: error.message || 'Failed to execute rollover. All changes were rolled back.',
+      failures: error.failures || undefined
+    })
+  }
+});
+
+// GET /api/rollover/snapshots - list immutable archive snapshots
+app.get('/api/rollover/snapshots', authMiddleware, requireBlockManagementRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const { schoolYear, type, limit } = req.query || {}
+    const snapshots = await AcademicYearRolloverService.listSnapshots({ schoolYear, type, limit })
+    res.json({ success: true, data: snapshots })
+  } catch (error) {
+    console.error('List rollover snapshots error:', error)
+    res.status(500).json({ error: 'Failed to list archive snapshots.' })
+  }
+});
+
+// GET /api/rollover/snapshots/:id - fetch a single snapshot with its full payload
+app.get('/api/rollover/snapshots/:id', authMiddleware, requireBlockManagementRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const snapshot = await AcademicYearRolloverService.getSnapshotById(req.params.id)
+    if (!snapshot) {
+      return res.status(404).json({ error: 'Snapshot not found.' })
+    }
+    res.json({ success: true, data: snapshot })
+  } catch (error) {
+    console.error('Get rollover snapshot error:', error)
+    res.status(500).json({ error: 'Failed to fetch archive snapshot.' })
+  }
+});
+
+// GET /api/rollover/audit-report - academic audit report for registrars
+app.get('/api/rollover/audit-report', authMiddleware, requireBlockManagementRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const {
+      action,
+      resourceType,
+      severity,
+      sortOrder = 'newest',
+      performedBy,
+      startDate,
+      endDate,
+      page = 1,
+      limit = 25,
+    } = req.query || {}
+
+    const pageNumber = Math.max(1, Number.parseInt(page, 10) || 1)
+    const limitNumber = Math.min(100, Math.max(1, Number.parseInt(limit, 10) || 25))
+
+    // Academic-only filter: STUDENT, REGISTRATION, COURSE, FACULTY + ARCHIVE action (rollover)
+    const ACADEMIC_RESOURCES = ['STUDENT', 'REGISTRATION', 'COURSE', 'FACULTY']
+    const baseFilter = {
+      $or: [
+        { resourceType: { $in: ACADEMIC_RESOURCES } },
+        { action: 'ARCHIVE', resourceType: 'SYSTEM' },
+      ],
+    }
+
+    // Build user-supplied filter on top of academic filter
+    const filter = { ...baseFilter }
+    if (action) {
+      const actions = String(action).split(',').map((v) => v.trim()).filter(Boolean)
+      filter.action = actions.length > 1 ? { $in: actions } : actions[0]
+    }
+    if (resourceType) filter.resourceType = { $eq: resourceType.trim() }
+    if (severity) filter.severity = { $eq: severity.trim() }
+    if (performedBy) filter.performedBy = { $eq: performedBy.trim() }
+    if (startDate || endDate) {
+      filter.createdAt = {}
+      if (startDate) filter.createdAt.$gte = new Date(startDate)
+      if (endDate) filter.createdAt.$lte = new Date(endDate)
+    }
+
+    const sortDirection = String(sortOrder).toLowerCase() === 'oldest' ? 1 : -1
+
+    const last30Days = new Date()
+    last30Days.setDate(last30Days.getDate() - 30)
+
+    const recentMatch = { ...baseFilter, createdAt: { $gte: last30Days } }
+
+    const [
+      totalLogs,
+      recentLogs,
+      criticalLogs,
+      highSeverityLogs,
+      failedActions,
+      actionStats,
+      resourceStats,
+      severityStats,
+      recentActivity,
+      total,
+      blockActionLogs,
+      dailyActivity,
+      topUsers,
+    ] = await Promise.all([
+      AuditLog.countDocuments(baseFilter),
+      AuditLog.countDocuments(recentMatch),
+      AuditLog.countDocuments({ ...baseFilter, severity: 'CRITICAL' }),
+      AuditLog.countDocuments({ ...baseFilter, severity: 'HIGH' }),
+      AuditLog.countDocuments({ ...baseFilter, status: { $in: ['FAILED', 'PARTIAL'] } }),
+      AuditLog.aggregate([
+        { $match: recentMatch },
+        { $group: { _id: '$action', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 10 },
+      ]),
+      AuditLog.aggregate([
+        { $match: recentMatch },
+        { $group: { _id: '$resourceType', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 10 },
+      ]),
+      AuditLog.aggregate([
+        { $match: recentMatch },
+        { $group: { _id: '$severity', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+      ]),
+      AuditLog.find(filter)
+        .populate('performedBy', 'username displayName')
+        .sort({ createdAt: sortDirection })
+        .limit(limitNumber)
+        .skip((pageNumber - 1) * limitNumber),
+      AuditLog.countDocuments(filter),
+      // Block action logs (separate model)
+      BlockActionLog.find()
+        .populate('sectionId', 'sectionCode blockGroupId')
+        .sort({ timestamp: -1 })
+        .limit(20)
+        .lean(),
+      // Daily activity trend (last 30 days)
+      AuditLog.aggregate([
+        { $match: recentMatch },
+        {
+          $group: {
+            _id: {
+              $dateToString: { format: '%Y-%m-%d', date: '$createdAt' },
+            },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { _id: 1 } },
+        { $limit: 30 },
+      ]),
+      // Top users by academic actions (last 30 days)
+      AuditLog.aggregate([
+        { $match: recentMatch },
+        {
+          $group: {
+            _id: '$performedBy',
+            username: { $first: '$performedByRole' },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { count: -1 } },
+        { $limit: 5 },
+        {
+          $lookup: {
+            from: 'admins',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'userDetails',
+          },
+        },
+        {
+          $project: {
+            _id: 1,
+            count: 1,
+            username: { $arrayElemAt: ['$userDetails.username', 0] },
+            displayName: { $arrayElemAt: ['$userDetails.displayName', 0] },
+          },
+        },
+      ]),
+    ])
+
+    // Get rollover snapshots for history section
+    const snapshots = await ArchiveSnapshot.find()
+      .populate('generatedBy', 'username displayName')
+      .sort({ generatedAt: -1 })
+      .limit(20)
+      .select('type title schoolYear newSchoolYear semester rolloverBatchId counts generatedAt generatedBy')
+
+    const redact = redactSensitiveAuditData || ((v) => v)
+    const sanitizedActivity = recentActivity.map((entry) => {
+      const logEntry = entry?.toObject ? entry.toObject() : entry
+      return {
+        ...logEntry,
+        oldValue: redact(logEntry.oldValue),
+        newValue: redact(logEntry.newValue),
+      }
+    })
+
+    res.json({
+      success: true,
+      data: {
+        stats: {
+          totalLogs,
+          recentLogs,
+          criticalLogs,
+          highSeverityLogs,
+          failedActions,
+          actionStats,
+          resourceStats,
+          severityStats,
+        },
+        activity: {
+          logs: sanitizedActivity,
+          page: pageNumber,
+          totalPages: Math.ceil(total / limitNumber),
+          total,
+        },
+        blockActions: blockActionLogs.map((log) => ({
+          _id: String(log._id),
+          actionType: log.actionType,
+          sectionId: log.sectionId ? String(log.sectionId._id) : null,
+          sectionCode: log.sectionId?.sectionCode || null,
+          studentId: log.studentId,
+          registrarId: log.registrarId,
+          reason: log.reason,
+          details: log.details,
+          timestamp: log.timestamp,
+        })),
+        dailyActivity: dailyActivity.map((d) => ({ date: d._id, count: d.count })),
+        topUsers: topUsers.map((u) => ({
+          _id: String(u._id),
+          username: u.username || 'System',
+          displayName: u.displayName || u.username || 'System',
+          count: u.count,
+        })),
+        rolloverHistory: snapshots.map((s) => s.toObject ? s.toObject() : s),
+      },
+    })
+  } catch (error) {
+    console.error('Academic audit report error:', error)
+    res.status(500).json({ error: 'Failed to generate academic audit report.' })
+  }
+});
+
 // ==================== BLOCK MANAGEMENT ====================
 
 // POST /api/blocks/assign-student
@@ -7520,6 +7905,19 @@ app.post('/api/blocks/groups', authMiddleware, requireBlockManagementRole, secur
   }
 });
 
+// PATCH /api/blocks/groups/:groupId
+app.patch('/api/blocks/groups/:groupId', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware({ ...securityMiddleware.schemas.block.objectIdParam, ...securityMiddleware.schemas.block.updateBlockGroup }), invalidateApiCacheOnSuccess(...blockManagementCachePrefixes), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.updateBlockGroup(req, res);
+  } catch (error) {
+    console.error('Update block group error:', error.message);
+    res.status(500).json({ error: 'Failed to update block group.' });
+  }
+});
+
 // DELETE /api/blocks/groups/:groupId
 app.delete('/api/blocks/groups/:groupId', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.objectIdParam), invalidateApiCacheOnSuccess(...blockManagementCachePrefixes), async (req, res) => {
   if (!dbReady) {
@@ -7556,6 +7954,32 @@ app.post('/api/blocks/groups/:groupId/sections', authMiddleware, requireBlockMan
   } catch (error) {
     console.error('Create section error:', error);
     res.status(500).json({ error: 'Failed to create section.' });
+  }
+});
+
+// PATCH /api/blocks/sections/:sectionId
+app.patch('/api/blocks/sections/:sectionId', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware({ ...securityMiddleware.schemas.block.objectIdParam, ...securityMiddleware.schemas.block.updateSection }), invalidateApiCacheOnSuccess(...blockManagementCachePrefixes), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.updateSection(req, res);
+  } catch (error) {
+    console.error('Update section error:', error.message);
+    res.status(500).json({ error: 'Failed to update section.' });
+  }
+});
+
+// DELETE /api/blocks/sections/:sectionId
+app.delete('/api/blocks/sections/:sectionId', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.objectIdParam), invalidateApiCacheOnSuccess(...blockManagementCachePrefixes), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.deleteSection(req, res);
+  } catch (error) {
+    console.error('Delete section error:', error.message);
+    res.status(500).json({ error: 'Failed to delete section.' });
   }
 });
 
@@ -7597,20 +8021,6 @@ app.patch('/api/blocks/sections/:sectionId/adviser', authMiddleware, requireBloc
     res.status(500).json({ error: 'Failed to update section adviser.' });
   }
 });
-
-// POST /api/blocks/groups/:groupId/sections
-app.post('/api/blocks/groups/:groupId/sections', authMiddleware, requireBlockManagementRole, invalidateApiCacheOnSuccess(...blockManagementCachePrefixes), async (req, res) => {
-  if (!dbReady) {
-    return res.status(503).json({ error: 'Database unavailable.' })
-  }
-  try {
-    await blockController.createSectionInGroup(req, res);
-  } catch (error) {
-    console.error('Create section error:', error);
-    res.status(500).json({ error: 'Failed to create section.' });
-  }
-});
-
 
 // Apply relaxed limiter to all API routes
 app.use('/api/', apiLimiter)
@@ -7769,7 +8179,8 @@ app.all('/{*path}', (req, res, next) => {
   res.status(404).end()
 })
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
+  logger.info(`Server running at http://0.0.0.0:${PORT}`)
   logger.info(`Server running at http://localhost:${PORT}`)
 })
 

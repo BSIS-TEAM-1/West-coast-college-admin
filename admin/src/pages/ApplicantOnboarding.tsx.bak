@@ -1,0 +1,544 @@
+import { useEffect, useMemo, useState } from 'react'
+import LocationSelector from '../components/LocationSelector'
+import {
+  getApplicantCourses,
+  searchSchools,
+  submitApplicant,
+  type ApplicantPayload,
+  type CourseOption
+} from '../lib/applicantApi'
+import './ApplicantOnboarding.css'
+
+type Props = {
+  onBack: () => void
+}
+
+const steps = ['Contact', 'Personal', 'Academic', 'Course']
+const suffixOptions = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV', 'V']
+
+function RequiredLabel({ children }: { children: string }) {
+  return (
+    <span className="applicant-label-text">
+      {children}
+      <span className="applicant-required-mark" aria-hidden="true">*</span>
+    </span>
+  )
+}
+
+type SchoolOption = {
+  _id: string
+  name: string
+  municipality: string
+  division: string
+  barangay: string
+}
+
+function SchoolSearchInput({
+  value,
+  onChange,
+  placeholder = 'Search school name...',
+  required = false,
+  label
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  required?: boolean
+  label: React.ReactNode
+}) {
+  const [query, setQuery] = useState(value)
+  const [results, setResults] = useState<SchoolOption[]>([])
+  const [loading, setLoading] = useState(false)
+  const [open, setOpen] = useState(false)
+  const [hasTyped, setHasTyped] = useState(false)
+
+  useEffect(() => {
+    setQuery(value)
+  }, [value])
+
+  useEffect(() => {
+    if (!hasTyped || query.trim().length < 2) {
+      setResults([])
+      setOpen(false)
+      return
+    }
+
+    let cancelled = false
+    const handler = setTimeout(() => {
+      setLoading(true)
+      searchSchools(query.trim(), 10)
+        .then((schools) => {
+          if (cancelled) return
+          setResults(schools)
+          setOpen(schools.length > 0)
+        })
+        .catch(() => {
+          if (cancelled) return
+          setResults([])
+          setOpen(false)
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false)
+        })
+    }, 250)
+
+    return () => {
+      cancelled = true
+      clearTimeout(handler)
+    }
+  }, [query, hasTyped])
+
+  const handleSelect = (school: SchoolOption) => {
+    setQuery(school.name)
+    onChange(school.name)
+    setOpen(false)
+    setHasTyped(false)
+  }
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const next = e.target.value
+    setQuery(next)
+    onChange(next)
+    setHasTyped(true)
+  }
+
+  return (
+    <div className="school-search-input">
+      <label>
+        {label}
+        <input
+          type="text"
+          value={query}
+          onChange={handleChange}
+          onFocus={() => { if (results.length > 0) setOpen(true) }}
+          onBlur={() => { setTimeout(() => setOpen(false), 150) }}
+          placeholder={placeholder}
+          required={required}
+          autoComplete="off"
+        />
+      </label>
+      {loading && <span className="school-search-loading">Loading...</span>}
+      {open && (
+        <ul className="school-search-results" role="listbox">
+          {results.map((school) => (
+            <li
+              key={school._id}
+              className="school-search-result"
+              onMouseDown={() => handleSelect(school)}
+              role="option"
+              tabIndex={-1}
+            >
+              <span className="school-search-result-name">{school.name}</span>
+              <span className="school-search-result-meta">{school.barangay}, {school.municipality}, {school.division}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+const defaultSchoolYear = (() => {
+  const now = new Date()
+  const startYear = now.getMonth() >= 5 ? now.getFullYear() : now.getFullYear() - 1
+  return `${startYear}-${startYear + 1}`
+})()
+
+const initialForm: ApplicantPayload = {
+  applicantType: 'New',
+  firstName: '',
+  middleName: '',
+  lastName: '',
+  suffix: '',
+  email: '',
+  phoneNumber: '',
+  birthDate: '',
+  birthPlace: '',
+  gender: '',
+  civilStatus: '',
+  nationality: 'Filipino',
+  religion: '',
+  currentAddress: '',
+  permanentAddress: '',
+  currentLocation: {
+    regionCode: '',
+    regionName: '',
+    provinceCode: '',
+    provinceName: '',
+    cityCode: '',
+    cityName: '',
+    barangayCode: '',
+    barangayName: '',
+    streetAddress: ''
+  },
+  permanentLocation: {
+    regionCode: '',
+    regionName: '',
+    provinceCode: '',
+    provinceName: '',
+    cityCode: '',
+    cityName: '',
+    barangayCode: '',
+    barangayName: '',
+    streetAddress: ''
+  },
+  fatherName: '',
+  motherName: '',
+  guardianName: '',
+  guardianRelationship: '',
+  guardianContactNumber: '',
+  emergencyContact: {
+    name: '',
+    relationship: '',
+    contactNumber: '',
+    address: ''
+  },
+  academicDetails: {
+    elementary: {
+      schoolName: '',
+      schoolAddress: '',
+      yearGraduated: '',
+      generalAverage: '',
+      gradesSummary: ''
+    },
+    highSchool: {
+      schoolName: '',
+      schoolAddress: '',
+      yearGraduated: '',
+      generalAverage: '',
+      gradesSummary: '',
+      strandOrTrack: ''
+    }
+  },
+  selectedCourse: 101,
+  requestedYearLevel: 1,
+  semester: '1st',
+  schoolYear: defaultSchoolYear
+}
+
+function setNestedValue(source: ApplicantPayload, path: string, value: unknown): ApplicantPayload {
+  const clone = structuredClone(source)
+  const keys = path.split('.')
+  let target: any = clone
+
+  keys.slice(0, -1).forEach((key) => {
+    target = target[key]
+  })
+
+  target[keys[keys.length - 1]] = value
+  return clone
+}
+
+
+export default function ApplicantOnboarding({ onBack }: Props) {
+  const [stepIndex, setStepIndex] = useState(0)
+  const [form, setForm] = useState<ApplicantPayload>(initialForm)
+  const [courses, setCourses] = useState<CourseOption[]>([])
+  const [loadingCourses, setLoadingCourses] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [submittedNumber, setSubmittedNumber] = useState('')
+  const [religionIsOther, setReligionIsOther] = useState(false)
+  const [religionOther, setReligionOther] = useState('')
+  const [emergencyRelIsOther, setEmergencyRelIsOther] = useState(false)
+  const [emergencyRelOther, setEmergencyRelOther] = useState('')
+
+  useEffect(() => {
+    let mounted = true
+
+    getApplicantCourses()
+      .then((items) => {
+        if (!mounted) return
+        setCourses(items)
+        if (items.length > 0) {
+          setForm((prev) => ({ ...prev, selectedCourse: items[0].id }))
+        }
+      })
+      .catch((err) => {
+        if (mounted) setError(err instanceof Error ? err.message : 'Failed to load courses.')
+      })
+      .finally(() => {
+        if (mounted) setLoadingCourses(false)
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const selectedCourse = useMemo(
+    () => courses.find((course) => course.id === Number(form.selectedCourse)),
+    [courses, form.selectedCourse]
+  )
+
+  const update = (field: string, value: unknown) => {
+    setForm((prev) => setNestedValue(prev, field, value))
+  }
+
+  const validateStep = () => {
+    setError('')
+
+    if (stepIndex === 0) {
+      if (!form.firstName || !form.lastName || !form.email || !form.phoneNumber) {
+        setError('Please complete your name, email, and phone number.')
+        return false
+      }
+    }
+
+    if (stepIndex === 1) {
+      if (!form.birthDate || !form.currentLocation?.cityCode || !form.guardianContactNumber || !form.emergencyContact.name || !form.emergencyContact.relationship || !form.emergencyContact.contactNumber) {
+        setError('Please complete your personal, guardian, and emergency contact details.')
+        return false
+      }
+    }
+
+    if (stepIndex === 2) {
+      if (!form.academicDetails.elementary.schoolName || !form.academicDetails.elementary.yearGraduated || !form.academicDetails.highSchool.schoolName || !form.academicDetails.highSchool.yearGraduated) {
+        setError('Please complete your elementary and high school details.')
+        return false
+      }
+    }
+
+    if (stepIndex === 3) {
+      if (!form.selectedCourse || !form.schoolYear) {
+        setError('Please choose a course and school year.')
+        return false
+      }
+    }
+
+    return true
+  }
+
+  const goNext = () => {
+    if (!validateStep()) return
+    setStepIndex((current) => Math.min(current + 1, steps.length - 1))
+  }
+
+  const goBack = () => {
+    setError('')
+    setStepIndex((current) => Math.max(current - 1, 0))
+  }
+
+  const handleSubmit = async () => {
+    if (!validateStep()) return
+    setSubmitting(true)
+    setError('')
+
+    try {
+      const applicant = await submitApplicant(form)
+      setSubmittedNumber(applicant.applicantNumber)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to submit your application.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (submittedNumber) {
+    return (
+      <main className="applicant-page applicant-page-centered">
+        <section className="applicant-success">
+          <span className="applicant-success-mark">✓</span>
+          <h1>Application Sent</h1>
+          <p>Your application has been sent to the registrar for processing.</p>
+          <div className="applicant-reference">
+            <span>Application Number</span>
+            <strong>{submittedNumber}</strong>
+          </div>
+          <button type="button" className="applicant-primary-btn" onClick={onBack}>
+            Back to Home
+          </button>
+        </section>
+      </main>
+    )
+  }
+
+  return (
+    <main className="applicant-page">
+      <header className="applicant-header">
+        <button type="button" className="applicant-back-btn" onClick={onBack}>
+          Back
+        </button>
+        <div>
+          <p>West Coast College</p>
+          <h1>Online Applicant Onboarding</h1>
+        </div>
+      </header>
+
+      <section className="applicant-shell">
+        <aside className="applicant-steps" aria-label="Application steps">
+          {steps.map((step, index) => (
+            <button
+              key={step}
+              type="button"
+              className={`applicant-step ${index === stepIndex ? 'applicant-step-active' : ''} ${index < stepIndex ? 'applicant-step-done' : ''}`}
+              onClick={() => {
+                if (index <= stepIndex || validateStep()) setStepIndex(index)
+              }}
+            >
+              <span>{index + 1}</span>
+              {step}
+            </button>
+          ))}
+        </aside>
+
+        <form className="applicant-form" onSubmit={(event) => event.preventDefault()}>
+          {error ? <div className="applicant-error">{error}</div> : null}
+
+          {stepIndex === 0 ? (
+            <section className="applicant-form-section">
+              <h2>Contact Information</h2>
+              <div className="applicant-grid">
+                <label><RequiredLabel>First name</RequiredLabel><input value={form.firstName} onChange={(e) => update('firstName', e.target.value)} required /></label>
+                <label>Middle name<input value={form.middleName} onChange={(e) => update('middleName', e.target.value)} /></label>
+                <label><RequiredLabel>Last name</RequiredLabel><input value={form.lastName} onChange={(e) => update('lastName', e.target.value)} required /></label>
+                <label>Suffix
+                  <select value={form.suffix} onChange={(e) => update('suffix', e.target.value)}>
+                    {suffixOptions.map((suffix) => (
+                      <option key={suffix || 'none'} value={suffix}>
+                        {suffix || 'None'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label><RequiredLabel>Email</RequiredLabel><input type="email" value={form.email} onChange={(e) => update('email', e.target.value)} required /></label>
+                <label><RequiredLabel>Phone number</RequiredLabel><input value={form.phoneNumber} onChange={(e) => update('phoneNumber', e.target.value)} required /></label>
+              </div>
+            </section>
+          ) : null}
+
+          {stepIndex === 1 ? (
+            <section className="applicant-form-section">
+              <h2>Personal Details</h2>
+              <div className="applicant-grid">
+                <label><RequiredLabel>Birth date</RequiredLabel><input type="date" value={form.birthDate} onChange={(e) => update('birthDate', e.target.value)} required /></label>
+                <label>Birth place<input value={form.birthPlace} onChange={(e) => update('birthPlace', e.target.value)} /></label>
+                <label>Gender<select value={form.gender} onChange={(e) => update('gender', e.target.value)}><option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option><option value="Non-binary">Non-binary</option><option value="Prefer not to say">Prefer not to say</option></select></label>
+                <label>Civil status<select value={form.civilStatus} onChange={(e) => update('civilStatus', e.target.value)}><option value="">Select...</option><option value="Single">Single</option><option value="Married">Married</option><option value="Divorced">Divorced</option><option value="Widowed">Widowed</option><option value="Separated">Separated</option></select></label>
+                <label>Nationality<input value={form.nationality} onChange={(e) => update('nationality', e.target.value)} /></label>
+                <label>Religion<select value={religionIsOther ? 'Other' : form.religion} onChange={(e) => { if (e.target.value === 'Other') { setReligionIsOther(true); update('religion', '') } else { setReligionIsOther(false); setReligionOther(''); update('religion', e.target.value) } }}><option value="">Select...</option><option value="Roman Catholic">Roman Catholic</option><option value="Iglesia ni Cristo">Iglesia ni Cristo</option><option value="Born Again Christian">Born Again Christian</option><option value="Islam">Islam</option><option value="Buddhist">Buddhist</option><option value="Other">Other</option></select></label>
+                {religionIsOther && <label>Please specify<input value={religionOther} onChange={(e) => { setReligionOther(e.target.value); update('religion', e.target.value) }} placeholder="Please specify religion" required /></label>}
+                <label className="applicant-wide"><RequiredLabel>Street / House no.</RequiredLabel><input value={form.currentLocation?.streetAddress} onChange={(e) => update('currentLocation.streetAddress', e.target.value)} required /></label>
+                <LocationSelector
+                  value={form.currentLocation || {}}
+                  onChange={(value) => update('currentLocation', value)}
+                  labels={{ region: 'Region', province: 'Province', city: 'City / Municipality', barangay: 'Barangay' }}
+                />
+                <label className="applicant-wide">Permanent Street / House no.<input value={form.permanentLocation?.streetAddress} onChange={(e) => update('permanentLocation.streetAddress', e.target.value)} /></label>
+                <LocationSelector
+                  value={form.permanentLocation || {}}
+                  onChange={(value) => update('permanentLocation', value)}
+                  labels={{ region: 'Permanent Region', province: 'Permanent Province', city: 'Permanent City / Municipality', barangay: 'Permanent Barangay' }}
+                />
+                <label>Father's name<input value={form.fatherName} onChange={(e) => update('fatherName', e.target.value)} /></label>
+                <label>Mother's name<input value={form.motherName} onChange={(e) => update('motherName', e.target.value)} /></label>
+                <label>Guardian name<input value={form.guardianName} onChange={(e) => update('guardianName', e.target.value)} /></label>
+                <label>Guardian relationship<input value={form.guardianRelationship} onChange={(e) => update('guardianRelationship', e.target.value)} /></label>
+                <label><RequiredLabel>Parent / guardian contact</RequiredLabel><input value={form.guardianContactNumber} onChange={(e) => update('guardianContactNumber', e.target.value)} required /></label>
+                <label><RequiredLabel>Emergency contact name</RequiredLabel><input value={form.emergencyContact.name} onChange={(e) => update('emergencyContact.name', e.target.value)} required /></label>
+                <label><RequiredLabel>Emergency relationship</RequiredLabel><select value={emergencyRelIsOther ? 'Other' : form.emergencyContact.relationship} onChange={(e) => { if (e.target.value === 'Other') { setEmergencyRelIsOther(true); update('emergencyContact.relationship', '') } else { setEmergencyRelIsOther(false); setEmergencyRelOther(''); update('emergencyContact.relationship', e.target.value) } }} required><option value="">Select...</option><option value="Father">Father</option><option value="Mother">Mother</option><option value="Sibling">Sibling</option><option value="Guardian">Guardian</option><option value="Spouse">Spouse</option><option value="Relative">Relative</option><option value="Friend">Friend</option><option value="Other">Other</option></select></label>
+                {emergencyRelIsOther && <label>Please specify<input value={emergencyRelOther} onChange={(e) => { setEmergencyRelOther(e.target.value); update('emergencyContact.relationship', e.target.value) }} placeholder="Please specify relationship" required /></label>}
+                <label><RequiredLabel>Emergency contact number</RequiredLabel><input value={form.emergencyContact.contactNumber} onChange={(e) => update('emergencyContact.contactNumber', e.target.value)} required /></label>
+                <label className="applicant-wide">Emergency contact address<textarea value={form.emergencyContact.address} onChange={(e) => update('emergencyContact.address', e.target.value)} /></label>
+              </div>
+            </section>
+          ) : null}
+
+          {stepIndex === 2 ? (
+            <section className="applicant-form-section">
+              <h2>Academic Details</h2>
+              <div className="applicant-school-group">
+                <h3>Elementary</h3>
+                <div className="applicant-grid">
+                  <SchoolSearchInput
+                    value={form.academicDetails.elementary.schoolName}
+                    onChange={(value) => update('academicDetails.elementary.schoolName', value)}
+                    label={<RequiredLabel>School name</RequiredLabel>}
+                    required
+                  />
+                  <label><RequiredLabel>Year graduated</RequiredLabel><input value={form.academicDetails.elementary.yearGraduated} onChange={(e) => update('academicDetails.elementary.yearGraduated', e.target.value)} required /></label>
+                  <label>General average / GPA<input value={form.academicDetails.elementary.generalAverage} onChange={(e) => update('academicDetails.elementary.generalAverage', e.target.value)} /></label>
+                  <label className="applicant-wide">School address<textarea value={form.academicDetails.elementary.schoolAddress} onChange={(e) => update('academicDetails.elementary.schoolAddress', e.target.value)} /></label>
+                  <label className="applicant-wide">Grades summary<textarea value={form.academicDetails.elementary.gradesSummary} onChange={(e) => update('academicDetails.elementary.gradesSummary', e.target.value)} /></label>
+                </div>
+              </div>
+              <div className="applicant-school-group">
+                <h3>High School / Senior High School</h3>
+                <div className="applicant-grid">
+                  <SchoolSearchInput
+                    value={form.academicDetails.highSchool.schoolName}
+                    onChange={(value) => update('academicDetails.highSchool.schoolName', value)}
+                    label={<RequiredLabel>School name</RequiredLabel>}
+                    required
+                  />
+                  <label><RequiredLabel>Year graduated</RequiredLabel><input value={form.academicDetails.highSchool.yearGraduated} onChange={(e) => update('academicDetails.highSchool.yearGraduated', e.target.value)} required /></label>
+                  <label>Strand or track<select value={form.academicDetails.highSchool.strandOrTrack} onChange={(e) => update('academicDetails.highSchool.strandOrTrack', e.target.value)}><option value="">Select...</option><option value="Science, Technology, Engineering and Mathematics">Science, Technology, Engineering and Mathematics</option><option value="Accountancy, Business and Management">Accountancy, Business and Management</option><option value="Humanities and Social Sciences">Humanities and Social Sciences</option><option value="General Academic Strand">General Academic Strand</option><option value="Technical-Vocational-Livelihood">Technical-Vocational-Livelihood</option><option value="Not applicable">Not applicable</option><option value="Other">Other</option></select></label>
+                  <label>General average / GPA<input value={form.academicDetails.highSchool.generalAverage} onChange={(e) => update('academicDetails.highSchool.generalAverage', e.target.value)} /></label>
+                  <label className="applicant-wide">School address<textarea value={form.academicDetails.highSchool.schoolAddress} onChange={(e) => update('academicDetails.highSchool.schoolAddress', e.target.value)} /></label>
+                  <label className="applicant-wide">Grades summary<textarea value={form.academicDetails.highSchool.gradesSummary} onChange={(e) => update('academicDetails.highSchool.gradesSummary', e.target.value)} /></label>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          {stepIndex === 3 ? (
+            <section className="applicant-form-section">
+              <h2>Course Selection</h2>
+              <div className="applicant-grid">
+                <label><RequiredLabel>Applicant type</RequiredLabel>
+                  <select value={form.applicantType} onChange={(e) => update('applicantType', e.target.value)} required>
+                    <option value="New">Freshman / New Student</option>
+                    <option value="Transferee">Transferee</option>
+                    <option value="Returnee">Returnee</option>
+                  </select>
+                </label>
+                <label><RequiredLabel>Course</RequiredLabel>
+                  <select value={form.selectedCourse} onChange={(e) => update('selectedCourse', Number(e.target.value))} disabled={loadingCourses} required>
+                    {courses.map((course) => (
+                      <option key={course.id} value={course.id}>{course.code} - {course.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label><RequiredLabel>Requested year level</RequiredLabel>
+                  <select value={form.requestedYearLevel} onChange={(e) => update('requestedYearLevel', Number(e.target.value))} required>
+                    <option value={1}>First Year</option>
+                    <option value={2}>Second Year</option>
+                    <option value={3}>Third Year</option>
+                    <option value={4}>Fourth Year</option>
+                  </select>
+                </label>
+                <label><RequiredLabel>Semester</RequiredLabel>
+                  <select value={form.semester} onChange={(e) => update('semester', e.target.value)} required>
+                    <option value="1st">1st Semester</option>
+                    <option value="2nd">2nd Semester</option>
+                    <option value="Summer">Summer</option>
+                  </select>
+                </label>
+                <label><RequiredLabel>School year</RequiredLabel><input value={form.schoolYear} onChange={(e) => update('schoolYear', e.target.value)} required /></label>
+              </div>
+              <div className="applicant-review-box">
+                <span>Selected course</span>
+                <strong>{selectedCourse ? `${selectedCourse.code} - ${selectedCourse.name}` : 'Loading courses...'}</strong>
+              </div>
+            </section>
+          ) : null}
+
+          <div className="applicant-actions">
+            <button type="button" className="applicant-secondary-btn" onClick={goBack} disabled={stepIndex === 0 || submitting}>
+              Previous
+            </button>
+            {stepIndex < steps.length - 1 ? (
+              <button type="button" className="applicant-primary-btn" onClick={goNext}>
+                Next
+              </button>
+            ) : (
+              <button type="button" className="applicant-primary-btn" onClick={handleSubmit} disabled={submitting || loadingCourses}>
+                {submitting ? 'Submitting...' : 'Submit to Registrar'}
+              </button>
+            )}
+          </div>
+        </form>
+      </section>
+    </main>
+  )
+}

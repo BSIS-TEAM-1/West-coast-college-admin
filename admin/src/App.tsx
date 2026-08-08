@@ -24,16 +24,8 @@ import ApplicantOnboarding from './pages/ApplicantOnboarding'
 import Dashboard from './pages/Dashboard'
 import RegistrarDashboard from './pages/RegistrarDashboard'
 import ProfessorDashboard from './pages/ProfessorDashboard.tsx'
-import DocumentViewerRoute from './pages/DocumentViewerRoute'
 import './App.css'
 import type { LoginFlowResponse, LoginResponse, ProfileResponse } from './lib/authApi'
-
-const DOCUMENT_VIEWER_ROUTE_PATTERN = /^\/document-viewer\/([^/]+)\/?$/
-
-const getDocumentViewerIdFromPath = (pathname: string): string | null => {
-  const match = pathname.match(DOCUMENT_VIEWER_ROUTE_PATTERN)
-  return match ? decodeURIComponent(match[1]) : null
-}
 
 const isAuthSessionError = (message: string): boolean => {
   const normalized = String(message || '').toLowerCase()
@@ -49,7 +41,6 @@ const isAuthSessionError = (message: string): boolean => {
 
 function App() {
   const [user, setUser] = useState<{ username: string; accountType: string } | null>(null)
-  const [documentViewerId, setDocumentViewerId] = useState<string | null>(() => getDocumentViewerIdFromPath(window.location.pathname))
   const [showSignIn, setShowSignIn] = useState(false)
   const [showSignUp, setShowSignUp] = useState(false)
   const [showAboutPage, setShowAboutPage] = useState(false)
@@ -77,15 +68,6 @@ function App() {
     setShowApplicantPortal(false)
     setShowSignUp(false)
     setShowSignIn(false)
-  }, [])
-
-  useEffect(() => {
-    const syncDocumentViewerRoute = () => {
-      setDocumentViewerId(getDocumentViewerIdFromPath(window.location.pathname))
-    }
-
-    window.addEventListener('popstate', syncDocumentViewerRoute)
-    return () => window.removeEventListener('popstate', syncDocumentViewerRoute)
   }, [])
 
   useEffect(() => {
@@ -231,26 +213,9 @@ function App() {
       setShowCookieSystemPage(false)
       setShowCollaboratorsPage(false)
       setShowApplicantPortal(false)
-      setDocumentViewerId(null)
       setLoginError(undefined)
       setLoginLoading(false)
     }
-  }, [])
-
-  const handleCloseDocumentViewer = useCallback(() => {
-    if (!getDocumentViewerIdFromPath(window.location.pathname)) {
-      setDocumentViewerId(null)
-      return
-    }
-
-    if (window.history.length > 1) {
-      window.history.back()
-      return
-    }
-
-    window.history.replaceState({}, '', '/')
-    setDocumentViewerId(null)
-    window.dispatchEvent(new PopStateEvent('popstate'))
   }, [])
 
   const handleProfileUpdated = useCallback((profile: ProfileResponse) => {
@@ -266,12 +231,6 @@ function App() {
   }, [user])
 
   if (user) {
-    const canPreviewDocuments = user.accountType === 'admin' || user.accountType === 'registrar'
-
-    if (documentViewerId && canPreviewDocuments) {
-      return <DocumentViewerRoute documentId={documentViewerId} onClose={handleCloseDocumentViewer} />
-    }
-
     return user.accountType === 'registrar'
       ? (
           <RegistrarDashboard

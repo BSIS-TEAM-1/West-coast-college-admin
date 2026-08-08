@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Users, Blocks, FolderOpen, UserPlus, Plus } from 'lucide-react'
+import { User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Users, Blocks, FolderOpen, UserPlus, Plus, TrendingUp } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
@@ -9,15 +9,19 @@ import Announcements from './Announcements'
 import AnnouncementDetail from './AnnouncementDetail'
 import PersonalDetails from './PersonalDetails'
 import CorGeneration from './CorGeneration'
-import DocumentManagement from './DocumentManagement'
+import AcademicArchivePage from './registrar/AcademicArchivePage'
 import StudentManagement from '../components/StudentManagement'
 import ProfessorLoad from '../components/ProfessorLoad'
 import RegistrarCourseWorkspace, { type RegistrarCourseWorkspaceSelection } from '../components/RegistrarCourseWorkspace'
-import RegistrarReportsPanel from './RegistrarReportsPanel'
+import EnterpriseAuditReport from './registrar/EnterpriseAuditReport'
 import ApplicantQueue from './ApplicantQueue'
 import BlockManagement from './registrar/BlockManagement'
 import ViewBlocksPage from './registrar/ViewBlocksPage'
 import BlockWorkspace from './registrar/BlockWorkspace'
+import BlockOverviewDashboard from './registrar/BlockOverviewDashboard'
+import BlockAssignmentPage from './registrar/BlockAssignmentPage'
+import SchoolYearRollover from './registrar/SchoolYearRollover'
+import StudentHistoryPage from './registrar/StudentHistoryPage'
 import AssignSubjectPage from './registrar/AssignSubjectPage'
 import SubjectManagementPage from './registrar/SubjectManagementPage'
 import StudentWizard from '../components/AddStudent/StudentWizard'
@@ -33,7 +37,7 @@ type BlockWorkspaceSelection = {
   initialSectionId?: string | null
 }
 
-type RegistrarView = 'applicants' | 'students' | 'add-student' | 'courses' | 'course-workspace' | 'block-management' | 'assign-block' | 'view-blocks' | 'block-workspace' | 'subject-management' | 'add-subject' | 'assign-subject' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
+type RegistrarView = 'applicants' | 'students' | 'add-student' | 'courses' | 'course-workspace' | 'block-overview' | 'block-management' | 'assign-block' | 'view-blocks' | 'block-workspace' | 'school-year-rollover' | 'student-history' | 'subject-management' | 'add-subject' | 'assign-subject' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
 
 type RegistrarDashboardProps = {
   username: string
@@ -45,10 +49,10 @@ type RegistrarDashboardProps = {
 const REGISTRAR_NAV_ITEMS: { id: RegistrarView; label: string; icon: any }[] = [
   { id: 'applicants', label: 'Applicants', icon: UserPlus },
   { id: 'students', label: 'Student Management', icon: GraduationCap },
-  { id: 'block-management', label: 'Block Management', icon: Blocks },
+  { id: 'block-overview', label: 'Block Overview', icon: Blocks },
   { id: 'subject-management', label: 'Subject Management', icon: BookOpen },
   { id: 'courses', label: 'Professor Loads', icon: BookOpen },
-  { id: 'documents', label: 'Document Archive', icon: FolderOpen },
+  { id: 'documents', label: 'Academic Archive', icon: FolderOpen },
   { id: 'announcements', label: 'Announcements', icon: Bell },
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'profile', label: 'Profile', icon: User },
@@ -62,6 +66,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
   const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string | null>(null)
   const [blockWorkspaceSelection, setBlockWorkspaceSelection] = useState<BlockWorkspaceSelection | null>(null)
   const [courseWorkspaceSelection, setCourseWorkspaceSelection] = useState<RegistrarCourseWorkspaceSelection | null>(null)
+  const [historyStudentId, setHistoryStudentId] = useState<string | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -106,9 +111,9 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
   const renderContent = () => {
     switch (view) {
       case 'students':
-        return <StudentManagement />
+        return <StudentManagement onViewHistory={(studentId) => { setHistoryStudentId(studentId); setView('student-history') }} />
       case 'assign-block':
-        return <StudentManagement mode="assign-block" />
+        return <BlockAssignmentPage />
       case 'add-student':
         return (
           <StudentWizard
@@ -131,15 +136,24 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
         )
       case 'course-workspace':
         return <RegistrarCourseWorkspace selection={courseWorkspaceSelection} onBack={() => setView('courses')} />
+      case 'block-overview':
+        return <BlockOverviewDashboard
+          onManageAssignments={() => setView('assign-block')}
+          onViewBlocks={() => setView('view-blocks')}
+        />
       case 'block-management':
-        return <BlockManagement onOpenBlocksPage={() => setView('view-blocks')} onGoDashboard={() => setView('applicants')} />
+        return <BlockManagement onOpenBlocksPage={() => setView('view-blocks')} onGoDashboard={() => setView('block-overview')} />
       case 'view-blocks':
-        return <ViewBlocksPage onBack={() => setView('block-management')} onOpenWorkspace={(selection) => {
+        return <ViewBlocksPage onBack={() => setView('block-overview')} onOpenWorkspace={(selection) => {
           setBlockWorkspaceSelection(selection)
           setView('block-workspace')
         }} />
       case 'block-workspace':
         return <BlockWorkspace selection={blockWorkspaceSelection} onBack={() => setView('view-blocks')} />
+      case 'school-year-rollover':
+        return <SchoolYearRollover onBack={() => setView('block-overview')} />
+      case 'student-history':
+        return <StudentHistoryPage studentId={historyStudentId || ''} onBack={() => setView('students')} />
       case 'subject-management':
         return <SubjectManagementPage mode="catalog" />
       case 'add-subject':
@@ -147,7 +161,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
       case 'assign-subject':
         return <AssignSubjectPage />
       case 'documents':
-        return <DocumentManagement onNavigate={(viewName) => setView(viewName)} />
+        return <AcademicArchivePage />
       case 'reports':
         return <ReportsDashboard />
       case 'profile':
@@ -166,8 +180,8 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
           }
         }} />
       case 'announcement-detail':
-        return <AnnouncementDetail 
-          announcementId={selectedAnnouncementId!} 
+        return <AnnouncementDetail
+          announcementId={selectedAnnouncementId!}
           onBack={handleBackFromDetail}
         />
       case 'personal-details':
@@ -212,28 +226,30 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
             const isActive = (
               view === id
               || (id === 'courses' && view === 'course-workspace')
-              || (id === 'block-management' && (view === 'assign-block' || view === 'view-blocks' || view === 'block-workspace'))
+              || (id === 'block-overview' && (view === 'block-management' || view === 'assign-block' || view === 'view-blocks' || view === 'block-workspace' || view === 'school-year-rollover'))
               || (id === 'subject-management' && (view === 'add-subject' || view === 'assign-subject'))
               || (id === 'students' && view === 'add-student')
             )
-            const isBlockManagement = id === 'block-management'
+            const isBlockOverview = id === 'block-overview'
             const isSubjectManagement = id === 'subject-management'
             const isStudentManagement = id === 'students'
-            const showBlockSubnav = isBlockManagement && isActive
+            const showBlockSubnav = isBlockOverview && isActive
             const showSubjectSubnav = isSubjectManagement && isActive
             const showStudentSubnav = isStudentManagement && isActive
+            const isBlockOverviewActive = view === 'block-overview'
             const isAddBlockActive = view === 'block-management'
             const isAssignBlockActive = view === 'assign-block'
+            const isRolloverActive = view === 'school-year-rollover'
             const isAddSubjectActive = view === 'add-subject'
             const isSubjectAssignmentActive = view === 'assign-subject'
             const isAddStudentActive = view === 'add-student'
 
             return (
-              <div key={id} className={isBlockManagement || isSubjectManagement || isStudentManagement ? 'registrar-sidebar-group' : undefined}>
+              <div key={id} className={isBlockOverview || isSubjectManagement || isStudentManagement ? 'registrar-sidebar-group' : undefined}>
                 <button
                   type="button"
                   className={`registrar-sidebar-link ${isActive ? 'registrar-sidebar-link-active' : ''}`}
-                  onClick={() => setView(isBlockManagement ? 'view-blocks' : id)}
+                  onClick={() => setView(isBlockOverview ? 'block-overview' : id)}
                   aria-current={isActive ? 'page' : undefined}
                 >
                   <Icon size={18} className="registrar-sidebar-icon" />
@@ -258,6 +274,15 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
                   <div className="registrar-sidebar-subnav" aria-label="Block management navigation">
                     <button
                       type="button"
+                      className={`registrar-sidebar-sublink ${isBlockOverviewActive ? 'registrar-sidebar-sublink-active' : ''}`}
+                      onClick={() => setView('block-overview')}
+                      aria-current={isBlockOverviewActive ? 'page' : undefined}
+                    >
+                      <TrendingUp size={15} className="registrar-sidebar-icon" />
+                      <span>Overview</span>
+                    </button>
+                    <button
+                      type="button"
                       className={`registrar-sidebar-sublink ${isAddBlockActive ? 'registrar-sidebar-sublink-active' : ''}`}
                       onClick={() => setView('block-management')}
                       aria-current={isAddBlockActive ? 'page' : undefined}
@@ -273,6 +298,15 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
                     >
                       <Users size={15} className="registrar-sidebar-icon" />
                       <span>Assign Block</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`registrar-sidebar-sublink ${isRolloverActive ? 'registrar-sidebar-sublink-active' : ''}`}
+                      onClick={() => setView('school-year-rollover')}
+                      aria-current={isRolloverActive ? 'page' : undefined}
+                    >
+                      <TrendingUp size={15} className="registrar-sidebar-icon" />
+                      <span>Close School Year</span>
                     </button>
                   </div>
                 )}
@@ -331,5 +365,5 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
 }
 
 function ReportsDashboard() {
-  return <RegistrarReportsPanel />
+  return <EnterpriseAuditReport />
 }

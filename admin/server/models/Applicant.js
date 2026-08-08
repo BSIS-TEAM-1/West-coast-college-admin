@@ -1,12 +1,47 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
+const GPA_MIN = 60;
+const GPA_MAX = 100;
+
 const schoolRecordSchema = new Schema({
-  schoolName: { type: String, required: true, trim: true },
-  schoolAddress: { type: String, trim: true },
-  yearGraduated: { type: String, required: true, trim: true },
-  generalAverage: { type: String, trim: true },
-  gradesSummary: { type: String, trim: true },
+  schoolName: {
+    type: String,
+    required: true,
+    trim: true,
+    maxlength: 150,
+    validate: {
+      validator: function(v) {
+        return /^[a-zA-Z0-9\s,.'\-()]+$/.test(v);
+      },
+      message: 'School name contains invalid characters.'
+    }
+  },
+  schoolAddress: { type: String, trim: true, maxlength: 255 },
+  yearGraduated: {
+    type: String,
+    required: true,
+    trim: true,
+    validate: {
+      validator: function(v) {
+        return /^\d{4}$/.test(v);
+      },
+      message: 'Year graduated must be a 4-digit year.'
+    }
+  },
+  generalAverage: {
+    type: String,
+    trim: true,
+    validate: {
+      validator: function(v) {
+        if (!v) return true;
+        const num = parseFloat(v);
+        return !isNaN(num) && num >= GPA_MIN && num <= GPA_MAX;
+      },
+      message: `General average must be a number between ${GPA_MIN} and ${GPA_MAX}.`
+    }
+  },
+  gradesSummary: { type: String, trim: true, maxlength: 500 },
   strandOrTrack: { type: String, trim: true }
 }, { _id: false });
 
@@ -47,10 +82,21 @@ const applicantSchema = new Schema({
     required: true,
     lowercase: true,
     trim: true,
-    match: [/^\S+@\S+\.\S+$/, 'Please enter a valid email address'],
+    match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'Please enter a valid email address'],
     index: true
   },
-  phoneNumber: { type: String, required: true, trim: true },
+  phoneNumber: {
+    type: String,
+    required: true,
+    trim: true,
+    validate: {
+      validator: function(v) {
+        const digits = v.replace(/[^0-9]/g, '');
+        return /^(09|\+639)\d{9}$/.test(v) || (digits.length === 11 && digits.startsWith('09')) || (digits.length === 13 && digits.startsWith('639'));
+      },
+      message: 'Phone number must be a valid Philippine mobile number (e.g. 09171234567 or +639171234567).'
+    }
+  },
 
   birthDate: { type: Date, required: true },
   birthPlace: { type: String, trim: true },
@@ -60,22 +106,68 @@ const applicantSchema = new Schema({
   religion: { type: String, trim: true },
   currentAddress: { type: String, required: true, trim: true },
   permanentAddress: { type: String, trim: true },
+  currentLocation: {
+    regionCode: { type: String, trim: true },
+    regionName: { type: String, trim: true },
+    provinceCode: { type: String, trim: true },
+    provinceName: { type: String, trim: true },
+    cityCode: { type: String, trim: true },
+    cityName: { type: String, trim: true },
+    barangayCode: { type: String, trim: true },
+    barangayName: { type: String, trim: true },
+    streetAddress: { type: String, trim: true }
+  },
+  permanentLocation: {
+    regionCode: { type: String, trim: true },
+    regionName: { type: String, trim: true },
+    provinceCode: { type: String, trim: true },
+    provinceName: { type: String, trim: true },
+    cityCode: { type: String, trim: true },
+    cityName: { type: String, trim: true },
+    barangayCode: { type: String, trim: true },
+    barangayName: { type: String, trim: true },
+    streetAddress: { type: String, trim: true }
+  },
 
   fatherName: { type: String, trim: true },
   motherName: { type: String, trim: true },
   guardianName: { type: String, trim: true },
   guardianRelationship: { type: String, trim: true },
-  guardianContactNumber: { type: String, required: true, trim: true },
+  guardianContactNumber: {
+    type: String,
+    required: true,
+    trim: true,
+    validate: {
+      validator: function(v) {
+        const digits = v.replace(/[^0-9]/g, '');
+        return /^(09|\+639)\d{9}$/.test(v) || (digits.length === 11 && digits.startsWith('09')) || (digits.length === 13 && digits.startsWith('639'));
+      },
+      message: 'Guardian contact number must be a valid Philippine mobile number.'
+    }
+  },
   emergencyContact: {
-    name: { type: String, required: true, trim: true },
+    name: { type: String, required: true, trim: true, maxlength: 100 },
     relationship: { type: String, required: true, trim: true },
-    contactNumber: { type: String, required: true, trim: true },
-    address: { type: String, trim: true }
+    contactNumber: {
+      type: String,
+      required: true,
+      trim: true,
+      validate: {
+        validator: function(v) {
+          const digits = v.replace(/[^0-9]/g, '');
+          return /^(09|\+639)\d{9}$/.test(v) || (digits.length === 11 && digits.startsWith('09')) || (digits.length === 13 && digits.startsWith('639'));
+        },
+        message: 'Emergency contact number must be a valid Philippine mobile number.'
+      }
+    },
+    address: { type: String, trim: true, maxlength: 255 }
   },
 
   academicDetails: {
     elementary: { type: schoolRecordSchema, required: true },
-    highSchool: { type: schoolRecordSchema, required: true }
+    highSchool: { type: schoolRecordSchema, required: true },
+    seniorHighSchool: { type: schoolRecordSchema },
+    college: { type: schoolRecordSchema }
   },
 
   selectedCourse: {

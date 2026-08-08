@@ -37,7 +37,7 @@ const SCHOLARSHIP_OPTIONS = [
 const STUDENT_GENDERS = ['Male', 'Female', 'Other', 'Prefer not to say'];
 const STUDENT_CIVIL_STATUSES = ['Single', 'Married', 'Widowed', 'Separated', 'Divorced'];
 const subjectIdSchema = Joi.string().pattern(/^[0-9a-fA-F]{24}$/);
-const studentNumberSchema = Joi.string().pattern(/^[0-9]{4}-(?:[0-9]{3}|[A-Z][A-Z0-9-]{1,20})-[0-9]{5}$/);
+const studentNumberSchema = Joi.string().pattern(/^[0-9]{12}$/);
 const accountUidSchema = Joi.string().trim().pattern(/^1\d{11,12}$/);
 const schoolYearSchema = Joi.string().pattern(/^\d{4}-\d{4}$/);
 const nonEmptyTrimmedString = (max = 254) => Joi.string().trim().min(1).max(max);
@@ -494,6 +494,34 @@ const schemas = {
           }
           return value;
         })
+    },
+    updateBlockGroup: {
+      body: Joi.object({
+        name: Joi.string().trim().min(1).max(100).optional(),
+        courseId: Joi.number().integer().min(1).max(999).optional(),
+        courseCode: Joi.string().trim().min(1).max(50).optional(),
+        section: Joi.string().trim().min(1).max(10).optional(),
+        semester: Joi.string().valid('1st', '2nd', 'Summer').optional(),
+        year: Joi.number().integer().min(2000).max(3000).optional(),
+        schoolYear: Joi.string().pattern(/^\d{4}-\d{4}$/).optional(),
+        yearLevel: Joi.alternatives().try(
+          Joi.number().integer().min(1).max(5),
+          Joi.string().valid('1st', '2nd', '3rd', '4th', '5th', '1', '2', '3', '4', '5')
+        ).optional(),
+        policies: Joi.object({
+          overcapPolicy: Joi.string().valid('allow', 'deny', 'waitlist').optional(),
+          maxOvercap: Joi.number().integer().min(0).optional(),
+          allowCapacityIncrease: Joi.boolean().optional(),
+          allowAutoSectionCreation: Joi.boolean().optional()
+        }).optional()
+      })
+    },
+    updateSection: {
+      body: Joi.object({
+        sectionCode: Joi.string().trim().min(1).max(50).optional(),
+        capacity: Joi.number().integer().min(1).max(50).optional(),
+        schedule: Joi.string().trim().max(255).allow('').optional()
+      })
     }
   },
 
