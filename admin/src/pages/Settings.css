@@ -93,11 +93,9 @@
   overflow-wrap: anywhere;
 }
 
-.settings-layout {
+.settings-content {
   display: grid;
-  grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.28fr);
-  gap: 1.5rem;
-  align-items: start;
+  gap: 1.25rem;
 }
 
 .settings-section {
@@ -109,10 +107,6 @@
   box-shadow: 0 18px 36px rgba(0, 33, 71, 0.08);
 }
 
-.settings-section-appearance {
-  position: sticky;
-  top: 1rem;
-}
 
 .settings-section-header {
   display: flex;
@@ -334,37 +328,25 @@
   line-height: 1.45;
 }
 
-.settings-form,
-.settings-security-form {
+.settings-form {
   display: grid;
-  gap: 1rem;
+  gap: 1.25rem;
 }
 
 .settings-form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
 }
 
-.settings-section-password,
-.settings-section-access {
-  container-type: inline-size;
-  container-name: settings-access;
-}
 
 .settings-card-body {
   display: grid;
   gap: 1rem;
 }
 
-.settings-password-grid {
+.settings-two-col {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-@container settings-access (max-width: 620px) {
-  .settings-password-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .settings-save-panel {
@@ -372,11 +354,12 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 1rem;
-  padding: 1rem;
+  padding: 1rem 1.25rem;
+  margin-top: 1.25rem;
   border: 1px solid color-mix(in srgb, var(--settings-gold) 34%, var(--settings-border));
-  border-radius: 8px;
+  border-radius: 6px;
   background: color-mix(in srgb, var(--settings-gold-soft) 24%, #ffffff);
-  box-shadow: 0 14px 28px rgba(0, 33, 71, 0.06);
+  box-shadow: 0 8px 20px rgba(0, 33, 71, 0.05);
 }
 
 .settings-save-panel > div {
@@ -821,33 +804,15 @@
   .settings-hero-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .settings-layout {
-    grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.2fr);
-  }
 }
 
 @media (max-width: 960px) {
-  .settings-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .settings-section-appearance {
-    position: static;
-  }
-
   .settings-form-grid {
     grid-template-columns: 1fr;
   }
-}
 
-@container settings-access (max-width: 520px) {
-  .settings-toggle-card {
+  .settings-two-col {
     grid-template-columns: 1fr;
-  }
-
-  .settings-toggle-control {
-    justify-self: start;
   }
 }
 
@@ -858,8 +823,7 @@
 
   .settings-hero-stats,
   .settings-form-grid,
-  .settings-layout,
-  .settings-password-grid,
+  .settings-two-col,
   .settings-save-panel {
     grid-template-columns: 1fr;
   }

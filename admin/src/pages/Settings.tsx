@@ -9,6 +9,7 @@ import {
   getStoredTheme,
   type ThemePreference,
 } from '../lib/theme';
+import { getAcademicTerm, updateAcademicTerm, type AcademicSemester } from '../lib/settingsApi';
 import './Settings.css';
 
 type Theme = ThemePreference;
@@ -33,6 +34,63 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
     newPassword: '',
     loginEmailVerificationEnabled: false,
   });
+
+  // Academic term (global current school year) state
+  const [academicTerm, setAcademicTerm] = useState<{ schoolYear: string; semester: AcademicSemester } | null>(null);
+  const [academicTermDraft, setAcademicTermDraft] = useState({ schoolYear: '', semester: '1st' as AcademicSemester });
+  const [academicTermLoading, setAcademicTermLoading] = useState(true);
+  const [academicTermSaving, setAcademicTermSaving] = useState(false);
+  const [academicTermStatus, setAcademicTermStatus] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
+
+  useEffect(() => {
+    getAcademicTerm()
+      .then((term) => {
+        setAcademicTerm(term);
+        setAcademicTermDraft(term);
+      })
+      .catch((err) => {
+        setAcademicTermStatus({
+          type: 'error',
+          message: err instanceof Error ? err.message : 'Failed to load academic term setting.',
+        });
+      })
+      .finally(() => setAcademicTermLoading(false));
+  }, []);
+
+  const academicTermDirty = Boolean(
+    academicTerm &&
+    (academicTermDraft.schoolYear !== academicTerm.schoolYear || academicTermDraft.semester !== academicTerm.semester)
+  );
+
+  const handleAcademicTermSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!academicTermDirty) return;
+
+    if (!/^\d{4}-\d{4}$/.test(academicTermDraft.schoolYear.trim())) {
+      setAcademicTermStatus({ type: 'error', message: 'School year must be in YYYY-YYYY format.' });
+      return;
+    }
+
+    setAcademicTermSaving(true);
+    setAcademicTermStatus(null);
+    try {
+      const updated = await updateAcademicTerm({
+        schoolYear: academicTermDraft.schoolYear.trim(),
+        semester: academicTermDraft.semester,
+      });
+      setAcademicTerm(updated);
+      setAcademicTermDraft(updated);
+      setAcademicTermStatus({ type: 'success', message: 'Academic term updated successfully.' });
+    } catch (err) {
+      setAcademicTermStatus({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Failed to update academic term setting.',
+      });
+    } finally {
+      setAcademicTermSaving(false);
+    }
+  };
+
   // Load theme preference from localStorage on mount
   useEffect(() => {
     const initialTheme = getStoredTheme();
@@ -198,8 +256,8 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
         </p>
       )}
 
-      <div className="settings-layout">
-        <section className="settings-section settings-section-theme settings-section-appearance">
+      <div className="settings-content">
+        <section className="settings-section settings-section-appearance">
           <div className="settings-section-header">
             <div>
               <span className="settings-section-kicker">Appearance</span>
@@ -207,7 +265,7 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
               <p className="settings-section-desc">Keep the interface consistent while choosing the brightness mode that fits your workspace.</p>
             </div>
           </div>
-          
+
           <div className="theme-options">
             <div className="theme-option">
               <input
@@ -284,12 +342,83 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
               </label>
             </div>
           </div>
-
         </section>
 
-        <form className="settings-form settings-security-form" onSubmit={handleSubmit}>
+        {profile?.accountType !== 'professor' ? (
+          <form className="settings-form" onSubmit={handleAcademicTermSubmit}>
+            <section className="settings-section">
+              <div className="settings-section-header">
+                <div>
+                  <span className="settings-section-kicker">Academic</span>
+                  <h3 className="settings-section-title">Current School Year</h3>
+                  <p className="settings-section-desc">
+                    This is the default school year and semester used when creating new students and block groups. Individual records can still be created for other terms when needed.
+                  </p>
+                </div>
+              </div>
+
+              {academicTermStatus && (
+                <p className={`settings-status ${academicTermStatus.type === 'error' ? 'settings-error' : 'settings-success'}`} role="alert">
+                  {academicTermStatus.message}
+                </p>
+              )}
+
+              <div className="settings-card-body settings-two-col">
+                <div className="form-group">
+                  <label htmlFor="academicTermSchoolYear">School Year</label>
+                  <input
+                    id="academicTermSchoolYear"
+                    name="schoolYear"
+                    type="text"
+                    className="settings-input"
+                    placeholder="e.g. 2025-2026"
+                    pattern="\d{4}-\d{4}"
+                    value={academicTermDraft.schoolYear}
+                    onChange={(event) => setAcademicTermDraft((prev) => ({ ...prev, schoolYear: event.target.value }))}
+                    disabled={academicTermLoading}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="academicTermSemester">Semester</label>
+                  <select
+                    id="academicTermSemester"
+                    name="semester"
+                    className="settings-input"
+                    value={academicTermDraft.semester}
+                    onChange={(event) => setAcademicTermDraft((prev) => ({ ...prev, semester: event.target.value as AcademicSemester }))}
+                    disabled={academicTermLoading}
+                  >
+                    <option value="1st">1st Semester</option>
+                    <option value="2nd">2nd Semester</option>
+                    <option value="Summer">Summer</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="settings-save-panel">
+                <div>
+                  <span className="settings-save-title">Academic Term Changes</span>
+                  <span className="settings-save-copy">
+                    {academicTermDirty ? 'Review and save the updated school year/semester.' : 'No pending changes.'}
+                  </span>
+                </div>
+                <button
+                  type="submit"
+                  className="settings-submit"
+                  disabled={academicTermLoading || academicTermSaving || !academicTermDirty}
+                >
+                  {academicTermSaving ? 'Saving changes...' : 'Save Changes'}
+                </button>
+              </div>
+            </section>
+          </form>
+        ) : null}
+
+        <form className="settings-form" onSubmit={handleSubmit}>
           <div className="settings-form-grid">
-            <section className="settings-section settings-section-security">
+            <section className="settings-section">
               <div className="settings-section-header">
                 <div>
                   <span className="settings-section-kicker">Account</span>
@@ -315,7 +444,7 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
               </div>
             </section>
 
-            <section className="settings-section settings-section-password">
+            <section className="settings-section">
               <div className="settings-section-header">
                 <div>
                   <span className="settings-section-kicker">Security</span>
@@ -324,7 +453,7 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
                 </div>
               </div>
 
-              <div className="settings-card-body settings-password-grid">
+              <div className="settings-card-body settings-two-col">
                 <div className="form-group">
                   <label htmlFor="currentPassword">Current Password</label>
                   <input
@@ -356,7 +485,7 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
               </div>
             </section>
 
-            <section className="settings-section settings-section-access">
+            <section className="settings-section">
               <div className="settings-section-header">
                 <div>
                   <span className="settings-section-kicker">Access Control</span>
@@ -388,7 +517,7 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
               </label>
             </section>
 
-            <section className="settings-section settings-section-signout">
+            <section className="settings-section">
               <div className="settings-section-header">
                 <div>
                   <span className="settings-section-kicker">Session</span>
@@ -397,8 +526,8 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
                 </div>
               </div>
 
-              <button 
-                type="button" 
+              <button
+                type="button"
                 className="settings-signout-btn"
                 onClick={handleSignOut}
               >
@@ -415,9 +544,9 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
                 {isDirty ? 'Review and save your pending account changes.' : 'No pending security changes.'}
               </span>
             </div>
-            <button 
-              type="submit" 
-              className="settings-submit" 
+            <button
+              type="submit"
+              className="settings-submit"
               disabled={saving || !isDirty}
             >
               {saving ? 'Saving changes...' : 'Save Changes'}
