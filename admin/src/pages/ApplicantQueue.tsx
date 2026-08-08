@@ -70,6 +70,7 @@ export default function ApplicantQueue() {
   const [remarks, setRemarks] = useState('')
   const [nextStatus, setNextStatus] = useState<ApplicantStatus>('For Evaluation')
   const [openMenuId, setOpenMenuId] = useState('')
+  const [emailNotice, setEmailNotice] = useState('')
 
   const programs = useMemo(() => {
     const uniquePrograms = new Map<string, string>()
@@ -138,14 +139,23 @@ export default function ApplicantQueue() {
     if (!selected) return
     setSaving(true)
     setError('')
+    setEmailNotice('')
 
     try {
-      const updated = await updateApplicantStatus(selected._id, {
+      const { data: updated, emailNotification } = await updateApplicantStatus(selected._id, {
         status: nextStatus,
         registrarRemarks: remarks
       })
       setApplicants((current) => current.map((item) => item._id === updated._id ? updated : item))
       setOpenMenuId('')
+
+      if (emailNotification) {
+        if (emailNotification.sent) {
+          setEmailNotice(`Notification email sent to ${emailNotification.recipient || selected.email} via ${emailNotification.provider}.`)
+        } else {
+          setEmailNotice(`Failed to send email notification: ${emailNotification.error || 'unknown error'}`)
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update applicant.')
     } finally {
@@ -405,7 +415,7 @@ export default function ApplicantQueue() {
               <Detail label="Applicant Type" value={selected.applicantType} />
               <Detail label="Course" value={getCourseLabel(selected)} />
               <Detail label="Requested Year" value={`Year ${selected.requestedYearLevel}`} />
-              <Detail label="School Year" value={selected.schoolYear} />
+              <Detail label="School Year" value={selected.schoolYear || 'N/A'} />
               <Detail label="Address" value={selected.currentAddress} />
               <Detail label="Guardian" value={selected.guardianName || 'N/A'} />
               <Detail label="Guardian Contact" value={selected.guardianContactNumber} />
@@ -434,6 +444,11 @@ export default function ApplicantQueue() {
               <button type="button" onClick={handleStatusUpdate} disabled={saving}>
                 {saving ? 'Saving...' : 'Save Review'}
               </button>
+              {emailNotice && (
+                <p className={`applicant-email-notice${emailNotice.startsWith('Failed') ? ' applicant-email-notice-error' : ''}`}>
+                  {emailNotice}
+                </p>
+              )}
             </div>
           </>
         )}

@@ -522,6 +522,24 @@
   resize: vertical;
 }
 
+.applicant-email-notice {
+  grid-column: 1 / -1;
+  margin: 0.5rem 0 0;
+  padding: 0.625rem 0.875rem;
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+}
+
+.applicant-email-notice-error {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
 .applicant-queue-empty {
   margin: 0;
   color: var(--applicant-muted);
