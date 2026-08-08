@@ -7,40 +7,34 @@ class AppTextStyles {
     fontSize: 57,
     fontWeight: FontWeight.w400,
     letterSpacing: -0.25,
-    color: AppColors.textPrimary,
   );
   
   static const TextStyle displayMedium = TextStyle(
     fontSize: 45,
     fontWeight: FontWeight.w400,
-    color: AppColors.textPrimary,
   );
   
   static const TextStyle displaySmall = TextStyle(
     fontSize: 36,
     fontWeight: FontWeight.w400,
-    color: AppColors.textPrimary,
   );
   
   // Headline (Matching Admin System)
   static const TextStyle headlineLarge = TextStyle(
     fontSize: 28,    // clamp(1.75rem, 2vw, 1.55rem) ≈ 28px
     fontWeight: FontWeight.w700, // Bold (700)
-    color: AppColors.textPrimary,
     height: 1.18, // Line-height: 1.18
   );
   
   static const TextStyle headlineMedium = TextStyle(
     fontSize: 18.9,  // 1.18rem ≈ 18.9px
     fontWeight: FontWeight.w700, // Bold (700)
-    color: AppColors.textPrimary,
     height: 1.2,  // Line-height: 1.2
   );
   
   static const TextStyle headlineSmall = TextStyle(
     fontSize: 17.3,  // 1.08rem ≈ 17.3px
     fontWeight: FontWeight.w700, // Bold (700)
-    color: AppColors.textPrimary,
     height: 1.2,  // Line-height: 1.2
   );
   
@@ -48,19 +42,16 @@ class AppTextStyles {
   static const TextStyle titleLarge = TextStyle(
     fontSize: 16,
     fontWeight: FontWeight.w500,
-    color: AppColors.textPrimary,
   );
   
   static const TextStyle titleMedium = TextStyle(
     fontSize: 14,
     fontWeight: FontWeight.w500,
-    color: AppColors.textPrimary,
   );
   
   static const TextStyle titleSmall = TextStyle(
     fontSize: 12,
     fontWeight: FontWeight.w500,
-    color: AppColors.textPrimary,
   );
   
   // Body (Matching Admin System: 0.875rem = 14px, line-height: 1.45)
@@ -69,7 +60,6 @@ class AppTextStyles {
     fontWeight: FontWeight.w400,
     height: 1.45,
     letterSpacing: 0,
-    color: AppColors.textPrimary,
   );
   
   static const TextStyle bodyMedium = TextStyle(
@@ -77,7 +67,6 @@ class AppTextStyles {
     fontWeight: FontWeight.w400,
     height: 1.45,
     letterSpacing: 0,
-    color: AppColors.textPrimary,
   );
   
   static const TextStyle bodySmall = TextStyle(
@@ -92,21 +81,18 @@ class AppTextStyles {
   static const TextStyle labelLarge = TextStyle(
     fontSize: 14,
     fontWeight: FontWeight.w500,
-    color: AppColors.textPrimary,
   );
   
   static const TextStyle labelMedium = TextStyle(
     fontSize: 11.8,  // 0.74rem
     fontWeight: FontWeight.w500,
     letterSpacing: 0.04, // 0.04em
-    color: AppColors.textPrimary,
   );
   
   static const TextStyle labelSmall = TextStyle(
     fontSize: 11.8,  // 0.74rem
     fontWeight: FontWeight.w500,
     letterSpacing: 0.04, // 0.04em
-    color: AppColors.textPrimary,
   );
   
   // Button (Matching Admin System: font-weight: 500)
@@ -169,6 +155,5 @@ class AppTextStyles {
     fontSize: 14,
     fontWeight: FontWeight.w400,
     fontFamily: 'monospace',
-    color: AppColors.textPrimary,
   );
 }

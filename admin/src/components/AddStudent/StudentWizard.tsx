@@ -95,7 +95,7 @@ export default function StudentWizard({ onClose, onSuccess, mode = 'create', stu
 
   const handleNext = () => {
     // Only validate when user clicks Next
-    const stepErrors = validateStep(currentStep, formData)
+    const stepErrors = validateStep(currentStep, formData, mode)
     if (stepErrors.length > 0) {
       return
     }
@@ -118,7 +118,7 @@ export default function StudentWizard({ onClose, onSuccess, mode = 'create', stu
   }
 
   const handleSubmit = async () => {
-    const allErrors = validateStep('review', formData)
+    const allErrors = validateStep('review', formData, mode)
     if (allErrors.length > 0) {
       return
     }
@@ -171,7 +171,7 @@ export default function StudentWizard({ onClose, onSuccess, mode = 'create', stu
 
   const getCurrentStepErrors = () => {
     if (currentStep === 'success') return []
-    return getStepErrors(currentStep, formData)
+    return getStepErrors(currentStep, formData, mode)
   }
 
   const canProceed = () => {
@@ -213,6 +213,7 @@ export default function StudentWizard({ onClose, onSuccess, mode = 'create', stu
             data={formData}
             onChange={handleChange}
             errors={stepErrors}
+            isEditMode={isEditMode}
           />
         )
       case 'academic':

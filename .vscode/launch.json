@@ -1,0 +1,29 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        
+        {
+            "name": "west_coast_flutter_app",
+            "cwd": "west_coast_college_mobile_app\\west_coast_flutter_app",
+            "request": "launch",
+            "type": "dart"
+        },
+        {
+            "name": "west_coast_flutter_app (profile mode)",
+            "cwd": "west_coast_college_mobile_app\\west_coast_flutter_app",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "profile"
+        },
+        {
+            "name": "west_coast_flutter_app (release mode)",
+            "cwd": "west_coast_college_mobile_app\\west_coast_flutter_app",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "release"
+        }
+    ]
+}

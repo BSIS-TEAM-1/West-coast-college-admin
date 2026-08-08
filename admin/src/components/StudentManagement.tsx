@@ -1,5 +1,4 @@
-import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Archive,
   Blocks,
@@ -28,16 +27,35 @@ import type { WizardFormData } from './AddStudent/types'
 import { validateStep } from './AddStudent/validation'
 import { buildStudentPayloadFromWizardForm, buildWizardFormData } from './AddStudent/formLogic'
 import StudentWizard from './AddStudent/StudentWizard'
+import BlockAssignmentModal from './BlockAssignmentModal'
+import { StudentWorkspaceOverlay, isStudentWorkspaceBackdropTarget } from './shared/StudentWorkspaceOverlay'
+import {
+  COURSE_OPTIONS,
+  authorizedFetch,
+  courseFullLabel,
+  courseShortLabel,
+  extractResponseData,
+  formatBlockDisplay,
+  formatStudentNumber,
+  formatYearLevel,
+  getDefaultSchoolYear,
+  getSharedAcademicContext,
+  normalizeCourseCode,
+  studentDisplayName,
+  studentInitials,
+  studentNumberDisplay,
+  type Semester
+} from '../lib/blockAssignmentShared'
 import './StudentManagement.css'
 
 type LifecycleStatus = 'Pending' | 'Enrolled' | 'Not Enrolled' | 'Dropped' | 'Inactive' | 'Graduated' | 'Leave of Absence'
 type StudentRegistrySort = 'name-asc' | 'name-desc' | 'id-asc' | 'course-asc' | 'year-asc' | 'updated-desc'
-type ProfileTab = 'profile' | 'enrollment' | 'subjects' | 'documents' | 'history'
-type Semester = '1st' | '2nd' | 'Summer'
+type ProfileTab = 'profile' | 'enrollment' | 'subjects' | 'documents'
 type StudentManagementMode = 'management' | 'assign-block'
 
 type StudentManagementProps = {
   mode?: StudentManagementMode
+  onViewHistory?: (studentId: string) => void
 }
 
 type ManagedStudent = StudentData & {
@@ -113,27 +131,6 @@ type SubjectCatalogItem = {
   semester?: string
 }
 
-type BlockGroup = {
-  _id: string
-  name: string
-  courseId?: number | string
-  courseCode?: string
-  yearLevel?: number | string
-  semester: Semester
-  schoolYear?: string
-  year: number
-  section?: string
-}
-
-type BlockSection = {
-  _id: string
-  sectionCode: string
-  capacity: number
-  currentPopulation: number
-  status?: string
-  blockGroupId?: string
-}
-
 type StudentFormState = {
   studentNumber: string
   firstName: string
@@ -163,223 +160,14 @@ type StudentFormState = {
   emergencyContactAddress: string
 }
 
-type SharedAcademicContext = {
-  sharedCourse: number | null
-  sharedYearLevel: number | null
-  sharedSemester: string
-  sharedSchoolYear: string
-  isSingleCourse: boolean
-  isSingleYearLevel: boolean
-}
-
-const COURSE_OPTIONS = [
-  { value: 101, label: 'BEED', fullLabel: 'Bachelor of Elementary Education (BEED)' },
-  { value: 102, label: 'BSEd-English', fullLabel: 'Bachelor of Secondary Education - Major in English' },
-  { value: 103, label: 'BSEd-Math', fullLabel: 'Bachelor of Secondary Education - Major in Mathematics' },
-  { value: 201, label: 'BSBA-HRM', fullLabel: 'Bachelor of Science in Business Administration - Major in HRM' }
-] as const
-
 const YEAR_LEVEL_OPTIONS = [1, 2, 3, 4, 5]
 const LIFECYCLE_OPTIONS: LifecycleStatus[] = ['Pending', 'Enrolled', 'Not Enrolled', 'Dropped', 'Inactive', 'Graduated', 'Leave of Absence']
 const SEMESTER_OPTIONS: Semester[] = ['1st', '2nd', 'Summer']
-
-let studentWorkspaceOverlayDepth = 0
-let studentWorkspaceBodyOverflow = ''
-let studentWorkspaceHtmlOverflow = ''
-let studentWorkspaceBodyPaddingRight = ''
-let studentWorkspaceRootHadInert = false
-let studentWorkspaceRootAriaHidden: string | null = null
-let studentWorkspaceRootPointerEvents = ''
-let studentWorkspaceRootUserSelect = ''
-
-function useStudentWorkspaceOverlayLock() {
-  useLayoutEffect(() => {
-    if (typeof document === 'undefined' || typeof window === 'undefined') return undefined
-
-    const { body, documentElement } = document
-    const appRoot = document.getElementById('root')
-
-    if (studentWorkspaceOverlayDepth === 0) {
-      studentWorkspaceBodyOverflow = body.style.overflow
-      studentWorkspaceHtmlOverflow = documentElement.style.overflow
-      studentWorkspaceBodyPaddingRight = body.style.paddingRight
-
-      const scrollbarWidth = Math.max(0, window.innerWidth - documentElement.clientWidth)
-      body.style.overflow = 'hidden'
-      documentElement.style.overflow = 'hidden'
-      body.classList.add('student-workspace-overlay-open')
-      if (scrollbarWidth > 0) {
-        body.style.paddingRight = `${scrollbarWidth}px`
-      }
-
-      if (appRoot) {
-        studentWorkspaceRootHadInert = appRoot.hasAttribute('inert')
-        studentWorkspaceRootAriaHidden = appRoot.getAttribute('aria-hidden')
-        studentWorkspaceRootPointerEvents = appRoot.style.pointerEvents
-        studentWorkspaceRootUserSelect = appRoot.style.userSelect
-        appRoot.setAttribute('inert', '')
-        appRoot.setAttribute('aria-hidden', 'true')
-        appRoot.style.pointerEvents = 'none'
-        appRoot.style.userSelect = 'none'
-      }
-    }
-
-    studentWorkspaceOverlayDepth += 1
-
-    return () => {
-      studentWorkspaceOverlayDepth = Math.max(0, studentWorkspaceOverlayDepth - 1)
-      if (studentWorkspaceOverlayDepth === 0) {
-        body.style.overflow = studentWorkspaceBodyOverflow
-        documentElement.style.overflow = studentWorkspaceHtmlOverflow
-        body.style.paddingRight = studentWorkspaceBodyPaddingRight
-        body.classList.remove('student-workspace-overlay-open')
-
-        if (appRoot) {
-          if (studentWorkspaceRootHadInert) {
-            appRoot.setAttribute('inert', '')
-          } else {
-            appRoot.removeAttribute('inert')
-          }
-
-          if (studentWorkspaceRootAriaHidden === null) {
-            appRoot.removeAttribute('aria-hidden')
-          } else {
-            appRoot.setAttribute('aria-hidden', studentWorkspaceRootAriaHidden)
-          }
-
-          appRoot.style.pointerEvents = studentWorkspaceRootPointerEvents
-          appRoot.style.userSelect = studentWorkspaceRootUserSelect
-        }
-      }
-    }
-  }, [])
-}
-
-function StudentWorkspaceOverlay({ children }: { children: ReactNode }) {
-  useStudentWorkspaceOverlayLock()
-
-  if (typeof document === 'undefined') return null
-  return createPortal(children, document.body)
-}
-
-function isStudentWorkspaceBackdropTarget(event: { target: EventTarget | null; currentTarget: EventTarget | null }) {
-  return event.target === event.currentTarget
-}
-
-function extractResponseData<T>(payload: unknown): T {
-  if (payload && typeof payload === 'object' && 'data' in payload) {
-    return (payload as { data: T }).data
-  }
-  return payload as T
-}
-
-async function authorizedFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = await getStoredToken()
-  if (!token) throw new Error('No authentication token found')
-
-  const response = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: {
-      ...(init.headers || {}),
-      Authorization: `Bearer ${token}`
-    }
-  })
-
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    throw new Error((data?.error as string) || (data?.message as string) || `Request failed (${response.status})`)
-  }
-
-  return data as T
-}
-
-function schoolYearFromStartYear(value: number | string) {
-  const startYear = Number(value)
-  return Number.isFinite(startYear) && startYear > 0 ? `${startYear}-${startYear + 1}` : ''
-}
-
-function schoolYearStart(schoolYear: string) {
-  const match = String(schoolYear || '').trim().match(/^(\d{4})-\d{4}$/)
-  return match ? Number(match[1]) : 0
-}
-
-function getDefaultSchoolYear() {
-  const currentYear = new Date().getFullYear()
-  return `${currentYear}-${currentYear + 1}`
-}
-
-function normalizeCourseCode(value: unknown) {
-  const raw = String(value ?? '').trim().toUpperCase()
-  if (!raw) return ''
-  if (/^\d+$/.test(raw)) return raw
-  if (raw.includes('BEED')) return '101'
-  if ((raw.includes('BSED') && raw.includes('ENGLISH')) || raw === 'ENGLISH') return '102'
-  if ((raw.includes('BSED') && raw.includes('MATH')) || raw.includes('MATHEMATICS') || raw === 'MATH') return '103'
-  if ((raw.includes('BSBA') && raw.includes('HRM')) || raw === 'HRM') return '201'
-  return raw
-}
-
-function courseShortLabel(value: unknown) {
-  const normalized = normalizeCourseCode(value)
-  return COURSE_OPTIONS.find((course) => String(course.value) === normalized)?.label || String(value || 'N/A')
-}
-
-function courseFullLabel(value: unknown) {
-  const normalized = normalizeCourseCode(value)
-  return COURSE_OPTIONS.find((course) => String(course.value) === normalized)?.fullLabel || String(value || 'N/A')
-}
-
-function formatStudentNumber(value: unknown, course?: unknown) {
-  const raw = String(value ?? '').trim()
-  const fallbackCourseCode = normalizeCourseCode(course)
-
-  if (!raw) {
-    return fallbackCourseCode ? `0000-${fallbackCourseCode}-00000` : 'N/A'
-  }
-
-  const parts = raw.split('-').map((part) => part.trim()).filter(Boolean)
-  let year = /^\d{4}$/.test(parts[0] || '') ? parts[0] : '0000'
-  let seqPart = [...parts].reverse().find((part) => /^\d+$/.test(part)) || '00000'
-
-  const compactDigits = raw.replace(/\D+/g, '')
-  if (parts.length === 1 && /^\d{8,}$/.test(compactDigits)) {
-    year = compactDigits.slice(0, 4)
-    seqPart = compactDigits.slice(-5)
-  }
-
-  const rawCoursePart = parts.find((part) => /^\d{3}$/.test(part))
-    || parts[1]
-    || parts.find((part) => /[A-Za-z]/.test(part))
-    || ''
-  const courseCode = fallbackCourseCode || normalizeCourseCode(rawCoursePart) || '000'
-  const sequence = seqPart.slice(-5).padStart(5, '0')
-
-  return `${year}-${courseCode}-${sequence}`
-}
-
-function studentNumberDisplay(student: Partial<ManagedStudent>) {
-  return formatStudentNumber(student.studentNumber, student.course)
-}
-
-function formatYearLevel(value: number | string | undefined) {
-  const yearLevel = Number(value)
-  if (!Number.isFinite(yearLevel) || yearLevel <= 0) return 'N/A'
-  if (yearLevel === 1) return '1st Year'
-  if (yearLevel === 2) return '2nd Year'
-  if (yearLevel === 3) return '3rd Year'
-  return `${yearLevel}th Year`
-}
 
 function formatDate(value?: string | null) {
   if (!value) return 'N/A'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? 'N/A' : date.toLocaleDateString()
-}
-
-function formatDateTime(value?: string | null) {
-  if (!value) return 'N/A'
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? 'N/A' : date.toLocaleString()
 }
 
 function formatPhoneNumber(value?: string | null) {
@@ -402,18 +190,6 @@ function formatCurrency(value?: number) {
     currency: 'PHP',
     maximumFractionDigits: 2
   }).format(amount)
-}
-
-function studentDisplayName(student: Partial<ManagedStudent>) {
-  return [student.firstName, student.middleName, student.lastName, student.suffix]
-    .filter((value) => String(value || '').trim())
-    .join(' ')
-}
-
-function studentInitials(student: Partial<ManagedStudent>) {
-  const first = String(student.firstName || '').trim().charAt(0)
-  const last = String(student.lastName || '').trim().charAt(0)
-  return `${first}${last}`.toUpperCase() || 'ST'
 }
 
 function lifecycleTone(status: LifecycleStatus): 'neutral' | 'info' | 'success' | 'warning' | 'danger' | 'accent' {
@@ -452,70 +228,6 @@ function normalizeLifecycleStatus(student: Partial<ManagedStudent>): LifecycleSt
   if (String(student.enrollmentStatus || '').trim().toLowerCase() === 'enrolled') return 'Enrolled'
   if (String(student.corStatus || '').trim().toLowerCase() === 'verified') return 'Enrolled'
   return 'Pending'
-}
-
-function getSharedAcademicContext(students: ManagedStudent[]): SharedAcademicContext {
-  const courseSet = new Set(students.map((student) => Number(student.course || 0)).filter((value) => Number.isFinite(value) && value > 0))
-  const yearSet = new Set(students.map((student) => Number(student.yearLevel || 0)).filter((value) => Number.isFinite(value) && value > 0))
-  const semesterSet = new Set(students.map((student) => String(student.semester || '').trim()).filter(Boolean))
-  const schoolYearSet = new Set(students.map((student) => String(student.schoolYear || '').trim()).filter(Boolean))
-
-  return {
-    sharedCourse: courseSet.size === 1 ? Array.from(courseSet)[0] : null,
-    sharedYearLevel: yearSet.size === 1 ? Array.from(yearSet)[0] : null,
-    sharedSemester: semesterSet.size === 1 ? Array.from(semesterSet)[0] : '',
-    sharedSchoolYear: schoolYearSet.size === 1 ? Array.from(schoolYearSet)[0] : '',
-    isSingleCourse: courseSet.size <= 1,
-    isSingleYearLevel: yearSet.size <= 1
-  }
-}
-
-function parseBlockGroupMeta(name: string) {
-  const normalized = String(name || '').trim().toUpperCase()
-  const coursePart = normalized.replace(/[-\s]*(\d+)-?[A-Z]?$/, '')
-  const course = normalizeCourseCode(coursePart || normalized)
-  const yearMatch = normalized.match(/(?:^|-)(\d+)-?[A-Z]?$/)
-  return {
-    course,
-    yearLevel: yearMatch ? Number(yearMatch[1]) : null
-  }
-}
-
-function blockCourseMatchesStudent(blockCourse: string, studentCourse: number | null) {
-  if (!blockCourse || !studentCourse) return true
-  if (blockCourse === String(studentCourse)) return true
-  return blockCourse === 'BSED' && [102, 103].includes(studentCourse)
-}
-
-function getBlockGroupCompatibilityMeta(group: BlockGroup) {
-  const legacy = parseBlockGroupMeta(group.name)
-  const courseId = normalizeCourseCode(group.courseId ?? group.courseCode)
-  const yearLevel = Number(group.yearLevel)
-  return {
-    course: courseId || legacy.course,
-    yearLevel: Number.isFinite(yearLevel) && yearLevel > 0 ? yearLevel : legacy.yearLevel,
-    semester: group.semester,
-    schoolYear: group.schoolYear || schoolYearFromStartYear(group.year)
-  }
-}
-
-function formatBlockDisplay(section: string | undefined): string {
-  if (!section) return 'Unassigned'
-  // Convert "101-1-A" to "BEED-1A" format
-  let formatted = String(section).trim().replace(/-(\d+)-([A-Z])$/i, '-$1$2')
-  
-  // Convert numeric course codes back to string labels
-  const parts = formatted.split('-')
-  if (parts.length >= 2 && /^\d{3}$/.test(parts[0])) {
-    const courseLabel = courseShortLabel(parts[0])
-    // Only replace if it's not just the number itself
-    if (courseLabel !== parts[0] && courseLabel !== 'N/A') {
-      parts[0] = courseLabel
-      formatted = parts.join('-')
-    }
-  }
-  
-  return formatted
 }
 
 function buildStudentFormState(student?: ManagedStudent): StudentFormState {
@@ -653,6 +365,7 @@ function StudentProfileDrawer({
   onGenerateCor,
   onArchive,
   onDelete,
+  onViewHistory,
   showBlockAssignmentAction = false
 }: {
   profileState: { student: ManagedStudent; tab: ProfileTab } | null
@@ -663,6 +376,7 @@ function StudentProfileDrawer({
   onGenerateCor: (student: ManagedStudent) => void
   onArchive: (student: ManagedStudent) => void
   onDelete: (student: ManagedStudent) => void
+  onViewHistory?: (studentId: string) => void
   showBlockAssignmentAction?: boolean
 }) {
   const [activeTab, setActiveTab] = useState<ProfileTab>(profileState?.tab || 'profile')
@@ -822,7 +536,7 @@ function StudentProfileDrawer({
                     <Layers3 size={16} />
                     Enrolled subjects
                   </button>
-                  <button type="button" className="student-workspace__ghost-button" onClick={() => setActiveTab('history')}>
+                  <button type="button" className="student-workspace__ghost-button" onClick={() => onViewHistory && onViewHistory(String(activeStudent._id))}>
                     <History size={16} />
                     Enrollment history
                   </button>
@@ -845,8 +559,7 @@ function StudentProfileDrawer({
               ['profile', 'Profile'],
               ['enrollment', 'Enrollment'],
               ['subjects', 'Subjects'],
-              ['documents', 'Documents'],
-              ['history', 'History']
+              ['documents', 'Documents']
             ] as Array<[ProfileTab, string]>).map(([value, label]) => (
               <button
                 key={value}
@@ -978,26 +691,6 @@ function StudentProfileDrawer({
                   )}
                 </section>
 
-                <section className="student-workspace__profile-section">
-                  <h3>Enrollment History</h3>
-                  {history.length ? (
-                    <div className="student-workspace__history-list">
-                      {history.map((record) => (
-                        <article key={record._id} className="student-workspace__history-item">
-                          <div>
-                            <strong>{record.semester} · {record.schoolYear}</strong>
-                            <p>{record.status} · {record.subjects?.length || 0} subjects</p>
-                          </div>
-                          <span>{formatDate(record.createdAt)}</span>
-                        </article>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="student-workspace__empty-state student-workspace__empty-state--inline">
-                      No enrollment history yet.
-                    </div>
-                  )}
-                </section>
               </div>
             ) : null}
 
@@ -1054,29 +747,6 @@ function StudentProfileDrawer({
               </section>
             ) : null}
 
-            {!loading && !error && activeTab === 'history' ? (
-              <section className="student-workspace__profile-section">
-                <h3>Lifecycle History</h3>
-                <div className="student-workspace__history-list">
-                  <article className="student-workspace__history-item">
-                    <div>
-                      <strong>Student record created</strong>
-                      <p>{studentNumberDisplay(activeStudent)} · {courseShortLabel(activeStudent.course)}</p>
-                    </div>
-                    <span>{formatDateTime(activeStudent.createdAt)}</span>
-                  </article>
-                  {history.map((record) => (
-                    <article key={record._id} className="student-workspace__history-item">
-                      <div>
-                        <strong>{record.status}</strong>
-                        <p>{record.semester} · {record.schoolYear} · {record.subjects?.length || 0} subjects</p>
-                      </div>
-                      <span>{formatDateTime(record.updatedAt || record.createdAt)}</span>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            ) : null}
           </div>
         </div>
       </div>
@@ -1657,404 +1327,8 @@ function EnrollmentModal({
   )
 }
 
-function BlockAssignmentModal({
-  students,
-  onClose,
-  onSaved
-}: {
-  students: ManagedStudent[]
-  onClose: () => void
-  onSaved: (message: string) => Promise<void> | void
-}) {
-  const academicContext = useMemo(() => getSharedAcademicContext(students), [students])
-  const [groups, setGroups] = useState<BlockGroup[]>([])
-  const [sectionsByGroupId, setSectionsByGroupId] = useState<Record<string, BlockSection[]>>({})
-  const [selectedGroupId, setSelectedGroupId] = useState('')
-  const [selectedSectionId, setSelectedSectionId] = useState('')
-  const [currentStep, setCurrentStep] = useState(1)
-  const [loading, setLoading] = useState(true)
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
 
-  useEffect(() => {
-    let cancelled = false
-
-    ;(async () => {
-      setLoading(true)
-      setError('')
-
-      try {
-        const fetchedGroups = await authorizedFetch<BlockGroup[]>('/api/blocks/groups')
-        const compatibleGroups = fetchedGroups.filter((group) => {
-          const meta = getBlockGroupCompatibilityMeta(group)
-          const matchesCourse = blockCourseMatchesStudent(meta.course, academicContext.sharedCourse)
-          const matchesYear = !academicContext.sharedYearLevel || !meta.yearLevel || meta.yearLevel === academicContext.sharedYearLevel
-          const matchesSemester = !academicContext.sharedSemester || !meta.semester || meta.semester === academicContext.sharedSemester
-          const matchesSchoolYear = !academicContext.sharedSchoolYear || !meta.schoolYear || meta.schoolYear === academicContext.sharedSchoolYear
-          return matchesCourse && matchesYear && matchesSemester && matchesSchoolYear
-        })
-
-        const sectionResponses = await Promise.all(
-          compatibleGroups.map(async (group) => {
-            try {
-              const sections = await authorizedFetch<BlockSection[]>(`/api/blocks/groups/${group._id}/sections`)
-              return [group._id, sections] as const
-            } catch {
-              return [group._id, []] as const
-            }
-          })
-        )
-
-        if (cancelled) return
-
-        const sectionLookup = Object.fromEntries(sectionResponses)
-        setGroups(compatibleGroups)
-        setSectionsByGroupId(sectionLookup)
-
-        const firstGroupId = compatibleGroups[0]?._id || ''
-        setSelectedGroupId(firstGroupId)
-        setSelectedSectionId(sectionLookup[firstGroupId]?.[0]?._id || '')
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : 'Failed to load block groups')
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false)
-        }
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [academicContext.sharedCourse, academicContext.sharedYearLevel])
-
-  useEffect(() => {
-    if (!selectedGroupId) return
-    const sections = sectionsByGroupId[selectedGroupId] || []
-    if (!sections.some((section) => section._id === selectedSectionId)) {
-      setSelectedSectionId(sections[0]?._id || '')
-    }
-  }, [sectionsByGroupId, selectedGroupId, selectedSectionId])
-
-  const availableSections = sectionsByGroupId[selectedGroupId] || []
-  const selectedGroup = groups.find((group) => group._id === selectedGroupId) || null
-  const selectedSection = availableSections.find((section) => section._id === selectedSectionId) || null
-  const currentSections = new Map(
-    Object.values(sectionsByGroupId)
-      .flat()
-      .map((section) => [String(section.sectionCode || '').trim().toUpperCase(), section])
-  )
-  const blockWizardSteps = [
-    { step: 1, label: 'Students' },
-    { step: 2, label: 'Block' },
-    { step: 3, label: 'Review' }
-  ]
-  const canContinueFromBlock = Boolean(selectedGroupId && selectedSectionId)
-  const primaryActionLabel =
-    currentStep === 1
-      ? 'Continue'
-      : currentStep === 2
-        ? 'Review assignment'
-        : submitting
-          ? 'Assigning...'
-          : 'Assign block'
-
-  const handlePrimaryAction = () => {
-    if (currentStep === 1) {
-      setCurrentStep(2)
-      return
-    }
-
-    if (currentStep === 2 && canContinueFromBlock) {
-      setCurrentStep(3)
-    }
-  }
-
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!selectedGroup || !selectedSectionId) return
-
-    setSubmitting(true)
-    setError('')
-
-    try {
-      const token = await getStoredToken()
-      if (!token) throw new Error('No authentication token found')
-
-      const targetSchoolYear = selectedGroup.schoolYear || schoolYearFromStartYear(selectedGroup.year)
-      const targetSection = availableSections.find((section) => section._id === selectedSectionId)
-      if (!targetSection) throw new Error('Select a valid section before assigning students.')
-
-      let assignedCount = 0
-      const failures: string[] = []
-
-      for (const student of students) {
-        try {
-          const currentSectionCode = String(student.section || '').trim().toUpperCase()
-          const currentSection = currentSections.get(currentSectionCode)
-
-          if (currentSection && currentSection._id !== targetSection._id) {
-            try {
-              await authorizedFetch(`/api/blocks/sections/${currentSection._id}/students/${student._id}`, {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  semester: student.semester,
-                  year: schoolYearStart(student.schoolYear)
-                })
-              })
-            } catch (unassignError) {
-              const message = unassignError instanceof Error ? unassignError.message : 'Failed to remove current block'
-              if (!message.toLowerCase().includes('not assigned')) {
-                throw unassignError
-              }
-            }
-          }
-
-          if (!currentSection || currentSection._id !== targetSection._id) {
-            const assignmentResponse = await authorizedFetch<{ status?: string }>(
-              '/api/blocks/assign-student',
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  studentId: student._id,
-                  sectionId: targetSection._id,
-                  semester: selectedGroup.semester,
-                  year: selectedGroup.year
-                })
-              }
-            )
-
-            if (assignmentResponse.status === 'OVER_CAPACITY') {
-              throw new Error(`${targetSection.sectionCode} is already at capacity.`)
-            }
-          }
-
-          await StudentService.updateStudent(token, student._id, {
-            semester: selectedGroup.semester,
-            schoolYear: targetSchoolYear
-          })
-          assignedCount += 1
-        } catch (studentError) {
-          failures.push(`${studentNumberDisplay(student)}: ${studentError instanceof Error ? studentError.message : 'Failed'}`)
-        }
-      }
-
-      await onSaved(
-        failures.length
-          ? `Block assignment finished for ${assignedCount} student(s). ${failures.length} record(s) need attention.`
-          : `Assigned ${assignedCount} student(s) to ${targetSection.sectionCode}.`
-      )
-      onClose()
-    } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : 'Failed to assign block')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <StudentWorkspaceOverlay>
-      <div
-        className="student-workspace__modal-shell"
-        role="dialog"
-        aria-modal="true"
-        onPointerDown={(event) => {
-          if (isStudentWorkspaceBackdropTarget(event)) {
-            onClose()
-          }
-        }}
-      >
-      <div className="student-workspace__modal-overlay" aria-hidden="true" />
-      <div className="student-workspace__modal student-workspace__modal--wide">
-        <header className="student-workspace__modal-header">
-          <div>
-            <span className="student-workspace__eyebrow">Block assignment</span>
-            <h2>Assign {students.length === 1 ? studentDisplayName(students[0]) : `${students.length} selected students`}</h2>
-            <p className="student-workspace__modal-subcopy">
-              Pick a compatible block group and section. Changing an existing block will clear the current linked block load before the new assignment is applied.
-            </p>
-          </div>
-          <button type="button" className="student-workspace__ghost-button" onClick={onClose} aria-label="Close">
-            <X size={18} />
-          </button>
-        </header>
-
-        <form className="student-workspace__form" onSubmit={handleSubmit}>
-          <div className="student-workspace__modal-body">
-          <ol className="student-workspace__block-wizard-steps" aria-label="Block assignment steps">
-            {blockWizardSteps.map((item) => (
-              <li
-                key={item.step}
-                className={[
-                  'student-workspace__block-wizard-step',
-                  item.step === currentStep ? 'student-workspace__block-wizard-step--active' : '',
-                  item.step < currentStep ? 'student-workspace__block-wizard-step--done' : ''
-                ].filter(Boolean).join(' ')}
-              >
-                <span>{item.step}</span>
-                <strong>{item.label}</strong>
-              </li>
-            ))}
-          </ol>
-
-          {currentStep === 1 ? (
-            <section className="student-workspace__form-section student-workspace__block-wizard-panel">
-              <div className="student-workspace__section-heading">
-                <div>
-                  <h3>Selected students</h3>
-                  <p>Review the student batch before choosing a block section.</p>
-                </div>
-              </div>
-          <div className="student-workspace__selection-summary">
-            {students.map((student) => (
-              <span key={student._id} className="student-workspace__selection-chip">
-                {studentNumberDisplay(student)} · {studentDisplayName(student)} · {student.section || 'No block'}
-              </span>
-            ))}
-          </div>
-            </section>
-          ) : null}
-
-          {currentStep === 2 ? (
-            <>
-          <div className="student-workspace__form-grid student-workspace__form-grid--two">
-            <label>
-              <span>Block Group</span>
-              <select value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)} disabled={loading || !groups.length}>
-                {groups.map((group) => (
-                  <option key={group._id} value={group._id}>
-                    {group.name} · {group.semester} · {group.schoolYear || schoolYearFromStartYear(group.year)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Section</span>
-              <select value={selectedSectionId} onChange={(event) => setSelectedSectionId(event.target.value)} disabled={loading || !availableSections.length}>
-                {availableSections.map((section) => (
-                  <option key={section._id} value={section._id}>
-                    {section.sectionCode} · {section.currentPopulation}/{section.capacity}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          {loading ? <div className="student-workspace__empty-state student-workspace__empty-state--inline">Loading block groups...</div> : null}
-
-          {!loading && !groups.length ? (
-            <div className="student-workspace__message student-workspace__message--error">
-              No compatible block groups were found for the selected student batch.
-            </div>
-          ) : null}
-
-          {!loading && availableSections.length ? (
-            <section className="student-workspace__form-section">
-              <div className="student-workspace__section-heading">
-                <div>
-                  <h3>Available sections</h3>
-                  <p>Choose the section that should own the selected students.</p>
-                </div>
-              </div>
-              <div className="student-workspace__subject-picker">
-                {availableSections.map((section) => {
-                  const selected = section._id === selectedSectionId
-                  return (
-                    <button
-                      key={section._id}
-                      type="button"
-                      className={`student-workspace__subject-option ${selected ? 'student-workspace__subject-option--selected' : ''}`}
-                      onClick={() => setSelectedSectionId(section._id)}
-                    >
-                      <div>
-                        <strong>{section.sectionCode}</strong>
-                        <p>{selectedGroup?.name || 'Selected block group'}</p>
-                      </div>
-                      <span>{section.currentPopulation}/{section.capacity}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </section>
-          ) : null}
-            </>
-          ) : null}
-
-          {currentStep === 3 ? (
-            <section className="student-workspace__form-section student-workspace__block-wizard-panel">
-              <div className="student-workspace__section-heading">
-                <div>
-                  <h3>Review assignment</h3>
-                  <p>Confirm the target block before applying the assignment.</p>
-                </div>
-              </div>
-              <div className="student-workspace__block-review-grid">
-                <div>
-                  <span>Students</span>
-                  <strong>{students.length}</strong>
-                </div>
-                <div>
-                  <span>Block Group</span>
-                  <strong>{selectedGroup?.name || 'No block group selected'}</strong>
-                </div>
-                <div>
-                  <span>Section</span>
-                  <strong>{selectedSection?.sectionCode || 'No section selected'}</strong>
-                </div>
-                <div>
-                  <span>Capacity</span>
-                  <strong>{selectedSection ? `${selectedSection.currentPopulation}/${selectedSection.capacity}` : 'N/A'}</strong>
-                </div>
-              </div>
-              <div className="student-workspace__selection-summary">
-                {students.map((student) => (
-                  <span key={student._id} className="student-workspace__selection-chip">
-                    {studentNumberDisplay(student)} Â· {studentDisplayName(student)} Â· {student.section || 'No block'}
-                  </span>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          {error ? <div className="student-workspace__message student-workspace__message--error">{error}</div> : null}
-          </div>
-
-          <footer className="student-workspace__modal-actions">
-            <button
-              type="button"
-              className="student-workspace__ghost-button"
-              onClick={currentStep === 1 ? onClose : () => setCurrentStep((step) => Math.max(1, step - 1))}
-              disabled={submitting}
-            >
-              {currentStep === 1 ? 'Cancel' : 'Back'}
-            </button>
-            {currentStep < 3 ? (
-              <button
-                type="button"
-                className="student-workspace__primary-button"
-                onClick={handlePrimaryAction}
-                disabled={loading || (currentStep === 2 && !canContinueFromBlock)}
-              >
-                {primaryActionLabel}
-              </button>
-            ) : (
-              <button type="submit" className="student-workspace__primary-button" disabled={submitting || !selectedGroupId || !selectedSectionId}>
-                {primaryActionLabel}
-              </button>
-            )}
-          </footer>
-        </form>
-      </div>
-      </div>
-    </StudentWorkspaceOverlay>
-  )
-}
-
-export default function StudentManagement({ mode = 'management' }: StudentManagementProps = {}) {
+export default function StudentManagement({ mode = 'management', onViewHistory }: StudentManagementProps = {}) {
   const isAssignBlockMode = mode === 'assign-block'
   const headerCheckboxRef = useRef<HTMLInputElement | null>(null)
   const [students, setStudents] = useState<ManagedStudent[]>([])
@@ -2834,6 +2108,7 @@ export default function StudentManagement({ mode = 'management' }: StudentManage
         onGenerateCor={handleGenerateCor}
         onArchive={handleArchiveStudent}
         onDelete={handleDeleteStudent}
+        onViewHistory={onViewHistory}
         showBlockAssignmentAction={isAssignBlockMode}
       />
 

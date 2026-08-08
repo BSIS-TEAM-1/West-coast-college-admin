@@ -37,7 +37,7 @@ class AppView extends StatelessWidget {
       title: 'WCC Student Portal',
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.system,
+      themeMode: ThemeMode.light,
       routerConfig: routerConfig,
     );
   }

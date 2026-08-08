@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, PencilLine } from 'lucide-react'
 import { API_URL, getStoredToken } from '../lib/authApi'
+import { formatBlockColumnLabel, formatBlockLabel, parseBlockSlot } from '../lib/blockAssignmentShared'
 import './ProfessorLoad.css'
 import './RegistrarCourseWorkspace.css'
 
@@ -100,12 +101,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
-  const courseAbbreviationByCode: Record<string, string> = {
-    '101': 'BEED',
-    '102': 'BSEd-English',
-    '103': 'BSEd-Math',
-    '201': 'BSBA-HRM'
-  }
   const dayOptions = ['M', 'T', 'W', 'TH', 'F', 'S', 'SU']
 
   const authorizedFetch = async (path: string, init: RequestInit = {}) => {
@@ -137,25 +132,9 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     })
   }
 
-  const formatBlockGroupLabel = (value: string) => {
-    const parts = String(value || '').trim().split('-')
-    if (parts.length < 2) return value || 'N/A'
-    return `${courseAbbreviationByCode[parts[0]] || parts[0]}-${parts.slice(1).join('-')}`
-  }
-
   const formatAcademicYear = (value: number | string) => {
     const year = Number(value)
     return Number.isFinite(year) && year > 0 ? `${year}-${year + 1}` : 'N/A'
-  }
-
-  const parseSectionSlot = (sectionCode: string) => {
-    const match = String(sectionCode || '').toUpperCase().match(/(\d+)-?([A-Z])$/)
-    return match ? { yearLevel: Number(match[1]) || 99, blockLetter: match[2] } : { yearLevel: 99, blockLetter: 'Z' }
-  }
-
-  const formatSectionShortLabel = (sectionCode: string) => {
-    const slot = parseSectionSlot(sectionCode)
-    return slot.yearLevel === 99 ? sectionCode : `${slot.yearLevel}-${slot.blockLetter}`
   }
 
   const clearAssignmentForm = () => {
@@ -284,11 +263,11 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   const selectedSection = sections.find((section) => section._id === selectedSectionId) || null
   const selectedSubject = subjects.find((subject) => subject._id === selectedSubjectId) || null
   const sortedSections = [...sections].sort((a, b) => {
-    const slotA = parseSectionSlot(a.sectionCode)
-    const slotB = parseSectionSlot(b.sectionCode)
+    const slotA = parseBlockSlot(a.sectionCode) || { yearLevel: 99, letter: 'Z' }
+    const slotB = parseBlockSlot(b.sectionCode) || { yearLevel: 99, letter: 'Z' }
     return slotA.yearLevel !== slotB.yearLevel
       ? slotA.yearLevel - slotB.yearLevel
-      : slotA.blockLetter.localeCompare(slotB.blockLetter)
+      : slotA.letter.localeCompare(slotB.letter)
   })
 
   const selectProfessorWorkspace = (professorId: string, nextCourseLabel = '') => {
@@ -678,7 +657,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                 <option value="">Select block group</option>
                 {blockGroups.map((group) => (
                   <option key={group._id} value={group._id}>
-                    {formatBlockGroupLabel(group.name)} ({group.semester} | {formatAcademicYear(group.year)})
+                    {formatBlockLabel(group.name)} ({group.semester} | {formatAcademicYear(group.year)})
                   </option>
                 ))}
               </select>
@@ -690,7 +669,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                 <option value="">Select section</option>
                 {sortedSections.map((section) => (
                   <option key={section._id} value={section._id}>
-                    Block-{formatSectionShortLabel(section.sectionCode).replace('-', '')} ({section.currentPopulation}/{section.capacity})
+                    Block-{formatBlockColumnLabel(section.sectionCode).replace('-', '')} ({section.currentPopulation}/{section.capacity})
                   </option>
                 ))}
               </select>
@@ -743,7 +722,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
           <div className="registrar-course-workspace-footer">
             <div className="registrar-course-workspace-meta">
               <article><span>Course focus</span><strong>{selectedProfessorCourse?.label || 'Any course'}</strong></article>
-              <article><span>Selected section</span><strong>{selectedSection ? `Block-${formatSectionShortLabel(selectedSection.sectionCode).replace('-', '')}` : 'Not selected'}</strong></article>
+              <article><span>Selected section</span><strong>{selectedSection ? `Block-${formatBlockColumnLabel(selectedSection.sectionCode).replace('-', '')}` : 'Not selected'}</strong></article>
               <article><span>Students in section</span><strong>{selectedSection ? `${sectionStudents.length} students` : 'Select a section'}</strong></article>
             </div>
             <div className="registrar-course-footer-actions">

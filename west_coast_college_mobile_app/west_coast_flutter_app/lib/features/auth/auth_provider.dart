@@ -90,7 +90,9 @@ class AuthProvider with ChangeNotifier {
       );
 
       if (response.statusCode == ApiConstants.statusOk) {
-        final authResponse = AuthResponse.fromJson(response.data['data']);
+        // Handle the backend response structure
+        final responseData = response.data['data'] ?? response.data;
+        final authResponse = AuthResponse.fromJson(responseData);
         
         // Store tokens
         await _storage.write(
@@ -116,7 +118,7 @@ class AuthProvider with ChangeNotifier {
         notifyListeners();
         return true;
       } else {
-        _errorMessage = response.data['message'] ?? 'Login failed';
+        _errorMessage = response.data['message'] ?? response.data['error'] ?? 'Login failed';
         _status = AuthStatus.unauthenticated;
         _isLoading = false;
         notifyListeners();

@@ -1,6 +1,6 @@
 import type { WizardFormData, ValidationError } from './types'
 
-export const validateStep = (step: string, data: Partial<WizardFormData>): ValidationError[] => {
+export const validateStep = (step: string, data: Partial<WizardFormData>, mode: 'create' | 'edit' = 'create'): ValidationError[] => {
   const errors: ValidationError[] = []
 
   switch (step) {
@@ -34,7 +34,11 @@ export const validateStep = (step: string, data: Partial<WizardFormData>): Valid
 
     case 'contact':
       if (!data.email?.trim()) {
-        errors.push({ field: 'email', message: 'Email is required' })
+        // Email is optional when editing an existing student since the student
+        // is expected to set/update their own email themselves.
+        if (mode !== 'edit') {
+          errors.push({ field: 'email', message: 'Email is required' })
+        }
       } else if (!isValidEmail(data.email)) {
         errors.push({ field: 'email', message: 'Please enter a valid email address' })
       }
@@ -78,10 +82,10 @@ export const validateStep = (step: string, data: Partial<WizardFormData>): Valid
     case 'review':
       // Review step validates all fields including student number
       const allErrors = [
-        ...validateStep('identity', data),
-        ...validateStep('personal', data),
-        ...validateStep('contact', data),
-        ...validateStep('academic', data)
+        ...validateStep('identity', data, mode),
+        ...validateStep('personal', data, mode),
+        ...validateStep('contact', data, mode),
+        ...validateStep('academic', data, mode)
       ]
       // Add student number validation only in review step
       if (!data.studentNumber?.trim()) {
@@ -105,12 +109,12 @@ function isValidPhoneNumber(phone: string): boolean {
   return phoneRegex.test(phone.replace(/[\s-]/g, ''))
 }
 
-export const getStepErrors = (step: string, data: Partial<WizardFormData>): ValidationError[] => {
-  return validateStep(step, data)
+export const getStepErrors = (step: string, data: Partial<WizardFormData>, mode: 'create' | 'edit' = 'create'): ValidationError[] => {
+  return validateStep(step, data, mode)
 }
 
-export const hasStepErrors = (step: string, data: Partial<WizardFormData>): boolean => {
-  return validateStep(step, data).length > 0
+export const hasStepErrors = (step: string, data: Partial<WizardFormData>, mode: 'create' | 'edit' = 'create'): boolean => {
+  return validateStep(step, data, mode).length > 0
 }
 
 export const getFieldError = (field: string, errors: ValidationError[]): string | undefined => {

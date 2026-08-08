@@ -73,3 +73,14 @@ export type SubjectDraft = {
   title: string
   units: string
 }
+
+export type BlockDraft = {
+  id: string
+  course: string
+  blockNumber: string
+  semester: Semester
+  year: number
+  capacity: number
+  createdAt: string
+  updatedAt: string
+}

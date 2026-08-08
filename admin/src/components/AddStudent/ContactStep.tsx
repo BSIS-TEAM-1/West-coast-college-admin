@@ -5,9 +5,10 @@ interface ContactStepProps {
   data: Partial<WizardFormData>
   onChange: (field: keyof WizardFormData, value: string) => void
   errors: ValidationError[]
+  isEditMode?: boolean
 }
 
-export default function ContactStep({ data, onChange, errors }: ContactStepProps) {
+export default function ContactStep({ data, onChange, errors, isEditMode = false }: ContactStepProps) {
   return (
     <div className="wizard-step">
       <div className="wizard-step-header">
@@ -19,7 +20,7 @@ export default function ContactStep({ data, onChange, errors }: ContactStepProps
         {/* Email */}
         <div className="form-group form-group--full">
           <label htmlFor="email">
-            Email Address <span className="required">*</span>
+            Email Address {isEditMode ? <span className="field-hint">(optional &mdash; set by the student)</span> : <span className="required">*</span>}
           </label>
           <input
             id="email"

@@ -159,13 +159,36 @@ const enrollmentSchema = new Schema({
   // Enrollment Status
   status: {
     type: String,
-    enum: ['Pending', 'Enrolled', 'Dropped', 'Completed', 'Cancelled'],
+    enum: ['Pending', 'Enrolled', 'Dropped', 'Completed', 'Retained', 'Graduated', 'Cancelled'],
     default: 'Pending'
   },
   isCurrent: {
     type: Boolean,
     default: true,
     index: true
+  },
+
+  // Immutability (Academic Year Rollover)
+  // Once lockedAt is set, this record is a read-only historical snapshot and can never be modified again.
+  lockedAt: {
+    type: Date,
+    default: null,
+    index: true
+  },
+  lockedBy: {
+    type: Schema.Types.ObjectId,
+    ref: 'Admin',
+    default: null
+  },
+  rolloverBatchId: {
+    type: String,
+    default: null,
+    index: true
+  },
+  previousEnrollmentId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Enrollment',
+    default: null
   },
   
   // Document Tracking
@@ -240,6 +263,31 @@ enrollmentSchema.virtual('gpa').get(function() {
   const totalUnits = this.totalUnits;
   return totalUnits > 0 ? (this.totalGradePoints / totalUnits).toFixed(2) : 0;
 });
+
+// Immutability guard (Academic Year Rollover architecture):
+// A locked enrollment is a permanent historical record. Any attempt to modify it is rejected.
+// The locking write itself (which sets lockedAt) is allowed; everything after is read-only.
+enrollmentSchema.pre('save', function(next) {
+  if (!this.isNew && this.lockedAt && !this.isModified('lockedAt')) {
+    return next(new Error('This enrollment is locked as an immutable historical record and cannot be modified.'));
+  }
+  next();
+});
+
+// Query-level guard: locked enrollments can never be matched by update/delete queries.
+function excludeLockedRecords() {
+  const filter = this.getFilter();
+  if (!Object.prototype.hasOwnProperty.call(filter, 'lockedAt') && !this.getOptions().allowLocked) {
+    this.where({ lockedAt: null });
+  }
+}
+
+enrollmentSchema.pre('findOneAndUpdate', excludeLockedRecords);
+enrollmentSchema.pre('updateOne', excludeLockedRecords);
+enrollmentSchema.pre('updateMany', excludeLockedRecords);
+enrollmentSchema.pre('findOneAndDelete', excludeLockedRecords);
+enrollmentSchema.pre('deleteOne', { document: false, query: true }, excludeLockedRecords);
+enrollmentSchema.pre('deleteMany', excludeLockedRecords);
 
 // Pre-save hook to update total amount and balance
 enrollmentSchema.pre('save', function(next) {

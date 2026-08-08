@@ -1,0 +1,403 @@
+.student-history-page {
+  display: grid;
+  gap: 1.25rem;
+  padding: 1.5rem;
+  color: var(--color-text);
+  max-width: 72rem;
+}
+
+.student-history-page__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.student-history-page__header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.student-history-page__back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: none;
+  border: none;
+  color: var(--color-text-muted, #64748b);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.3rem 0;
+  transition: color 0.15s ease;
+}
+
+.student-history-page__back-btn:hover {
+  color: var(--color-primary);
+}
+
+.student-history-page__eyebrow {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+}
+
+.student-history-page__header h2 {
+  margin: 0.15rem 0 0.35rem;
+}
+
+.student-history-page__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.2rem;
+  font-size: 0.85rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.student-history-page__summary strong {
+  color: var(--color-text);
+}
+
+.student-history-page__loading,
+.student-history-page__error,
+.student-history-page__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 3rem 1.5rem;
+  text-align: center;
+  color: var(--color-text-muted, #64748b);
+  background: var(--color-surface, rgba(255, 255, 255, 0.03));
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+}
+
+.student-history-page__loading-icon {
+  animation: spin 1.2s linear infinite;
+  opacity: 0.5;
+}
+
+.student-history-page__error {
+  color: #ef4444;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.student-history-page__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.75rem;
+}
+
+.student-history-page__stat-card {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem;
+  background: var(--color-surface, rgba(255, 255, 255, 0.03));
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+}
+
+.student-history-page__stat-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.6rem;
+  flex-shrink: 0;
+}
+
+.student-history-page__stat-icon--total {
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+}
+
+.student-history-page__stat-icon--locked {
+  background: rgba(168, 85, 247, 0.12);
+  color: #a855f7;
+}
+
+.student-history-page__stat-icon--active {
+  background: rgba(34, 197, 94, 0.12);
+  color: #22c55e;
+}
+
+.student-history-page__stat-card > div:last-child {
+  display: flex;
+  flex-direction: column;
+}
+
+.student-history-page__stat-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.student-history-page__stat-label {
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #64748b);
+  font-weight: 600;
+}
+
+.student-history-page__section {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.student-history-page__section-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.2rem;
+  font-size: 1.05rem;
+}
+
+.student-history-page__section-header p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.student-history-page__timeline {
+  display: grid;
+  gap: 0;
+}
+
+.student-history-page__timeline-item {
+  display: flex;
+  gap: 1rem;
+  min-height: 3rem;
+}
+
+.student-history-page__timeline-marker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  padding-top: 0.65rem;
+}
+
+.student-history-page__timeline-dot {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  background: var(--color-primary, #3b82f6);
+  border: 2px solid var(--color-surface, rgba(255, 255, 255, 0.06));
+  box-shadow: 0 0 0 2px var(--color-primary, #3b82f6);
+  flex-shrink: 0;
+}
+
+.student-history-page__timeline-dot--locked {
+  background: #a855f7;
+  box-shadow: 0 0 0 2px #a855f7;
+}
+
+.student-history-page__timeline-dot--created {
+  background: #22c55e;
+  box-shadow: 0 0 0 2px #22c55e;
+}
+
+.student-history-page__timeline-line {
+  width: 2px;
+  flex: 1;
+  background: var(--color-border, rgba(255, 255, 255, 0.1));
+  margin-top: 0.25rem;
+  margin-bottom: 0;
+}
+
+.student-history-page__timeline-content {
+  flex: 1;
+  padding-bottom: 1rem;
+}
+
+.student-history-page__timeline-card {
+  background: var(--color-surface, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+  border-radius: 0.75rem;
+  padding: 1rem 1.1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.student-history-page__timeline-item--locked .student-history-page__timeline-card {
+  border-left: 3px solid #a855f7;
+}
+
+.student-history-page__timeline-card--lifecycle {
+  padding: 0.75rem 1rem;
+}
+
+.student-history-page__timeline-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.student-history-page__timeline-card-header strong {
+  font-size: 0.95rem;
+}
+
+.student-history-page__year-badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+}
+
+.student-history-page__timeline-badges {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.student-history-page__status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.student-history-page__status-badge--success { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+.student-history-page__status-badge--info { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
+.student-history-page__status-badge--accent { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
+.student-history-page__status-badge--warning { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+.student-history-page__status-badge--danger { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+.student-history-page__status-badge--neutral { background: rgba(100, 116, 139, 0.15); color: #64748b; }
+
+.student-history-page__status-badge--current {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.student-history-page__status-badge--locked {
+  background: rgba(168, 85, 247, 0.15);
+  color: #a855f7;
+}
+
+.student-history-page__timeline-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.5rem 1.2rem;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.06));
+  border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.06));
+}
+
+.student-history-page__detail-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.student-history-page__detail-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.student-history-page__detail-value {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.student-history-page__detail-value--mono {
+  font-family: 'Courier New', monospace;
+  font-size: 0.78rem;
+  font-weight: 400;
+}
+
+.student-history-page__subjects {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.student-history-page__subjects-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #64748b);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.student-history-page__subject-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.student-history-page__subject-chip {
+  display: flex;
+  flex-direction: column;
+  padding: 0.35rem 0.6rem;
+  border-radius: 0.4rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.06));
+}
+
+.student-history-page__subject-chip strong {
+  font-size: 0.78rem;
+}
+
+.student-history-page__subject-chip small {
+  font-size: 0.7rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.student-history-page__timeline-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.student-history-page__timeline-footer span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+@media (max-width: 640px) {
+  .student-history-page {
+    padding: 1rem;
+  }
+
+  .student-history-page__stats {
+    grid-template-columns: 1fr;
+  }
+
+  .student-history-page__timeline-details {
+    grid-template-columns: 1fr;
+  }
+
+  .student-history-page__timeline-card-header {
+    flex-direction: column;
+  }
+
+  .student-history-page__summary {
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+}

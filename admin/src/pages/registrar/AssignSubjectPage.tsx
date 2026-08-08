@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle, ChevronLeft, ChevronRight, RotateCcw, Trash2 } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
+import { formatBlockColumnLabel, formatBlockLabel } from '../../lib/blockAssignmentShared'
 import type { BlockGroup, BlockSection, Semester, SubjectItem } from './registrarBlockTypes'
 
 type BlockSubjectAssignment = {
@@ -346,7 +347,7 @@ function AssignSubjectPage() {
     }
 
     const subjectLabel = assignment.subject ? `${assignment.subject.code} - ${assignment.subject.title}` : 'this subject'
-    const confirmed = window.confirm(`Remove ${subjectLabel} from ${selectedSection?.sectionCode || 'this block section'}?`)
+    const confirmed = window.confirm(`Remove ${subjectLabel} from ${selectedSection ? formatBlockColumnLabel(selectedSection.sectionCode) : 'this block section'}?`)
     if (!confirmed) return
 
     setError('')
@@ -382,20 +383,24 @@ function AssignSubjectPage() {
 
       <div className="sis-wizard-shell">
         <section className="sis-wizard-card">
-          <div className="block-wizard-stepper" aria-label="Subject assignment progress">
+          <div className="block-stepper" role="navigation" aria-label="Subject assignment progress">
+            <div className="block-stepper-line" aria-hidden="true" />
             {[
-              { step: 1, title: 'Select Block' },
-              { step: 2, title: 'Choose Subjects' },
-              { step: 3, title: 'Finish' }
+              { step: 1, title: 'Select Block', description: 'Enter details' },
+              { step: 2, title: 'Choose Subjects', description: 'Confirm info' },
+              { step: 3, title: 'Finish', description: 'Subjects linked' }
             ].map((item) => (
               <div
                 key={item.step}
-                className={`block-wizard-step ${wizardStep === item.step ? 'is-active' : ''} ${wizardStep > item.step ? 'is-complete' : ''}`}
+                className={`block-stepper-item ${wizardStep === item.step ? 'is-active' : ''} ${wizardStep > item.step ? 'is-complete' : ''}`}
               >
-                <span className="block-wizard-step-number">{wizardStep > item.step ? <CheckCircle size={16} /> : item.step}</span>
-                <span>
-                  <small>Step {item.step}</small>
+                <span className="block-stepper-dot">
+                  {wizardStep > item.step ? <CheckCircle size={18} /> : item.step}
+                </span>
+                <span className="block-stepper-label">
+                  <span className="block-stepper-step-label">Step {item.step}</span>
                   <strong>{item.title}</strong>
+                  <span className="block-stepper-desc">{item.description}</span>
                 </span>
               </div>
             ))}
@@ -443,7 +448,7 @@ function AssignSubjectPage() {
                     <select value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)} disabled={!course || !yearLevel || !academicYearStart}>
                       <option value="">{course && yearLevel ? 'Select matching block group' : 'Select program and year first'}</option>
                       {filteredBlockGroups.map((group) => (
-                        <option key={group._id} value={group._id}>{group.name} ({group.semester} {group.year})</option>
+                        <option key={group._id} value={group._id}>{formatBlockLabel(group.name)} ({group.semester} {group.year})</option>
                       ))}
                     </select>
                   </label>
@@ -453,7 +458,7 @@ function AssignSubjectPage() {
                       <option value="">Select section</option>
                       {sections.map((section) => (
                         <option key={section._id} value={section._id}>
-                          {section.sectionCode} ({section.currentPopulation}/{section.capacity})
+                          {formatBlockColumnLabel(section.sectionCode)} ({section.currentPopulation}/{section.capacity})
                         </option>
                       ))}
                     </select>
@@ -462,12 +467,12 @@ function AssignSubjectPage() {
 
                 <div className="block-wizard-preview">
                   <span className="block-wizard-preview-label">Selection Preview</span>
-                  <strong>{selectedSection?.sectionCode || 'No section selected'}</strong>
+                  <strong>{selectedSection ? formatBlockColumnLabel(selectedSection.sectionCode) : 'No section selected'}</strong>
                   <dl>
                     <div><dt>Program</dt><dd>{courseLabel(course)}</dd></div>
                     <div><dt>Year Level</dt><dd>{yearLevel || 'Select year'}</dd></div>
                     <div><dt>Term</dt><dd>{semester} / {academicYear}</dd></div>
-                    <div><dt>Block Group</dt><dd>{selectedGroup?.name || 'Select group'}</dd></div>
+                    <div><dt>Block Group</dt><dd>{selectedGroup ? formatBlockLabel(selectedGroup.name) : 'Select group'}</dd></div>
                   </dl>
                 </div>
               </div>
@@ -492,7 +497,7 @@ function AssignSubjectPage() {
                   <div className="assignment-panel-head">
                     <div>
                       <h3>Available Subjects</h3>
-                      <p>{selectedSubjectIds.length} selected for {selectedSection?.sectionCode}</p>
+                      <p>{selectedSubjectIds.length} selected for {selectedSection ? formatBlockColumnLabel(selectedSection.sectionCode) : ''}</p>
                     </div>
                     <span className="assignment-count-pill">{availableSubjects.length} available</span>
                   </div>
@@ -537,7 +542,7 @@ function AssignSubjectPage() {
                   </div>
 
                   <div className="block-wizard-review assignment-review-card">
-                    <div><span>Block Section</span><strong>{selectedSection?.sectionCode || 'N/A'}</strong></div>
+                    <div><span>Block Section</span><strong>{selectedSection ? formatBlockColumnLabel(selectedSection.sectionCode) : 'N/A'}</strong></div>
                     <div><span>Term</span><strong>{semester} / {academicYear}</strong></div>
                     <div><span>New Subjects</span><strong>{selectedSubjects.length}</strong></div>
                   </div>
@@ -581,7 +586,7 @@ function AssignSubjectPage() {
             <div className="block-wizard-panel block-wizard-success">
               <CheckCircle size={52} />
               <h3>Subjects Assigned Successfully</h3>
-              <p>The selected subjects have been linked to {selectedSection?.sectionCode || 'the block section'}.</p>
+              <p>The selected subjects have been linked to {selectedSection ? formatBlockColumnLabel(selectedSection.sectionCode) : 'the block section'}.</p>
               <div className="block-wizard-success-actions">
                 <button className="registrar-btn" type="button" onClick={() => setWizardStep(2)}>
                   Assign More Subjects

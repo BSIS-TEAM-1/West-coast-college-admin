@@ -1006,7 +1006,7 @@ body.student-workspace-overlay-open #root * {
 .student-workspace__block-wizard-steps {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem;
+  gap: 0.85rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1015,72 +1015,101 @@ body.student-workspace-overlay-open #root * {
 .student-workspace__block-wizard-step {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.85rem;
   min-width: 0;
-  min-height: 2.75rem;
-  padding: 0.55rem 0.75rem;
+  min-height: 3.6rem;
+  padding: 0.75rem 1rem;
   border: 1px solid var(--student-border);
-  border-radius: 6px;
+  border-radius: 10px;
   background: var(--student-surface);
   color: var(--student-text-soft);
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
-.student-workspace__block-wizard-step span {
+.student-workspace__block-wizard-step-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.65rem;
-  height: 1.65rem;
+  flex-shrink: 0;
+  width: 2.2rem;
+  height: 2.2rem;
   border-radius: 50%;
   border: 1px solid var(--student-border);
   background: var(--student-surface-soft);
   color: inherit;
-  font-size: 0.76rem;
-  font-weight: 800;
 }
 
-.student-workspace__block-wizard-step strong {
+.student-workspace__block-wizard-step-text {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.student-workspace__block-wizard-step-text strong {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.84rem;
+  font-size: 0.86rem;
+  color: var(--color-text);
+}
+
+.student-workspace__block-wizard-step-text span {
+  font-size: 0.72rem;
+  color: var(--student-text-soft);
 }
 
 .student-workspace__block-wizard-step--active {
-  border-color: color-mix(in srgb, var(--color-primary) 42%, var(--student-border));
+  border-color: color-mix(in srgb, var(--color-primary) 60%, var(--student-border));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-primary) 8%, var(--student-surface)), var(--student-surface));
   color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-primary-subtle);
+  box-shadow: 0 0 0 4px var(--color-primary-subtle);
 }
 
-.student-workspace__block-wizard-step--active span,
-.student-workspace__block-wizard-step--done span {
+.student-workspace__block-wizard-step--active .student-workspace__block-wizard-step-icon {
   border-color: var(--color-primary);
   background: var(--color-primary);
   color: var(--color-on-primary);
+}
+
+.student-workspace__block-wizard-step--done {
+  border-color: color-mix(in srgb, var(--color-primary) 40%, var(--student-border));
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--student-surface));
+  color: var(--color-primary);
+}
+
+.student-workspace__block-wizard-step--done .student-workspace__block-wizard-step-icon {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.student-workspace__block-wizard-step--pending .student-workspace__block-wizard-step-icon {
+  color: var(--student-text-soft);
 }
 
 .student-workspace__block-wizard-panel {
   min-height: 13rem;
 }
 
-.student-workspace__block-review-grid {
+.student-workspace__review-cards {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.75rem;
+  gap: 0.85rem;
 }
 
-.student-workspace__block-review-grid > div {
+.student-workspace__review-card {
   display: grid;
-  gap: 0.2rem;
+  gap: 0.25rem;
   min-width: 0;
-  padding: 0.85rem;
+  padding: 1rem;
   border: 1px solid var(--student-border);
-  border-radius: 6px;
+  border-radius: 10px;
   background: var(--student-surface);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--color-surface) 80%, transparent);
 }
 
-.student-workspace__block-review-grid span {
+.student-workspace__review-card-label {
   color: var(--student-text-soft);
   font-size: 0.68rem;
   font-weight: 800;
@@ -1088,13 +1117,246 @@ body.student-workspace-overlay-open #root * {
   text-transform: uppercase;
 }
 
-.student-workspace__block-review-grid strong {
+.student-workspace__review-card-value {
   min-width: 0;
   overflow: hidden;
   color: var(--color-text);
-  font-size: 0.9rem;
+  font-size: 1.05rem;
+  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.student-workspace__review-card-hint {
+  color: var(--student-text-soft);
+  font-size: 0.72rem;
+}
+
+.student-workspace__section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.student-workspace__section-heading--compact {
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.student-workspace__section-heading--compact h4 {
+  font-size: 0.9rem;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.student-workspace__batch-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--student-border);
+  border-radius: 999px;
+  background: var(--student-surface-soft);
+  color: var(--student-text-soft);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.student-workspace__student-list {
+  display: grid;
+  gap: 0.5rem;
+  max-height: 16rem;
+  overflow: auto;
+  padding: 0.5rem;
+  border: 1px solid var(--student-border);
+  border-radius: 10px;
+  background: var(--student-surface);
+}
+
+.student-workspace__student-list--compact {
+  max-height: 10rem;
+}
+
+.student-workspace__student-list-row {
+  display: grid;
+  grid-template-columns: 9rem 1fr 7rem;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.6rem 0.85rem;
+  border-radius: 6px;
+  font-size: 0.84rem;
+  color: var(--color-text);
+  background: var(--student-surface-soft);
+}
+
+.student-workspace__student-list-number {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  color: var(--student-text-soft);
+}
+
+.student-workspace__student-list-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.student-workspace__student-list-block {
+  text-align: right;
+  color: var(--student-text-soft);
+  font-size: 0.78rem;
+}
+
+.student-workspace__form-grid--selects {
+  margin-bottom: 1rem;
+}
+
+.student-workspace__field-card {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1rem;
+  border: 1px solid var(--student-border);
+  border-radius: 10px;
+  background: var(--student-surface);
+}
+
+.student-workspace__field-card-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--student-text-soft);
+}
+
+.student-workspace__field-card select {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--student-border);
+  border-radius: 6px;
+  background: var(--student-surface-soft);
+  color: var(--color-text);
+  font-size: 0.86rem;
+}
+
+.student-workspace__state-card {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  padding: 1.15rem 1.25rem;
+  border: 1px solid var(--student-border);
+  border-radius: 10px;
+  background: var(--student-surface);
+  color: var(--color-text);
+}
+
+.student-workspace__state-card strong {
+  display: block;
+  font-size: 0.9rem;
+  margin-bottom: 0.2rem;
+}
+
+.student-workspace__state-card p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--student-text-soft);
+  line-height: 1.45;
+}
+
+.student-workspace__state-card--error {
+  border-color: color-mix(in srgb, var(--color-danger, #ef4444) 35%, var(--student-border));
+  background: color-mix(in srgb, var(--color-danger, #ef4444) 7%, var(--student-surface));
+  color: color-mix(in srgb, var(--color-danger, #ef4444) 90%, white);
+}
+
+.student-workspace__state-card--error svg {
+  color: var(--color-danger, #ef4444);
+  flex-shrink: 0;
+}
+
+.student-workspace__section-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.85rem;
+}
+
+.student-workspace__section-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  padding: 1rem;
+  text-align: left;
+  border: 1px solid var(--student-border);
+  border-radius: 10px;
+  background: var(--student-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.student-workspace__section-card:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 40%, var(--student-border));
+  background: color-mix(in srgb, var(--color-primary) 5%, var(--student-surface));
+  transform: translateY(-1px);
+}
+
+.student-workspace__section-card--selected {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--student-surface));
+  box-shadow: 0 0 0 3px var(--color-primary-subtle);
+}
+
+.student-workspace__section-card-main {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.student-workspace__section-card-code {
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.student-workspace__section-card-group {
+  font-size: 0.78rem;
+  color: var(--student-text-soft);
+}
+
+.student-workspace__section-card-meta {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 5rem;
+  text-align: right;
+}
+
+.student-workspace__section-card-count {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--student-text-soft);
+}
+
+.student-workspace__section-card-bar {
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--student-border);
+  overflow: hidden;
+}
+
+.student-workspace__section-card-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--color-primary);
+}
+
+.student-workspace__primary-button--with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
 }
 
 .student-workspace__selection-summary {
