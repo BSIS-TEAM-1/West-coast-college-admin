@@ -45,7 +45,9 @@ const Enrollment = require('./models/Enrollment')
 const BlockSection = require('./models/BlockSection')
 const StudentBlockAssignment = require('./models/StudentBlockAssignment')
 const BlockGroup = require('./models/BlockGroup')
+const Curriculum = require('./models/Curriculum')
 const BlockActionLog = require('./models/BlockActionLog')
+const GradeAuditLog = require('./models/GradeAuditLog')
 const BackupSystem = require('./backup')
 const { getAnnouncementAudienceQueryValues, normalizeAnnouncementAudience, validateAnnouncementAudience } = require('./announcementAudience')
 const SemaphoreSmsService = require('./services/semaphoreSmsService')
@@ -56,8 +58,12 @@ const registrarRoutes = require('./routes/registrarRoutes')
 const applicantRoutes = require('./routes/applicantRoutes')
 const schoolRoutes = require('./routes/schoolRoutes')
 const locationRoutes = require('./routes/locationRoutes')
+const gradeSubmissionRoutes = require('./routes/gradeSubmissionRoutes')
+const gradeSubmissionController = require('./controllers/gradeSubmissionController')
+const gradeReportController = require('./controllers/gradeReportController')
 const blockController = require('./controllers/blockController')
 const settingsController = require('./controllers/settingsController')
+const StudentController = require('./controllers/studentController')
 const AcademicYearRolloverService = require('./services/academicYearRolloverService')
 const BlockSubjectAssignmentController = require('./controllers/blockSubjectAssignmentController')
 const { requireAnyRole, requireAdminRole, isOwnerOrAdmin, normalizeAccountType } = require('./authorization')
@@ -96,6 +102,15 @@ const scheduledBackupInterval = setInterval(async () => {
     logger.error('Scheduled backup error:', error);
   }
 }, 6 * 60 * 60 * 1000); // 6 hours
+
+// Reconcile backup metadata in the background every 30 minutes
+const scheduledReconcileInterval = setInterval(async () => {
+  try {
+    await backupSystem.reconcileMetadata();
+  } catch (error) {
+    logger.error('Scheduled backup reconciliation error:', error);
+  }
+}, 30 * 60 * 1000); // 30 minutes
 
 const restoreVerificationIntervalMs = Math.max(60 * 60 * 1000, Number.parseInt(process.env.BACKUP_RESTORE_TEST_INTERVAL_HOURS || '168', 10) * 60 * 60 * 1000)
 const scheduledRestoreVerificationInterval = setInterval(async () => {
@@ -977,6 +992,24 @@ app.use('/api/schools', schoolRoutes)
 app.use('/api/locations', locationRoutes)
 app.use('/registrar', apiLimiter, authMiddleware, registrarRoutes)
 app.use('/api/registrar', authMiddleware, registrarRoutes)
+app.use('/api/registrar/grade-submissions', authMiddleware, gradeSubmissionRoutes)
+app.use('/registrar/grade-submissions', apiLimiter, authMiddleware, gradeSubmissionRoutes)
+
+// Professor grade submission route (professor-only)
+app.post('/api/professor/grade-submissions/:enrollmentId/submit', authMiddleware, (req, res, next) => {
+  if (String(req.accountType || '').toLowerCase() !== 'professor') {
+    return res.status(403).json({ error: 'Forbidden. Professor access required.' })
+  }
+  next()
+}, gradeSubmissionController.submitGrades)
+
+// Student grade audit trail (admin/registrar)
+app.get('/api/registrar/students/:studentId/grade-audit', authMiddleware, requireAnyRole('admin', 'registrar'), gradeSubmissionController.getStudentGradeAudit)
+
+// Grade reports (admin/registrar)
+app.get('/api/registrar/students/:id/report-card', authMiddleware, requireAnyRole('admin', 'registrar'), gradeReportController.generateReportCard)
+app.get('/api/registrar/students/:id/transcript', authMiddleware, requireAnyRole('admin', 'registrar'), gradeReportController.generateTranscript)
+app.get('/api/registrar/sections/:sectionId/subjects/:subjectId/grade-sheet', authMiddleware, requireAnyRole('admin', 'registrar', 'professor'), gradeReportController.generateClassGradeSheet)
 
 // Archive domain routes (audit logs, snapshots)
 const archiveRoutes = require('./domains/archive/routes/archiveRoutes')
@@ -1564,7 +1597,8 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
   const remarks = normalizeProfessorRouteText(req.body?.remarks)
   const hasGradeField = Object.prototype.hasOwnProperty.call(req.body || {}, 'grade')
   const rawGrade = hasGradeField ? req.body.grade : null
-  const normalizedGrade = rawGrade === null || String(rawGrade).trim() === ''
+
+  let normalizedGrade = rawGrade === null || rawGrade === undefined || String(rawGrade).trim() === ''
     ? null
     : Number(rawGrade)
 
@@ -1578,6 +1612,22 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
 
   if (normalizedGrade !== null && (!Number.isFinite(normalizedGrade) || normalizedGrade < 1 || normalizedGrade > 5)) {
     return res.status(400).json({ error: 'Grade must be a number from 1.0 to 5.0, or blank.' })
+  }
+
+  // Block grade changes if submission is approved or submitted
+  const submissionBlockQuery = {
+    studentId: new mongoose.Types.ObjectId(studentId),
+    status: { $nin: ['Dropped', 'Cancelled'] },
+    'gradeSubmission.status': { $in: ['Submitted', 'Approved'] },
+    subjects: { $elemMatch: { subjectId: new mongoose.Types.ObjectId(subjectId), status: { $ne: 'Dropped' } } }
+  }
+  if (semester) submissionBlockQuery.semester = semester
+  if (schoolYear) submissionBlockQuery.schoolYear = schoolYear
+  const blockedEnrollment = await Enrollment.findOne(submissionBlockQuery).lean().select('gradeSubmission.status')
+  if (blockedEnrollment) {
+    return res.status(400).json({
+      error: `Grades cannot be edited while submission status is "${blockedEnrollment.gradeSubmission?.status}". ${blockedEnrollment.gradeSubmission?.status === 'Submitted' ? 'Wait for registrar approval or revert to draft.' : 'Grades are already approved.'}`
+    })
   }
 
   try {
@@ -1655,12 +1705,33 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
       return res.status(404).json({ error: 'The selected subject is not assigned to your account for this student.' })
     }
 
+    const oldGrade = matchedEntry.grade ?? null
+    const oldRemarks = matchedEntry.remarks || ''
+
     matchedEntry.grade = normalizedGrade
     matchedEntry.remarks = remarks
     matchedEntry.dateModified = new Date()
     enrollment.updatedBy = req.adminId
     enrollment.markModified('subjects')
     await enrollment.save()
+
+    // Audit log
+    await GradeAuditLog.create({
+      enrollmentId: enrollment._id,
+      studentId: enrollment.studentId,
+      studentNumber: enrollment.studentNumber,
+      subjectId: matchedEntry.subjectId,
+      subjectCode: matchedEntry.code,
+      oldGrade,
+      newGrade: normalizedGrade,
+      oldRemarks,
+      newRemarks: remarks || '',
+      action: oldGrade === null && normalizedGrade !== null ? 'grade_entry' : (normalizedGrade === null ? 'grade_clear' : 'grade_update'),
+      changedBy: req.adminId,
+      changedByRole: req.accountType,
+      schoolYear: enrollment.schoolYear,
+      semester: enrollment.semester
+    })
 
     const student = await Student.findById(studentId)
       .select('_id studentNumber firstName middleName lastName suffix yearLevel studentStatus course email contactNumber corStatus')
@@ -1689,7 +1760,8 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
         subjectStatus: normalizeProfessorRouteText(matchedEntry.status) || 'Enrolled',
         classSubjectCode: normalizeProfessorRouteText(matchedEntry.code),
         classSubjectTitle: normalizeProfessorRouteText(matchedEntry.title),
-        gradeUpdatedAt: matchedEntry.dateModified || enrollment.updatedAt || new Date()
+        gradeUpdatedAt: matchedEntry.dateModified || enrollment.updatedAt || new Date(),
+        gradeSubmissionStatus: enrollment.gradeSubmission?.status || 'Draft'
       }
     })
   } catch (error) {
@@ -3067,7 +3139,25 @@ app.post('/api/student/login', authLimiter, async (req, res) => {
       return res.status(401).json({ error: 'Invalid student number or password.' })
     }
 
-    const isPasswordValid = await student.comparePassword(password)
+    // If the student has a stored (hashed) password, compare against it.
+    // If not, fall back to the generated default password (initials + last 4
+    // digits of student number) so newly-enrolled students can log in before
+    // a registrar sets a custom password.
+    let isPasswordValid = false
+    if (student.password) {
+      isPasswordValid = await student.comparePassword(password)
+      console.log(`[login] ${normalizedStudentNumber}: bcrypt compare -> ${isPasswordValid}`)
+    } else {
+      const defaultPassword = student.generateDefaultPassword()
+      isPasswordValid = password === defaultPassword
+      console.log(`[login] ${normalizedStudentNumber}: default pw check -> got="${password}" expected="${defaultPassword}" -> ${isPasswordValid}`)
+      // Persist the hash so future logins go through the normal bcrypt path
+      // and the student can change their password later.
+      if (isPasswordValid) {
+        student.password = defaultPassword
+        await student.save()
+      }
+    }
     if (!isPasswordValid) {
       return res.status(401).json({ error: 'Invalid student number or password.' })
     }
@@ -3381,6 +3471,495 @@ app.get('/api/student/me', async (req, res) => {
   } catch (error) {
     console.error('Get student profile error:', error)
     res.status(500).json({ error: 'Failed to fetch student profile.' })
+  }
+})
+
+// PUT /api/student/profile — student updates their own contact/personal info.
+// Only editable fields are accepted; academic fields (course, yearLevel, etc.)
+// are managed by the registrar. Updates propagate to the same Student document
+// the registrar sees, so changes are immediately reflected in the admin panel.
+app.put('/api/student/profile', studentAuthMiddleware, async (req, res) => {
+  try {
+    const student = req.student
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found.' })
+    }
+
+    // Whitelist of editable fields
+    const allowed = [
+      'email', 'contactNumber', 'address', 'permanentAddress',
+      'birthDate', 'birthPlace', 'gender', 'civilStatus',
+      'nationality', 'religion', 'emergencyContact'
+    ]
+
+    const updates = {}
+    for (const field of allowed) {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field]
+      }
+    }
+
+    // Validate email format if provided
+    if (updates.email !== undefined) {
+      const email = String(updates.email).trim()
+      if (email && !/^\S+@\S+\.\S+$/.test(email)) {
+        return res.status(400).json({ error: 'Please enter a valid email address.' })
+      }
+      updates.email = email
+    }
+
+    // Validate emergency contact structure if provided
+    if (updates.emergencyContact !== undefined && updates.emergencyContact !== null) {
+      const ec = updates.emergencyContact
+      if (typeof ec !== 'object' || Array.isArray(ec)) {
+        return res.status(400).json({ error: 'Emergency contact must be an object.' })
+      }
+      updates.emergencyContact = {
+        name: String(ec.name || '').trim(),
+        relationship: String(ec.relationship || '').trim(),
+        contactNumber: String(ec.contactNumber || '').trim(),
+        address: ec.address ? String(ec.address).trim() : undefined
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update.' })
+    }
+
+    Object.assign(student, updates)
+    await student.save()
+
+    console.log(`[profile-update] ${student.studentNumber}: updated ${Object.keys(updates).join(', ')}`)
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully.',
+      data: {
+        id: student._id.toString(),
+        studentNumber: student.studentNumber,
+        firstName: student.firstName,
+        middleName: student.middleName,
+        lastName: student.lastName,
+        suffix: student.suffix,
+        fullName: student.fullName,
+        course: student.course,
+        major: student.major,
+        yearLevel: student.yearLevel,
+        section: student.section,
+        semester: student.semester,
+        schoolYear: student.schoolYear,
+        studentStatus: student.studentStatus,
+        lifecycleStatus: student.lifecycleStatus,
+        enrollmentStatus: student.enrollmentStatus,
+        corStatus: student.corStatus,
+        scholarship: student.scholarship,
+        email: student.email,
+        contactNumber: student.contactNumber,
+        address: student.address,
+        permanentAddress: student.permanentAddress,
+        birthDate: student.birthDate,
+        birthPlace: student.birthPlace,
+        gender: student.gender,
+        civilStatus: student.civilStatus,
+        nationality: student.nationality,
+        religion: student.religion,
+        emergencyContact: student.emergencyContact
+      }
+    })
+  } catch (error) {
+    console.error('Update student profile error:', error)
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ error: error.message })
+    }
+    res.status(500).json({ error: 'Failed to update profile.' })
+  }
+})
+
+// ==================== STUDENT MOBILE APP — SHARED HELPERS ====================
+
+// Reusable auth guard for student-mobile-only endpoints. Verifies the bearer
+// JWT, confirms it is a student-type token, and attaches the loaded student
+// document to req.student.
+async function studentAuthMiddleware(req, res, next) {
+  try {
+    const auth = req.headers.authorization
+    const token = auth && auth.startsWith('Bearer ') ? auth.slice(7) : null
+    if (!token) {
+      return res.status(401).json({ error: 'Unauthorized.' })
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET)
+    if (decoded.type !== 'student') {
+      return res.status(401).json({ error: 'Invalid token type.' })
+    }
+
+    const student = await Student.findById(decoded.sub)
+    if (!student || !student.isActive) {
+      return res.status(404).json({ error: 'Student not found.' })
+    }
+
+    req.student = student
+    next()
+  } catch (error) {
+    return res.status(401).json({ error: 'Invalid or expired token.' })
+  }
+}
+
+const STUDENT_COURSE_LABELS = {
+  101: 'BEED',
+  102: 'BSEd-English',
+  103: 'BSEd-Math',
+  201: 'BSBA-HRM'
+}
+
+// Class-day codes follow the same fixed order used by the registrar's
+// "Assign Professor" workspace: M, T, W, TH, F, S, SU (see
+// RegistrarCourseWorkspace.tsx `dayOptions`). Schedule strings look like
+// "MWF 08:00-09:30" or "TTH 13:00-14:30".
+const SCHEDULE_DAY_TOKENS = ['TH', 'SU', 'M', 'T', 'W', 'F', 'S']
+const WEEKDAY_INDEX_TO_CODE = ['SU', 'M', 'T', 'W', 'TH', 'F', 'S'] // Date#getDay(): 0=Sun..6=Sat
+
+function parseScheduleDayCodes(dayPart) {
+  const codes = []
+  const upper = String(dayPart || '').toUpperCase()
+  let i = 0
+  while (i < upper.length) {
+    const twoChar = upper.slice(i, i + 2)
+    if (twoChar === 'TH' || twoChar === 'SU') {
+      codes.push(twoChar)
+      i += 2
+      continue
+    }
+    const oneChar = upper[i]
+    if (['M', 'T', 'W', 'F', 'S'].includes(oneChar)) {
+      codes.push(oneChar)
+    }
+    i += 1
+  }
+  return codes
+}
+
+function parseScheduleString(schedule) {
+  const trimmed = String(schedule || '').trim()
+  const match = trimmed.match(/^([A-Z]+)\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})$/i)
+  if (!match) return null
+  return {
+    days: parseScheduleDayCodes(match[1]),
+    startTime: match[2],
+    endTime: match[3]
+  }
+}
+
+// GET /api/student/dashboard — aggregated payload for the mobile app's home
+// screen: profile summary, current academic context, today's schedule,
+// latest grades, and the most recent student-facing announcements.
+app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
+  try {
+    const student = req.student
+
+    const enrollment = await Enrollment.findOne({
+      studentId: student._id,
+      isCurrent: true,
+      status: { $in: ['Enrolled', 'Pending'] }
+    }).sort({ createdAt: -1 })
+
+    let academicSummary = {
+      hasCurrentEnrollment: false,
+      enrolledSubjects: 0,
+      totalUnits: 0,
+      semester: student.semester || null,
+      schoolYear: student.schoolYear || null,
+      yearLevel: student.yearLevel || null
+    }
+    let todaySchedule = []
+    let latestGrades = []
+
+    if (enrollment) {
+      const activeSubjects = (enrollment.subjects || []).filter(
+        (subject) => !['Dropped', 'Removed'].includes(subject.status)
+      )
+
+      academicSummary = {
+        hasCurrentEnrollment: true,
+        enrolledSubjects: activeSubjects.length,
+        totalUnits: activeSubjects.reduce((sum, subject) => sum + (Number(subject.units) || 0), 0),
+        semester: enrollment.semester,
+        schoolYear: enrollment.schoolYear,
+        yearLevel: enrollment.yearLevel
+      }
+
+      const todayCode = WEEKDAY_INDEX_TO_CODE[new Date().getDay()]
+      todaySchedule = activeSubjects
+        .map((subject) => {
+          const parsed = parseScheduleString(subject.schedule)
+          if (!parsed || !parsed.days.includes(todayCode)) return null
+          return {
+            subjectCode: subject.code,
+            subjectTitle: subject.title,
+            room: subject.room || 'TBA',
+            instructor: subject.instructor || 'TBA',
+            startTime: parsed.startTime,
+            endTime: parsed.endTime
+          }
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.startTime.localeCompare(b.startTime))
+
+      latestGrades = activeSubjects
+        .filter((subject) => subject.grade !== null && subject.grade !== undefined)
+        .sort((a, b) => new Date(b.dateModified || 0) - new Date(a.dateModified || 0))
+        .slice(0, 5)
+        .map((subject) => ({
+          subjectCode: subject.code,
+          subjectTitle: subject.title,
+          units: subject.units,
+          grade: subject.grade,
+          remarks: subject.remarks || (Number(subject.grade) <= 3.0 ? 'PASSED' : 'FAILED'),
+          status: subject.status
+        }))
+    }
+
+    const announcements = await Announcement.find({
+      isActive: true,
+      $or: [{ targetAudience: 'all' }, { targetAudience: 'students' }]
+    })
+      .sort({ isPinned: -1, createdAt: -1 })
+      .limit(3)
+      .select('title message type isPinned createdAt')
+      .lean()
+
+    res.json({
+      success: true,
+      data: {
+        profile: {
+          id: student._id.toString(),
+          studentNumber: student.studentNumber,
+          firstName: student.firstName,
+          fullName: student.fullName,
+          course: student.course,
+          courseLabel: STUDENT_COURSE_LABELS[Number(student.course)] || null,
+          yearLevel: student.yearLevel,
+          section: student.section,
+          schoolYear: student.schoolYear,
+          semester: student.semester,
+          studentStatus: student.studentStatus,
+          corStatus: student.corStatus
+        },
+        academicSummary,
+        todaySchedule,
+        latestGrades,
+        announcements: announcements.map((announcement) => ({
+          id: announcement._id.toString(),
+          title: announcement.title,
+          message: announcement.message,
+          type: announcement.type,
+          isPinned: announcement.isPinned,
+          createdAt: announcement.createdAt
+        }))
+      }
+    })
+  } catch (error) {
+    console.error('Get student dashboard error:', error)
+    res.status(500).json({ error: 'Failed to load dashboard.' })
+  }
+})
+
+// GET /api/student/grades — full grade history grouped by academic period.
+// Returns current term + all historical enrollments that have graded
+// subjects, so the mobile app can render Current / Historical tabs without
+// ever mixing records from different academic years (spec §32).
+app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
+  try {
+    const student = req.student
+
+    const enrollments = await Enrollment.find({
+      studentId: student._id,
+      status: { $ne: 'Dropped' }
+    }).sort({ isCurrent: -1, createdAt: -1 })
+
+    const periods = enrollments
+      .map((enrollment) => {
+        const graded = (enrollment.subjects || [])
+          .filter((subject) => subject.grade !== null && subject.grade !== undefined)
+          .map((subject) => ({
+            subjectCode: subject.code,
+            subjectTitle: subject.title,
+            units: subject.units,
+            grade: subject.grade,
+            remarks: subject.remarks || (Number(subject.grade) <= 3.0 ? 'PASSED' : 'FAILED'),
+            status: subject.status
+          }))
+
+        if (graded.length === 0) return null
+
+        const totalUnits = graded.reduce((sum, g) => sum + (Number(g.units) || 0), 0)
+        const weightedSum = graded.reduce((sum, g) => sum + (Number(g.grade) || 0) * (Number(g.units) || 0), 0)
+        const termGpa = totalUnits > 0 ? weightedSum / totalUnits : null
+
+        return {
+          isCurrent: !!enrollment.isCurrent,
+          semester: enrollment.semester,
+          schoolYear: enrollment.schoolYear,
+          yearLevel: enrollment.yearLevel,
+          termGpa: termGpa ? Number(termGpa.toFixed(2)) : null,
+          totalUnits,
+          subjects: graded
+        }
+      })
+      .filter(Boolean)
+
+    const allGradedSubjects = periods.flatMap((p) => p.subjects)
+    const cumulativeUnits = allGradedSubjects.reduce((sum, g) => sum + (Number(g.units) || 0), 0)
+    const cumulativeWeighted = allGradedSubjects.reduce(
+      (sum, g) => sum + (Number(g.grade) || 0) * (Number(g.units) || 0),
+      0
+    )
+    const cumulativeGpa = cumulativeUnits > 0 ? Number((cumulativeWeighted / cumulativeUnits).toFixed(2)) : null
+
+    res.json({
+      success: true,
+      data: {
+        periods,
+        summary: {
+          cumulativeGpa,
+          totalUnitsEarned: cumulativeUnits,
+          totalSubjectsCompleted: allGradedSubjects.length
+        }
+      }
+    })
+  } catch (error) {
+    console.error('Get student grades error:', error)
+    res.status(500).json({ error: 'Failed to load grades.' })
+  }
+})
+
+// GET /api/student/announcements — paginated, student-facing announcements.
+// Reuses the same Announcement model the admin/registrar writes to, scoped
+// to audiences "all" or "students". Supports optional ?limit and ?offset.
+app.get('/api/student/announcements', studentAuthMiddleware, async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50)
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0)
+
+    const filter = {
+      isActive: true,
+      targetAudience: { $in: ['all', 'students'] }
+    }
+
+    const [announcements, total] = await Promise.all([
+      Announcement.find(filter)
+        .sort({ isPinned: -1, createdAt: -1 })
+        .skip(offset)
+        .limit(limit)
+        .select('title message type targetAudience isPinned createdAt media')
+        .lean(),
+      Announcement.countDocuments(filter)
+    ])
+
+    res.json({
+      success: true,
+      data: {
+        items: announcements.map((a) => ({
+          id: a._id.toString(),
+          title: a.title,
+          message: a.message,
+          type: a.type,
+          targetAudience: Array.isArray(a.targetAudience) ? a.targetAudience : [],
+          isPinned: a.isPinned,
+          createdAt: a.createdAt,
+          media: Array.isArray(a.media) ? a.media.map((m) => ({
+            type: m.type,
+            url: m.url,
+            caption: m.caption || null
+          })) : []
+        })),
+        total,
+        limit,
+        offset,
+        hasMore: offset + announcements.length < total
+      }
+    })
+  } catch (error) {
+    console.error('Get student announcements error:', error)
+    res.status(500).json({ error: 'Failed to load announcements.' })
+  }
+})
+
+// GET /api/student/cor — Certificate of Registration as a real PDF.
+// Reuses the exact same StudentController.generateCorPdf the registrar uses
+// (spec §17: "Do not generate fake COR documents on the mobile client"),
+// just routed through the student auth guard instead of an admin guard.
+app.get('/api/student/cor', studentAuthMiddleware, async (req, res) => {
+  // generateCorPdf expects req.params.id; synthesize it from the authed student.
+  req.params = { id: req.student._id.toString() }
+  return StudentController.generateCorPdf(req, res)
+})
+
+// GET /api/student/schedule/weekly — current-term schedule grouped by day
+// (M/T/W/TH/F/S/SU), parsed from the same schedule strings the registrar
+// workspace writes. The legacy /api/student/schedule stays untouched for
+// backward compatibility with the old mobile build.
+app.get('/api/student/schedule/weekly', studentAuthMiddleware, async (req, res) => {
+  try {
+    const student = req.student
+
+    const enrollment = await Enrollment.findOne({
+      studentId: student._id,
+      isCurrent: true,
+      status: { $in: ['Enrolled', 'Pending'] }
+    }).sort({ createdAt: -1 })
+
+    if (!enrollment) {
+      return res.json({
+        success: true,
+        data: {
+          semester: student.semester || null,
+          schoolYear: student.schoolYear || null,
+          yearLevel: student.yearLevel || null,
+          byDay: { M: [], T: [], W: [], TH: [], F: [], S: [], SU: [] },
+          message: 'No current enrollment found.'
+        }
+      })
+    }
+
+    const activeSubjects = (enrollment.subjects || []).filter(
+      (subject) => !['Dropped', 'Removed'].includes(subject.status)
+    )
+
+    const byDay = { M: [], T: [], W: [], TH: [], F: [], S: [], SU: [] }
+    for (const subject of activeSubjects) {
+      const parsed = parseScheduleString(subject.schedule)
+      if (!parsed) continue
+      for (const dayCode of parsed.days) {
+        if (!byDay[dayCode]) continue
+        byDay[dayCode].push({
+          subjectCode: subject.code,
+          subjectTitle: subject.title,
+          room: subject.room || 'TBA',
+          instructor: subject.instructor || 'TBA',
+          startTime: parsed.startTime,
+          endTime: parsed.endTime
+        })
+      }
+    }
+
+    // Sort each day's classes by start time.
+    for (const dayCode of Object.keys(byDay)) {
+      byDay[dayCode].sort((a, b) => a.startTime.localeCompare(b.startTime))
+    }
+
+    res.json({
+      success: true,
+      data: {
+        semester: enrollment.semester,
+        schoolYear: enrollment.schoolYear,
+        yearLevel: enrollment.yearLevel,
+        byDay
+      }
+    })
+  } catch (error) {
+    console.error('Get student weekly schedule error:', error)
+    res.status(500).json({ error: 'Failed to load weekly schedule.' })
   }
 })
 
@@ -6020,10 +6599,23 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
     const lastScanTime = global.lastSystemHealthScan || new Date(0)
     const scanAgeMinutes = (now - lastScanTime) / (1000 * 60)
     
-    // Use cached data if less than 5 minutes old and not forcing a scan
-    if (!forceScan && scanAgeMinutes < 5 && global.cachedSystemHealth) {
+    // Use cached data if less than 10 minutes old and not forcing a scan
+    if (!forceScan && scanAgeMinutes < 10 && global.cachedSystemHealth) {
       console.log('Using cached system health data')
       return res.json(global.cachedSystemHealth)
+    }
+    
+    // If a scan is already in-flight, wait for it instead of starting another
+    if (global.systemHealthScanInFlight) {
+      console.log('System health scan already in progress, waiting...')
+      try {
+        await global.systemHealthScanInFlight
+        if (global.cachedSystemHealth) {
+          return res.json(global.cachedSystemHealth)
+        }
+      } catch (e) {
+        // Previous scan failed, continue to start a new one
+      }
     }
     
     console.log('Performing system health scan...')
@@ -6036,6 +6628,8 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
     
     const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000)
     
+    // Store the scan promise so concurrent requests can await it
+    global.systemHealthScanInFlight = (async () => {
     // Get system metrics from database
     const last1h = new Date(now.getTime() - 1 * 60 * 60 * 1000)
     
@@ -6055,7 +6649,13 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
       professorCount,
       // Security metrics
       blockedIPs,
-      failedLogins
+      failedLogins,
+      // System info in parallel
+      dbStats,
+      cpuData,
+      memData,
+      osData,
+      backupStats
     ] = await Promise.all([
       Admin.countDocuments(),
       // Count unique users who logged in in the last hour (truly active)
@@ -6092,7 +6692,19 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
         action: 'LOGIN', 
         status: 'FAILED', 
         createdAt: { $gte: last24h } 
-      })
+      }),
+      // System info — with timeouts to prevent blocking
+      Promise.race([
+        mongoose.connection.db.stats(),
+        new Promise(resolve => setTimeout(() => resolve({ dataSize: 0, indexSize: 0 }), 5000))
+      ]),
+      si.currentLoad(),
+      si.mem(),
+      si.osInfo(),
+      Promise.race([
+        backupSystem.getBackupStats(),
+        new Promise(resolve => setTimeout(() => resolve({ backupEnabled: false, latestBackup: null, totalBackups: 0, failedBackups: 0, successRate: 0, totalSize: 0 }), 5000))
+      ])
     ])
     
     // Get recent error logs with better error handling
@@ -6121,20 +6733,49 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
       }]
     }
     
-    // Calculate database stats
-    const dbStats = await mongoose.connection.db.stats()
-    const databaseUsage = ((dbStats.dataSize + dbStats.indexSize) / (1024 * 1024 * 1024 * 10)) * 100 // Assume 10GB limit
+    // Calculate database stats from real db.stats() output
+    const dbDataSize = dbStats.dataSize || 0;
+    const dbIndexSize = dbStats.indexSize || 0;
+    const dbStorageSize = dbStats.storageSize || dbDataSize;
+    const dbTotalSize = dbDataSize + dbIndexSize;
+    // Use dbStats.totalSize if available (MongoDB 4.4+), otherwise sum data + index
+    const dbAllocatedSize = dbStats.totalSize || dbTotalSize;
+    // Calculate usage as percentage of a reasonable threshold (use actual fsSize if available, otherwise 10GB)
+    const dbUsageThreshold = 10 * 1024 * 1024 * 1024; // 10GB default
+    const databaseUsage = Math.min(100, (dbTotalSize / dbUsageThreshold) * 100);
+
+    // Build atlasMetrics from real db.stats() data so the frontend has real DB info
+    // without requiring Atlas API credentials
+    const collectionsCount = dbStats.collections || 0;
+    const formatBytes = (bytes) => {
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+      return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+    };
+    const atlasMetrics = {
+      enabled: true,
+      clusterInfo: {
+        name: osData?.hostname || 'local',
+        version: mongoose.version,
+        connections: dbStats.connections || 0,
+        diskUsage: dbAllocatedSize > 0 ? Math.round((dbTotalSize / dbAllocatedSize) * 100) : null,
+      },
+      databaseInfo: {
+        collectionsCount,
+        dataSize: formatBytes(dbDataSize),
+        indexSize: formatBytes(dbIndexSize),
+      },
+      measurements: {
+        available: true,
+        diskUsed: dbTotalSize > 0 ? Math.round((dbTotalSize / dbUsageThreshold) * 100) : null,
+        diskTotal: 100,
+        indexSize: dbIndexSize,
+      },
+    };
     
     // Get real server metrics
     const memoryUsage = process.memoryUsage()
     const memoryUsagePercent = (memoryUsage.heapUsed / memoryUsage.heapTotal) * 100
-    
-    // Get real system metrics
-    const [cpuData, memData, osData] = await Promise.all([
-      si.currentLoad(),
-      si.mem(),
-      si.osInfo()
-    ])
     
     // Get actual server uptime
     const serverUptimeSeconds = process.uptime()
@@ -6147,15 +6788,18 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
     // Use real system memory usage
     const systemMemoryUsagePercent = (memData.used / memData.total) * 100
     
-    // Get real backup status
-    const backupStats = await backupSystem.getBackupStats();
-    const backupStatus = backupStats.backupEnabled && backupStats.latestBackup ? 'success' : 'error';
+    // Get real backup status — don't error if a backup is currently in progress
+    const backupInProgress = backupStats.activeOperation != null;
+    const backupStatus = (!backupStats.backupEnabled && !backupInProgress) ? 'error' 
+      : (backupStats.latestBackup || backupInProgress) ? 'success' 
+      : 'error';
     const lastBackup = backupStats.latestBackup ? new Date(backupStats.latestBackup.createdAt).toISOString() : 'N/A';
     
     const healthData = {
       uptime: parseFloat(uptimePercentage.toFixed(1)),
       activeUsers: activeUsers, // Real active users from last hour
       databaseUsage: parseFloat(databaseUsage.toFixed(1)),
+      atlasMetrics,
       backupStatus,
       errorCount: errorLogs,
       serverLoad: parseFloat(serverLoad.toFixed(1)),
@@ -6212,11 +6856,26 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
     // Cache the response data
     global.cachedSystemHealth = healthData
     
+    return healthData
+    })() // end systemHealthScanInFlight
+    
+    const healthData = await global.systemHealthScanInFlight
+    global.systemHealthScanInFlight = null
+    
+    // Client may have disconnected while waiting for the scan
+    if (res.writableEnded || res.destroyed) {
+      console.log('System health: client already disconnected, skipping response')
+      return
+    }
+    
     // Respond without noisy debug output
     res.json(healthData)
   } catch (error) {
-    console.error('System health error:', error)
-    res.status(500).json({ error: 'Failed to fetch system health data.' })
+    global.systemHealthScanInFlight = null
+    if (!res.destroyed) {
+      console.error('System health error:', error)
+      res.status(500).json({ error: 'Failed to fetch system health data.' })
+    }
   }
 })
 
@@ -6612,6 +7271,7 @@ app.post('/api/admin/backup/compare', authMiddleware, requireAdminRole, async (r
 app.post('/api/admin/backup/restore-test', adminActionLimiter, authMiddleware, requireAdminRole, async (req, res) => {
   try {
     const result = await backupSystem.runScheduledRestoreVerification();
+    backupSystem.statsCache = null;
     await logAudit('VERIFY', 'SYSTEM', String(result.report?.fileName || 'latest-backup'), 'Backup', result.success ? 'Isolated restore verification passed' : `Isolated restore verification failed: ${result.error || 'validation failed'}`, req.adminId || null, req.accountType === 'registrar' ? 'registrar' : 'admin', null, { verificationType: 'scheduled_restore', durationMs: result.report?.durationMs || null }, result.success ? 'SUCCESS' : 'FAILED', result.success ? 'MEDIUM' : 'HIGH', req.ip || null, req.get('user-agent') || null);
     res.status(result.code === 'BACKUP_BUSY' ? 409 : result.success ? 200 : 422).json(result);
   } catch (error) { res.status(error.code === 'BACKUP_BUSY' ? 409 : 500).json({ success: false, code: error.code, error: error.message }); }
@@ -6619,7 +7279,7 @@ app.post('/api/admin/backup/restore-test', adminActionLimiter, authMiddleware, r
 
 app.post('/api/admin/backup/cleanup', adminActionLimiter, authMiddleware, requireAdminRole, async (req, res) => {
   try {
-    const removed = await backupSystem.withLock('retention_cleanup', {}, () => backupSystem.cleanupOldBackups());
+    const removed = await backupSystem.cleanupOldBackups();
     backupSystem.statsCache = null;
     await logAudit('DELETE', 'SYSTEM', 'automatic-backups', 'Backup', `Retention cleanup removed ${removed.length} old automatic backup(s)`, req.adminId || null, req.accountType === 'registrar' ? 'registrar' : 'admin', null, { removed }, 'SUCCESS', 'MEDIUM', req.ip || null, req.get('user-agent') || null);
     res.json({ success: true, removed, removedCount: removed.length });
@@ -7814,6 +8474,48 @@ app.get('/api/rollover/audit-report', authMiddleware, requireBlockManagementRole
 
 // ==================== BLOCK MANAGEMENT ====================
 
+// GET /api/curriculum — list all curricula for block group configuration
+app.get('/api/curriculum', authMiddleware, requireBlockManagementRole, cacheMiddleware({ ttlMs: 60 * 1000 }), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' });
+  }
+  try {
+    const curricula = await Curriculum.find({})
+      .select('programCode programName version status effectiveSchoolYear')
+      .lean();
+    res.json(curricula);
+  } catch (error) {
+    console.error('Get curricula error:', error);
+    res.status(500).json({ error: 'Failed to fetch curricula.' });
+  }
+});
+
+// GET /api/blocks/eligible
+app.get('/api/blocks/eligible', authMiddleware, requireBlockManagementRole, cacheMiddleware({ ttlMs: 10 * 1000 }), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.getEligibleBlocks(req, res);
+  } catch (error) {
+    console.error('Get eligible blocks error:', error);
+    res.status(500).json({ error: 'Failed to fetch eligible blocks.' });
+  }
+});
+
+// POST /api/blocks/eligible/bulk
+app.post('/api/blocks/eligible/bulk', authMiddleware, requireBlockManagementRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.getBulkEligibility(req, res);
+  } catch (error) {
+    console.error('Get bulk eligibility error:', error);
+    res.status(500).json({ error: 'Failed to evaluate bulk eligibility.' });
+  }
+});
+
 // POST /api/blocks/assign-student
 app.post('/api/blocks/assign-student', authMiddleware, requireBlockManagementRole, invalidateApiCacheOnSuccess(...blockManagementCachePrefixes), async (req, res) => {
   if (!dbReady) {
@@ -7957,6 +8659,22 @@ app.post('/api/blocks/groups/:groupId/sections', authMiddleware, requireBlockMan
   }
 });
 
+// POST /api/blocks/groups/:groupId/sync-subjects
+// Syncs BlockSubjectAssignment records from the block group's linked curriculum.
+// Auto-assigns required subjects matching curriculumId + yearLevel + semester
+// to all (or specified) sections. Idempotent — safe to run multiple times.
+app.post('/api/blocks/groups/:groupId/sync-subjects', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.syncSubjects), invalidateApiCacheOnSuccess(...blockManagementCachePrefixes), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.syncSubjectsFromCurriculum(req, res);
+  } catch (error) {
+    console.error('Sync subjects error:', error);
+    res.status(500).json({ error: 'Failed to sync subjects from curriculum.' });
+  }
+});
+
 // PATCH /api/blocks/sections/:sectionId
 app.patch('/api/blocks/sections/:sectionId', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware({ ...securityMiddleware.schemas.block.objectIdParam, ...securityMiddleware.schemas.block.updateSection }), invalidateApiCacheOnSuccess(...blockManagementCachePrefixes), async (req, res) => {
   if (!dbReady) {
@@ -8019,6 +8737,19 @@ app.patch('/api/blocks/sections/:sectionId/adviser', authMiddleware, requireBloc
   } catch (error) {
     console.error('Update section adviser error:', error);
     res.status(500).json({ error: 'Failed to update section adviser.' });
+  }
+});
+
+// GET /api/blocks/capacity-updates
+app.get('/api/blocks/capacity-updates', authMiddleware, requireBlockManagementRole, cacheMiddleware({ ttlMs: 5 * 1000 }), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.getCapacityUpdates(req, res);
+  } catch (error) {
+    console.error('Get capacity updates error:', error);
+    res.status(500).json({ error: 'Failed to fetch capacity updates.' });
   }
 });
 
@@ -8191,6 +8922,7 @@ async function shutdown(signal) {
   logger.warn(`${signal} received. Starting graceful shutdown.`)
 
   clearInterval(scheduledBackupInterval)
+  clearInterval(scheduledReconcileInterval)
   clearInterval(scheduledRestoreVerificationInterval)
   clearInterval(tokenCleanupInterval)
   clearInterval(archiveBinCleanupInterval)
