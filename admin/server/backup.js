@@ -10,6 +10,14 @@ const { createBackupStorage } = require('./services/backupStorage');
 const { createBackupEncryptionProvider } = require('./services/backupEncryption');
 const { createBackupNotificationService } = require('./services/backupNotifications');
 
+function formatBytesLocal(bytes) {
+  if (!bytes || bytes <= 0) return '0 B';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  if (bytes < 1024 ** 3) return (bytes / 1024 ** 2).toFixed(1) + ' MB';
+  return (bytes / 1024 ** 3).toFixed(1) + ' GB';
+}
+
 const APP_VERSION = process.env.APP_VERSION || require('../package.json').version || 'unknown';
 const SCHEMA_VERSION = process.env.DB_SCHEMA_VERSION || '1';
 const ENGINE_VERSION = '2.1.0';
@@ -453,9 +461,10 @@ class BackupSystem {
       const archiveName = path.basename(record.compressedPath || `${record.fileName}.gz${record.isEncrypted ? '.enc' : ''}`);
       const primaryExists = record.isEncrypted ? this.storage.exists(archiveName) : this.storage.exists(record.fileName) && this.storage.exists(archiveName);
       if (record.status === 'completed' && !primaryExists) {
-        record.verificationStatus = 'missing';
-        record.error = 'Backup file missing from configured storage';
-        await record.save();
+        await Backup.updateOne(
+          { _id: record._id },
+          { $set: { verificationStatus: 'missing', error: 'Backup file missing from configured storage' } }
+        ).catch(() => {});
         missing += 1;
       }
     }
@@ -487,37 +496,41 @@ class BackupSystem {
           error = null;
         } catch (verifyError) { error = verifyError.message; }
       }
-      await Backup.create({
-        fileName,
-        originalFileName: fileName,
-        filePath: this.storage.resolve(fileName),
-        compressedPath: this.storage.resolve(archiveName),
-        size: isEncrypted && verificationStatus === 'verified' ? verifiedJsonSize : stat.size,
-        compressedSize: this.storage.exists(archiveName) ? this.storage.stat(archiveName).size : 0,
-        documentCount,
-        collections,
-        status: verificationStatus === 'verified' ? 'completed' : 'failed',
-        backupType: 'legacy',
-        triggeredBy: 'reconciliation',
-        verificationStatus,
-        checksum,
-        jsonChecksum,
-        verifiedAt: verificationStatus === 'verified' ? new Date() : null,
-        completedAt: new Date(stat.mtime),
-        createdAt: new Date(stat.mtime),
-        isProtected: true,
-        storageProvider: this.storage.provider,
-        appVersion: 'unknown', schemaVersion: 'unknown', backupEngineVersion: 'legacy', backupFormatVersion: FORMAT_VERSION,
-        isEncrypted, encryptionProvider: isEncrypted ? this.encryption.name : null,
-        error
-      });
-      imported += 1;
+      try {
+        await Backup.create({
+          fileName,
+          originalFileName: fileName,
+          filePath: this.storage.resolve(fileName),
+          compressedPath: this.storage.resolve(archiveName),
+          size: isEncrypted && verificationStatus === 'verified' ? verifiedJsonSize : stat.size,
+          compressedSize: this.storage.exists(archiveName) ? this.storage.stat(archiveName).size : 0,
+          documentCount,
+          collections,
+          status: verificationStatus === 'verified' ? 'completed' : 'failed',
+          backupType: 'legacy',
+          triggeredBy: 'reconciliation',
+          verificationStatus,
+          checksum,
+          jsonChecksum,
+          verifiedAt: verificationStatus === 'verified' ? new Date() : null,
+          completedAt: new Date(stat.mtime),
+          createdAt: new Date(stat.mtime),
+          isProtected: true,
+          storageProvider: this.storage.provider,
+          appVersion: 'unknown', schemaVersion: 'unknown', backupEngineVersion: 'legacy', backupFormatVersion: FORMAT_VERSION,
+          isEncrypted, encryptionProvider: isEncrypted ? this.encryption.name : null,
+          error
+        });
+        imported += 1;
+      } catch (createErr) {
+        if (createErr.code === 11000) continue;
+        console.error('reconcileMetadata: failed to create backup record:', createErr.message);
+      }
     }
     return { missing, imported };
   }
 
   async getBackupHistory() {
-    await this.reconcileMetadata();
     if (mongoose.connection.readyState !== 1) return [];
     return Backup.find().sort({ createdAt: -1 }).limit(100).lean();
   }
@@ -789,7 +802,7 @@ class BackupSystem {
         if (!record) return { success: false, error: 'No verified backup is available for restore testing' };
         const verified = await this.verifyBackup(record.fileName, { includeData: true });
         if (!verified.success) throw new Error(verified.error);
-        const temporaryDatabaseName = `wcc_backup_verify_${crypto.randomUUID().replace(/-/g, '')}`;
+        const temporaryDatabaseName = `bv_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
         const temporaryDatabase = mongoose.connection.client.db(temporaryDatabaseName);
         try {
           for (const [name, documents] of Object.entries(verified._backupData.collections)) {
@@ -874,7 +887,6 @@ class BackupSystem {
 
   async computeBackupStats() {
     try {
-      await this.reconcileMetadata();
       const records = await Backup.find().sort({ createdAt: -1 }).lean();
       const completed = records.filter(item => item.status === 'completed' && item.verificationStatus === 'verified');
       const failed = records.filter(item => item.status === 'failed' || ['failed', 'missing'].includes(item.verificationStatus));
@@ -893,20 +905,114 @@ class BackupSystem {
         await this.notifications.notify(storageAlertLevel === 'full' ? 'storage.full' : 'storage.warning', { usedPercentage: storage.usedPercentage, used: storage.used, total: storage.total });
       }
       this.lastStorageAlertLevel = storageAlertLevel;
-      // Disaster recovery readiness is intentionally category-based so an
-      // administrator can see the score improve as each recovery issue is fixed.
-      const recentBackupReady = Boolean(latestBackup && health.ageHours != null && health.ageHours <= Number.parseFloat(process.env.BACKUP_RPO_HOURS || '6'));
-      const integrityReady = Boolean(latestBackup?.verificationStatus === 'verified' && verificationRate >= 95);
-      const redundancyReady = (process.env.BACKUP_STORAGE_REDUNDANCY || (this.storage.provider === 'local' ? 'single-copy' : 'provider-managed')) !== 'single-copy';
-      const storageReady = storage.usedPercentage == null || storage.usedPercentage < 70;
-      const readinessScore =
-        (recentBackupReady ? 20 : 0) +
-        (integrityReady ? 20 : 0) +
-        (lastRestoreVerification ? 20 : 0) +
-        (redundancyReady ? 15 : 0) +
-        (storageReady ? 10 : 0) +
-        (this.encryption.enabled ? 10 : 0) +
-        (failed.length === 0 ? 5 : 0);
+      const rpoHours = Number.parseFloat(process.env.BACKUP_RPO_HOURS || '6');
+      const rtoMinutes = Number.parseFloat(process.env.BACKUP_RTO_MINUTES || '60');
+      const storageRedundancy = process.env.BACKUP_STORAGE_REDUNDANCY || (this.storage.provider === 'local' ? 'single-copy' : 'provider-managed');
+
+      // --- Disaster Recovery Readiness (weighted, evidence-based) ---
+      // Each category contributes a weighted score from 0 to maxPoints.
+      // Partial credit is awarded where appropriate (e.g., 70% storage = partial).
+      const readinessCategories = [];
+
+      // 1. Recovery Point Objective (RPO) — 25 pts
+      //    Full credit if latest verified backup is within RPO window.
+      //    Partial credit if backup exists but exceeds RPO.
+      let rpoScore = 0;
+      if (latestBackup && health.ageHours != null) {
+        if (health.ageHours <= rpoHours) rpoScore = 25;
+        else if (health.ageHours <= rpoHours * 2) rpoScore = 15;
+        else if (health.ageHours <= 24) rpoScore = 8;
+        else rpoScore = 3;
+      }
+      readinessCategories.push({
+        id: 'rpo', label: 'Recovery Point Objective', score: rpoScore, maxScore: 25,
+        status: rpoScore === 25 ? 'pass' : rpoScore >= 8 ? 'warning' : 'critical',
+        detail: latestBackup
+          ? `Latest backup is ${health.ageHours}h old (RPO: ${rpoHours}h)`
+          : 'No verified backup exists'
+      });
+
+      // 2. Backup Integrity & Verification — 20 pts
+      //    Full credit if verification rate >= 95% and latest is verified.
+      //    Scaled by verification rate otherwise.
+      let integrityScore = 0;
+      if (latestBackup?.verificationStatus === 'verified') integrityScore += 10;
+      integrityScore += Math.round((verificationRate / 100) * 10);
+      integrityScore = Math.min(20, integrityScore);
+      readinessCategories.push({
+        id: 'integrity', label: 'Backup Integrity', score: integrityScore, maxScore: 20,
+        status: integrityScore >= 18 ? 'pass' : integrityScore >= 10 ? 'warning' : 'critical',
+        detail: `${verificationRate}% verification rate, latest: ${latestBackup?.verificationStatus || 'none'}`
+      });
+
+      // 3. Restore Testing (RTO) — 20 pts
+      //    Full credit if a restore test was performed within 30 days.
+      //    Partial credit if older. Zero if never tested.
+      let rtoScore = 0;
+      if (lastRestoreVerification) {
+        const restoreAgeDays = (Date.now() - new Date(lastRestoreVerification.completedAt || lastRestoreVerification.createdAt).getTime()) / 86400000;
+        if (restoreAgeDays <= 7) rtoScore = 20;
+        else if (restoreAgeDays <= 30) rtoScore = 15;
+        else if (restoreAgeDays <= 90) rtoScore = 8;
+        else rtoScore = 3;
+      }
+      readinessCategories.push({
+        id: 'rto', label: 'Restore Testing (RTO)', score: rtoScore, maxScore: 20,
+        status: rtoScore >= 15 ? 'pass' : rtoScore >= 8 ? 'warning' : 'critical',
+        detail: lastRestoreVerification
+          ? `Last restore test: ${Math.round((Date.now() - new Date(lastRestoreVerification.completedAt || lastRestoreVerification.createdAt).getTime()) / 86400000)}d ago (RTO: ${rtoMinutes}min)`
+          : 'Restore has never been tested'
+      });
+
+      // 4. Storage Redundancy — 15 pts
+      //    Full credit if not single-copy. Zero if single-copy.
+      const redundancyScore = storageRedundancy !== 'single-copy' ? 15 : 0;
+      readinessCategories.push({
+        id: 'redundancy', label: 'Storage Redundancy', score: redundancyScore, maxScore: 15,
+        status: redundancyScore === 15 ? 'pass' : 'warning',
+        detail: storageRedundancy === 'single-copy'
+          ? 'Only one storage copy (local). A host failure could destroy all backups.'
+          : `Redundancy: ${storageRedundancy}`
+      });
+
+      // 5. Storage Capacity — 10 pts
+      //    Full credit if <70% used. Scaled down as capacity fills.
+      let storageScore = 10;
+      if (storage.usedPercentage != null) {
+        if (storage.usedPercentage >= 95) storageScore = 0;
+        else if (storage.usedPercentage >= 85) storageScore = 3;
+        else if (storage.usedPercentage >= 70) storageScore = 6;
+      }
+      readinessCategories.push({
+        id: 'storage', label: 'Storage Capacity', score: storageScore, maxScore: 10,
+        status: storageScore >= 6 ? 'pass' : storageScore >= 3 ? 'warning' : 'critical',
+        detail: storage.usedPercentage != null
+          ? `${storage.usedPercentage}% used (${formatBytesLocal(storage.used || 0)} / ${formatBytesLocal(storage.total || 0)})`
+          : 'Capacity monitoring unavailable'
+      });
+
+      // 6. Encryption — 5 pts
+      const encryptionScore = this.encryption.enabled ? 5 : 0;
+      readinessCategories.push({
+        id: 'encryption', label: 'Encryption', score: encryptionScore, maxScore: 5,
+        status: encryptionScore === 5 ? 'pass' : 'info',
+        detail: this.encryption.enabled ? 'AES-256-GCM encryption enabled' : 'Backups are stored without application-level encryption'
+      });
+
+      // 7. Failed Backup Ratio — 5 pts
+      //    Full credit if no failures. Scaled by failure ratio.
+      const failureRatio = records.length ? failed.length / records.length : 0;
+      const failureScore = failed.length === 0 ? 5 : Math.max(0, Math.round(5 * (1 - failureRatio * 2)));
+      readinessCategories.push({
+        id: 'failures', label: 'Backup Reliability', score: failureScore, maxScore: 5,
+        status: failureScore === 5 ? 'pass' : failureScore >= 3 ? 'warning' : 'critical',
+        detail: failed.length === 0
+          ? 'No failed backups'
+          : `${failed.length} failed out of ${records.length} total (${Math.round(failureRatio * 100)}% failure rate)`
+      });
+
+      const readinessScore = readinessCategories.reduce((sum, cat) => sum + cat.score, 0);
+      const readinessLabel = readinessScore >= 90 ? 'Excellent' : readinessScore >= 75 ? 'Healthy' : readinessScore >= 50 ? 'Warning' : 'Critical';
       const stats = {
         totalBackups: records.length,
         successfulBackups: completed.length,
@@ -938,15 +1044,16 @@ class BackupSystem {
         health,
         disasterRecovery: {
           score: readinessScore,
-          label: readinessScore >= 90 ? 'Excellent' : readinessScore >= 75 ? 'Healthy' : readinessScore >= 50 ? 'Warning' : 'Critical',
-          rpoHours: Number.parseFloat(process.env.BACKUP_RPO_HOURS || '6'),
-          rtoMinutes: Number.parseFloat(process.env.BACKUP_RTO_MINUTES || '60'),
+          label: readinessLabel,
+          rpoHours,
+          rtoMinutes,
           lastVerifiedRestore: lastRestoreVerification?.completedAt || null,
           backupAgeHours: health.ageHours,
           verificationStatus: latestBackup?.verificationStatus || 'missing',
           storageProvider: this.storage.provider,
-          storageRedundancy: process.env.BACKUP_STORAGE_REDUNDANCY || (this.storage.provider === 'local' ? 'single-copy' : 'provider-managed'),
-          encryptionEnabled: this.encryption.enabled
+          storageRedundancy,
+          encryptionEnabled: this.encryption.enabled,
+          categories: readinessCategories
         },
         backupEnabled: true
       };
