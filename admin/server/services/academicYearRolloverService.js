@@ -9,6 +9,7 @@ const ArchiveSnapshot = require('../models/ArchiveSnapshot');
 const AcademicArchiveService = require('./AcademicArchiveService');
 const AuditLog = require('../models/AuditLog');
 const SystemSetting = require('../models/SystemSetting');
+const Curriculum = require('../models/Curriculum');
 const eventBus = require('../domains/shared/EventBus');
 const DomainEvents = require('../domains/shared/DomainEvents');
 
@@ -638,6 +639,23 @@ class AcademicYearRolloverService {
             { session }
           );
 
+          // Resolve curriculum for the new enrollment.
+          // Prefer carrying forward the previous enrollment's curriculumId.
+          // Fall back to resolving active curriculum for the program.
+          let newCurriculumId = currentEnrollment && currentEnrollment.curriculumId
+            ? currentEnrollment.curriculumId
+            : null;
+
+          if (!newCurriculumId) {
+            const activeCurriculum = await Curriculum.findOne({
+              programCode: Number(student.course),
+              status: 'Active',
+            }).select('_id').lean().session(session);
+            if (activeCurriculum) {
+              newCurriculumId = activeCurriculum._id;
+            }
+          }
+
           const newEnrollments = await Enrollment.create([{
             studentId: student._id,
             studentNumber: student.studentNumber,
@@ -645,6 +663,7 @@ class AcademicYearRolloverService {
             semester: targetSemester,
             yearLevel: newYearLevel,
             course: ENROLLMENT_COURSE_BY_CODE[student.course] || 'BEED',
+            curriculumId: newCurriculumId,
             subjects: [],
             assessment: { tuitionFee: 0, miscFee: 0, otherFees: 0, totalAmount: 0 },
             status: 'Enrolled',

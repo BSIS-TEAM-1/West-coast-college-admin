@@ -9,6 +9,8 @@ const BlockGroupSchema = new mongoose.Schema({
   schoolYear: { type: String, trim: true, match: /^\d{4}-\d{4}$/ },
   year: { type: Number, required: true },
   section: { type: String, trim: true, uppercase: true },
+  curriculumId: { type: mongoose.Schema.Types.ObjectId, ref: 'Curriculum', default: null, index: true },
+  studentClassification: { type: String, enum: ['Regular', 'Irregular', 'Transferee', 'Returning', 'All'], default: 'All', index: true },
   policies: {
     overcapPolicy: { type: String, enum: ['allow', 'deny', 'waitlist'], default: 'allow' },
     maxOvercap: { type: Number, default: 5 },
@@ -21,5 +23,6 @@ const BlockGroupSchema = new mongoose.Schema({
 
 BlockGroupSchema.index({ name: 1, semester: 1, year: 1 }, { unique: true });
 BlockGroupSchema.index({ courseId: 1, yearLevel: 1, section: 1, semester: 1, schoolYear: 1 });
+BlockGroupSchema.index({ courseId: 1, yearLevel: 1, studentClassification: 1, semester: 1, schoolYear: 1 });
 
 module.exports = mongoose.model('BlockGroup', BlockGroupSchema);

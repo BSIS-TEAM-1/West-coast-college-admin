@@ -39,6 +39,12 @@ const enrollmentSchema = new Schema({
     required: true,
     enum: ['BSIT', 'BSCS', 'BSIS', 'BSBA', 'BSA', 'BSE', 'BSED', 'BEED', 'AB', 'BSHM', 'BSTM', 'BSN', 'BSM', 'BSAIS']
   },
+  curriculumId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Curriculum',
+    default: null,
+    index: true
+  },
   
   // Subjects Information
   subjects: [{
@@ -97,6 +103,19 @@ const enrollmentSchema = new Schema({
     dateModified: {
       type: Date,
       default: Date.now
+    },
+    // Raw score (0-100) entered by professor before transmutation
+    rawScore: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: null
+    },
+    // Transmutation table used to convert rawScore → grade (for audit)
+    transmutationTableId: {
+      type: Schema.Types.ObjectId,
+      ref: 'TransmutationTable',
+      default: null
     }
   }],
   
@@ -166,6 +185,22 @@ const enrollmentSchema = new Schema({
     type: Boolean,
     default: true,
     index: true
+  },
+
+  // Grade Submission Workflow
+  // Tracks the lifecycle of grades for this enrollment: draft → submitted → approved/rejected
+  gradeSubmission: {
+    status: {
+      type: String,
+      enum: ['Draft', 'Submitted', 'Approved', 'Rejected'],
+      default: 'Draft',
+      index: true
+    },
+    submittedAt: { type: Date, default: null },
+    submittedBy: { type: Schema.Types.ObjectId, ref: 'Admin', default: null },
+    reviewedAt: { type: Date, default: null },
+    reviewedBy: { type: Schema.Types.ObjectId, ref: 'Admin', default: null },
+    reviewRemarks: { type: String, trim: true, default: '' }
   },
 
   // Immutability (Academic Year Rollover)

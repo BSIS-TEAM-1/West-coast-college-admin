@@ -3,7 +3,10 @@ const mongoose = require('mongoose');
 const BlockActionLogSchema = new mongoose.Schema({
   actionType: { type: String, required: true }, // e.g., 'OVERRIDE', 'TRANSFER'
   sectionId: { type: mongoose.Schema.Types.ObjectId, ref: 'BlockSection', required: true },
+  sectionCode: { type: String, trim: true },
+  blockGroupName: { type: String, trim: true },
   studentId: { type: String, required: true },
+  studentName: { type: String, trim: true },
   registrarId: { type: String, required: true },
   reason: { type: String, trim: true },
   timestamp: { type: Date, default: Date.now },
