@@ -403,6 +403,9 @@ export default function ApplicantOnboarding({ onBack }: Props) {
         if (shs.generalAverage?.trim() && !isValidGpa(shs.generalAverage)) {
           errors.shsGpa = `Senior high school general average must be a number between ${GPA_MIN} and ${GPA_MAX}.`
         }
+        if (!shs.strandOrTrack?.trim()) {
+          errors.shsStrand = 'Senior high school strand / track is required.'
+        }
       }
 
       const college = form.academicDetails.college
@@ -842,16 +845,19 @@ export default function ApplicantOnboarding({ onBack }: Props) {
                           <FieldError message={fieldErrors.shsGpa} />
                         </div>
                         <div className="applicant-field">
-                          <label className="applicant-field-label">Strand or track</label>
-                          <select className="form-select" value={form.academicDetails.seniorHighSchool?.strandOrTrack || ''} onChange={(e) => update('academicDetails.seniorHighSchool.strandOrTrack', e.target.value)}>
+                          <label className="applicant-field-label"><RequiredLabel>Strand or track</RequiredLabel></label>
+                          <select className={`form-select${fieldErrors.shsStrand ? ' form-input-error' : ''}`} value={form.academicDetails.seniorHighSchool?.strandOrTrack || ''} onChange={(e) => update('academicDetails.seniorHighSchool.strandOrTrack', e.target.value)} required>
                             <option value="">Select...</option>
                             <option value="Science, Technology, Engineering and Mathematics">Science, Technology, Engineering and Mathematics</option>
                             <option value="Accountancy, Business and Management">Accountancy, Business and Management</option>
                             <option value="Humanities and Social Sciences">Humanities and Social Sciences</option>
                             <option value="General Academic Strand">General Academic Strand</option>
                             <option value="Technical-Vocational-Livelihood">Technical-Vocational-Livelihood</option>
+                            <option value="Arts and Design">Arts and Design</option>
+                            <option value="Sports">Sports</option>
                             <option value="Not applicable">Not applicable</option>
                           </select>
+                          <FieldError message={fieldErrors.shsStrand} />
                         </div>
                         <div className="applicant-col-span-2">
                           <label className="applicant-field-label">School address</label>

@@ -443,10 +443,41 @@ body.student-workspace-overlay-open #root * {
 }
 
 .student-workspace__message {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   padding: 0.95rem 1rem;
   border: 1px solid transparent;
   border-radius: 1rem;
   font-weight: 600;
+  animation: student-workspace-message-slide 0.3s ease;
+}
+
+@keyframes student-workspace-message-slide {
+  from { opacity: 0; transform: translateY(-0.5rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.student-workspace__message-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: none;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.student-workspace__message-close:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .student-workspace__message--success {

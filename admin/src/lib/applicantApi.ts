@@ -79,7 +79,7 @@ export type ApplicantPayload = {
       yearGraduated: string
       generalAverage?: string
       gradesSummary?: string
-      strandOrTrack?: string
+      strandOrTrack: string
     }
     college?: {
       schoolName: string
@@ -191,6 +191,18 @@ export async function getRegistrarApplicants(params: { status?: string; q?: stri
 export type UpdateStatusResponse = {
   data: ApplicantRecord
   emailNotification: EmailNotification | null
+  studentNotification: StudentNotification | null
+}
+
+export type StudentNotification = {
+  upserted: boolean
+  updated?: boolean
+  created?: boolean
+  alreadyEnrolled?: boolean
+  studentNumber?: string
+  lifecycleStatus?: string
+  fullName?: string
+  error?: string
 }
 
 export async function updateApplicantStatus(
@@ -202,6 +214,6 @@ export async function updateApplicantStatus(
     headers: await authHeaders(),
     body: JSON.stringify(payload)
   })
-  const data = await readJson<{ success: boolean; data: ApplicantRecord; emailNotification: EmailNotification | null }>(response)
-  return { data: data.data, emailNotification: data.emailNotification ?? null }
+  const data = await readJson<{ success: boolean; data: ApplicantRecord; emailNotification: EmailNotification | null; studentNotification: StudentNotification | null }>(response)
+  return { data: data.data, emailNotification: data.emailNotification ?? null, studentNotification: data.studentNotification ?? null }
 }

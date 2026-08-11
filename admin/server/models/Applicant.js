@@ -211,6 +211,12 @@ applicantSchema.pre('validate', function(next) {
     const randomPart = Math.random().toString(36).slice(2, 7).toUpperCase();
     this.applicantNumber = `APP-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}${randomPart}`;
   }
+
+  const seniorHighSchool = this.academicDetails?.seniorHighSchool;
+  if (seniorHighSchool && String(seniorHighSchool.schoolName || '').trim() && !String(seniorHighSchool.strandOrTrack || '').trim()) {
+    this.invalidate('academicDetails.seniorHighSchool.strandOrTrack', 'Strand / Track is required for senior high school.');
+  }
+
   next();
 });
 

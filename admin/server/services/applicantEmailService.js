@@ -147,33 +147,33 @@ function buildStatusEmailHtml({ logoMarkup, applicantName, applicantNumber, stat
     : ''
 
   const courseLine = courseName
-    ? `<p class="email-muted" style="margin:0 0 4px;font-size:14px;line-height:22px;color:#64748b;">Program: <strong>${escapeHtml(courseName)}</strong></p>`
+    ? `<p class="email-muted" style="margin:0 0 4px;font-size:14px;line-height:22px;color:#94a3b8;">Program: <strong style="color:#f1f5f9;">${escapeHtml(courseName)}</strong></p>`
     : ''
 
   return [
     '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
     '<meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark">',
-    '<style>@media only screen and (max-width:620px){.email-shell{width:100%!important}.email-pad{padding-left:24px!important;padding-right:24px!important}}@media (prefers-color-scheme:dark){.email-bg{background:#111827!important}.email-shell,.email-body{background:#1f2937!important}.email-text{color:#e5e7eb!important}.email-muted{color:#cbd5e1!important}.email-footer{background:#172033!important;color:#94a3b8!important}}</style>',
+    '<style>@media only screen and (max-width:620px){.email-shell{width:100%!important}.email-pad{padding-left:24px!important;padding-right:24px!important}}@media (prefers-color-scheme:dark){.email-bg{background:#111827!important}.email-shell,.email-body{background:#000a1e!important}.email-text{color:#f1f5f9!important}.email-muted{color:#94a3b8!important}.email-footer{background:#000a1e!important;color:#94a3b8!important}}</style>',
     '</head><body class="email-bg" style="margin:0;padding:0;background:#f1f5f9;-webkit-text-size-adjust:100%;word-spacing:normal;">',
     '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" class="email-bg" style="width:100%;background:#f1f5f9;border-collapse:collapse;"><tr><td align="center" style="padding:32px 12px;">',
-    '<table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" class="email-shell" style="width:600px;max-width:600px;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;border-collapse:separate;overflow:hidden;">',
-    '<tr><td align="center" style="padding:32px 32px 24px;background:#7c2d12;">',
+    '<table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" class="email-shell" style="width:600px;max-width:600px;background:#000a1e;border:1px solid #0b224a;border-radius:16px;border-collapse:separate;overflow:hidden;">',
+    '<tr><td align="center" style="padding:32px 32px 24px;background:#002147;">',
     `<table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr><td align="center">${logoMarkup}</td></tr></table>`,
     '<p style="margin:16px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:20px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#fde68a;">West Coast College</p>',
     '<h1 style="margin:6px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:24px;line-height:32px;color:#ffffff;">Application Status Update</h1>',
     '</td></tr>',
-    '<tr><td class="email-body email-pad" style="padding:36px 40px;background:#ffffff;font-family:Arial,Helvetica,sans-serif;">',
-    `<p class="email-text" style="margin:0 0 14px;font-size:16px;line-height:25px;color:#1e293b;">Hello ${escapeHtml(applicantName)},</p>`,
-    `<p class="email-muted" style="margin:0 0 4px;font-size:14px;line-height:22px;color:#64748b;">Applicant Number: <strong>${escapeHtml(applicantNumber)}</strong></p>`,
+    '<tr><td class="email-body email-pad" style="padding:36px 40px;background:#000a1e;font-family:Arial,Helvetica,sans-serif;">',
+    `<p class="email-text" style="margin:0 0 14px;font-size:16px;line-height:25px;color:#f1f5f9;">Hello ${escapeHtml(applicantName)},</p>`,
+    `<p class="email-muted" style="margin:0 0 4px;font-size:14px;line-height:22px;color:#94a3b8;">Applicant Number: <strong style="color:#f1f5f9;">${escapeHtml(applicantNumber)}</strong></p>`,
     courseLine,
     `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:24px 0;border-collapse:separate;"><tr><td align="left" style="padding:24px 20px;background:${escapeHtmlAttribute(config.panelBg)};border:1px solid ${escapeHtmlAttribute(config.panelBorder)};border-radius:12px;">`,
     `<p style="margin:0 0 8px;font-size:12px;line-height:18px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:${escapeHtmlAttribute(config.panelColor)};">Status: ${escapeHtml(status)}</p>`,
     `<p style="margin:0 0 10px;font-size:18px;line-height:26px;font-weight:600;color:#1e293b;">${escapeHtml(config.heading)}</p>`,
-    `<p class="email-text" style="margin:0;font-size:15px;line-height:24px;color:#1e293b;">${escapeHtml(config.body)}</p>`,
+    `<p style="margin:0;font-size:15px;line-height:24px;color:#1e293b;">${escapeHtml(config.body)}</p>`,
     '</td></tr></table>',
     remarksBlock,
     '</td></tr>',
-    '<tr><td align="center" class="email-footer email-pad" style="padding:24px 40px;background:#f8fafc;border-top:1px solid #e2e8f0;font-family:Arial,Helvetica,sans-serif;color:#64748b;">',
+    '<tr><td align="center" class="email-footer email-pad" style="padding:24px 40px;background:#000a1e;border-top:1px solid #0b224a;font-family:Arial,Helvetica,sans-serif;color:#94a3b8;">',
     `<p style="margin:0;font-size:12px;line-height:19px;">&copy; ${new Date().getFullYear()} West Coast College. All rights reserved.</p>`,
     '<p style="margin:4px 0 0;font-size:12px;line-height:19px;">West Coast College Admin Portal &bull; Automated notification</p>',
     '</td></tr></table>',

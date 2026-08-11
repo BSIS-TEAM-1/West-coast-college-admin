@@ -1,5 +1,31 @@
 import type { WizardFormData, ValidationError } from './types'
 
+const PHONE_RE = /^(09|\+639)\d{9}$/
+const YEAR_RE = /^\d{4}$/
+const GPA_MIN = 60
+const GPA_MAX = 100
+
+function isValidEmail(email: string): boolean {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  return emailRegex.test(email.trim())
+}
+
+function isValidPhone(value: string): boolean {
+  const v = value.trim()
+  const digits = v.replace(/[^0-9]/g, '')
+  if (PHONE_RE.test(v)) return true
+  if (digits.length === 11 && digits.startsWith('09')) return true
+  if (digits.length === 13 && digits.startsWith('639')) return true
+  return false
+}
+
+function isValidGpa(value: string): boolean {
+  const v = value.trim()
+  if (!v) return true
+  const num = parseFloat(v)
+  return !isNaN(num) && num >= GPA_MIN && num <= GPA_MAX
+}
+
 export const validateStep = (step: string, data: Partial<WizardFormData>, mode: 'create' | 'edit' = 'create'): ValidationError[] => {
   const errors: ValidationError[] = []
 
@@ -11,7 +37,6 @@ export const validateStep = (step: string, data: Partial<WizardFormData>, mode: 
       if (!data.lastName?.trim()) {
         errors.push({ field: 'lastName', message: 'Last name is required' })
       }
-      // Student number is auto-generated, not validated in Step 1
       break
 
     case 'personal':
@@ -30,26 +55,15 @@ export const validateStep = (step: string, data: Partial<WizardFormData>, mode: 
       if (!data.nationality?.trim()) {
         errors.push({ field: 'nationality', message: 'Nationality is required' })
       }
-      break
-
-    case 'contact':
-      if (!data.email?.trim()) {
-        // Email is optional when editing an existing student since the student
-        // is expected to set/update their own email themselves.
-        if (mode !== 'edit') {
-          errors.push({ field: 'email', message: 'Email is required' })
-        }
-      } else if (!isValidEmail(data.email)) {
-        errors.push({ field: 'email', message: 'Please enter a valid email address' })
+      // Current address — street is required
+      if (!data.currentLocation?.streetAddress?.trim()) {
+        errors.push({ field: 'currentStreet', message: 'Street / House no. is required' })
       }
-      if (!data.contactNumber?.trim()) {
-        errors.push({ field: 'contactNumber', message: 'Contact number is required' })
-      } else if (!isValidPhoneNumber(data.contactNumber)) {
-        errors.push({ field: 'contactNumber', message: 'Please enter a valid phone number' })
+      // Guardian contact number (if provided, must be valid)
+      if (data.guardianContactNumber?.trim() && !isValidPhone(data.guardianContactNumber)) {
+        errors.push({ field: 'guardianContactNumber', message: 'Guardian contact number must be a valid Philippine mobile number' })
       }
-      if (!data.currentAddress?.trim()) {
-        errors.push({ field: 'currentAddress', message: 'Current address is required' })
-      }
+      // Emergency contact
       if (!data.emergencyContactName?.trim()) {
         errors.push({ field: 'emergencyContactName', message: 'Emergency contact name is required' })
       }
@@ -58,6 +72,23 @@ export const validateStep = (step: string, data: Partial<WizardFormData>, mode: 
       }
       if (!data.emergencyContactNumber?.trim()) {
         errors.push({ field: 'emergencyContactNumber', message: 'Emergency contact number is required' })
+      } else if (!isValidPhone(data.emergencyContactNumber)) {
+        errors.push({ field: 'emergencyContactNumber', message: 'Emergency contact number must be a valid Philippine mobile number' })
+      }
+      break
+
+    case 'contact':
+      if (!data.email?.trim()) {
+        if (mode !== 'edit') {
+          errors.push({ field: 'email', message: 'Email is required' })
+        }
+      } else if (!isValidEmail(data.email)) {
+        errors.push({ field: 'email', message: 'Please enter a valid email address' })
+      }
+      if (!data.contactNumber?.trim()) {
+        errors.push({ field: 'contactNumber', message: 'Contact number is required' })
+      } else if (!isValidPhone(data.contactNumber)) {
+        errors.push({ field: 'contactNumber', message: 'Contact number must be a valid Philippine mobile number' })
       }
       break
 
@@ -77,17 +108,48 @@ export const validateStep = (step: string, data: Partial<WizardFormData>, mode: 
       if (!data.studentStatus?.trim()) {
         errors.push({ field: 'studentStatus', message: 'Student status is required' })
       }
+      // Academic history validation (elementary + high school required)
+      const elem = data.academicDetails?.elementary
+      if (elem?.schoolName?.trim() && !YEAR_RE.test(elem.yearGraduated?.trim() || '')) {
+        errors.push({ field: 'elemYear', message: 'Elementary year graduated must be a 4-digit year' })
+      }
+      if (elem?.generalAverage?.trim() && !isValidGpa(elem.generalAverage)) {
+        errors.push({ field: 'elemGpa', message: `Elementary general average must be between ${GPA_MIN} and ${GPA_MAX}` })
+      }
+      const hs = data.academicDetails?.highSchool
+      if (hs?.schoolName?.trim() && !YEAR_RE.test(hs.yearGraduated?.trim() || '')) {
+        errors.push({ field: 'hsYear', message: 'High school year graduated must be a 4-digit year' })
+      }
+      if (hs?.generalAverage?.trim() && !isValidGpa(hs.generalAverage)) {
+        errors.push({ field: 'hsGpa', message: `High school general average must be between ${GPA_MIN} and ${GPA_MAX}` })
+      }
+      const shs = data.academicDetails?.seniorHighSchool
+      if (shs?.schoolName?.trim()) {
+        if (shs.yearGraduated?.trim() && !YEAR_RE.test(shs.yearGraduated.trim())) {
+          errors.push({ field: 'shsYear', message: 'Senior high school year graduated must be a 4-digit year' })
+        }
+        if (shs.generalAverage?.trim() && !isValidGpa(shs.generalAverage)) {
+          errors.push({ field: 'shsGpa', message: `Senior high school general average must be between ${GPA_MIN} and ${GPA_MAX}` })
+        }
+      }
+      const college = data.academicDetails?.college
+      if (college?.schoolName?.trim()) {
+        if (college.yearGraduated?.trim() && !YEAR_RE.test(college.yearGraduated.trim())) {
+          errors.push({ field: 'collegeYear', message: 'College year graduated must be a 4-digit year' })
+        }
+        if (college.generalAverage?.trim() && !isValidGpa(college.generalAverage)) {
+          errors.push({ field: 'collegeGpa', message: `College general average must be between ${GPA_MIN} and ${GPA_MAX}` })
+        }
+      }
       break
 
     case 'review':
-      // Review step validates all fields including student number
       const allErrors = [
         ...validateStep('identity', data, mode),
         ...validateStep('personal', data, mode),
         ...validateStep('contact', data, mode),
         ...validateStep('academic', data, mode)
       ]
-      // Add student number validation only in review step
       if (!data.studentNumber?.trim()) {
         errors.push({ field: 'studentNumber', message: 'Student number is required' })
       }
@@ -96,17 +158,6 @@ export const validateStep = (step: string, data: Partial<WizardFormData>, mode: 
   }
 
   return errors
-}
-
-function isValidEmail(email: string): boolean {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  return emailRegex.test(email)
-}
-
-function isValidPhoneNumber(phone: string): boolean {
-  // Accept Philippine phone formats: 09XX-XXX-XXXX, 09XXXXXXXXX, +63 9XX XXX XXXX
-  const phoneRegex = /^(\+63\s?|0)9\d{2}[-.\s]?\d{3}[-.\s]?\d{4}$/
-  return phoneRegex.test(phone.replace(/[\s-]/g, ''))
 }
 
 export const getStepErrors = (step: string, data: Partial<WizardFormData>, mode: 'create' | 'edit' = 'create'): ValidationError[] => {

@@ -89,7 +89,7 @@ export default function StudentWizard({ onClose, onSuccess, mode = 'create', stu
     }
   }
 
-  const handleChange = (field: keyof WizardFormData, value: string) => {
+  const handleChange = (field: keyof WizardFormData, value: string | import('./types').LocationData | import('./types').SchoolRecord | import('./types').AcademicDetails) => {
     setFormData((prev: Partial<WizardFormData>) => ({ ...prev, [field]: value }))
   }
 
