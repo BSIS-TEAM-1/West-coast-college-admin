@@ -1842,3 +1842,44 @@ button.block-draft-delete-btn:hover {
     margin-top: 0.5rem;
   }
 }
+
+/* Capacity updates — keep rows compact and horizontally flowing */
+.block-capacity-alerts-section .block-overview__list {
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--block-spacing-xs);
+}
+
+.block-capacity-alerts-section .block-overview__list-item {
+  padding: var(--block-spacing-xs) 0;
+}
+
+.block-overview__list-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--block-spacing-xs);
+  font-size: var(--block-body-sm);
+  line-height: 1.4;
+}
+
+.block-overview__list-title {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.block-overview__list-badge {
+  background: var(--color-bg-soft, #f1f5f9);
+  color: var(--color-text-secondary);
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
+.block-overview__list-detail {
+  color: var(--color-text-secondary);
+}

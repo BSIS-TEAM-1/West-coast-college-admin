@@ -18,28 +18,14 @@ type BlockManagementProps = {
 
 type WizardStep = 1 | 2 | 3
 
-const blockNumberOptions = [
-  '1-A',
-  '1-B',
-  '1-C',
-  '1-D',
-  '2-A',
-  '2-B',
-  '2-C',
-  '2-D',
-  '3-A',
-  '3-B',
-  '3-C',
-  '3-D',
-  '4-A',
-  '4-B',
-  '4-C',
-  '4-D',
-  '5-A',
-  '5-B',
-  '5-C',
-  '5-D'
-]
+const yearLevelOptions = ['1st', '2nd', '3rd', '4th', '5th']
+const sectionOptions = ['A', 'B', 'C', 'D']
+const blockNumberOptions = yearLevelOptions.flatMap((yearLabel, yearIndex) =>
+  sectionOptions.map((section) => ({
+    value: `${yearIndex + 1}-${section}`,
+    label: `${yearLabel} Year — Section ${section}`
+  }))
+)
 
 const currentYear = new Date().getFullYear()
 const DRAFT_STORAGE_KEY = 'block-management-drafts'
@@ -56,6 +42,17 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
   const [newGroupSemester, setNewGroupSemester] = useState<Semester>('1st')
   const [newGroupYear, setNewGroupYear] = useState<number>(currentYear)
   const [newGroupCapacity, setNewGroupCapacity] = useState<number>(30)
+  const [newGroupClassification, setNewGroupClassification] = useState<string>('All')
+  const [newGroupCurriculumId, setNewGroupCurriculumId] = useState<string>('')
+  const [availableCurriculums, setAvailableCurriculums] = useState<Array<{
+    _id: string
+    name: string
+    code: string
+    version: string
+    status: string
+    programCode: number
+    subjectCount?: number
+  }>>([])
   const [draft, setDraft] = useState<BlockDraft | null>(null)
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [lastAutoSaveTime, setLastAutoSaveTime] = useState<Date | null>(null)
@@ -67,6 +64,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
     section: string
     semester: Semester
     year: string
+    studentClassification: string
   } | null>(null)
   const [savingEditGroup, setSavingEditGroup] = useState(false)
 
@@ -91,9 +89,15 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
     [newGroupCourse]
   )
   const normalizedBlockNumber = String(newGroupBlockNumber || '').trim().toUpperCase()
+  const selectedBlockOption = useMemo(() => blockNumberOptions.find((o) => o.value === normalizedBlockNumber), [normalizedBlockNumber])
   const generatedStorageName = selectedCourse && normalizedBlockNumber ? `${selectedCourse.value}-${normalizedBlockNumber}` : ''
-  const generatedDisplayName = selectedCourse && normalizedBlockNumber ? `${selectedCourse.label} - ${normalizedBlockNumber}` : 'No block selected'
+  const generatedDisplayName = selectedCourse && normalizedBlockNumber ? `${selectedCourse.label} - ${selectedBlockOption?.label || normalizedBlockNumber}` : 'No block selected'
   const [newGroupYearLevel, newGroupSection] = normalizedBlockNumber.split('-')
+  const yearLevelDisplay = useMemo(() => {
+    const labels = ['1st', '2nd', '3rd', '4th', '5th']
+    const num = Number(newGroupYearLevel)
+    return Number.isInteger(num) && num >= 1 && num <= 5 ? `${labels[num - 1]} Year` : '—'
+  }, [newGroupYearLevel])
   const courseIsSelected = Boolean(selectedCourse)
   const blockNumberIsSelected = Boolean(normalizedBlockNumber)
   const blockNumberIsValid = /^([1-5])-([A-D])$/.test(normalizedBlockNumber)
@@ -129,7 +133,45 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
       })
   }, [])
 
-  // Auto-save effect
+  // Fetch curriculums for the selected program so the registrar can link
+  // a specific curriculum version to the block group. When a curriculum is
+  // linked, subjects are auto-assigned from it when sections are created.
+  useEffect(() => {
+    if (!newGroupCourse) {
+      setAvailableCurriculums([])
+      setNewGroupCurriculumId('')
+      return
+    }
+    const fetchCurriculums = async () => {
+      try {
+        const data = await authorizedFetch<{ data: Array<{
+          _id: string
+          name: string
+          code: string
+          version: string
+          status: string
+          programCode: number
+          programName: string
+          subjectCount?: number
+        }> }>(`/api/registrar/curriculums?programCode=${newGroupCourse}`)
+        const curriculums = Array.isArray(data?.data) ? data.data : []
+        // Exclude Archived curriculums from the selector
+        const usable = curriculums.filter((c) => c.status !== 'Archived')
+        setAvailableCurriculums(usable)
+        // Auto-select the Active curriculum if there is exactly one
+        const active = usable.filter((c) => c.status === 'Active')
+        if (active.length === 1) {
+          setNewGroupCurriculumId(active[0]._id)
+        } else {
+          setNewGroupCurriculumId('')
+        }
+      } catch {
+        setAvailableCurriculums([])
+        setNewGroupCurriculumId('')
+      }
+    }
+    void fetchCurriculums()
+  }, [newGroupCourse])
   useEffect(() => {
     if (wizardStep === 1 && (newGroupCourse || newGroupBlockNumber || newGroupSemester || newGroupYear || newGroupCapacity)) {
       // Start auto-save timer
@@ -171,7 +213,8 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
       yearLevel: String(meta.yearLevel || slot?.yearLevel || ''),
       section: group.section || slot?.letter || '',
       semester: group.semester,
-      year: String(group.year)
+      year: String(group.year),
+      studentClassification: group.studentClassification || 'All'
     })
     setError('')
     setSuccess('')
@@ -207,7 +250,8 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
           yearLevel: yearLevelNum || undefined,
           section: sectionLetter || undefined,
           semester: editGroupForm.semester,
-          year: yearNum
+          year: yearNum,
+          studentClassification: editGroupForm.studentClassification || 'All'
         })
       })
       setSuccess('Block group updated successfully')
@@ -422,10 +466,12 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
           semester: newGroupSemester,
           schoolYear: `${newGroupYear}-${Number(newGroupYear) + 1}`,
           year: Number(newGroupYear),
-          section: newGroupSection
+          section: newGroupSection,
+          studentClassification: newGroupClassification,
+          curriculumId: newGroupCurriculumId || undefined
         })
       })
-      await authorizedFetch(`/api/blocks/groups/${created._id}/sections`, {
+      const sectionResponse = await authorizedFetch<{ autoAssign?: { created?: number; curriculumSubjectsFound?: number; warnings?: string[] } }>(`/api/blocks/groups/${created._id}/sections`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -435,7 +481,14 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
         })
       })
       await fetchBlockGroups()
-      setSuccess('The block group has been created and its initial section was generated automatically.')
+      const autoAssign = sectionResponse?.autoAssign
+      if (autoAssign && autoAssign.created > 0) {
+        setSuccess(`Block created. ${autoAssign.created} subjects auto-assigned from curriculum.`)
+      } else if (newGroupCurriculumId && autoAssign && autoAssign.curriculumSubjectsFound === 0) {
+        setSuccess('The block group has been created and its initial section was generated automatically. No required subjects found in the curriculum for this year level and semester.')
+      } else {
+        setSuccess('The block group has been created and its initial section was generated automatically.')
+      }
       setWizardStep(3)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create block')
@@ -451,6 +504,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
     setNewGroupCourse('')
     setNewGroupBlockNumber('')
     setNewGroupCapacity(30)
+    setNewGroupClassification('All')
   }
 
   return (
@@ -551,24 +605,45 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
               <div className="block-wizard-form-grid">
                 <div className="block-wizard-fields">
                   <label className="block-form-group">
-                    <span className="block-form-label">Course</span>
+                    <span className="block-form-label">Program</span>
                     <select
-                      id="course-select"
+                      id="curriculum-select"
                       className="block-form-select"
                       value={newGroupCourse}
                       onChange={(e) => setNewGroupCourse(e.target.value)}
-                      aria-describedby="course-help"
+                      aria-describedby="curriculum-help"
                       aria-required="true"
                     >
-                      <option value="">Select course</option>
+                      <option value="">Select program</option>
                       {blockCourseOptions.map((course) => (
                         <option key={course.value} value={course.value}>
                           {course.fullLabel}
                         </option>
                       ))}
                     </select>
-                    <span id="course-help" className="block-form-help">
-                      Select the academic program for this block
+                    <span id="curriculum-help" className="block-form-help">
+                      Select the academic program for this block (e.g., BEED, BSEd-English)
+                    </span>
+                  </label>
+
+                  <label className="block-form-group">
+                    <span className="block-form-label">Linked Curriculum Version</span>
+                    <select
+                      id="linked-curriculum-select"
+                      className="block-form-select"
+                      value={newGroupCurriculumId}
+                      onChange={(e) => setNewGroupCurriculumId(e.target.value)}
+                      aria-describedby="linked-curriculum-help"
+                    >
+                      <option value="">No curriculum linked</option>
+                      {availableCurriculums.map((c) => (
+                        <option key={c._id} value={c._id}>
+                          {c.name || `${c.programName} ${c.version}`} ({c.status})
+                        </option>
+                      ))}
+                    </select>
+                    <span id="linked-curriculum-help" className="block-form-help">
+                      Required subjects from this curriculum will be auto-assigned to block sections
                     </span>
                   </label>
 
@@ -583,9 +658,9 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                       aria-required="true"
                     >
                       <option value="">Select block</option>
-                      {blockNumberOptions.map((value) => (
-                        <option key={value} value={value}>
-                          {value}
+                      {blockNumberOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
                         </option>
                       ))}
                     </select>
@@ -657,14 +732,34 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                         type="button"
                         className="block-form-action-btn"
                         onClick={handleCapacityRecommendation}
-                        title="Get recommended capacity based on course"
+                        title="Get recommended capacity based on curriculum"
                         aria-label="Use recommended capacity"
                       >
                         Auto
                       </button>
                     </div>
                     <span id="capacity-help" className="block-form-help">
-                      Recommended: {getCapacityRecommendation()} students for this course type. Enter between 1-50 students.
+                      Recommended: {getCapacityRecommendation()} students for this curriculum type. Enter between 1-50 students.
+                    </span>
+                  </label>
+
+                  <label className="block-form-group">
+                    <span className="block-form-label">Student Classification</span>
+                    <select
+                      id="classification-select"
+                      className="block-form-select"
+                      value={newGroupClassification}
+                      onChange={(e) => setNewGroupClassification(e.target.value)}
+                      aria-describedby="classification-help"
+                    >
+                      <option value="All">All Classifications</option>
+                      <option value="Regular">Regular only</option>
+                      <option value="Irregular">Irregular only</option>
+                      <option value="Transferee">Transferee only</option>
+                      <option value="Returning">Returning only</option>
+                    </select>
+                    <span id="classification-help" className="block-form-help">
+                      Restrict this block to a specific student classification
                     </span>
                   </label>
                 </div>
@@ -674,8 +769,12 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                   <strong>{generatedDisplayName}</strong>
                   <dl>
                     <div>
-                      <dt>Course Code</dt>
+                      <dt>Program Code</dt>
                       <dd>{selectedCourse?.value || 'N/A'}</dd>
+                    </div>
+                    <div>
+                      <dt>Year Level</dt>
+                      <dd>{yearLevelDisplay}</dd>
                     </div>
                     <div>
                       <dt>Semester</dt>
@@ -689,6 +788,10 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                       <dt>Capacity</dt>
                       <dd>{newGroupCapacity || 0} Students</dd>
                     </div>
+                    <div>
+                      <dt>Classification</dt>
+                      <dd>{newGroupClassification}</dd>
+                    </div>
                   </dl>
                 </div>
               </div>
@@ -697,7 +800,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                 {!courseIsSelected && (
                   <div className="block-validation-item block-validation-item--error">
                     <AlertCircle size={16} />
-                    <span>Select a course before creating a block.</span>
+                    <span>Select a curriculum before creating a block.</span>
                   </div>
                 )}
                 {!blockNumberIsSelected && (
@@ -783,8 +886,18 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
 
               <div className="block-wizard-review">
                 <div>
-                  <span>Course</span>
-                  <strong>{selectedCourse?.fullLabel || 'No course selected'}</strong>
+                  <span>Program</span>
+                  <strong>{selectedCourse?.fullLabel || 'No program selected'}</strong>
+                </div>
+                <div>
+                  <span>Linked Curriculum</span>
+                  <strong>
+                    {newGroupCurriculumId
+                      ? (availableCurriculums.find((c) => c._id === newGroupCurriculumId)?.name ||
+                         availableCurriculums.find((c) => c._id === newGroupCurriculumId)?.code ||
+                         'Selected curriculum')
+                      : 'None — subjects will be assigned manually'}
+                  </strong>
                 </div>
                 <div>
                   <span>Block</span>
@@ -801,6 +914,10 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                 <div>
                   <span>Capacity</span>
                   <strong>{newGroupCapacity}</strong>
+                </div>
+                <div>
+                  <span>Classification</span>
+                  <strong>{newGroupClassification}</strong>
                 </div>
                 <div>
                   <span>Generated Name</span>

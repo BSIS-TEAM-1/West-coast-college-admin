@@ -1,7 +1,9 @@
 const mongoose = require('mongoose');
 const BlockSubjectAssignment = require('../models/BlockSubjectAssignment');
 const BlockSection = require('../models/BlockSection');
+const BlockGroup = require('../models/BlockGroup');
 const Subject = require('../models/Subject');
+const CurriculumSubject = require('../models/CurriculumSubject');
 
 const assignmentPopulate = [
   { path: 'subjectId', select: '_id code title units course yearLevel semester isActive' },
@@ -51,7 +53,7 @@ class BlockSubjectAssignmentController {
       const { blockSectionId, subjectIds, semester, academicYear } = req.body;
       const normalizedSubjectIds = Array.from(new Set(subjectIds.map(String)));
 
-      const section = await BlockSection.findById(blockSectionId).select('_id');
+      const section = await BlockSection.findById(blockSectionId).select('_id blockGroupId');
       if (!section) {
         return res.status(404).json({ success: false, message: 'Block section not found' });
       }
@@ -59,10 +61,38 @@ class BlockSubjectAssignmentController {
       const subjects = await Subject.find({
         _id: { $in: normalizedSubjectIds.map((id) => new mongoose.Types.ObjectId(id)) },
         isActive: true
-      }).select('_id');
+      }).select('_id code');
 
       if (subjects.length !== normalizedSubjectIds.length) {
-        return res.status(400).json({ success: false, message: 'One or more selected subjects were not found' });
+        return res.status(400).json({ success: false, message: 'One or more selected subjects were not found or are inactive' });
+      }
+
+      // Curriculum validation: if the block group has a linked curriculum,
+      // only subjects that exist as CurriculumSubject placements in that
+      // curriculum may be assigned. This prevents assigning arbitrary
+      // subjects that are not part of the block's academic program.
+      // Note: we allow ANY subject in the curriculum (any year/semester),
+      // since the registrar may have legitimate cross-year exceptions.
+      // The year/semester scoping is a frontend UX default, not a backend
+      // hard rule.
+      const blockGroup = await BlockGroup.findById(section.blockGroupId).select('curriculumId').lean();
+      if (blockGroup && blockGroup.curriculumId) {
+        const curriculumSubjects = await CurriculumSubject.find({
+          curriculumId: blockGroup.curriculumId,
+        }).select('subjectId').lean();
+        const eligibleSubjectIds = new Set(curriculumSubjects.map((cs) => String(cs.subjectId)));
+
+        const ineligible = normalizedSubjectIds.filter((id) => !eligibleSubjectIds.has(id));
+        if (ineligible.length > 0) {
+          const ineligibleSubjects = subjects.filter((s) =>
+            ineligible.includes(String(s._id))
+          );
+          const codes = ineligibleSubjects.map((s) => s.code).join(', ');
+          return res.status(400).json({
+            success: false,
+            message: `Subject${ineligible.length > 1 ? 's' : ''} ${codes} ${ineligible.length > 1 ? 'are' : 'is'} not part of this block's curriculum. Only subjects from the linked curriculum can be assigned.`,
+          });
+        }
       }
 
       const docs = normalizedSubjectIds.map((subjectId) => ({

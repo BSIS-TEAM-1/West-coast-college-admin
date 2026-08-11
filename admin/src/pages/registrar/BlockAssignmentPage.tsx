@@ -261,9 +261,9 @@ export default function BlockAssignmentPage() {
             </label>
 
             <label>
-              <span>Course</span>
+              <span>Curriculum</span>
               <select value={courseFilter} onChange={(event) => setCourseFilter(event.target.value)}>
-                <option value="all">All courses</option>
+                <option value="all">All curricula</option>
                 {courseOptions.map((course) => (
                   <option key={course.value} value={course.value}>{course.label}</option>
                 ))}
@@ -295,7 +295,7 @@ export default function BlockAssignmentPage() {
                 <option value="name-asc">Name A-Z</option>
                 <option value="name-desc">Name Z-A</option>
                 <option value="id-asc">Student ID</option>
-                <option value="course-asc">Course</option>
+                <option value="course-asc">Curriculum</option>
                 <option value="year-asc">Year level</option>
               </select>
             </label>
@@ -368,7 +368,7 @@ export default function BlockAssignmentPage() {
                       />
                     </th>
                     <th>Student</th>
-                    <th>Course</th>
+                    <th>Curriculum</th>
                     <th>Year & Block</th>
                   </tr>
                 </thead>

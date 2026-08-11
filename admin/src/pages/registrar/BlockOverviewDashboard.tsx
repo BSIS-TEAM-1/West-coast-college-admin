@@ -20,6 +20,19 @@ type BlockMetrics = {
   overCapacitySections: number
 }
 
+type CapacityUpdate = {
+  _id: string
+  actionType: string
+  sectionCode: string
+  blockGroupName: string
+  studentName: string
+  studentId: string
+  registrarId: string
+  timestamp: string
+  schoolYear?: string
+  semester?: string
+}
+
 export default function BlockOverviewDashboard({
   onManageAssignments,
   onViewBlocks
@@ -42,6 +55,7 @@ export default function BlockOverviewDashboard({
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [capacityUpdates, setCapacityUpdates] = useState<CapacityUpdate[]>([])
 
   const authorizedFetch = async (path: string, init: RequestInit = {}) => {
     const token = await getStoredToken()
@@ -109,27 +123,24 @@ export default function BlockOverviewDashboard({
     }
   }
 
+  const fetchCapacityUpdates = async () => {
+    try {
+      const result = await authorizedFetch('/api/blocks/capacity-updates')
+      setCapacityUpdates(Array.isArray(result?.data) ? result.data : [])
+    } catch (err) {
+      setCapacityUpdates([])
+    }
+  }
+
   useEffect(() => {
     void fetchBlockData()
+    void fetchCapacityUpdates()
   }, [])
 
   const overallCapacityPercentage = metrics.totalCapacity > 0
     ? (metrics.totalPopulation / metrics.totalCapacity) * 100
     : 0
 
-  const capacityAlerts = useMemo(() => {
-    return allSections
-      .filter((section) => {
-        const percentage = (Number(section.currentPopulation) || 0) / (Number(section.capacity) || 1)
-        return percentage >= 0.85
-      })
-      .sort((a, b) => {
-        const aPercent = (Number(a.currentPopulation) || 0) / (Number(a.capacity) || 1)
-        const bPercent = (Number(b.currentPopulation) || 0) / (Number(b.capacity) || 1)
-        return bPercent - aPercent
-      })
-      .slice(0, 5)
-  }, [allSections])
 
   const largestBlocks = useMemo(() => {
     return [...allSections]
@@ -236,28 +247,36 @@ export default function BlockOverviewDashboard({
               </div>
             </div>
             <div className="block-capacity-alerts-section">
-              <h4 className="block-capacity-alerts-title">Capacity Alerts</h4>
-              {capacityAlerts.length === 0 ? (
-                <p className="block-overview__empty">No capacity alerts</p>
+              <h4 className="block-capacity-alerts-title">Capacity Updates</h4>
+              {capacityUpdates.length === 0 ? (
+                <p className="block-overview__empty">No capacity updates</p>
               ) : (
                 <ul className="block-overview__list">
-                  {capacityAlerts.map((section) => {
-                    const percentage = (section.currentPopulation / (section.capacity || 1)) * 100
+                  {capacityUpdates.map((update) => {
+                    const verb = update.actionType === 'UNASSIGN' ? 'removed from' : update.actionType === 'TRANSFER' ? 'transferred to' : 'added to'
+                    const when = new Date(update.timestamp).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric' })
+                    // Build the block label from the section code + course label.
+                    // Block group names like "101-1-A" start with a course code prefix;
+                    // extract it to show a readable label (e.g. "BEED 1-A").
+                    const COURSE_LABELS: Record<string, string> = { '101': 'BEED', '102': 'BSEd-English', '103': 'BSEd-Math', '201': 'BSBA-HRM' }
+                    const sectionCode = update.sectionCode && update.sectionCode !== 'Unknown' ? update.sectionCode : ''
+                    const coursePrefix = sectionCode.split('-')[0]
+                    const courseLabel = COURSE_LABELS[coursePrefix]
+                    const sectionSuffix = sectionCode.includes('-') ? sectionCode.split('-').slice(1).join('-') : ''
+                    const blockLabel = sectionCode
+                      ? courseLabel
+                        ? `${courseLabel} ${sectionSuffix}`.trim()
+                        : update.blockGroupName && update.blockGroupName !== sectionCode
+                          ? `${sectionCode} (${update.blockGroupName})`
+                          : sectionCode
+                      : 'Unknown'
                     return (
-                      <li key={section._id} className="block-overview__list-item">
-                        <div className="block-overview__list-meta">
-                          <span className="block-overview__list-title">{section.sectionCode}</span>
-                          <span className={`block-overview__list-badge ${percentage > 100 ? 'block-overview__list-badge--over' : 'block-overview__list-badge--near'}`}>
-                            {percentage > 100 ? 'Over' : 'Near Full'}
-                          </span>
+                      <li key={update._id} className="block-overview__list-item">
+                        <div className="block-overview__list-row">
+                          <span className="block-overview__list-title">{update.studentName}</span>
+                          <span className="block-overview__list-badge">{verb}</span>
+                          <span className="block-overview__list-detail">{blockLabel} — {when}</span>
                         </div>
-                        <div className="block-overview__progress">
-                          <div
-                            className="block-overview__progress-bar"
-                            style={{ width: `${Math.min(percentage, 100)}%` }}
-                          />
-                        </div>
-                        <small>{section.currentPopulation} / {section.capacity} students</small>
                       </li>
                     )
                   })}

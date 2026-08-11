@@ -7,7 +7,7 @@ import './RegistrarCourseWorkspace.css'
 
 type Semester = '1st' | '2nd' | 'Summer'
 
-type BlockGroup = { _id: string; name: string; semester: Semester; year: number }
+type BlockGroup = { _id: string; name: string; semester: Semester; year: number; curriculumId?: string }
 type BlockSection = { _id: string; sectionCode: string; capacity: number; currentPopulation: number }
 type SectionStudent = { _id: string; studentNumber: string; firstName: string; lastName: string; studentStatus?: string }
 type SubjectItem = { _id: string; code: string; title: string }
@@ -228,16 +228,38 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
 
   const fetchSubjects = async (group: BlockGroup | null) => {
     try {
-      const params = new URLSearchParams()
-      if (group) {
+      let nextSubjects: SubjectItem[] = []
+
+      if (group?.curriculumId) {
+        // Fetch subjects from the curriculum linked to this block group
+        const params = new URLSearchParams()
         const meta = extractGroupMeta(group.name)
-        if (meta.course) params.set('course', String(meta.course))
         if (meta.yearLevel) params.set('yearLevel', String(meta.yearLevel))
         if (group.semester) params.set('semester', group.semester)
+        const query = params.toString()
+        const data = await authorizedFetch(`/api/registrar/curriculums/${group.curriculumId}/subjects${query ? `?${query}` : ''}`)
+        const curriculumSubjects = Array.isArray(data?.data) ? data.data as any[] : []
+        nextSubjects = curriculumSubjects
+          .filter((cs) => cs.subjectId && typeof cs.subjectId === 'object')
+          .map((cs) => ({
+            _id: String(cs.subjectId._id),
+            code: String(cs.subjectId.code || ''),
+            title: String(cs.subjectId.title || '')
+          }))
+      } else {
+        // Fallback: fetch from global subject list filtered by course/year/semester
+        const params = new URLSearchParams()
+        if (group) {
+          const meta = extractGroupMeta(group.name)
+          if (meta.course) params.set('course', String(meta.course))
+          if (meta.yearLevel) params.set('yearLevel', String(meta.yearLevel))
+          if (group.semester) params.set('semester', group.semester)
+        }
+        const query = params.toString()
+        const data = await authorizedFetch(`/api/registrar/subjects${query ? `?${query}` : ''}`)
+        nextSubjects = Array.isArray(data?.data) ? data.data as SubjectItem[] : []
       }
-      const query = params.toString()
-      const data = await authorizedFetch(`/api/registrar/subjects${query ? `?${query}` : ''}`)
-      const nextSubjects = Array.isArray(data?.data) ? data.data as SubjectItem[] : []
+
       setSubjects(nextSubjects)
       setSelectedSubjectId((prev) => (nextSubjects.some((subject) => subject._id === prev) ? prev : ''))
       setError('')
