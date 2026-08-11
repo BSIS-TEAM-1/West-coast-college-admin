@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   getRegistrarApplicants,
   updateApplicantStatus,
@@ -7,8 +8,11 @@ import {
 } from '../lib/applicantApi'
 import './ApplicantQueue.css'
 
+const MENU_WIDTH = 170
+const MENU_HEIGHT_ESTIMATE = 130
+const MENU_MARGIN = 8
+
 const statuses: Array<ApplicantStatus | 'all'> = [
-  'all',
   'Submitted',
   'Incomplete Requirements',
   'For Evaluation',
@@ -70,7 +74,86 @@ export default function ApplicantQueue() {
   const [remarks, setRemarks] = useState('')
   const [nextStatus, setNextStatus] = useState<ApplicantStatus>('For Evaluation')
   const [openMenuId, setOpenMenuId] = useState('')
-  const [emailNotice, setEmailNotice] = useState('')
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; placement: 'top' | 'bottom' } | null>(null)
+  const [menuMounted, setMenuMounted] = useState(false)
+  const buttonRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const [toasts, setToasts] = useState<Array<{ id: string; message: string; isError?: boolean }>>([])
+
+  const addToast = useCallback((message: string, isError = false) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    setToasts((prev) => [...prev, { id, message, isError }])
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id))
+    }, 5000)
+  }, [])
+
+  const computeMenuPosition = (button: HTMLButtonElement) => {
+    const rect = button.getBoundingClientRect()
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+
+    const fitsDown = rect.bottom + MENU_HEIGHT_ESTIMATE + MENU_MARGIN <= viewportHeight
+    const placement: 'top' | 'bottom' = fitsDown ? 'bottom' : 'top'
+
+    let top = placement === 'bottom'
+      ? rect.bottom + MENU_MARGIN
+      : rect.top - MENU_HEIGHT_ESTIMATE - MENU_MARGIN
+
+    let left = Math.max(MENU_MARGIN, rect.right - MENU_WIDTH)
+    if (left + MENU_WIDTH + MENU_MARGIN > viewportWidth) {
+      left = Math.max(MENU_MARGIN, viewportWidth - MENU_WIDTH - MENU_MARGIN)
+    }
+
+    top = Math.max(MENU_MARGIN, Math.min(top, viewportHeight - MENU_HEIGHT_ESTIMATE - MENU_MARGIN))
+
+    return { top, left, placement }
+  }
+
+  const openMenu = (applicantId: string) => {
+    const button = buttonRefs.current[applicantId]
+    if (!button) return
+    const position = computeMenuPosition(button)
+    setMenuPosition(position)
+    setOpenMenuId(applicantId)
+    setMenuMounted(true)
+  }
+
+  const closeMenu = () => {
+    setOpenMenuId('')
+    setMenuMounted(false)
+    setMenuPosition(null)
+  }
+
+  useEffect(() => {
+    if (!openMenuId) return
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMenu()
+    }
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (menuRef.current && !menuRef.current.contains(target) && !buttonRefs.current[openMenuId]?.contains(target)) {
+        closeMenu()
+      }
+    }
+    const handleReposition = () => {
+      const button = buttonRefs.current[openMenuId]
+      if (button) setMenuPosition(computeMenuPosition(button))
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('mousedown', handleClickOutside)
+    window.addEventListener('scroll', handleReposition, true)
+    window.addEventListener('resize', handleReposition)
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('mousedown', handleClickOutside)
+      window.removeEventListener('scroll', handleReposition, true)
+      window.removeEventListener('resize', handleReposition)
+    }
+  }, [openMenuId])
 
   const programs = useMemo(() => {
     const uniquePrograms = new Map<string, string>()
@@ -139,10 +222,9 @@ export default function ApplicantQueue() {
     if (!selected) return
     setSaving(true)
     setError('')
-    setEmailNotice('')
 
     try {
-      const { data: updated, emailNotification } = await updateApplicantStatus(selected._id, {
+      const { data: updated, emailNotification, studentNotification } = await updateApplicantStatus(selected._id, {
         status: nextStatus,
         registrarRemarks: remarks
       })
@@ -151,9 +233,27 @@ export default function ApplicantQueue() {
 
       if (emailNotification) {
         if (emailNotification.sent) {
-          setEmailNotice(`Notification email sent to ${emailNotification.recipient || selected.email} via ${emailNotification.provider}.`)
+          addToast(`Notification email sent to ${emailNotification.recipient || selected.email} via ${emailNotification.provider}.`)
         } else {
-          setEmailNotice(`Failed to send email notification: ${emailNotification.error || 'unknown error'}`)
+          addToast(`Failed to send email notification: ${emailNotification.error || 'unknown error'}`, true)
+        }
+      }
+
+      if (studentNotification) {
+        if (studentNotification.upserted) {
+          const verb = studentNotification.alreadyEnrolled
+            ? 'already enrolled'
+            : studentNotification.updated
+              ? 'updated'
+              : studentNotification.created
+                ? 'created'
+                : 'processed'
+          const { studentNumber, fullName, lifecycleStatus } = studentNotification
+          const identifier = studentNumber ? ` (${studentNumber})` : ''
+          const namePart = fullName ? ` for ${fullName}` : ''
+          addToast(`Student record ${verb}${identifier}${namePart}${lifecycleStatus ? ` - lifecycle: ${lifecycleStatus}` : ''}.`)
+        } else {
+          addToast(`Failed to update student record: ${studentNotification.error || 'unknown error'}`, true)
         }
       }
     } catch (err) {
@@ -347,29 +447,11 @@ export default function ApplicantQueue() {
                             className="applicant-more-btn"
                             aria-label={`More actions for ${applicantName}`}
                             aria-expanded={openMenuId === applicant._id}
-                            onClick={() => setOpenMenuId((current) => current === applicant._id ? '' : applicant._id)}
+                            ref={(element) => { buttonRefs.current[applicant._id] = element }}
+                            onClick={() => openMenu(applicant._id)}
                           >
                             <span className="material-symbols-outlined" aria-hidden="true">more_vert</span>
                           </button>
-                          {openMenuId === applicant._id ? (
-                            <div className="applicant-more-menu">
-                              <button type="button" onClick={() => handleSelectForReview(applicant._id)}>Open Review</button>
-                              <button type="button" onClick={() => {
-                                setSelectedId(applicant._id)
-                                setNextStatus('Incomplete Requirements')
-                                setOpenMenuId('')
-                              }}>
-                                Request Info
-                              </button>
-                              <button type="button" onClick={() => {
-                                setSelectedId(applicant._id)
-                                setNextStatus('Rejected')
-                                setOpenMenuId('')
-                              }}>
-                                Prepare Reject
-                              </button>
-                            </div>
-                          ) : null}
                         </div>
                       </div>
                     </td>
@@ -424,7 +506,8 @@ export default function ApplicantQueue() {
               <Detail label="Elementary GPA" value={selected.academicDetails.elementary.generalAverage || 'N/A'} />
               <Detail label="High School" value={selected.academicDetails.highSchool.schoolName} />
               <Detail label="High School GPA" value={selected.academicDetails.highSchool.generalAverage || 'N/A'} />
-              <Detail label="Strand / Track" value={selected.academicDetails.highSchool.strandOrTrack || 'N/A'} />
+              <Detail label="Senior High School" value={selected.academicDetails.seniorHighSchool?.schoolName || 'N/A'} />
+              <Detail label="Strand / Track" value={selected.academicDetails.seniorHighSchool?.strandOrTrack || 'N/A'} />
             </div>
 
             <div className="applicant-review-actions">
@@ -444,15 +527,69 @@ export default function ApplicantQueue() {
               <button type="button" onClick={handleStatusUpdate} disabled={saving}>
                 {saving ? 'Saving...' : 'Save Review'}
               </button>
-              {emailNotice && (
-                <p className={`applicant-email-notice${emailNotice.startsWith('Failed') ? ' applicant-email-notice-error' : ''}`}>
-                  {emailNotice}
-                </p>
-              )}
             </div>
           </>
         )}
       </section>
+      {menuMounted && menuPosition && (
+        <>
+          {createPortal(
+            <div
+              ref={menuRef}
+              className="applicant-more-menu applicant-more-menu-portal"
+              data-placement={menuPosition.placement}
+              style={{ top: menuPosition.top, left: menuPosition.left }}
+              role="menu"
+              aria-label="Applicant actions"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  handleSelectForReview(openMenuId)
+                  closeMenu()
+                }}
+              >
+                Open Review
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setSelectedId(openMenuId)
+                  setNextStatus('Incomplete Requirements')
+                  closeMenu()
+                }}
+              >
+                Request Info
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setSelectedId(openMenuId)
+                  setNextStatus('Rejected')
+                  closeMenu()
+                }}
+              >
+                Prepare Reject
+              </button>
+            </div>,
+            document.body
+          )}
+        </>
+      )}
+      {toasts.length > 0 && createPortal(
+        <div className="applicant-toast-stack" role="status" aria-live="polite">
+          {toasts.map((t) => (
+            <div key={t.id} className={`applicant-toast${t.isError ? ' applicant-toast--error' : ''}`}>
+              <span>{t.message}</span>
+              <button type="button" className="applicant-toast__close" onClick={() => setToasts((prev) => prev.filter((x) => x.id !== t.id))} aria-label="Close notification">×</button>
+            </div>
+          ))}
+        </div>,
+        document.body
+      )}
     </section>
   )
 }

@@ -14,6 +14,7 @@ import SystemHealth from './SystemHealth'
 import Security from './Security'
 import CorGeneration from './CorGeneration'
 import CalendarPage from './CalendarPage'
+import CurriculumManagementLayout from './registrar/CurriculumManagementLayout'
 import StatisticsCard from '../components/StatisticsCard'
 import MiniEventCalendar from '../components/MiniEventCalendar'
 import { User, Users, FileText, Wrench } from 'lucide-react'
@@ -28,7 +29,7 @@ type DashboardProps = {
   initialProfile?: ProfileResponse | null
 }
 
-type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'documents' | 'announcement-detail' | 'personal-details' | 'system-health' | 'security' | 'cor-docs' | 'calendar'
+type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'announcement-detail' | 'personal-details' | 'system-health' | 'security' | 'cor-docs' | 'calendar' | 'curriculum-management'
 
 export default function Dashboard({ username, onLogout, onProfileUpdated, initialProfile = null }: DashboardProps) {
   const [view, setView] = useState<View>('dashboard')
@@ -250,8 +251,6 @@ export default function Dashboard({ username, onLogout, onProfileUpdated, initia
             }} />
           ) : view === 'audit-logs' ? (
             <AuditLogs />
-          ) : view === 'documents' ? (
-            <DocumentManagement onNavigate={(viewName) => setView(viewName)} />
           ) : view === 'cor-docs' ? (
             <CorGeneration />
           ) : view === 'announcement-detail' ? (
@@ -271,6 +270,11 @@ export default function Dashboard({ username, onLogout, onProfileUpdated, initia
             <Security onBack={() => setView('system-health')} />
           ) : view === 'calendar' ? (
             <CalendarPage onBack={() => setView('dashboard')} />
+          ) : view === 'curriculum-management' ? (
+            <CurriculumManagementLayout
+              activeView="curriculums"
+              onNavigate={() => setView('curriculum-management')}
+            />
           ) : (
             <div className="dashboard-content">
               <div className="dashboard-header-content">

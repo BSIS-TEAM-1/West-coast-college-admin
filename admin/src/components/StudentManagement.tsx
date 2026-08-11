@@ -363,6 +363,8 @@ function StudentProfileDrawer({
   onEnroll,
   onAssignBlock,
   onGenerateCor,
+  onGenerateReportCard,
+  onGenerateTranscript,
   onArchive,
   onDelete,
   onViewHistory,
@@ -374,6 +376,8 @@ function StudentProfileDrawer({
   onEnroll: (student: ManagedStudent) => void
   onAssignBlock: (student: ManagedStudent) => void
   onGenerateCor: (student: ManagedStudent) => void
+  onGenerateReportCard?: (student: ManagedStudent) => void
+  onGenerateTranscript?: (student: ManagedStudent) => void
   onArchive: (student: ManagedStudent) => void
   onDelete: (student: ManagedStudent) => void
   onViewHistory?: (studentId: string) => void
@@ -540,6 +544,18 @@ function StudentProfileDrawer({
                     <History size={16} />
                     Enrollment history
                   </button>
+                  {onGenerateReportCard && (
+                    <button type="button" className="student-workspace__ghost-button" onClick={() => onGenerateReportCard(activeStudent)}>
+                      <FileText size={16} />
+                      Report card
+                    </button>
+                  )}
+                  {onGenerateTranscript && (
+                    <button type="button" className="student-workspace__ghost-button" onClick={() => onGenerateTranscript(activeStudent)}>
+                      <FileText size={16} />
+                      Transcript of Records
+                    </button>
+                  )}
                   <button type="button" className="student-workspace__ghost-button" onClick={() => onArchive(activeStudent)}>
                     <Archive size={16} />
                     Archive student
@@ -1352,6 +1368,13 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
   const [busyStudentIds, setBusyStudentIds] = useState<string[]>([])
   const deferredSearch = useDeferredValue(searchTerm)
 
+  // Auto-dismiss success messages after 5 seconds; keep errors until dismissed
+  useEffect(() => {
+    if (!message || message.tone !== 'success') return
+    const timer = setTimeout(() => setMessage(null), 5000)
+    return () => clearTimeout(timer)
+  }, [message])
+
   const loadStudents = async (mode: 'initial' | 'refresh' = 'initial') => {
     if (mode === 'initial') {
       setLoading(true)
@@ -1617,6 +1640,64 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
     })
   }
 
+  const handleGenerateReportCard = async (student: ManagedStudent) => {
+    await withBusyStudent(student._id, async () => {
+      try {
+        const token = await getStoredToken()
+        if (!token) throw new Error('No authentication token found')
+
+        const response = await fetch(`${API_URL}/api/registrar/students/${student._id}/report-card`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          throw new Error((data?.error as string) || 'Failed to generate report card')
+        }
+
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        window.open(url, '_blank', 'noopener')
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 30000)
+        setMessage({ tone: 'success', text: `Report card generated for ${studentNumberDisplay(student)}.` })
+      } catch (viewError) {
+        setMessage({
+          tone: 'error',
+          text: viewError instanceof Error ? viewError.message : 'Failed to generate report card'
+        })
+      }
+    })
+  }
+
+  const handleGenerateTranscript = async (student: ManagedStudent) => {
+    await withBusyStudent(student._id, async () => {
+      try {
+        const token = await getStoredToken()
+        if (!token) throw new Error('No authentication token found')
+
+        const response = await fetch(`${API_URL}/api/registrar/students/${student._id}/transcript`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          throw new Error((data?.error as string) || 'Failed to generate transcript')
+        }
+
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        window.open(url, '_blank', 'noopener')
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 30000)
+        setMessage({ tone: 'success', text: `Transcript generated for ${studentNumberDisplay(student)}.` })
+      } catch (viewError) {
+        setMessage({
+          tone: 'error',
+          text: viewError instanceof Error ? viewError.message : 'Failed to generate transcript'
+        })
+      }
+    })
+  }
+
   const handleArchiveStudent = async (student: ManagedStudent) => {
     if (!window.confirm(`Archive ${studentDisplayName(student)}?`)) return
 
@@ -1762,7 +1843,15 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
 
         {message ? (
           <div className={`student-workspace__message student-workspace__message--${message.tone}`}>
-            {message.text}
+            <span>{message.text}</span>
+            <button
+              type="button"
+              className="student-workspace__message-close"
+              onClick={() => setMessage(null)}
+              aria-label="Dismiss notification"
+            >
+              <X size={16} />
+            </button>
           </div>
         ) : null}
 
@@ -2106,6 +2195,8 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
         onEnroll={(student) => openEnrollmentWorkflow([student])}
         onAssignBlock={(student) => openBlockAssignmentWorkflow([student])}
         onGenerateCor={handleGenerateCor}
+        onGenerateReportCard={handleGenerateReportCard}
+        onGenerateTranscript={handleGenerateTranscript}
         onArchive={handleArchiveStudent}
         onDelete={handleDeleteStudent}
         onViewHistory={onViewHistory}

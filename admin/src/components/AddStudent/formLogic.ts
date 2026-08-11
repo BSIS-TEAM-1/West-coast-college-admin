@@ -1,4 +1,4 @@
-import type { WizardFormData } from './types'
+import type { WizardFormData, LocationData, SchoolRecord, AcademicDetails } from './types'
 
 type StudentFormSource = {
   studentNumber?: string
@@ -16,12 +16,26 @@ type StudentFormSource = {
   contactNumber?: string
   address?: string
   permanentAddress?: string
+  currentLocation?: Partial<LocationData>
+  permanentLocation?: Partial<LocationData>
+  fatherName?: string
+  motherName?: string
+  guardianName?: string
+  guardianRelationship?: string
+  guardianContactNumber?: string
   emergencyContact?: {
     name?: string
     relationship?: string
     contactNumber?: string
     address?: string
   }
+  academicDetails?: {
+    elementary?: Partial<SchoolRecord>
+    highSchool?: Partial<SchoolRecord>
+    seniorHighSchool?: Partial<SchoolRecord>
+    college?: Partial<SchoolRecord>
+  }
+  applicantType?: string
   course?: string | number
   schoolYear?: string
   semester?: WizardFormData['semester'] | string
@@ -29,6 +43,34 @@ type StudentFormSource = {
   studentStatus?: string
   scholarship?: string
   lifecycleStatus?: string
+}
+
+const EMPTY_LOCATION: LocationData = {
+  regionCode: '',
+  regionName: '',
+  provinceCode: '',
+  provinceName: '',
+  cityCode: '',
+  cityName: '',
+  barangayCode: '',
+  barangayName: '',
+  streetAddress: ''
+}
+
+const EMPTY_SCHOOL_RECORD: SchoolRecord = {
+  schoolName: '',
+  schoolAddress: '',
+  yearGraduated: '',
+  generalAverage: '',
+  gradesSummary: '',
+  strandOrTrack: ''
+}
+
+const EMPTY_ACADEMIC_DETAILS: AcademicDetails = {
+  elementary: { ...EMPTY_SCHOOL_RECORD },
+  highSchool: { ...EMPTY_SCHOOL_RECORD },
+  seniorHighSchool: { ...EMPTY_SCHOOL_RECORD },
+  college: { ...EMPTY_SCHOOL_RECORD }
 }
 
 export const DEFAULT_WIZARD_FORM_DATA: Partial<WizardFormData> = {
@@ -43,13 +85,23 @@ export const DEFAULT_WIZARD_FORM_DATA: Partial<WizardFormData> = {
   civilStatus: '',
   nationality: 'Filipino',
   religion: '',
+  currentLocation: { ...EMPTY_LOCATION },
+  permanentLocation: { ...EMPTY_LOCATION },
+  fatherName: '',
+  motherName: '',
+  guardianName: '',
+  guardianRelationship: '',
+  guardianContactNumber: '',
+  emergencyContactName: '',
+  emergencyContactRelationship: '',
+  emergencyContactNumber: '',
+  emergencyContactAddress: '',
   email: '',
   contactNumber: '',
   currentAddress: '',
   permanentAddress: '',
-  emergencyContactName: '',
-  emergencyContactRelationship: '',
-  emergencyContactNumber: '',
+  academicDetails: { ...EMPTY_ACADEMIC_DETAILS },
+  applicantType: 'New',
   course: '',
   schoolYear: '',
   semester: '1st',
@@ -57,6 +109,14 @@ export const DEFAULT_WIZARD_FORM_DATA: Partial<WizardFormData> = {
   studentStatus: 'Regular',
   scholarship: '',
   lifecycleStatus: 'Pending'
+}
+
+function mergeLocation(source: Partial<LocationData> | undefined): LocationData {
+  return { ...EMPTY_LOCATION, ...(source || {}) }
+}
+
+function mergeSchoolRecord(source: Partial<SchoolRecord> | undefined): SchoolRecord {
+  return { ...EMPTY_SCHOOL_RECORD, ...(source || {}) }
 }
 
 export function buildWizardFormData(student?: StudentFormSource): Partial<WizardFormData> {
@@ -75,13 +135,28 @@ export function buildWizardFormData(student?: StudentFormSource): Partial<Wizard
     civilStatus: student.civilStatus || '',
     nationality: student.nationality || 'Filipino',
     religion: student.religion || '',
+    currentLocation: mergeLocation(student.currentLocation),
+    permanentLocation: mergeLocation(student.permanentLocation),
+    fatherName: student.fatherName || '',
+    motherName: student.motherName || '',
+    guardianName: student.guardianName || '',
+    guardianRelationship: student.guardianRelationship || '',
+    guardianContactNumber: student.guardianContactNumber || '',
+    emergencyContactName: student.emergencyContact?.name || '',
+    emergencyContactRelationship: student.emergencyContact?.relationship || '',
+    emergencyContactNumber: student.emergencyContact?.contactNumber || '',
+    emergencyContactAddress: student.emergencyContact?.address || '',
     email: student.email || '',
     contactNumber: student.contactNumber || '',
     currentAddress: student.address || '',
     permanentAddress: student.permanentAddress || '',
-    emergencyContactName: student.emergencyContact?.name || '',
-    emergencyContactRelationship: student.emergencyContact?.relationship || '',
-    emergencyContactNumber: student.emergencyContact?.contactNumber || '',
+    academicDetails: {
+      elementary: mergeSchoolRecord(student.academicDetails?.elementary),
+      highSchool: mergeSchoolRecord(student.academicDetails?.highSchool),
+      seniorHighSchool: mergeSchoolRecord(student.academicDetails?.seniorHighSchool),
+      college: mergeSchoolRecord(student.academicDetails?.college)
+    },
+    applicantType: (student.applicantType as WizardFormData['applicantType']) || 'New',
     course: student.course ? String(student.course) : '',
     schoolYear: student.schoolYear || '',
     semester: (student.semester as WizardFormData['semester']) || '1st',
@@ -97,8 +172,31 @@ export function buildStudentPayloadFromWizardForm(formData: Partial<WizardFormDa
     name: formData.emergencyContactName?.trim() || '',
     relationship: formData.emergencyContactRelationship?.trim() || '',
     contactNumber: formData.emergencyContactNumber?.trim() || '',
-    address: ''
+    address: formData.emergencyContactAddress?.trim() || ''
   }
+
+  // Build a flat address string from structured location for backward compatibility
+  const currentLocation = formData.currentLocation
+  const flatCurrentAddress = currentLocation?.streetAddress?.trim()
+    ? [
+        currentLocation.streetAddress,
+        currentLocation.barangayName,
+        currentLocation.cityName,
+        currentLocation.provinceName,
+        currentLocation.regionName
+      ].filter(Boolean).join(', ')
+    : formData.currentAddress?.trim() || ''
+
+  const permanentLocation = formData.permanentLocation
+  const flatPermanentAddress = permanentLocation?.streetAddress?.trim()
+    ? [
+        permanentLocation.streetAddress,
+        permanentLocation.barangayName,
+        permanentLocation.cityName,
+        permanentLocation.provinceName,
+        permanentLocation.regionName
+      ].filter(Boolean).join(', ')
+    : formData.permanentAddress?.trim() || ''
 
   return {
     firstName: formData.firstName?.trim() || '',
@@ -114,14 +212,23 @@ export function buildStudentPayloadFromWizardForm(formData: Partial<WizardFormDa
     scholarship: formData.scholarship?.trim() || 'N/A',
     email: formData.email?.trim() || '',
     contactNumber: formData.contactNumber?.trim() || '',
-    address: formData.currentAddress?.trim() || '',
-    permanentAddress: formData.permanentAddress?.trim() || '',
+    address: flatCurrentAddress,
+    permanentAddress: flatPermanentAddress,
+    currentLocation: formData.currentLocation || null,
+    permanentLocation: formData.permanentLocation || null,
     birthDate: formData.birthDate || undefined,
     birthPlace: formData.birthPlace?.trim() || '',
     gender: formData.gender?.trim() || '',
     civilStatus: formData.civilStatus?.trim() || '',
     nationality: formData.nationality?.trim() || 'Filipino',
     religion: formData.religion?.trim() || '',
-    emergencyContact
+    fatherName: formData.fatherName?.trim() || '',
+    motherName: formData.motherName?.trim() || '',
+    guardianName: formData.guardianName?.trim() || '',
+    guardianRelationship: formData.guardianRelationship?.trim() || '',
+    guardianContactNumber: formData.guardianContactNumber?.trim() || '',
+    emergencyContact,
+    academicDetails: formData.academicDetails || undefined,
+    applicantType: formData.applicantType || 'New'
   }
 }
