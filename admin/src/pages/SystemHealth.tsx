@@ -132,7 +132,7 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
   const errorLogsInFlightRef = useRef(false);
 
   useEffect(() => {
-    fetchSystemHealth(true); // Force initial scan to get fresh data
+    fetchSystemHealth(false); // Use cached data if available for faster initial load
 
     const fetchHealthIfVisible = (forceScan = false) => {
       if (document.visibilityState === 'visible') {
@@ -140,11 +140,11 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
       }
     };
 
-    // Live enough for operators, quiet enough for production.
-    const interval = setInterval(() => fetchHealthIfVisible(), 15000);
+    // Poll every 60s using cached data (no forced scan)
+    const interval = setInterval(() => fetchHealthIfVisible(false), 60000);
 
-    // Force refresh periodically to clear cache without hammering the server.
-    const forceRefreshInterval = setInterval(() => fetchHealthIfVisible(true), 300000);
+    // Force refresh every 10 minutes to get fresh data
+    const forceRefreshInterval = setInterval(() => fetchHealthIfVisible(true), 600000);
 
     // Fetch error logs separately from database
     fetchErrorLogs();
@@ -154,20 +154,10 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
       }
     }, 60000);
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        fetchSystemHealth();
-        fetchErrorLogs();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
     return () => {
       clearInterval(interval);
       clearInterval(forceRefreshInterval);
       clearInterval(errorLogsInterval);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
@@ -260,12 +250,18 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
         return;
       }
       
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 45000);
+      
       const response = await fetch(`${API_URL}/api/admin/system-health${forceScan ? '?forceScan=true' : ''}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
-        }
+        },
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
       
       if (!response.ok) {
         if (response.status === 401) {
@@ -371,9 +367,14 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
       });
       
       setError(null);
-    } catch (err) {
-      console.error('Failed to fetch system health:', err);
-      setError('Network error while fetching system health');
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        console.error('System health request timed out');
+        setError('System health scan timed out. The server may be busy — try again in a moment.');
+      } else {
+        console.error('Failed to fetch system health:', err);
+        setError('Network error while fetching system health');
+      }
     } finally {
       systemHealthInFlightRef.current = false;
       setLoading(false);
@@ -494,6 +495,14 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
       });
 
       if (!response.ok) {
+        if (response.status === 409) {
+          setBackupToast({
+            type: 'success',
+            title: 'Backup in progress',
+            message: 'A backup is already running. It will appear in the history when complete.'
+          });
+          return;
+        }
         throw new Error('Failed to start backup');
       }
 
@@ -636,7 +645,7 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
 
           <DashboardCard title="Resources" icon={<HardDrive size={20} />}>
             <div className="summary-card-body">
-              <StatCard label="DB Usage" value={formatMetricPercent(metrics.databaseUsage)} tone="info" status={metrics.atlasMetrics?.enabled ? 'Atlas enabled' : 'Disabled'} />
+              <StatCard label="DB Usage" value={formatMetricPercent(metrics.databaseUsage)} tone="info" status={metrics.atlasMetrics?.enabled ? `${metrics.atlasMetrics.databaseInfo?.collectionsCount || 0} collections` : 'Disabled'} />
               <StatCard label="Total Docs" value={formatNumber(metrics.statistics.totalDocuments)} status="Current" />
             </div>
           </DashboardCard>
@@ -819,7 +828,21 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
               logs.map(log => (
                 <div key={log.id} className="activity-log-row" role="row">
                   <span className="activity-log-time">{formatTimestamp(log.timestamp)}</span>
-                  <span className={`activity-log-level ${log.level.toLowerCase()}`}>{log.level.toUpperCase()}</span>
+                  <span
+                    className={`activity-log-level ${log.level.toLowerCase()}`}
+                    style={{
+                      display: 'inline-block',
+                      padding: '0.05rem 0.3rem',
+                      borderRadius: '2px',
+                      fontSize: '0.5rem',
+                      fontWeight: 700,
+                      lineHeight: 1,
+                      letterSpacing: '0.01em',
+                      textTransform: 'uppercase',
+                      whiteSpace: 'nowrap',
+                      verticalAlign: 'middle',
+                    }}
+                  >{log.level.toUpperCase()}</span>
                   <span className="activity-log-module">{log.module}</span>
                   <span className="activity-log-message">{log.message}</span>
                 </div>

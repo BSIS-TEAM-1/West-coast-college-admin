@@ -99,9 +99,11 @@
 .status-ring-fill { stroke: var(--color-success); stroke-linecap: round; stroke-dasharray: 176; transition: stroke-dashoffset 300ms ease; }
 .status-pill,
 .backup-status,
-.activity-log-level,
 .warning-severity { width: fit-content; display: inline-flex; align-items: center; padding: 0.25rem 0.5rem; border-radius: 999px; font-size: 0.6875rem; font-weight: 750; letter-spacing: 0.035em; text-transform: uppercase; }
-.success { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface)); }
+.activity-log-row .activity-log-level { display: inline-block !important; padding: 0.05rem 0.3rem !important; border-radius: 2px !important; font-size: 0.5rem !important; font-weight: 700 !important; line-height: 1 !important; letter-spacing: 0.01em !important; text-transform: uppercase !important; white-space: nowrap !important; vertical-align: middle !important; }
+.activity-log-row .activity-log-level.error { color: var(--color-error) !important; background: color-mix(in srgb, var(--color-error) 6%, var(--color-surface)) !important; }
+.activity-log-row .activity-log-level.warning { color: var(--color-warning) !important; background: color-mix(in srgb, var(--color-warning) 8%, var(--color-surface)) !important; }
+.activity-log-row .activity-log-level.info { color: var(--color-info) !important; background: color-mix(in srgb, var(--color-info) 8%, var(--color-surface)) !important; }
 .warning,
 .in-progress { color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 13%, var(--color-surface)); }
 .error,
@@ -114,6 +116,7 @@
 .backup-progress span { display: block; width: 40%; height: 100%; border-radius: inherit; background: var(--color-warning); animation: backup-progress 1s ease-in-out infinite; }
 .backup-health-details { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.35rem 0.75rem; color: var(--color-text-muted); font-size: 0.75rem; }
 .backup-health-details span:not(:first-child)::before { content: '•'; margin-right: 0.75rem; color: var(--color-border); }
+.backup-status { padding: 0.2rem 0.45rem; font-size: 0.625rem; }
 .backup-card-busy .backup-now-btn svg { animation: spin 900ms linear infinite; }
 
 .section-heading-row { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 0.875rem; }
@@ -139,9 +142,6 @@
 .activity-log-row:hover { background: var(--color-surface-hover); }
 .activity-log-time,
 .activity-log-module { color: var(--color-text-muted); }
-.activity-log-level.error { color: var(--color-error); background: color-mix(in srgb, var(--color-error) 12%, var(--color-surface)); }
-.activity-log-level.warning { color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 12%, var(--color-surface)); }
-.activity-log-level.info { color: var(--color-info); background: color-mix(in srgb, var(--color-info) 12%, var(--color-surface)); }
 .activity-log-empty { min-height: 10rem; display: grid; place-items: center; align-content: center; gap: 0.75rem; color: var(--color-text-muted); }
 
 .loading-container,
