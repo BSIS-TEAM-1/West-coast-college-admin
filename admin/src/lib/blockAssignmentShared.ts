@@ -22,6 +22,8 @@ export type BlockGroup = {
   schoolYear?: string
   year: number
   section?: string
+  curriculumId?: string | null
+  studentClassification?: string
 }
 
 export type BlockSection = {
@@ -61,7 +63,12 @@ export async function authorizedFetch<T>(path: string, init: RequestInit = {}): 
 
   const data = await response.json().catch(() => ({}))
   if (!response.ok) {
-    throw new Error((data?.error as string) || (data?.message as string) || `Request failed (${response.status})`)
+    const message = (data?.error as string) || (data?.message as string) || `Request failed (${response.status})`
+    const err = new Error(message) as Error & { reasons?: string[]; checks?: Record<string, boolean>; status?: number }
+    if (Array.isArray(data?.reasons)) err.reasons = data.reasons
+    if (data?.checks && typeof data.checks === 'object') err.checks = data.checks
+    err.status = response.status
+    throw err
   }
 
   return data as T

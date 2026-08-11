@@ -2,6 +2,28 @@ const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 const bcrypt = require('bcryptjs');
 
+// ─── Shared sub-schemas (mirrors Applicant model) ───
+const schoolRecordSchema = new Schema({
+  schoolName: { type: String, trim: true, maxlength: 150 },
+  schoolAddress: { type: String, trim: true, maxlength: 255 },
+  yearGraduated: { type: String, trim: true },
+  generalAverage: { type: String, trim: true },
+  gradesSummary: { type: String, trim: true, maxlength: 500 },
+  strandOrTrack: { type: String, trim: true }
+}, { _id: false });
+
+const locationSchema = new Schema({
+  regionCode: { type: String, trim: true },
+  regionName: { type: String, trim: true },
+  provinceCode: { type: String, trim: true },
+  provinceName: { type: String, trim: true },
+  cityCode: { type: String, trim: true },
+  cityName: { type: String, trim: true },
+  barangayCode: { type: String, trim: true },
+  barangayName: { type: String, trim: true },
+  streetAddress: { type: String, trim: true }
+}, { _id: false });
+
 const studentSchema = new Schema({
   // Student Information
   studentNumber: { 
@@ -92,6 +114,12 @@ const studentSchema = new Schema({
     enum: ['Regular', 'Dropped', 'Returnee', 'Transferee'],
     default: 'Regular'
   },
+  classification: {
+    type: String,
+    enum: ['Regular', 'Irregular', 'Transferee', 'Returning'],
+    default: 'Regular',
+    index: true
+  },
   lifecycleStatus: {
     type: String,
     enum: ['Pending', 'Enrolled', 'Not Enrolled', 'Dropped', 'Inactive', 'Graduated'],
@@ -180,6 +208,25 @@ const studentSchema = new Schema({
       type: String,
       trim: true
     }
+  },
+
+  // Family Information (mirrors Applicant model)
+  fatherName: { type: String, trim: true },
+  motherName: { type: String, trim: true },
+  guardianName: { type: String, trim: true },
+  guardianRelationship: { type: String, trim: true },
+  guardianContactNumber: { type: String, trim: true },
+
+  // Structured Addresses (mirrors Applicant model)
+  currentLocation: { type: locationSchema, default: null },
+  permanentLocation: { type: locationSchema, default: null },
+
+  // Academic History (mirrors Applicant model)
+  academicDetails: {
+    elementary: { type: schoolRecordSchema },
+    highSchool: { type: schoolRecordSchema },
+    seniorHighSchool: { type: schoolRecordSchema },
+    college: { type: schoolRecordSchema }
   },
 
   // Teaching Assignment
@@ -297,6 +344,7 @@ studentSchema.index({ schoolYear: 1, semester: 1, course: 1, yearLevel: 1, secti
 studentSchema.index({ schoolYear: 1, semester: 1, enrollmentStatus: 1, lifecycleStatus: 1 });
 studentSchema.index({ corStatus: 1, lifecycleStatus: 1, createdAt: -1 });
 studentSchema.index({ createdAt: -1 });
+studentSchema.index({ classification: 1, course: 1, yearLevel: 1, schoolYear: 1 });
 
 // Pre-save hook to ensure student number format
 studentSchema.pre('validate', async function(next) {
