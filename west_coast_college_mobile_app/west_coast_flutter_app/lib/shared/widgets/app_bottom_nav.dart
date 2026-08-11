@@ -35,7 +35,7 @@ class AppBottomNav extends StatelessWidget {
         NavigationDestination(
           icon: Icon(Icons.notifications_outlined),
           selectedIcon: Icon(Icons.notifications),
-          label: 'Updates',
+          label: 'Alerts',
         ),
         NavigationDestination(
           icon: Icon(Icons.person_outlined),
@@ -60,19 +60,14 @@ class AppBottomNav extends StatelessWidget {
         return 2;
       case '/announcements':
         return 3;
-      case '/documents':
-        return 3;
       case '/profile':
         return 4;
-      case '/support':
-        return 4;
       default:
-        // Handle sub-routes
         if (path.startsWith('/dashboard')) return 0;
         if (path.startsWith('/schedule')) return 1;
         if (path.startsWith('/grades')) return 2;
-        if (path.startsWith('/announcements') || path.startsWith('/documents')) return 3;
-        if (path.startsWith('/profile') || path.startsWith('/support')) return 4;
+        if (path.startsWith('/announcements')) return 3;
+        if (path.startsWith('/profile')) return 4;
         return 0;
     }
   }

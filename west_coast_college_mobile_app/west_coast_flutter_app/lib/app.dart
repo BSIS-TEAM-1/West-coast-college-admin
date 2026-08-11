@@ -1,44 +1,29 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/theme/app_theme.dart';
 import 'core/config/router_config.dart';
-import 'data/services/api_service.dart';
-import 'features/auth/auth_provider.dart';
 
 class App extends StatelessWidget {
   const App({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MultiProvider(
-      providers: [
-        Provider<ApiService>(
-          create: (_) => ApiService(),
-        ),
-        ChangeNotifierProxyProvider<ApiService, AuthProvider>(
-          create: (context) => AuthProvider(
-            apiService: context.read<ApiService>(),
-          ),
-          update: (context, apiService, previous) =>
-              previous ?? AuthProvider(apiService: apiService),
-        ),
-      ],
-      child: const AppView(),
-    );
+    return const ProviderScope(child: AppView());
   }
 }
 
-class AppView extends StatelessWidget {
+class AppView extends ConsumerWidget {
   const AppView({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final router = ref.watch(routerProvider);
     return MaterialApp.router(
-      title: 'WCC Student Portal',
+      title: 'WCConnect',
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.light,
-      routerConfig: routerConfig,
+      themeMode: ThemeMode.system,
+      routerConfig: router,
     );
   }
 }
