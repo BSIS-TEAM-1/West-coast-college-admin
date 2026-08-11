@@ -1,0 +1,80 @@
+.curriculum-sub-sidebar {
+  width: 240px;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface, #ffffff);
+  border-right: 1px solid var(--color-border, #e2e5e9);
+  z-index: 10;
+  overflow-y: auto;
+}
+
+.curriculum-sub-sidebar-head {
+  padding: 1.5rem 1.25rem 1rem;
+  border-bottom: 1px solid var(--color-border, #e2e5e9);
+}
+
+.curriculum-sub-sidebar-head h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--color-text, #1c1b1b);
+}
+
+.curriculum-sub-sidebar-nav {
+  flex: 1;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.curriculum-sub-sidebar-link {
+  width: 100%;
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #5f6269);
+  background: transparent;
+  border: none;
+  border-radius: 0.4rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.2s, color 0.2s;
+}
+
+.curriculum-sub-sidebar-link:hover {
+  background: var(--color-bg-soft, #f8fafc);
+  color: var(--color-text, #1c1b1b);
+}
+
+.curriculum-sub-sidebar-link.active {
+  background: var(--color-primary, #002147);
+  color: var(--color-on-primary, #ffffff);
+}
+
+.curriculum-sub-sidebar-icon {
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+@media (max-width: 768px) {
+  .curriculum-sub-sidebar {
+    position: fixed;
+    left: 0.75rem;
+    top: auto;
+    bottom: 0.75rem;
+    height: auto;
+    max-height: min(60dvh, calc(100dvh - 6rem));
+    width: min(240px, calc(100vw - 1.5rem));
+    border: 1px solid var(--color-border, #e2e5e9);
+    border-radius: 0.5rem;
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
+  }
+}
