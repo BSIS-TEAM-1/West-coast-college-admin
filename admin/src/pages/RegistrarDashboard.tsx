@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Users, Blocks, FolderOpen, UserPlus, Plus, TrendingUp } from 'lucide-react'
+import { User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Users, Blocks, FolderOpen, UserPlus, Plus, TrendingUp, LayoutGrid, List, Archive, ClipboardCheck } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
@@ -24,6 +24,9 @@ import SchoolYearRollover from './registrar/SchoolYearRollover'
 import StudentHistoryPage from './registrar/StudentHistoryPage'
 import AssignSubjectPage from './registrar/AssignSubjectPage'
 import SubjectManagementPage from './registrar/SubjectManagementPage'
+import CurriculumManagementLayout from './registrar/CurriculumManagementLayout'
+import CurriculumDetailsPage from './registrar/CurriculumDetailsPage'
+import GradeSubmissionReviewPage from './registrar/GradeSubmissionReviewPage'
 import StudentWizard from '../components/AddStudent/StudentWizard'
 import './RegistrarDashboard.css'
 
@@ -37,7 +40,7 @@ type BlockWorkspaceSelection = {
   initialSectionId?: string | null
 }
 
-type RegistrarView = 'applicants' | 'students' | 'add-student' | 'courses' | 'course-workspace' | 'block-overview' | 'block-management' | 'assign-block' | 'view-blocks' | 'block-workspace' | 'school-year-rollover' | 'student-history' | 'subject-management' | 'add-subject' | 'assign-subject' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
+type RegistrarView = 'applicants' | 'students' | 'add-student' | 'courses' | 'course-workspace' | 'block-overview' | 'block-management' | 'assign-block' | 'view-blocks' | 'block-workspace' | 'school-year-rollover' | 'student-history' | 'subject-management' | 'add-subject' | 'assign-subject' | 'curriculum-management' | 'curriculum-overview' | 'curriculum-create' | 'curriculum-archived' | 'curriculum-details' | 'grade-submissions' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
 
 type RegistrarDashboardProps = {
   username: string
@@ -50,8 +53,10 @@ const REGISTRAR_NAV_ITEMS: { id: RegistrarView; label: string; icon: any }[] = [
   { id: 'applicants', label: 'Applicants', icon: UserPlus },
   { id: 'students', label: 'Student Management', icon: GraduationCap },
   { id: 'block-overview', label: 'Block Overview', icon: Blocks },
-  { id: 'subject-management', label: 'Subject Management', icon: BookOpen },
+  { id: 'curriculum-management', label: 'Curriculums', icon: BookOpen },
+  { id: 'subject-management', label: 'Subject Catalog', icon: BookOpen },
   { id: 'courses', label: 'Professor Loads', icon: BookOpen },
+  { id: 'grade-submissions', label: 'Grade Submissions', icon: ClipboardCheck },
   { id: 'documents', label: 'Academic Archive', icon: FolderOpen },
   { id: 'announcements', label: 'Announcements', icon: Bell },
   { id: 'reports', label: 'Reports', icon: FileText },
@@ -67,6 +72,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
   const [blockWorkspaceSelection, setBlockWorkspaceSelection] = useState<BlockWorkspaceSelection | null>(null)
   const [courseWorkspaceSelection, setCourseWorkspaceSelection] = useState<RegistrarCourseWorkspaceSelection | null>(null)
   const [historyStudentId, setHistoryStudentId] = useState<string | null>(null)
+  const [curriculumDetailId, setCurriculumDetailId] = useState<string | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -160,6 +166,59 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
         return <SubjectManagementPage mode="add" />
       case 'assign-subject':
         return <AssignSubjectPage />
+      case 'curriculum-overview':
+        return (
+          <CurriculumManagementLayout
+            activeView="overview"
+            onNavigate={(viewName) => {
+              if (viewName === 'create') setView('curriculum-create')
+              else if (viewName === 'archived') setView('curriculum-archived')
+              else if (viewName === 'overview') setView('curriculum-overview')
+              else setView('curriculum-management')
+            }}
+          />
+        )
+      case 'curriculum-management':
+        return (
+          <CurriculumManagementLayout
+            activeView="curriculums"
+            onNavigate={(viewName) => {
+              if (viewName === 'create') setView('curriculum-create')
+              else if (viewName === 'archived') setView('curriculum-archived')
+              else if (viewName === 'overview') setView('curriculum-overview')
+              else setView('curriculum-management')
+            }}
+            onOpenCurriculum={(id) => { setCurriculumDetailId(id); setView('curriculum-details') }}
+          />
+        )
+      case 'curriculum-create':
+        return (
+          <CurriculumManagementLayout
+            activeView="create"
+            onNavigate={(viewName) => {
+              if (viewName === 'create') setView('curriculum-create')
+              else if (viewName === 'archived') setView('curriculum-archived')
+              else if (viewName === 'overview') setView('curriculum-overview')
+              else setView('curriculum-management')
+            }}
+          />
+        )
+      case 'curriculum-archived':
+        return (
+          <CurriculumManagementLayout
+            activeView="archived"
+            onNavigate={(viewName) => {
+              if (viewName === 'create') setView('curriculum-create')
+              else if (viewName === 'archived') setView('curriculum-archived')
+              else if (viewName === 'overview') setView('curriculum-overview')
+              else setView('curriculum-management')
+            }}
+          />
+        )
+      case 'curriculum-details':
+        return curriculumDetailId ? <CurriculumDetailsPage curriculumId={curriculumDetailId} onBack={() => setView('curriculum-management')} /> : null
+      case 'grade-submissions':
+        return <GradeSubmissionReviewPage onBack={() => setView('applicants')} />
       case 'documents':
         return <AcademicArchivePage />
       case 'reports':
@@ -228,14 +287,17 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
               || (id === 'courses' && view === 'course-workspace')
               || (id === 'block-overview' && (view === 'block-management' || view === 'assign-block' || view === 'view-blocks' || view === 'block-workspace' || view === 'school-year-rollover'))
               || (id === 'subject-management' && (view === 'add-subject' || view === 'assign-subject'))
+              || (id === 'curriculum-management' && (view === 'curriculum-details' || view === 'curriculum-overview' || view === 'curriculum-create' || view === 'curriculum-archived'))
               || (id === 'students' && view === 'add-student')
             )
             const isBlockOverview = id === 'block-overview'
             const isSubjectManagement = id === 'subject-management'
             const isStudentManagement = id === 'students'
+            const isCurriculumManagement = id === 'curriculum-management'
             const showBlockSubnav = isBlockOverview && isActive
             const showSubjectSubnav = isSubjectManagement && isActive
             const showStudentSubnav = isStudentManagement && isActive
+            const showCurriculumSubnav = isCurriculumManagement && isActive
             const isBlockOverviewActive = view === 'block-overview'
             const isAddBlockActive = view === 'block-management'
             const isAssignBlockActive = view === 'assign-block'
@@ -243,9 +305,13 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
             const isAddSubjectActive = view === 'add-subject'
             const isSubjectAssignmentActive = view === 'assign-subject'
             const isAddStudentActive = view === 'add-student'
+            const isCurriculumOverviewActive = view === 'curriculum-overview'
+            const isCurriculumListActive = view === 'curriculum-management'
+            const isCurriculumCreateActive = view === 'curriculum-create'
+            const isCurriculumArchivedActive = view === 'curriculum-archived'
 
             return (
-              <div key={id} className={isBlockOverview || isSubjectManagement || isStudentManagement ? 'registrar-sidebar-group' : undefined}>
+              <div key={id} className={isBlockOverview || isSubjectManagement || isStudentManagement || isCurriculumManagement ? 'registrar-sidebar-group' : undefined}>
                 <button
                   type="button"
                   className={`registrar-sidebar-link ${isActive ? 'registrar-sidebar-link-active' : ''}`}
@@ -330,6 +396,47 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
                     >
                       <Users size={15} className="registrar-sidebar-icon" />
                       <span>Subject Assignment</span>
+                    </button>
+                  </div>
+                )}
+
+                {showCurriculumSubnav && (
+                  <div className="registrar-sidebar-subnav" aria-label="Curriculum management navigation">
+                    <button
+                      type="button"
+                      className={`registrar-sidebar-sublink ${isCurriculumOverviewActive ? 'registrar-sidebar-sublink-active' : ''}`}
+                      onClick={() => setView('curriculum-overview')}
+                      aria-current={isCurriculumOverviewActive ? 'page' : undefined}
+                    >
+                      <LayoutGrid size={15} className="registrar-sidebar-icon" />
+                      <span>Overview</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`registrar-sidebar-sublink ${isCurriculumListActive ? 'registrar-sidebar-sublink-active' : ''}`}
+                      onClick={() => setView('curriculum-management')}
+                      aria-current={isCurriculumListActive ? 'page' : undefined}
+                    >
+                      <List size={15} className="registrar-sidebar-icon" />
+                      <span>Curriculums</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`registrar-sidebar-sublink ${isCurriculumCreateActive ? 'registrar-sidebar-sublink-active' : ''}`}
+                      onClick={() => setView('curriculum-create')}
+                      aria-current={isCurriculumCreateActive ? 'page' : undefined}
+                    >
+                      <Plus size={15} className="registrar-sidebar-icon" />
+                      <span>Create Curriculum</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`registrar-sidebar-sublink ${isCurriculumArchivedActive ? 'registrar-sidebar-sublink-active' : ''}`}
+                      onClick={() => setView('curriculum-archived')}
+                      aria-current={isCurriculumArchivedActive ? 'page' : undefined}
+                    >
+                      <Archive size={15} className="registrar-sidebar-icon" />
+                      <span>Archived</span>
                     </button>
                   </div>
                 )}

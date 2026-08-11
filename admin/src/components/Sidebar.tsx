@@ -1,10 +1,10 @@
-import { LayoutDashboard, User, UserPlus, Settings, Users, Bell, FileText, Shield, Activity, CheckCircle2, X } from 'lucide-react';
+import { LayoutDashboard, User, UserPlus, Settings, Users, Bell, Shield, Activity, CheckCircle2, BookOpen, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { getProfile } from '../lib/authApi';
 import type { ProfileResponse } from '../lib/authApi';
 import './Sidebar.css';
 
-type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'documents' | 'announcement-detail' | 'personal-details' | 'system-health' | 'security' | 'cor-docs' | 'calendar';
+type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'announcement-detail' | 'personal-details' | 'system-health' | 'security' | 'cor-docs' | 'calendar' | 'curriculum-management';
 
 type SidebarProps = {
   id?: string;
@@ -19,8 +19,8 @@ type SidebarProps = {
 const NAV_ITEMS: { id: View; label: string; icon: any }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'system-health', label: 'System Health', icon: Activity },
-  { id: 'announcements', label: 'Manage Announcements', icon: Bell },
-  { id: 'documents', label: 'Document Management', icon: FileText },
+  { id: 'announcements', label: 'Announcements', icon: Bell },
+  { id: 'curriculum-management', label: 'Curriculum Management', icon: BookOpen },
   { id: 'cor-docs', label: 'COR Generation', icon: CheckCircle2 },
   { id: 'add-account', label: 'Add Account', icon: UserPlus },
   { id: 'audit-logs', label: 'System Audit Logs', icon: Shield },
@@ -96,14 +96,21 @@ export default function Sidebar({ id, activeLink = 'dashboard', onNavigate, prof
         </div>
       </div>
 
+      <div className="sidebar-nav-label">Menu</div>
       <nav className="sidebar-nav" aria-label="Admin navigation">
         {NAV_ITEMS.filter(({ id }) => {
+          const accountType = profile?.accountType;
+          // Academic pages — only visible to registrars
+          const academicPages: View[] = ['curriculum-management', 'cor-docs'];
+          if (academicPages.includes(id) && accountType !== 'registrar') {
+            return false;
+          }
           // Hide announcements for registrar users
-          if (id === 'announcements' && profile?.accountType === 'registrar') {
+          if (id === 'announcements' && accountType === 'registrar') {
             return false
           }
           // Hide system-health for professor users
-          if (id === 'system-health' && profile?.accountType === 'professor') {
+          if (id === 'system-health' && accountType === 'professor') {
             return false
           }
           return true

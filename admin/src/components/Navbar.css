@@ -76,14 +76,20 @@
   justify-content: center;
   gap: 0.25rem;
   padding: 0;
-  border: 1px solid var(--color-border);
+  border: 0;
   border-radius: 4px;
   background: var(--color-bg-soft);
   color: var(--color-text);
   font-size: 0.8125rem;
   font-weight: 700;
   cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease;
+  opacity: 0.7;
+  transition: background 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+}
+
+.navbar-theme-trigger:hover {
+  opacity: 1;
+  background: var(--color-surface-hover);
 }
 
 .navbar-theme-trigger-label,
@@ -91,9 +97,6 @@
   display: none;
 }
 
-.navbar-theme-trigger:hover {
-  background: var(--color-surface-hover);
-}
 
 .navbar-theme-menu {
   position: absolute;

@@ -124,6 +124,15 @@
   gap: 0.35rem;
 }
 
+.sidebar-nav-label {
+  padding: 0.5rem calc(var(--sidebar-gutter) + var(--sidebar-item-x));
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--sidebar-muted);
+}
+
 .sidebar-link {
   width: 100%;
   min-width: 0;
