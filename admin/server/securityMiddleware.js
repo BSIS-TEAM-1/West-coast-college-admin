@@ -60,6 +60,35 @@ const studentEmergencyContactSchema = Joi.object({
   contactNumber: optionalTrimmedString(30).optional(),
   address: optionalTrimmedString(500).optional()
 });
+
+const locationSchema = Joi.object({
+  regionCode: optionalTrimmedString(20).optional(),
+  regionName: optionalTrimmedString(120).optional(),
+  provinceCode: optionalTrimmedString(20).optional(),
+  provinceName: optionalTrimmedString(120).optional(),
+  cityCode: optionalTrimmedString(20).optional(),
+  cityName: optionalTrimmedString(120).optional(),
+  barangayCode: optionalTrimmedString(20).optional(),
+  barangayName: optionalTrimmedString(120).optional(),
+  streetAddress: optionalTrimmedString(255).optional()
+}).optional().allow(null);
+
+const schoolRecordSchema = Joi.object({
+  schoolName: optionalTrimmedString(150).optional(),
+  schoolAddress: optionalTrimmedString(255).optional(),
+  yearGraduated: optionalTrimmedString(20).optional(),
+  generalAverage: optionalTrimmedString(20).optional(),
+  gradesSummary: optionalTrimmedString(500).optional(),
+  strandOrTrack: optionalTrimmedString(120).optional()
+}).optional().allow(null);
+
+const academicDetailsSchema = Joi.object({
+  elementary: schoolRecordSchema.optional().allow(null),
+  highSchool: schoolRecordSchema.optional().allow(null),
+  seniorHighSchool: schoolRecordSchema.optional().allow(null),
+  college: schoolRecordSchema.optional().allow(null)
+}).optional().allow(null);
+
 const studentMutationFields = {
   firstName: nonEmptyTrimmedString(120),
   middleName: optionalTrimmedString(120),
@@ -91,15 +120,32 @@ const studentMutationFields = {
   latestGrade: Joi.alternatives().try(Joi.number().min(1).max(5), Joi.string().allow('')),
   gradeProfessor: optionalTrimmedString(254),
   gradeDate: Joi.alternatives().try(Joi.date(), Joi.string().allow('')),
-  isActive: Joi.boolean().optional()
+  isActive: Joi.boolean().optional(),
+  // Family information (mirrors Applicant model)
+  fatherName: optionalTrimmedString(120).optional(),
+  motherName: optionalTrimmedString(120).optional(),
+  guardianName: optionalTrimmedString(120).optional(),
+  guardianRelationship: optionalTrimmedString(60).optional(),
+  guardianContactNumber: optionalTrimmedString(30).optional(),
+  // Structured addresses (mirrors Applicant model)
+  currentLocation: locationSchema,
+  permanentLocation: locationSchema,
+  // Academic history (mirrors Applicant model)
+  academicDetails: academicDetailsSchema,
+  // Applicant type (for students converted from applicants)
+  applicantType: Joi.string().valid('New', 'Transferee', 'Returnee', 'Old').allow('').optional()
 };
+const SUBJECT_TYPES = ['General Education', 'Professional Education', 'Major', 'Elective', 'Core'];
+const SUBJECT_STATUSES = ['Active', 'Inactive'];
 const subjectMutationFields = {
   code: nonEmptyTrimmedString(30),
   title: nonEmptyTrimmedString(254),
   units: Joi.number().min(0.5).max(6),
-  course: Joi.number().integer().valid(...STUDENT_COURSES),
-  yearLevel: Joi.number().integer().min(1).max(5),
-  semester: Joi.string().valid(...STUDENT_SEMESTERS),
+  subjectType: Joi.string().valid(...SUBJECT_TYPES),
+  lecturePeriods: Joi.number().integer().min(0).max(40),
+  labPeriods: Joi.number().integer().min(0).max(40),
+  status: Joi.string().valid(...SUBJECT_STATUSES),
+  prerequisiteSubjectIds: Joi.array().items(subjectIdSchema).unique(),
   isActive: Joi.boolean()
 };
 
@@ -178,8 +224,8 @@ function inputValidationMiddleware(options = {}) {
           convert: true,
           stripUnknown: true
         });
-        logger.debug('After validation - value:', value, 'error:', error);
         if (error) {
+          logger.debug('Validation error:', error.details);
           return res.status(400).json({
             error: 'Invalid query parameters.',
             details: error.details.map(d => d.message)
@@ -454,6 +500,8 @@ const schemas = {
         academicYear: Joi.string().pattern(/^\d{4}-\d{4}$/).optional(),
         department: Joi.string().trim().min(1).max(100).optional(),
         program: Joi.string().trim().min(1).max(100).optional(),
+        curriculumId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
+        studentClassification: Joi.string().trim().max(50).optional(),
         yearLevel: Joi.alternatives().try(
           Joi.number().integer().min(1).max(5),
           Joi.string().valid('1st', '2nd', '3rd', '4th', '5th', '1', '2', '3', '4', '5')
@@ -504,6 +552,7 @@ const schemas = {
         semester: Joi.string().valid('1st', '2nd', 'Summer').optional(),
         year: Joi.number().integer().min(2000).max(3000).optional(),
         schoolYear: Joi.string().pattern(/^\d{4}-\d{4}$/).optional(),
+        curriculumId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).allow(null).optional(),
         yearLevel: Joi.alternatives().try(
           Joi.number().integer().min(1).max(5),
           Joi.string().valid('1st', '2nd', '3rd', '4th', '5th', '1', '2', '3', '4', '5')
@@ -521,6 +570,15 @@ const schemas = {
         sectionCode: Joi.string().trim().min(1).max(50).optional(),
         capacity: Joi.number().integer().min(1).max(50).optional(),
         schedule: Joi.string().trim().max(255).allow('').optional()
+      })
+    },
+    syncSubjects: {
+      params: Joi.object({
+        groupId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required()
+      }),
+      body: Joi.object({
+        sectionIds: Joi.array().items(Joi.string().pattern(/^[0-9a-fA-F]{24}$/)).optional(),
+        includeElectives: Joi.boolean().optional()
       })
     }
   },
@@ -709,11 +767,13 @@ const schemas = {
   subject: {
     query: {
       query: Joi.object({
-        course: Joi.number().integer().valid(...STUDENT_COURSES).optional(),
-        yearLevel: Joi.number().integer().min(1).max(5).optional(),
-        semester: Joi.string().valid(...STUDENT_SEMESTERS).optional(),
+        subjectType: Joi.string().valid(...SUBJECT_TYPES).optional(),
+        status: Joi.string().valid(...SUBJECT_STATUSES).optional(),
         isActive: Joi.boolean().optional(),
-        q: Joi.string().trim().max(100).optional()
+        q: Joi.string().trim().max(100).optional(),
+        limit: Joi.number().integer().min(1).max(200).optional(),
+        offset: Joi.number().integer().min(0).optional(),
+        excludeIds: Joi.string().max(2000).optional()
       })
     },
     create: {
