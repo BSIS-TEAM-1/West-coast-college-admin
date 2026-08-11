@@ -7,6 +7,7 @@ import {
   authorizedFetch,
   compareBlockOrder,
   COURSE_OPTIONS,
+  courseFullLabel,
   formatBlockColumnLabel,
   formatBlockLabel,
   getBlockGroupCompatibilityMeta,
@@ -36,11 +37,22 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
     section: string
     semester: Semester
     year: string
+    curriculumId: string
   } | null>(null)
   const [savingGroupEdit, setSavingGroupEdit] = useState(false)
+  const [availableCurriculums, setAvailableCurriculums] = useState<Array<{
+    _id: string
+    name: string
+    code: string
+    version: string
+    status: string
+    programCode: number
+    programName: string
+  }>>([])
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null)
   const [sectionCapacityDraft, setSectionCapacityDraft] = useState('')
   const [savingSectionId, setSavingSectionId] = useState<string | null>(null)
+  const [linkedCurriculumName, setLinkedCurriculumName] = useState<string | null>(null)
 
   const fetchBlockGroups = async () => {
     try {
@@ -70,9 +82,21 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
   useEffect(() => {
     if (!selectedGroup) {
       setSections([])
+      setLinkedCurriculumName(null)
       return
     }
     void fetchSections(selectedGroup._id)
+    // Fetch the linked curriculum name if a curriculumId exists
+    if (selectedGroup.curriculumId) {
+      authorizedFetch<{ data: { _id: string; name: string; code: string; version: string; programName: string; status: string } }>(`/api/registrar/curriculums/${selectedGroup.curriculumId}`)
+        .then((data) => {
+          const c = data?.data
+          setLinkedCurriculumName(c ? (c.name || `${c.programName} ${c.version}`) : 'Unknown')
+        })
+        .catch(() => setLinkedCurriculumName('Unknown'))
+    } else {
+      setLinkedCurriculumName(null)
+    }
   }, [selectedGroup])
 
   useEffect(() => {
@@ -171,10 +195,29 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
       yearLevel: String(meta.yearLevel || slot?.yearLevel || ''),
       section: selectedGroup.section || slot?.letter || '',
       semester: selectedGroup.semester,
-      year: String(selectedGroup.year)
+      year: String(selectedGroup.year),
+      curriculumId: selectedGroup.curriculumId || ''
     })
     setError('')
     setSuccess('')
+    // Fetch curriculums for the selected program
+    if (meta.course) {
+      authorizedFetch<{ data: Array<{
+        _id: string
+        name: string
+        code: string
+        version: string
+        status: string
+        programCode: number
+      }> }>(`/api/registrar/curriculums?programCode=${meta.course}`)
+        .then((data) => {
+          const curriculums = Array.isArray(data?.data) ? data.data : []
+          setAvailableCurriculums(curriculums.filter((c) => c.status !== 'Archived'))
+        })
+        .catch(() => setAvailableCurriculums([]))
+    } else {
+      setAvailableCurriculums([])
+    }
   }
 
   const handleCancelEditGroup = () => {
@@ -196,7 +239,7 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
         ? `${courseOption.value}-${yearLevelNum}-${sectionLetter}`
         : selectedGroup.name
 
-      const updated = await authorizedFetch<BlockGroup>(`/api/blocks/groups/${selectedGroup._id}`, {
+      const updated = await authorizedFetch<BlockGroup & { autoAssign?: { created?: number; sections?: number } }>(`/api/blocks/groups/${selectedGroup._id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -206,10 +249,16 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
           yearLevel: yearLevelNum || undefined,
           section: sectionLetter || undefined,
           semester: groupEditForm.semester,
-          year: yearNum
+          year: yearNum,
+          curriculumId: groupEditForm.curriculumId || null
         })
       })
-      setSuccess('Block group updated successfully')
+      const autoAssign = (updated as any)?.autoAssign
+      if (autoAssign && autoAssign.created > 0) {
+        setSuccess(`Block group updated. ${autoAssign.created} subjects auto-assigned from curriculum.`)
+      } else {
+        setSuccess('Block group updated successfully')
+      }
       setGroupEditForm(null)
       setSelectedGroup(updated)
       await fetchBlockGroups()
@@ -337,14 +386,14 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
                 <span className="block-step-badge">Directory</span>
                 <h3>Created Block Groups</h3>
               </div>
-              <p>Filter by course or year level, then pick a block to inspect.</p>
+              <p>Filter by curriculum or year level, then pick a block to inspect.</p>
             </div>
 
             <div className="block-view-filter-row">
               <label className="block-picker-field">
-                <span>Course</span>
+                <span>Curriculum</span>
                 <select value={selectedCourseFilter} onChange={(event) => setSelectedCourseFilter(event.target.value)}>
-                  <option value="">All courses</option>
+                  <option value="">All curricula</option>
                   {courseOptions.map((course) => (
                     <option key={course} value={course}>{course}</option>
                   ))}
@@ -353,7 +402,7 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
               <label className="block-picker-field">
                 <span>Year Level</span>
                 <select value={selectedYearFilter} onChange={(event) => setSelectedYearFilter(event.target.value)} disabled={yearOptions.length === 0}>
-                  <option value="">{selectedCourseFilter ? 'All year levels' : 'Select course or show all'}</option>
+                  <option value="">{selectedCourseFilter ? 'All year levels' : 'Select curriculum or show all'}</option>
                   {yearOptions.map((yearLevel) => (
                     <option key={yearLevel} value={yearLevel}>{`Year ${yearLevel}`}</option>
                   ))}
@@ -414,16 +463,16 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
             {selectedGroup ? (
               <>
                 {groupEditForm ? (
-                  <div className="block-current-card">
-                    <span className="block-current-label">Edit Block Group</span>
+                  <div className="block-detail-edit-card">
+                    <span className="block-detail-section-label">Edit Block Group</span>
                     <div className="block-view-filter-row">
                       <label className="block-picker-field">
-                        <span>Course</span>
+                        <span>Program</span>
                         <select
                           value={groupEditForm.courseId}
                           onChange={(event) => setGroupEditForm((current) => current && { ...current, courseId: event.target.value })}
                         >
-                          <option value="">Select course</option>
+                          <option value="">Select program</option>
                           {COURSE_OPTIONS.map((course) => (
                             <option key={course.value} value={course.value}>{course.fullLabel}</option>
                           ))}
@@ -461,16 +510,32 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
                         >
                           <option value="1st">1st Semester</option>
                           <option value="2nd">2nd Semester</option>
-                          <option value="Summer">Summer Semester</option>
+                          <option value="Summer">Summer</option>
                         </select>
                       </label>
                       <label className="block-picker-field">
                         <span>Academic Year</span>
                         <input
                           type="number"
+                          min={2000}
+                          max={3000}
                           value={groupEditForm.year}
                           onChange={(event) => setGroupEditForm((current) => current && { ...current, year: event.target.value })}
                         />
+                      </label>
+                      <label className="block-picker-field">
+                        <span>Linked Curriculum</span>
+                        <select
+                          value={groupEditForm.curriculumId}
+                          onChange={(event) => setGroupEditForm((current) => current && { ...current, curriculumId: event.target.value })}
+                        >
+                          <option value="">No curriculum linked</option>
+                          {availableCurriculums.map((c) => (
+                            <option key={c._id} value={c._id}>
+                              {c.name || `${c.programName} ${c.version}`} ({c.status})
+                            </option>
+                          ))}
+                        </select>
                       </label>
                     </div>
                     <div className="block-view-actions">
@@ -485,13 +550,33 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
                     </div>
                   </div>
                 ) : (
-                  <div className="block-current-card">
-                    <span className="block-current-label">Selected Block Snapshot</span>
-                    <strong>{`Block-${formatBlockColumnLabel(selectedGroup.name).replace('-', '')}`}</strong>
-                    <div className="block-current-meta">
-                      <span>{`${selectedGroup.semester} ${selectedGroup.year}`}</span>
-                      <span>{selectedYearLevel ? `Year ${selectedYearLevel}` : 'No year selected'}</span>
-                      <span>{`${totalSectionPopulation}/${totalSectionCapacity || 0} seats used`}</span>
+                  <div className="block-detail-group-card">
+                    <div className="block-detail-group-header">
+                      <div className="block-detail-group-identity">
+                        <span className="block-detail-group-label">Block Group</span>
+                        <strong className="block-detail-group-name">{formatBlockLabel(selectedGroup.name)}</strong>
+                        <span className="block-detail-group-program">
+                          {courseFullLabel(getCourseAbbreviation(selectedGroup.name))}
+                        </span>
+                      </div>
+                      <BlockStatusBadge status="OPEN" size="md" />
+                    </div>
+                    <div className="block-detail-group-meta">
+                      <span>{selectedYearLevel ? `Year ${selectedYearLevel}` : 'No year level'}</span>
+                      <span className="block-detail-meta-dot" />
+                      <span>{selectedGroup.semester === '1st' ? '1st Semester' : selectedGroup.semester === '2nd' ? '2nd Semester' : 'Summer'}</span>
+                      <span className="block-detail-meta-dot" />
+                      <span>{`SY ${selectedGroup.year}\u2013${Number(selectedGroup.year) + 1}`}</span>
+                    </div>
+                    {linkedCurriculumName && (
+                      <div className="block-detail-group-curriculum">
+                        <span>Curriculum</span>
+                        <strong>{linkedCurriculumName}</strong>
+                      </div>
+                    )}
+                    <div className="block-detail-group-capacity">
+                      <span>Capacity</span>
+                      <strong>{totalSectionPopulation} / {totalSectionCapacity || 0} students</strong>
                     </div>
                   </div>
                 )}
@@ -511,6 +596,11 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
                   </div>
                 )}
 
+                <div className="block-detail-sections-header">
+                  <span className="block-detail-section-label">Sections</span>
+                  <span className="block-detail-section-count">{sections.length}</span>
+                </div>
+
                 {sections.length === 0 ? (
                   <p className="block-view-empty">No sections found for this block yet.</p>
                 ) : (
@@ -518,70 +608,87 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
                     {sections
                       .slice()
                       .sort((a, b) => compareBlockOrder(a.sectionCode, b.sectionCode))
-                      .map((section) => (
-                        <article key={section._id} className="created-block-section-card block-card">
-                          <div>
-                            <strong>{formatBlockColumnLabel(section.sectionCode)}</strong>
-                            <BlockStatusBadge status={(section.status || 'OPEN') as 'OPEN' | 'CLOSED'} size="sm" />
-                          </div>
-                          {editingSectionId === section._id ? (
-                            <div className="created-block-section-meta">
-                              <input
-                                type="number"
-                                min={1}
-                                value={sectionCapacityDraft}
-                                onChange={(event) => setSectionCapacityDraft(event.target.value)}
-                                aria-label="New capacity"
-                              />
-                              <button
-                                type="button"
-                                className="registrar-btn registrar-btn-secondary"
-                                onClick={() => void handleSaveSectionEdit(section)}
-                                disabled={savingSectionId === section._id}
-                                aria-label="Save section capacity"
-                              >
-                                <Save size={14} />
-                              </button>
-                              <button
-                                type="button"
-                                className="registrar-btn registrar-btn-secondary"
-                                onClick={handleCancelEditSection}
-                                disabled={savingSectionId === section._id}
-                                aria-label="Cancel editing section"
-                              >
-                                <X size={14} />
-                              </button>
+                      .map((section) => {
+                        const sectionLabel = formatBlockColumnLabel(section.sectionCode)
+                        return (
+                          <article key={section._id} className="block-detail-section-card">
+                            <div className="block-detail-section-top">
+                              <div className="block-detail-section-identity">
+                                <span className="block-detail-section-tag">Section</span>
+                                <strong>{sectionLabel}</strong>
+                              </div>
+                              <BlockStatusBadge status={(section.status || 'OPEN') as 'OPEN' | 'CLOSED'} size="sm" />
                             </div>
-                          ) : (
-                            <div className="created-block-section-meta">
-                              <CapacityIndicator
-                                current={section.currentPopulation}
-                                capacity={section.capacity}
-                                showLabel={false}
-                                showText={true}
-                                size="sm"
-                              />
-                              <button
-                                type="button"
-                                className="registrar-btn registrar-btn-secondary"
-                                onClick={() => handleStartEditSection(section)}
-                                aria-label={`Edit ${formatBlockColumnLabel(section.sectionCode)}`}
-                              >
-                                <Pencil size={14} />
-                              </button>
-                              <button
-                                type="button"
-                                className="section-delete-btn"
-                                onClick={() => void handleDeleteSection(section)}
-                                disabled={savingSectionId === section._id}
-                                aria-label={`Delete ${formatBlockColumnLabel(section.sectionCode)}`}
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-                          )}
-                        </article>
-                      ))}
+                            {editingSectionId === section._id ? (
+                              <div className="block-detail-section-edit">
+                                <label className="block-detail-capacity-input">
+                                  <span>Capacity</span>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={sectionCapacityDraft}
+                                    onChange={(event) => setSectionCapacityDraft(event.target.value)}
+                                    aria-label="New capacity"
+                                  />
+                                </label>
+                                <div className="block-detail-section-actions">
+                                  <button
+                                    type="button"
+                                    className="registrar-btn registrar-btn-secondary"
+                                    onClick={() => void handleSaveSectionEdit(section)}
+                                    disabled={savingSectionId === section._id}
+                                  >
+                                    <Save size={14} />
+                                    Save
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="registrar-btn registrar-btn-secondary"
+                                    onClick={handleCancelEditSection}
+                                    disabled={savingSectionId === section._id}
+                                  >
+                                    <X size={14} />
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="block-detail-section-capacity">
+                                  <CapacityIndicator
+                                    current={section.currentPopulation}
+                                    capacity={section.capacity}
+                                    showLabel={false}
+                                    showText={true}
+                                    size="sm"
+                                  />
+                                </div>
+                                <div className="block-detail-section-actions">
+                                  <button
+                                    type="button"
+                                    className="registrar-btn registrar-btn-secondary"
+                                    onClick={() => handleStartEditSection(section)}
+                                    aria-label={`Edit section ${sectionLabel}`}
+                                  >
+                                    <Pencil size={14} />
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="section-delete-btn"
+                                    onClick={() => void handleDeleteSection(section)}
+                                    disabled={savingSectionId === section._id}
+                                    aria-label={`Delete section ${sectionLabel}`}
+                                  >
+                                    <Trash2 size={14} />
+                                    Delete
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </article>
+                        )
+                      })}
                   </div>
                 )}
               </>

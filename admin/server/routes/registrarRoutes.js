@@ -4,6 +4,8 @@ const rateLimit = require('express-rate-limit');
 const StudentController = require('../controllers/studentController');
 const SubjectController = require('../controllers/subjectController');
 const BlockSubjectAssignmentController = require('../controllers/blockSubjectAssignmentController');
+const CurriculumController = require('../controllers/curriculumController');
+const CurriculumSubjectController = require('../controllers/curriculumSubjectController');
 const securityMiddleware = require('../securityMiddleware');
 const { requireAnyRole } = require('../authorization');
 const { apiCache, cacheMiddleware } = require('../services/apiCache');
@@ -31,6 +33,7 @@ function invalidateCacheOnSuccess(...prefixes) {
 const studentCachePrefixes = ['/registrar/students', '/api/registrar/students'];
 const subjectCachePrefixes = ['/registrar/subjects', '/api/registrar/subjects'];
 const subjectAssignmentCachePrefixes = ['/registrar/block-subject-assignments', '/api/registrar/block-subject-assignments'];
+const curriculumCachePrefixes = ['/registrar/curriculums', '/api/registrar/curriculums'];
 const courseLoadCachePrefixes = [
   '/registrar/professor-course-loads',
   '/api/registrar/professor-course-loads',
@@ -61,6 +64,23 @@ router.delete('/sections/:sectionId/subject-assignment/:subjectId', securityMidd
 router.get('/block-subject-assignments', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.blockSubjectAssignment.query), cacheMiddleware({ ttlMs: 20 * 1000 }), BlockSubjectAssignmentController.getAssignments);
 router.post('/block-subject-assignments', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.blockSubjectAssignment.create), invalidateCacheOnSuccess(...subjectAssignmentCachePrefixes, ...courseLoadCachePrefixes), BlockSubjectAssignmentController.assignSubjects);
 router.delete('/block-subject-assignments/:id', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.blockSubjectAssignment.idParam), invalidateCacheOnSuccess(...subjectAssignmentCachePrefixes, ...courseLoadCachePrefixes), BlockSubjectAssignmentController.deleteAssignment);
+
+// Curriculum Routes
+router.get('/curriculums', cacheMiddleware({ ttlMs: 60 * 1000 }), CurriculumController.listCurriculums);
+router.get('/curriculums/:id', CurriculumController.getCurriculum);
+router.post('/curriculums', invalidateCacheOnSuccess(...curriculumCachePrefixes), CurriculumController.createCurriculum);
+router.put('/curriculums/:id', invalidateCacheOnSuccess(...curriculumCachePrefixes), CurriculumController.updateCurriculum);
+router.delete('/curriculums/:id', invalidateCacheOnSuccess(...curriculumCachePrefixes), CurriculumController.deleteCurriculum);
+router.patch('/curriculums/:id/status', invalidateCacheOnSuccess(...curriculumCachePrefixes), CurriculumController.patchStatus);
+router.post('/curriculums/:id/duplicate', invalidateCacheOnSuccess(...curriculumCachePrefixes), CurriculumController.duplicateCurriculum);
+
+// Curriculum Subject Routes
+router.get('/curriculums/:id/subjects', cacheMiddleware({ ttlMs: 60 * 1000 }), CurriculumSubjectController.getSubjects);
+router.get('/curriculums/:id/structure', cacheMiddleware({ ttlMs: 60 * 1000 }), CurriculumSubjectController.getStructure);
+router.post('/curriculums/:id/subjects', invalidateCacheOnSuccess(...curriculumCachePrefixes), CurriculumSubjectController.addSubject);
+router.post('/curriculums/:id/subjects/bulk', invalidateCacheOnSuccess(...curriculumCachePrefixes), CurriculumSubjectController.bulkAddSubjects);
+router.put('/curriculums/:id/subjects/:curriculumSubjectId', invalidateCacheOnSuccess(...curriculumCachePrefixes), CurriculumSubjectController.updateSubject);
+router.delete('/curriculums/:id/subjects/:curriculumSubjectId', invalidateCacheOnSuccess(...curriculumCachePrefixes), CurriculumSubjectController.removeSubject);
 
 // Subject Routes
 router.get('/subjects', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.subject.query), cacheMiddleware({ ttlMs: 60 * 1000 }), SubjectController.getSubjects);

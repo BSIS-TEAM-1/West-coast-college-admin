@@ -8,6 +8,12 @@ const Student = require('../models/Student');
 const Enrollment = require('../models/Enrollment');
 const { buildSafeQuery, safeObjectId } = require('../securityMiddleware');
 const { logger } = require('../services/logger');
+const blockEligibilityService = require('../services/blockEligibilityService');
+const Curriculum = require('../models/Curriculum');
+const AcademicPeriod = require('../models/AcademicPeriod');
+const Subject = require('../models/Subject');
+const CurriculumSubject = require('../models/CurriculumSubject');
+const { autoAssignSubjectsFromCurriculum } = require('../services/blockSubjectAutoAssignService');
 
 class BlockController {
   extractBlockSlotFromName(value) {
@@ -270,10 +276,27 @@ class BlockController {
   // POST /api/blocks/groups
   async createBlockGroup(req, res) {
     try {
-      const { name, courseId, courseCode, yearLevel, schoolYear, section, semester, year, policies } = req.body;
+      const { name, courseId, courseCode, yearLevel, schoolYear, section, semester, year, policies, curriculumId, studentClassification } = req.body;
       if (!name || !semester || !year) {
         return res.status(400).json({ error: 'name, semester, and year are required' });
       }
+
+      // Validate curriculumId if provided
+      let validatedCurriculumId = null;
+      if (curriculumId && mongoose.Types.ObjectId.isValid(curriculumId)) {
+        const curriculum = await Curriculum.findById(curriculumId).select('programCode status').lean();
+        if (!curriculum) {
+          return res.status(400).json({ error: 'Curriculum not found' });
+        }
+        const structuredCourseId = this.normalizeCourseCode(courseId) || this.normalizeCourseCode(courseCode) || this.extractCourseFromGroupName(this.buildCanonicalBlockCode(name));
+        if (structuredCourseId && Number(curriculum.programCode) !== Number(structuredCourseId)) {
+          return res.status(400).json({ error: 'Curriculum does not belong to the selected program' });
+        }
+        validatedCurriculumId = curriculumId;
+      }
+
+      const validClassifications = ['Regular', 'Irregular', 'Transferee', 'Returning', 'All'];
+      const validatedClassification = validClassifications.includes(studentClassification) ? studentClassification : 'All';
 
       const normalizedSemester = String(semester).trim();
       const normalizedYear = Number(year);
@@ -320,6 +343,8 @@ class BlockController {
         schoolYear: structuredSchoolYear || undefined,
         year: normalizedYear,
         section: structuredSection || undefined,
+        curriculumId: validatedCurriculumId || undefined,
+        studentClassification: validatedClassification,
         policies: {
           ...(policies || {})
         }
@@ -352,7 +377,7 @@ class BlockController {
         return res.status(404).json({ error: 'Block group not found' });
       }
 
-      const { name, courseId, courseCode, yearLevel, schoolYear, section, semester, year, policies } = req.body;
+      const { name, courseId, courseCode, yearLevel, schoolYear, section, semester, year, policies, curriculumId, studentClassification } = req.body;
 
       const nextCourseId = (courseId !== undefined || courseCode !== undefined)
         ? (this.normalizeCourseCode(courseId) || this.normalizeCourseCode(courseCode))
@@ -404,8 +429,101 @@ class BlockController {
         group.policies = { ...(group.policies || {}), ...policies };
       }
 
+      // Update curriculumId if provided
+      let curriculumIdChanged = false;
+      if (curriculumId !== undefined) {
+        // Safety: prevent eligibility rule changes on groups with existing assignments
+        if (String(group.curriculumId || '') !== String(curriculumId || '')) {
+          curriculumIdChanged = true;
+          const assignmentCount = await StudentBlockAssignment.countDocuments({
+            sectionId: { $in: await BlockSection.find({ blockGroupId: group._id }).distinct('_id') },
+            status: 'ASSIGNED',
+          });
+
+          if (assignmentCount > 0) {
+            const activePeriod = await AcademicPeriod.findOne({ status: 'Active' }).lean();
+            const groupSchoolYear = group.schoolYear || this.getSchoolYearFromStartYear(group.year);
+            const isArchived = activePeriod && groupSchoolYear && activePeriod.schoolYear !== groupSchoolYear;
+
+            if (isArchived) {
+              return res.status(409).json({
+                error: 'Cannot change curriculum for a block group in an archived school year with existing assignments. This would alter the historical meaning of those assignments.',
+              });
+            }
+
+            // For active school years with assignments, allow but warn
+            // The assignment will still be valid because eligibility is re-checked on new assignments
+          }
+        }
+
+        if (curriculumId && mongoose.Types.ObjectId.isValid(curriculumId)) {
+          const curriculum = await Curriculum.findById(curriculumId).select('programCode status').lean();
+          if (!curriculum) {
+            return res.status(400).json({ error: 'Curriculum not found' });
+          }
+          if (nextCourseId && Number(curriculum.programCode) !== Number(nextCourseId)) {
+            return res.status(400).json({ error: 'Curriculum does not belong to the selected program' });
+          }
+          group.curriculumId = curriculumId;
+        } else {
+          group.curriculumId = null;
+        }
+      }
+
+      // Update studentClassification if provided
+      if (studentClassification !== undefined) {
+        // Safety: prevent classification changes on archived school years with existing assignments
+        if (String(group.studentClassification || 'All') !== String(studentClassification)) {
+          const assignmentCount = await StudentBlockAssignment.countDocuments({
+            sectionId: { $in: await BlockSection.find({ blockGroupId: group._id }).distinct('_id') },
+            status: 'ASSIGNED',
+          });
+
+          if (assignmentCount > 0) {
+            const activePeriod = await AcademicPeriod.findOne({ status: 'Active' }).lean();
+            const groupSchoolYear = group.schoolYear || this.getSchoolYearFromStartYear(group.year);
+            const isArchived = activePeriod && groupSchoolYear && activePeriod.schoolYear !== groupSchoolYear;
+
+            if (isArchived) {
+              return res.status(409).json({
+                error: 'Cannot change student classification for a block group in an archived school year with existing assignments.',
+              });
+            }
+          }
+        }
+
+        const validClassifications = ['Regular', 'Irregular', 'Transferee', 'Returning', 'All'];
+        if (validClassifications.includes(studentClassification)) {
+          group.studentClassification = studentClassification;
+        }
+      }
+
       await group.save();
-      res.json(group);
+
+      // If curriculumId was added or changed, auto-assign subjects to all
+      // existing sections in the group. This keeps existing blocks in sync
+      // when a curriculum is linked after the block was already created.
+      let autoAssignResult = null;
+      if (curriculumIdChanged && group.curriculumId) {
+        try {
+          const existingSections = await BlockSection.find({ blockGroupId: group._id }).lean();
+          if (existingSections.length > 0) {
+            autoAssignResult = await autoAssignSubjectsFromCurriculum(
+              group,
+              existingSections,
+              req.adminId
+            );
+          }
+        } catch (autoAssignError) {
+          logger.error('Auto-assign failed during block group update:', autoAssignError);
+          // Don't fail the update — the group is saved, registrar can sync manually
+        }
+      }
+
+      res.json({
+        ...group.toObject(),
+        autoAssign: autoAssignResult,
+      });
     } catch (error) {
       if (error && error.code === 11000) {
         return res.status(409).json({ error: 'Block group already exists for this semester/year' });
@@ -446,13 +564,80 @@ class BlockController {
         schedule: schedule ? String(schedule).trim() : ''
       });
 
-      res.status(201).json(section);
+      // Auto-assign curriculum subjects to the new section if the block group
+      // has a linked curriculum. This is the core of curriculum-driven block
+      // assignment: every new section automatically receives the required
+      // subjects from the block's curriculum for its yearLevel + semester.
+      let autoAssignResult = null;
+      if (group.curriculumId) {
+        try {
+          autoAssignResult = await autoAssignSubjectsFromCurriculum(
+            group,
+            [section],
+            req.adminId
+          );
+        } catch (autoAssignError) {
+          logger.error('Auto-assign failed during section creation:', autoAssignError);
+          // Don't fail the section creation — the section exists and the
+          // registrar can click "Sync from Curriculum" to retry.
+        }
+      }
+
+      res.status(201).json({
+        ...section.toObject(),
+        autoAssign: autoAssignResult,
+      });
     } catch (error) {
       if (error && error.code === 11000) {
         return res.status(409).json({ error: 'Section code already exists in this group' });
       }
       console.error('Create section error:', error);
       res.status(500).json({ error: 'Failed to create section' });
+    }
+  }
+
+  // POST /api/blocks/groups/:groupId/sync-subjects
+  async syncSubjectsFromCurriculum(req, res) {
+    try {
+      const { groupId } = req.params;
+      const { sectionIds, includeElectives } = req.body || {};
+
+      const group = await BlockGroup.findById(groupId);
+      if (!group) {
+        return res.status(404).json({ error: 'Block group not found' });
+      }
+
+      if (!group.curriculumId) {
+        return res.status(400).json({
+          error: 'This block group has no linked curriculum. Assign a curriculum first, then sync.'
+        });
+      }
+
+      // Get sections — either filtered by sectionIds or all in the group
+      let sections;
+      if (sectionIds && Array.isArray(sectionIds) && sectionIds.length > 0) {
+        sections = await BlockSection.find({
+          _id: { $in: sectionIds.map((id) => safeObjectId(id)) },
+          blockGroupId: groupId,
+        }).lean();
+      } else {
+        sections = await BlockSection.find({ blockGroupId: groupId }).lean();
+      }
+
+      const result = await autoAssignSubjectsFromCurriculum(
+        group,
+        sections,
+        req.adminId,
+        { includeElectives: Boolean(includeElectives) }
+      );
+
+      res.json({
+        success: true,
+        summary: result,
+      });
+    } catch (error) {
+      console.error('Sync subjects from curriculum error:', error);
+      res.status(500).json({ error: 'Failed to sync subjects from curriculum' });
     }
   }
 
@@ -668,6 +853,148 @@ class BlockController {
     }
   }
 
+  // GET /api/blocks/eligible
+  async getEligibleBlocks(req, res) {
+    try {
+      const { studentId } = req.query;
+      if (!studentId || !mongoose.Types.ObjectId.isValid(studentId)) {
+        return res.status(400).json({ success: false, error: 'Valid studentId is required' });
+      }
+
+      const result = await blockEligibilityService.getEligibleBlocks(studentId);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      console.error('Get eligible blocks error:', error);
+      res.status(500).json({ success: false, error: error.message || 'Failed to fetch eligible blocks' });
+    }
+  }
+
+  // POST /api/blocks/eligible/bulk
+  async getBulkEligibility(req, res) {
+    try {
+      const { studentIds, sectionId } = req.body;
+      if (!Array.isArray(studentIds) || !studentIds.length) {
+        return res.status(400).json({ success: false, error: 'studentIds must be a non-empty array' });
+      }
+      if (!sectionId || !mongoose.Types.ObjectId.isValid(sectionId)) {
+        return res.status(400).json({ success: false, error: 'Valid sectionId is required' });
+      }
+
+      const result = await blockEligibilityService.getBulkEligibility(studentIds, sectionId);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      console.error('Get bulk eligibility error:', error);
+      res.status(500).json({ success: false, error: error.message || 'Failed to evaluate bulk eligibility' });
+    }
+  }
+
+  /**
+   * Auto-create a minimal enrollment when a student is assigned to a block
+   * but has no existing enrollment for that academic period.
+   *
+   * Subjects are auto-populated from the block group's curriculum (if configured)
+   * matching the student's year level and the block's semester. If no curriculum
+   * is configured, an empty-subjects enrollment is created — subjects can be
+   * assigned later via the block subject auto-assign flow.
+   *
+   * The enrollment is created with status 'Pending' and isCurrent=true so that
+   * subsequent eligibility checks within the same transaction will find it.
+   */
+  async createEnrollmentForBlockAssignment({ student, group, section, schoolYear, semester, createdBy, session }) {
+    if (!schoolYear || !semester) {
+      throw new Error('Block group is missing schoolYear or semester — cannot auto-create enrollment.');
+    }
+
+    const yearLevel = Number(group.yearLevel) || Number(student.yearLevel) || 1;
+    const enrollmentCourseMap = { 101: 'BEED', 102: 'BSED', 103: 'BSED', 201: 'BSBA' };
+    const course = enrollmentCourseMap[Number(student.course)] || 'BEED';
+
+    // Resolve curriculum — prefer the block group's curriculumId, then student's version
+    let curriculumId = group.curriculumId || null;
+    if (!curriculumId && student.curriculumVersion) {
+      const matched = await Curriculum.findOne({
+        programCode: Number(student.course),
+        version: String(student.curriculumVersion).trim(),
+      }).select('_id').lean().session(session);
+      if (matched) curriculumId = matched._id;
+    }
+    if (!curriculumId) {
+      const active = await Curriculum.findOne({
+        programCode: Number(student.course),
+        status: 'Active',
+      }).select('_id').lean().session(session);
+      if (active) curriculumId = active._id;
+    }
+
+    // Auto-populate subjects from curriculum
+    let subjects = [];
+    if (curriculumId) {
+      const curriculumSubjects = await CurriculumSubject.find({
+        curriculumId,
+        yearLevel,
+        semester,
+      }).select('subjectId').lean().session(session);
+
+      const subjectIds = curriculumSubjects.map((cs) => cs.subjectId).filter(Boolean);
+      if (subjectIds.length > 0) {
+        const subjectDocs = await Subject.find({ _id: { $in: subjectIds } })
+          .select('_id code title units')
+          .lean().session(session);
+        const subjectById = new Map(subjectDocs.map((s) => [String(s._id), s]));
+        subjects = subjectIds.map((subjectId) => {
+          const doc = subjectById.get(String(subjectId));
+          return {
+            subjectId,
+            code: doc?.code || 'TBA',
+            title: doc?.title || 'Untitled Subject',
+            units: doc?.units || 3,
+            schedule: 'TBA',
+            room: 'TBA',
+            instructor: 'TBA',
+            status: 'Enrolled',
+          };
+        });
+      }
+    }
+
+    const totalUnits = subjects.reduce((sum, s) => sum + (Number(s.units) || 0), 0);
+    const tuitionFee = totalUnits * 1000;
+    const miscFee = 5000;
+
+    // Mark any existing current enrollments for this student as not current
+    await Enrollment.updateMany(
+      { studentId: student._id, isCurrent: true },
+      { $set: { isCurrent: false } },
+      { session }
+    );
+
+    // createdBy must be a valid ObjectId or omitted entirely
+    const enrollmentData = {
+      studentId: student._id,
+      studentNumber: student.studentNumber,
+      schoolYear,
+      semester,
+      yearLevel,
+      course,
+      curriculumId,
+      subjects,
+      assessment: {
+        tuitionFee,
+        miscFee,
+        totalAmount: tuitionFee + miscFee,
+      },
+      status: 'Pending',
+      isCurrent: true,
+    };
+    if (createdBy && mongoose.Types.ObjectId.isValid(String(createdBy))) {
+      enrollmentData.createdBy = String(createdBy);
+    }
+
+    const [enrollment] = await Enrollment.create([enrollmentData], { session });
+
+    return enrollment;
+  }
+
   // POST /api/blocks/assign-student
   async assignStudent(req, res) {
     const { studentId, sectionId, semester, year } = req.body;
@@ -676,13 +1003,6 @@ class BlockController {
     session.startTransaction();
 
     try {
-      // Check existing assignment
-      const existing = await StudentBlockAssignment.findOne({ studentId, semester, year }).session(session);
-      if (existing) {
-        await session.abortTransaction();
-        return res.status(400).json({ error: 'Student already assigned for this semester' });
-      }
-
       // Get section
       const section = await BlockSection.findById(sectionId).session(session);
       if (!section || section.status !== 'OPEN') {
@@ -691,60 +1011,140 @@ class BlockController {
       }
 
       const group = await BlockGroup.findById(section.blockGroupId).session(session);
-      const student = await Student.findById(studentId).select('yearLevel studentStatus course').session(session);
+      const student = await Student.findById(studentId)
+        .select('studentNumber yearLevel studentStatus course firstName lastName classification curriculumVersion schoolYear semester')
+        .session(session);
       if (!student) {
         await session.abortTransaction();
         return res.status(404).json({ error: 'Student not found' });
       }
 
-      const groupYearLevel = this.getGroupYearLevel(group);
-      const groupCourse = this.getGroupCourseId(group);
+      // Find the active enrollment for this student.
+      // Use the block group's academic context (schoolYear, semester) as the primary lookup
+      // since the student is being assigned to this specific block's term.
+      const blockSchoolYear = group.schoolYear || this.getSchoolYearFromStartYear(group.year);
+      const blockSemester = semester || group.semester;
 
-      const normalizedStudentCourse = this.normalizeCourseCode(student.course);
-      if (groupCourse && normalizedStudentCourse !== groupCourse) {
+      let enrollment = await blockEligibilityService.findActiveEnrollment(
+        studentId,
+        blockSchoolYear || student.schoolYear,
+        blockSemester || student.semester
+      );
+
+      // Auto-create a minimal enrollment if none exists.
+      // This is the correct flow: assigning a student to a block IS the enrollment step.
+      // The enrollment is created with curriculum subjects auto-populated from the block's curriculum.
+      if (!enrollment) {
+        try {
+          enrollment = await this.createEnrollmentForBlockAssignment({
+            student,
+            group,
+            section,
+            schoolYear: blockSchoolYear,
+            semester: blockSemester,
+            createdBy: req.adminId,
+            session
+          });
+        } catch (createErr) {
+          await session.abortTransaction();
+          return res.status(400).json({
+            error: 'No active enrollment found and could not create one automatically.',
+            reasons: [createErr.message || 'Failed to auto-create enrollment. Please enroll the student first.'],
+            checks: { enrollmentStatus: false }
+          });
+        }
+      }
+
+      // Determine schoolYear for the assignment
+      const assignmentSchoolYear = (enrollment && enrollment.schoolYear) || student.schoolYear ||
+        blockSchoolYear;
+
+      // Check existing assignment using schoolYear + semester
+      const existing = await StudentBlockAssignment.findOne({
+        $or: [
+          { enrollmentId: enrollment ? enrollment._id : null },
+          { studentId, schoolYear: assignmentSchoolYear, semester },
+        ].filter((c) => c.enrollmentId || (c.studentId && c.schoolYear)),
+        status: 'ASSIGNED',
+      }).session(session);
+
+      // Load curriculum doc for the block group if configured
+      let curriculumDoc = null;
+      if (group.curriculumId) {
+        curriculumDoc = await Curriculum.findById(group.curriculumId).select('version programCode programName status').lean().session(session);
+      }
+
+      // Load active academic period
+      const activePeriod = await AcademicPeriod.findOne({ status: 'Active' }).lean().session(session);
+
+      // Server-side eligibility revalidation — never trust frontend
+      const eligibility = blockEligibilityService.evaluateStudentEligibility(
+        enrollment,
+        student.toObject(),
+        group.toObject(),
+        section.toObject(),
+        existing && String(existing.sectionId) === String(section._id) ? null : existing,
+        curriculumDoc,
+        activePeriod,
+        { allowAutoEnroll: true }
+      );
+
+      if (!eligibility.eligible) {
         await session.abortTransaction();
         return res.status(400).json({
-          error: 'Student course does not match selected block group'
+          error: 'Student is not eligible for this block',
+          reasons: eligibility.reasons,
+          checks: eligibility.checks
         });
       }
 
-      if (groupYearLevel && student.studentStatus === 'Regular' && Number(student.yearLevel) !== groupYearLevel) {
+      // Re-check capacity atomically (race condition protection)
+      const updatedSection = await BlockSection.findOneAndUpdate(
+        { _id: sectionId, currentPopulation: { $lt: section.capacity } },
+        { $inc: { currentPopulation: 1 } },
+        { session, new: true }
+      );
+
+      if (!updatedSection) {
         await session.abortTransaction();
         return res.status(400).json({
-          error: `Regular students can only be assigned to year level ${groupYearLevel} blocks for this group`
+          error: 'Block section is now full. Please refresh and try again.',
+          reasons: ['Block section is full.'],
         });
       }
 
-      const projected = section.currentPopulation + 1;
+      // Create assignment with schoolYear and enrollmentId
+      const assignment = await StudentBlockAssignment.create([{
+        studentId,
+        enrollmentId: enrollment ? enrollment._id : null,
+        sectionId,
+        semester,
+        year,
+        schoolYear: assignmentSchoolYear,
+        assignedAt: new Date()
+      }], { session });
 
-      if (projected > section.capacity) {
-        // Overcapacity
-        const suggested = await this.getSuggestedSections(sectionId);
-        const allowedActions = this.determineAllowedActions(group.policies);
+      const studentName = `${student.firstName || ''} ${student.lastName || ''}`.trim() || 'Unknown';
+      await BlockActionLog.create([{
+        actionType: 'ASSIGN',
+        sectionId,
+        sectionCode: section.sectionCode,
+        blockGroupName: group ? group.name : '',
+        studentId,
+        studentName,
+        registrarId: req.registrarId || req.adminId,
+        timestamp: new Date(),
+        details: {
+          semester: semester || undefined,
+          year: Number.isFinite(year) ? year : undefined,
+          schoolYear: assignmentSchoolYear || undefined,
+          blockGroupId: section.blockGroupId ? String(section.blockGroupId) : undefined,
+          blockSectionId: String(sectionId),
+        }
+      }], { session });
 
-        await session.abortTransaction();
-        return res.json({
-          status: 'OVER_CAPACITY',
-          section: {
-            id: section._id,
-            code: section.sectionCode,
-            capacity: section.capacity,
-            currentPopulation: section.currentPopulation
-          },
-          projectedPopulation: projected,
-          allowedActions,
-          suggestedSections: suggested,
-          policyLimits: group.policies
-        });
-      } else {
-        // Assign normally
-        const assignment = await StudentBlockAssignment.create([{ studentId, sectionId, semester, year, assignedAt: new Date() }], { session });
-        await BlockSection.findByIdAndUpdate(sectionId, { $inc: { currentPopulation: 1 } }, { session });
-        await BlockActionLog.create([{ actionType: 'ASSIGN', sectionId, studentId, registrarId: req.registrarId || req.adminId, timestamp: new Date() }], { session });
-
-        await session.commitTransaction();
-        return res.json({ status: 'ASSIGNED', assignmentId: assignment[0]._id });
-      }
+      await session.commitTransaction();
+      return res.json({ status: 'ASSIGNED', assignmentId: assignment[0]._id });
     } catch (error) {
       await session.abortTransaction();
       console.error('Assign student error:', error);
@@ -764,6 +1164,7 @@ class BlockController {
     try {
       const section = await BlockSection.findById(sectionId).session(session);
       const group = await BlockGroup.findById(section.blockGroupId).session(session);
+      const student = studentId ? await Student.findById(studentId).select('firstName lastName').session(session) : null;
 
       // Re-check capacity
       if (section.currentPopulation + 1 > section.capacity + group.policies.maxOvercap && action !== 'WAITLIST') {
@@ -802,7 +1203,30 @@ class BlockController {
           return res.status(400).json({ error: 'Invalid action' });
       }
 
-      await BlockActionLog.create([{ actionType: action, sectionId, studentId, registrarId: req.registrarId || req.adminId, reason, timestamp: new Date(), details: params }], { session });
+      const studentName = student ? `${student.firstName || ''} ${student.lastName || ''}`.trim() : 'Unknown';
+      // transferStudent now creates its own UNASSIGN + TRANSFER log entries
+      // with proper historical snapshots of both source and target sections.
+      // Skip the duplicate caller log for TRANSFER actions.
+      if (action !== 'TRANSFER') {
+        await BlockActionLog.create([{
+          actionType: action,
+          sectionId,
+          sectionCode: section.sectionCode,
+          blockGroupName: group ? group.name : '',
+          studentId,
+          studentName,
+          registrarId: req.registrarId || req.adminId,
+          reason,
+          timestamp: new Date(),
+          details: {
+            ...params,
+            semester: semester || undefined,
+            year: Number.isFinite(year) ? year : undefined,
+            blockGroupId: section.blockGroupId ? String(section.blockGroupId) : undefined,
+            blockSectionId: String(sectionId),
+          }
+        }], { session });
+      }
       await session.commitTransaction();
       res.json({ status: 'SUCCESS', ...result });
     } catch (error) {
@@ -922,6 +1346,27 @@ class BlockController {
   }
 
   async transferStudent(studentId, originalSectionId, targetSectionId, reason, semester, year, session) {
+    // Capture historical snapshots BEFORE any deletion — audit logs are
+    // immutable historical records and must not depend on post-deletion state.
+    const originalSection = await BlockSection.findById(originalSectionId)
+      .select('_id sectionCode blockGroupId')
+      .session(session);
+    const targetSection = await BlockSection.findById(targetSectionId)
+      .select('_id sectionCode blockGroupId')
+      .session(session);
+
+    const originalGroup = originalSection?.blockGroupId
+      ? await BlockGroup.findById(originalSection.blockGroupId).select('name').session(session)
+      : null;
+    const targetGroup = targetSection?.blockGroupId
+      ? await BlockGroup.findById(targetSection.blockGroupId).select('name').session(session)
+      : null;
+
+    const student = await Student.findById(studentId)
+      .select('firstName lastName')
+      .session(session);
+    const studentName = student ? `${student.firstName || ''} ${student.lastName || ''}`.trim() : 'Unknown';
+
     // Remove from original
     await StudentBlockAssignment.deleteOne({ studentId, semester, year }).session(session);
     await BlockSection.findByIdAndUpdate(originalSectionId, { $inc: { currentPopulation: -1 } }, { session });
@@ -929,6 +1374,53 @@ class BlockController {
     // Add to target
     const assignment = await StudentBlockAssignment.create([{ studentId, sectionId: targetSectionId, semester, year, assignedAt: new Date() }], { session });
     await BlockSection.findByIdAndUpdate(targetSectionId, { $inc: { currentPopulation: 1 } }, { session });
+
+    // Create audit entries for BOTH the removal from the original section
+    // and the assignment to the target section. Both preserve the historical
+    // block/section identity captured before any deletion occurred.
+    const schoolYear = year ? `${year}-${Number(year) + 1}` : undefined;
+    await BlockActionLog.create([{
+      actionType: 'UNASSIGN',
+      sectionId: originalSectionId,
+      sectionCode: originalSection?.sectionCode || '',
+      blockGroupName: originalGroup?.name || '',
+      studentId,
+      studentName,
+      registrarId: 'system',
+      reason: reason || 'Transfer to another section',
+      timestamp: new Date(),
+      details: {
+        semester: semester || undefined,
+        year: Number.isFinite(year) ? year : undefined,
+        schoolYear,
+        blockGroupId: originalSection?.blockGroupId ? String(originalSection.blockGroupId) : undefined,
+        blockSectionId: String(originalSectionId),
+        transferTargetSectionId: String(targetSectionId),
+        transferTargetSectionCode: targetSection?.sectionCode || undefined,
+      }
+    }], { session });
+
+    await BlockActionLog.create([{
+      actionType: 'TRANSFER',
+      sectionId: targetSectionId,
+      sectionCode: targetSection?.sectionCode || '',
+      blockGroupName: targetGroup?.name || '',
+      studentId,
+      studentName,
+      registrarId: 'system',
+      reason: reason || 'Transfer from another section',
+      timestamp: new Date(),
+      details: {
+        semester: semester || undefined,
+        year: Number.isFinite(year) ? year : undefined,
+        schoolYear,
+        blockGroupId: targetSection?.blockGroupId ? String(targetSection.blockGroupId) : undefined,
+        blockSectionId: String(targetSectionId),
+        transferSourceSectionId: String(originalSectionId),
+        transferSourceSectionCode: originalSection?.sectionCode || undefined,
+      }
+    }], { session });
+
     return { assignmentId: assignment[0]._id };
   }
 
@@ -1145,7 +1637,7 @@ class BlockController {
       }
 
       const group = await BlockGroup.findById(section.blockGroupId)
-        .select('semester year')
+        .select('name semester year')
         .session(session);
 
       const normalizedStudentId = String(studentId).trim();
@@ -1176,7 +1668,7 @@ class BlockController {
 
       const assignmentSemester = String(assignment.semester || '').trim();
       const studentSnapshot = await Student.findById(normalizedStudentId)
-        .select('_id schoolYear semester')
+        .select('_id firstName lastName schoolYear semester')
         .session(session);
       const targetSchoolYear = String(
         studentSnapshot?.schoolYear || this.formatSchoolYearFromStartYear(normalizedYear) || ''
@@ -1245,12 +1737,18 @@ class BlockController {
       await BlockActionLog.create([{
         actionType: 'UNASSIGN',
         sectionId: section._id,
+        sectionCode: section.sectionCode,
+        blockGroupName: group ? group.name : '',
         studentId: normalizedStudentId,
+        studentName: studentSnapshot ? `${studentSnapshot.firstName || ''} ${studentSnapshot.lastName || ''}`.trim() : 'Unknown',
         registrarId: req.registrarId || req.adminId || 'system',
         timestamp: new Date(),
         details: {
           semester: normalizedSemester || undefined,
-          year: Number.isFinite(normalizedYear) ? normalizedYear : undefined
+          year: Number.isFinite(normalizedYear) ? normalizedYear : undefined,
+          schoolYear: targetSchoolYear || undefined,
+          blockGroupId: section.blockGroupId ? String(section.blockGroupId) : undefined,
+          blockSectionId: String(section._id),
         }
       }], { session });
 
@@ -1266,6 +1764,72 @@ class BlockController {
       res.status(500).json({ error: 'Failed to unassign student from section' });
     } finally {
       session.endSession();
+    }
+  }
+
+  async getCapacityUpdates(req, res) {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 20, 100);
+      const actionTypes = ['ASSIGN', 'UNASSIGN', 'TRANSFER'];
+      const logs = await BlockActionLog.find({ actionType: { $in: actionTypes } })
+        .sort({ timestamp: -1 })
+        .limit(limit)
+        .lean();
+
+      const sectionIds = [...new Set(logs.map((l) => String(l.sectionId)).filter(Boolean))];
+      const studentIds = [...new Set(logs.map((l) => String(l.studentId)).filter(Boolean))];
+
+      const [sections, students] = await Promise.all([
+        BlockSection.find({ _id: { $in: sectionIds } }).select('sectionCode blockGroupId').lean(),
+        Student.find({ $or: [{ _id: { $in: studentIds } }, { studentNumber: { $in: studentIds } }] }).select('firstName lastName studentNumber _id').lean()
+      ]);
+
+      const groupIds = [...new Set(sections.map((s) => String(s.blockGroupId)).filter(Boolean))];
+      const groups = await BlockGroup.find({ _id: { $in: groupIds } }).select('name').lean();
+
+      const groupById = Object.fromEntries(groups.map((g) => [String(g._id), g.name]));
+      const sectionById = Object.fromEntries(sections.map((s) => [
+        String(s._id),
+        { sectionCode: s.sectionCode, groupName: groupById[String(s.blockGroupId)] || '' }
+      ]));
+      const studentNameById = Object.fromEntries(students.map((s) => [
+        String(s._id),
+        `${s.firstName || ''} ${s.lastName || ''}`.trim() || s.studentNumber || 'Unknown'
+      ]));
+      const studentNameByNumber = Object.fromEntries(students.filter((s) => s.studentNumber).map((s) => [
+        s.studentNumber,
+        `${s.firstName || ''} ${s.lastName || ''}`.trim() || 'Unknown'
+      ]));
+
+      const updates = logs.map((log) => {
+        const section = sectionById[String(log.sectionId)] || {};
+        const studentName = log.studentName || studentNameById[log.studentId] || studentNameByNumber[log.studentId] || 'Unknown';
+        // Prefer the historical snapshot stored in the log at event time.
+        // Only fall back to live data for legacy records that have no snapshot.
+        // Never override a non-empty snapshot with live data — audit logs are
+        // immutable historical records and must not change when sections are
+        // later renamed or deleted.
+        const sectionCode = log.sectionCode || section.sectionCode || 'Unknown';
+        const blockGroupName = log.blockGroupName || section.groupName || '';
+        return {
+          _id: String(log._id),
+          actionType: log.actionType,
+          sectionCode,
+          blockGroupName,
+          studentName,
+          studentId: log.studentId,
+          registrarId: log.registrarId,
+          timestamp: log.timestamp,
+          // Include historical context from the log's details if available
+          schoolYear: log.details?.schoolYear || undefined,
+          semester: log.details?.semester || undefined,
+        };
+      });
+
+      res.json({ success: true, data: updates });
+    } catch (error) {
+      console.error('Get capacity updates error:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch capacity updates.' });
     }
   }
 

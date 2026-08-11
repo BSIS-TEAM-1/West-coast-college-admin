@@ -3,7 +3,7 @@ import { API_URL, getStoredToken } from '../../lib/authApi'
 import type { BlockGroup, BlockSection, BlockStudent, SectionStudent, BlockWorkspaceSelection } from './registrarBlockTypes'
 import BlockStatusBadge from '../../components/BlockStatusBadge'
 import CapacityIndicator from '../../components/CapacityIndicator'
-import { formatStudentNumber as formatStudentNumberShared } from '../../lib/blockAssignmentShared'
+import { formatStudentNumber as formatStudentNumberShared, courseFullLabel, getCourseAbbreviation } from '../../lib/blockAssignmentShared'
 import './BlockManagement.css'
 
 type BlockWorkspaceProps = {
@@ -298,32 +298,45 @@ function BlockWorkspace({ selection, onBack }: BlockWorkspaceProps) {
     setSuccess('')
     try {
       const overcapacityStudents: string[] = []
+      const failures: string[] = []
       let assignedCount = 0
 
       for (const studentId of selectedStudents) {
-        const data = await authorizedFetch('/api/blocks/assign-student', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            studentId,
-            sectionId: targetSectionId,
-            semester: group.semester,
-            year: group.year
+        try {
+          const data = await authorizedFetch('/api/blocks/assign-student', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              studentId,
+              sectionId: targetSectionId,
+              semester: group.semester,
+              year: group.year
+            })
           })
-        })
 
-        if (data?.status === 'OVER_CAPACITY') {
+          if (data?.status === 'OVER_CAPACITY') {
+            const student = students.find((item) => item._id === studentId)
+            overcapacityStudents.push(student ? formatStudentName(student) : studentId)
+            continue
+          }
+
+          assignedCount += 1
+        } catch (studentErr) {
           const student = students.find((item) => item._id === studentId)
-          overcapacityStudents.push(student ? formatStudentName(student) : studentId)
-          continue
+          const studentName = student ? formatStudentName(student) : studentId
+          const reasons = (studentErr as any)?.reasons as string[] | undefined
+          if (reasons && reasons.length > 0) {
+            failures.push(`${studentName}: ${reasons.join(' ')}`)
+          } else {
+            failures.push(`${studentName}: ${studentErr instanceof Error ? studentErr.message : 'Failed'}`)
+          }
         }
-
-        assignedCount += 1
       }
 
       const notices: string[] = []
       if (assignedCount > 0) notices.push(`${assignedCount} student(s) assigned successfully`)
       if (overcapacityStudents.length > 0) notices.push(`Overcapacity: ${overcapacityStudents.join(', ')}`)
+      if (failures.length > 0) notices.push(`Failed: ${failures.join('; ')}`)
 
       if (assignedCount > 0) {
         setSuccess(notices.join('. '))
@@ -403,8 +416,12 @@ function BlockWorkspace({ selection, onBack }: BlockWorkspaceProps) {
         <div className="block-workspace-hero">
           <div className="block-workspace-hero-badge">Active Block Workspace</div>
           <h2>{formatBlockLabel(group.name)}</h2>
-          <p>{group.semester} {group.year}</p>
+          <p>{courseFullLabel(getCourseAbbreviation(group.name))}</p>
           <div className="block-workspace-meta">
+            <span>{parseBlockSlot(group.name) ? `Year ${parseBlockSlot(group.name)?.yearLevel}` : ''}</span>
+            <span>{group.semester === '1st' ? '1st Semester' : group.semester === '2nd' ? '2nd Semester' : 'Summer'}</span>
+            <span>{`SY ${group.year}\u2013${Number(group.year) + 1}`}</span>
+            <span className="block-workspace-meta-dot" />
             <span>{sortedSections.length} section(s)</span>
             <span>{openSections.length} open</span>
             <span>{students.length} assignable student(s)</span>
@@ -468,7 +485,7 @@ function BlockWorkspace({ selection, onBack }: BlockWorkspaceProps) {
             <div className="block-student-detail-header">
               <span>Name</span>
               <span>Student No.</span>
-              <span>Course</span>
+              <span>Curriculum</span>
               <span>Year</span>
               <span>Status</span>
               <span>Adviser</span>
@@ -540,7 +557,7 @@ function BlockWorkspace({ selection, onBack }: BlockWorkspaceProps) {
                         <div className="block-student-detail-header">
                           <span>Name</span>
                           <span>Student No.</span>
-                          <span>Course</span>
+                          <span>Curriculum</span>
                           <span>Year</span>
                           <span>Status</span>
                           <span>Assigned At</span>

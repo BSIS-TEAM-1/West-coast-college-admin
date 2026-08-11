@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle, ChevronLeft, ChevronRight, RotateCcw, Trash2 } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import { formatBlockColumnLabel, formatBlockLabel } from '../../lib/blockAssignmentShared'
-import type { BlockGroup, BlockSection, Semester, SubjectItem } from './registrarBlockTypes'
+import type { BlockGroup, BlockSection, CurriculumSubject, Semester, SubjectItem } from './registrarBlockTypes'
 
 type BlockSubjectAssignment = {
   _id?: string
@@ -107,6 +107,10 @@ function AssignSubjectPage() {
   const [selectedGroupId, setSelectedGroupId] = useState('')
   const [selectedSectionId, setSelectedSectionId] = useState('')
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([])
+  const [curriculumSubjects, setCurriculumSubjects] = useState<CurriculumSubject[]>([])
+  const [allCurriculumSubjects, setAllCurriculumSubjects] = useState<CurriculumSubject[]>([])
+  const [showAllCurriculumSubjects, setShowAllCurriculumSubjects] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -130,6 +134,12 @@ function AssignSubjectPage() {
     [assignments]
   )
   const availableSubjects = subjects.filter((subject) => !assignedSubjectIds.has(subject._id))
+
+  // Subject is now a global catalog entry with no program/year/semester
+  // scoping of its own — CurriculumSubject placements are the authoritative
+  // source for "which subjects belong to this program/year/semester".
+  const getCurriculumSubjectItem = (cs: CurriculumSubject): SubjectItem | null =>
+    typeof cs.subjectId === 'object' && cs.subjectId !== null ? cs.subjectId : null
 
   const authorizedFetch = async (path: string | string[], init: RequestInit = {}) => {
     const token = await getStoredToken()
@@ -202,20 +212,38 @@ function AssignSubjectPage() {
   }, [selectedGroupId])
 
   useEffect(() => {
-    const fetchSubjects = async () => {
-      if (!course || !yearLevel || !semester) {
-        setSubjects([])
-        setSelectedSubjectIds([])
-        return
-      }
+    if (!course || !yearLevel || !semester) {
+      setSubjects([])
+      setSelectedSubjectIds([])
+      return
+    }
 
+    // Subject no longer carries program/year/semester scoping itself.
+    // CurriculumSubject placements (fetched below, keyed on the selected
+    // block group's curriculum + year + semester) are the authoritative
+    // source for which subjects belong here.
+    if (selectedGroup?.curriculumId) {
+      // Default: only subjects matching the block's yearLevel + semester.
+      // Override: if showAllCurriculumSubjects is checked, show all
+      // subjects from the linked curriculum (any year/semester) for
+      // cross-year exceptions.
+      const source = showAllCurriculumSubjects ? allCurriculumSubjects : curriculumSubjects
+      const fromCurriculum: SubjectItem[] = []
+      for (const cs of source) {
+        if (typeof cs.subjectId === 'object' && cs.subjectId !== null && cs.subjectId.isActive !== false) {
+          fromCurriculum.push(cs.subjectId)
+        }
+      }
+      setSubjects(fromCurriculum)
+      return
+    }
+
+    // Fallback for block groups with no linked curriculum: show all active
+    // subjects since there is no other way to scope them. Registrar should
+    // link a curriculum to the block group for accurate subject scoping.
+    const fetchSubjects = async () => {
       try {
-        const query = new URLSearchParams({
-          course,
-          yearLevel,
-          semester
-        })
-        const data = await authorizedFetch(`/api/registrar/subjects?${query.toString()}`)
+        const data = await authorizedFetch(`/api/registrar/subjects?isActive=true`)
         const nextSubjects = Array.isArray(data?.data) ? data.data as SubjectItem[] : []
         setSubjects(nextSubjects.filter((subject) => subject.isActive !== false))
       } catch (err) {
@@ -223,7 +251,7 @@ function AssignSubjectPage() {
       }
     }
     void fetchSubjects()
-  }, [course, yearLevel, semester])
+  }, [course, yearLevel, semester, selectedGroup?.curriculumId, curriculumSubjects, allCurriculumSubjects, showAllCurriculumSubjects])
 
   useEffect(() => {
     if (!selectedGroupId) return
@@ -234,7 +262,38 @@ function AssignSubjectPage() {
     setSelectedSectionId('')
     setAssignments([])
     setSelectedSubjectIds([])
+    setCurriculumSubjects([])
   }, [filteredBlockGroups, selectedGroupId])
+
+  useEffect(() => {
+    const fetchCurriculumSubjects = async () => {
+      if (!selectedGroup?.curriculumId || !yearLevel || !semester) {
+        setCurriculumSubjects([])
+        setAllCurriculumSubjects([])
+        return
+      }
+      try {
+        // Fetch subjects matching the block's yearLevel + semester (default scope)
+        const data = await authorizedFetch(`/api/registrar/curriculums/${selectedGroup.curriculumId}/subjects?yearLevel=${yearLevel}&semester=${semester}`)
+        setCurriculumSubjects(Array.isArray(data?.data) ? data.data : [])
+      } catch {
+        setCurriculumSubjects([])
+      }
+      // Fetch ALL subjects from the curriculum (for the "show all" override)
+      try {
+        const allData = await authorizedFetch(`/api/registrar/curriculums/${selectedGroup.curriculumId}/subjects`)
+        setAllCurriculumSubjects(Array.isArray(allData?.data) ? allData.data : [])
+      } catch {
+        setAllCurriculumSubjects([])
+      }
+    }
+    void fetchCurriculumSubjects()
+  }, [selectedGroup?.curriculumId, yearLevel, semester])
+
+  // Reset the "show all" override when the block group changes
+  useEffect(() => {
+    setShowAllCurriculumSubjects(false)
+  }, [selectedGroupId])
 
   const fetchAssignments = async () => {
     if (!selectedSectionId || !academicYear || !semester) {
@@ -256,7 +315,11 @@ function AssignSubjectPage() {
           _id: assignment.subjectId,
           code: assignment.subjectCode,
           title: assignment.subjectTitle,
-          units: 0
+          units: 0,
+          subjectType: 'General Education' as const,
+          lecturePeriods: 0,
+          labPeriods: 0,
+          status: 'Active' as const
         },
         blockSection: selectedSection as BlockSection,
         semester,
@@ -366,6 +429,55 @@ function AssignSubjectPage() {
     }
   }
 
+  const handleSelectAllRecommended = () => {
+    const recommendedIds = curriculumSubjects
+      .map((cs) => getCurriculumSubjectItem(cs)?._id)
+      .filter((id): id is string => typeof id === 'string' && Boolean(id) && !assignedSubjectIds.has(id))
+    setSelectedSubjectIds((prev) => [...new Set([...prev, ...recommendedIds])])
+  }
+
+  const handleSyncFromCurriculum = async () => {
+    if (!selectedGroup?._id || !selectedGroup.curriculumId) return
+    setSyncing(true)
+    setError('')
+    setSuccess('')
+    try {
+      const data = await authorizedFetch<{ success: boolean; summary: {
+        sections: number
+        curriculumSubjectsFound: number
+        created: number
+        skipped: number
+        warnings: string[]
+        errors: string[]
+      } }>(`/api/blocks/groups/${selectedGroup._id}/sync-subjects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ includeElectives: false })
+      })
+      const summary = data?.summary
+      if (summary) {
+        if (summary.created > 0) {
+          setSuccess(`Synced from curriculum: ${summary.created} subjects assigned across ${summary.sections} section${summary.sections !== 1 ? 's' : ''}.`)
+        } else {
+          setSuccess(`Sync complete. All ${summary.skipped} curriculum subjects were already assigned.`)
+        }
+        if (summary.warnings.length > 0) {
+          setError(summary.warnings.join(' '))
+        }
+      } else {
+        setSuccess('Sync complete.')
+      }
+      // Refresh assignments if a section is selected
+      if (selectedSectionId) {
+        await fetchAssignments()
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to sync subjects from curriculum')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   const resetTarget = () => {
     setWizardStep(1)
     setSelectedSubjectIds([])
@@ -448,7 +560,7 @@ function AssignSubjectPage() {
                     <select value={selectedGroupId} onChange={(event) => setSelectedGroupId(event.target.value)} disabled={!course || !yearLevel || !academicYearStart}>
                       <option value="">{course && yearLevel ? 'Select matching block group' : 'Select program and year first'}</option>
                       {filteredBlockGroups.map((group) => (
-                        <option key={group._id} value={group._id}>{formatBlockLabel(group.name)} ({group.semester} {group.year})</option>
+                        <option key={group._id} value={group._id}>{formatBlockLabel(group.name)} ({group.semester === '1st' ? '1st Sem' : group.semester === '2nd' ? '2nd Sem' : 'Summer'} SY {group.year})</option>
                       ))}
                     </select>
                   </label>
@@ -471,7 +583,7 @@ function AssignSubjectPage() {
                   <dl>
                     <div><dt>Program</dt><dd>{courseLabel(course)}</dd></div>
                     <div><dt>Year Level</dt><dd>{yearLevel || 'Select year'}</dd></div>
-                    <div><dt>Term</dt><dd>{semester} / {academicYear}</dd></div>
+                    <div><dt>Term</dt><dd>{semester === '1st' ? '1st Semester' : semester === '2nd' ? '2nd Semester' : 'Summer'} · SY {academicYear}</dd></div>
                     <div><dt>Block Group</dt><dd>{selectedGroup ? formatBlockLabel(selectedGroup.name) : 'Select group'}</dd></div>
                   </dl>
                 </div>
@@ -491,6 +603,78 @@ function AssignSubjectPage() {
               <div className="block-wizard-panel-head">
                 <h3>Choose Subjects</h3>
               </div>
+
+              {selectedGroup?.curriculumId && (
+                <div className="curriculum-context-banner">
+                  <div className="curriculum-context-info">
+                    <strong>Curriculum-linked block</strong>
+                    <span>
+                      {curriculumSubjects.length} subjects available from curriculum for Year {yearLevel}, {semester} Semester
+                      {assignedSubjectIds.size > 0 && ` · ${assignedSubjectIds.size} already assigned`}
+                    </span>
+                  </div>
+                  <button
+                    className="registrar-btn registrar-btn-secondary"
+                    type="button"
+                    onClick={handleSyncFromCurriculum}
+                    disabled={syncing}
+                  >
+                    {syncing ? 'Syncing...' : 'Sync from Curriculum'}
+                  </button>
+                </div>
+              )}
+
+              {selectedGroup?.curriculumId && (
+                <label className="curriculum-override-toggle">
+                  <input
+                    type="checkbox"
+                    checked={showAllCurriculumSubjects}
+                    onChange={(e) => setShowAllCurriculumSubjects(e.target.checked)}
+                  />
+                  <span>Show all curriculum subjects (cross-year exceptions)</span>
+                </label>
+              )}
+
+              {curriculumSubjects.length > 0 && (
+                <div className="curriculum-recommended-section">
+                  <div className="curriculum-recommended-header">
+                    <div>
+                      <h4>Recommended from Curriculum</h4>
+                      <p>{curriculumSubjects.length} subjects match this block's curriculum, year, and semester</p>
+                    </div>
+                    <button className="registrar-btn registrar-btn-secondary" type="button" onClick={handleSelectAllRecommended}>
+                      Select All Recommended
+                    </button>
+                  </div>
+                  <div className="curriculum-recommended-list">
+                    {curriculumSubjects.map((cs) => {
+                      const subj = getCurriculumSubjectItem(cs)
+                      const subjId = subj?._id || ''
+                      const isAssigned = assignedSubjectIds.has(subjId)
+                      const isSelected = selectedSubjectIds.includes(subjId)
+                      return (
+                        <label
+                          key={cs._id}
+                          className={`curriculum-recommended-item ${isAssigned ? 'is-assigned' : ''} ${isSelected ? 'is-selected' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            disabled={isAssigned}
+                            onChange={() => toggleSubject(subjId)}
+                          />
+                          <div className="curriculum-recommended-info">
+                            <strong>{subj?.code || 'N/A'}</strong>
+                            <span>{subj?.title || 'Subject unavailable'}</span>
+                            <small>{subj?.units || 0} units \u00B7 {cs.type} \u00B7 {cs.isRequired ? 'Required' : 'Elective'}</small>
+                          </div>
+                          {isAssigned && <span className="curriculum-recommended-badge">Assigned</span>}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
 
               <div className="assignment-wizard-grid">
                 <section className="assignment-section assignment-wizard-list">

@@ -14,6 +14,8 @@ const securityMiddleware = require('../securityMiddleware');
 const StudentNumberService = require('../services/studentNumberService');
 const StudentPasswordService = require('../services/studentPasswordService');
 const AuditLog = require('../models/AuditLog');
+const Curriculum = require('../models/Curriculum');
+const CurriculumSubject = require('../models/CurriculumSubject');
 
 const STUDENT_MUTABLE_FIELDS = [
   'firstName',
@@ -46,7 +48,20 @@ const STUDENT_MUTABLE_FIELDS = [
   'latestGrade',
   'gradeProfessor',
   'gradeDate',
-  'isActive'
+  'isActive',
+  // Family information (mirrors Applicant model)
+  'fatherName',
+  'motherName',
+  'guardianName',
+  'guardianRelationship',
+  'guardianContactNumber',
+  // Structured addresses (mirrors Applicant model)
+  'currentLocation',
+  'permanentLocation',
+  // Academic history (mirrors Applicant model)
+  'academicDetails',
+  // Applicant type (for students converted from applicants)
+  'applicantType'
 ];
 const TRIMMED_STUDENT_STRING_FIELDS = new Set([
   'firstName',
@@ -72,7 +87,13 @@ const TRIMMED_STUDENT_STRING_FIELDS = new Set([
   'religion',
   'assignedProfessor',
   'schedule',
-  'gradeProfessor'
+  'gradeProfessor',
+  'fatherName',
+  'motherName',
+  'guardianName',
+  'guardianRelationship',
+  'guardianContactNumber',
+  'applicantType'
 ]);
 const CLEARABLE_STUDENT_FIELDS = new Set([
   'middleName',
@@ -91,7 +112,16 @@ const CLEARABLE_STUDENT_FIELDS = new Set([
   'schedule',
   'latestGrade',
   'gradeProfessor',
-  'gradeDate'
+  'gradeDate',
+  'fatherName',
+  'motherName',
+  'guardianName',
+  'guardianRelationship',
+  'guardianContactNumber',
+  'currentLocation',
+  'permanentLocation',
+  'academicDetails',
+  'applicantType'
 ]);
 
 function normalizeEmergencyContact(emergencyContact) {
@@ -503,7 +533,8 @@ class StudentController {
         if (!enrollment || !Array.isArray(enrollment.subjects)) return;
 
         enrollment.subjects.forEach((subjectEntry) => {
-          if (String(subjectEntry?.status || '').toLowerCase() === 'dropped') return;
+          const subjectStatus = String(subjectEntry?.status || '').toLowerCase();
+          if (subjectStatus === 'dropped' || subjectStatus === 'removed') return;
 
           const instructorRaw = String(subjectEntry?.instructor || '').trim();
           const normalizedInstructor = StudentController.normalizeProfessorIdentifier(instructorRaw);
@@ -575,7 +606,8 @@ class StudentController {
         const courseShortLabel = courseMeta?.label || courseCode || 'N/A';
 
         enrollment.subjects.forEach((subjectEntry) => {
-          if (String(subjectEntry?.status || '').toLowerCase() === 'dropped') return;
+          const subjectStatus = String(subjectEntry?.status || '').toLowerCase();
+          if (subjectStatus === 'dropped' || subjectStatus === 'removed') return;
 
           const instructorRaw = String(subjectEntry?.instructor || '').trim();
           const normalizedInstructor = StudentController.normalizeProfessorIdentifier(instructorRaw);
@@ -1240,8 +1272,6 @@ class StudentController {
     subjectIds,
     createdBy
   }) {
-    const subjects = await this.mapSubjectIdsToEnrollmentSubjects(subjectIds);
-    const totalUnits = subjects.reduce((sum, subject) => sum + subject.units, 0);
     const enrollmentCourseMap = {
       101: 'BEED',
       102: 'BSED',
@@ -1250,6 +1280,42 @@ class StudentController {
     };
     const normalizedCourse = enrollmentCourseMap[Number(student.course)] || 'BEED';
 
+    // Resolve curriculum for this program — populate curriculumId on new enrollments
+    let curriculumId = null;
+    if (student.curriculumVersion) {
+      const matchedCurriculum = await Curriculum.findOne({
+        programCode: Number(student.course),
+        version: String(student.curriculumVersion).trim(),
+      }).select('_id').lean();
+      if (matchedCurriculum) {
+        curriculumId = matchedCurriculum._id;
+      }
+    }
+    // If no explicit version match, try active curriculum for the program
+    if (!curriculumId) {
+      const activeCurriculum = await Curriculum.findOne({
+        programCode: Number(student.course),
+        status: 'Active',
+      }).select('_id').lean();
+      if (activeCurriculum) {
+        curriculumId = activeCurriculum._id;
+      }
+    }
+
+    // If no manual subjectIds provided, auto-populate from CurriculumSubject
+    let finalSubjectIds = subjectIds;
+    if ((!Array.isArray(finalSubjectIds) || finalSubjectIds.length === 0) && curriculumId) {
+      const curriculumSubjects = await CurriculumSubject.find({
+        curriculumId,
+        yearLevel: Number(student.yearLevel),
+        semester,
+      }).select('subjectId').lean();
+      finalSubjectIds = curriculumSubjects.map((cs) => cs.subjectId);
+    }
+
+    const subjects = await this.mapSubjectIdsToEnrollmentSubjects(finalSubjectIds);
+    const totalUnits = subjects.reduce((sum, subject) => sum + subject.units, 0);
+
     const enrollment = new Enrollment({
       studentId: student._id,
       studentNumber: student.studentNumber,
@@ -1257,6 +1323,7 @@ class StudentController {
       semester,
       yearLevel: student.yearLevel,
       course: normalizedCourse,
+      curriculumId,
       subjects,
       assessment: {
         tuitionFee: this.calculateTuitionFee(totalUnits),
@@ -2070,20 +2137,42 @@ class StudentController {
           schoolYear: preferredSchoolYear,
           semester: preferredSemester,
           status: { $ne: 'Dropped' }
-        }).sort({ isCurrent: -1, createdAt: -1 });
+        }).sort({ isCurrent: -1, createdAt: -1 }).populate('curriculumId', 'name code version programName totalUnits');
       }
       if (!enrollment) {
         enrollment = await Enrollment.findOne({
           studentId: student._id,
           status: { $ne: 'Dropped' },
           isCurrent: true
-        }).sort({ createdAt: -1 });
+        }).sort({ createdAt: -1 }).populate('curriculumId', 'name code version programName totalUnits');
       }
       if (!enrollment) {
         enrollment = await Enrollment.findOne({
           studentId: student._id,
           status: { $ne: 'Dropped' }
-        }).sort({ createdAt: -1 });
+        }).sort({ createdAt: -1 }).populate('curriculumId', 'name code version programName totalUnits');
+      }
+
+      // Resolve the curriculum label: prefer the enrollment's populated
+      // curriculum (name + version), fall back to student.curriculumVersion,
+      // then to an active curriculum lookup by program code.
+      let curriculumLabel = 'N/A';
+      const populatedCurriculum = enrollment?.curriculumId;
+      if (populatedCurriculum && typeof populatedCurriculum === 'object') {
+        const labelPart = populatedCurriculum.name || populatedCurriculum.code || populatedCurriculum.programName;
+        const parts = [
+          labelPart,
+          populatedCurriculum.version ? `v${populatedCurriculum.version}` : null,
+        ].filter(Boolean);
+        curriculumLabel = parts.join(' ') || populatedCurriculum.programName || 'N/A';
+      } else if (student.curriculumVersion) {
+        curriculumLabel = student.curriculumVersion;
+      } else {
+        const activeCurriculum = await Curriculum.findActiveByProgram(Number(courseCode));
+        if (activeCurriculum) {
+          const labelPart = activeCurriculum.name || activeCurriculum.code || activeCurriculum.programName;
+          curriculumLabel = `${labelPart || 'Curriculum'} v${activeCurriculum.version}`;
+        }
       }
 
       const normalizeIdentifier = (value) => String(value || '').trim().toLowerCase();
@@ -2229,9 +2318,11 @@ class StudentController {
         return acc;
       }, { lectureUnits: 0, labUnits: 0 });
 
-      // Fetch current registrar's display name
-      const currentRegistrar = await Admin.findById(req.adminId).select('displayName');
-      const registrarDisplayName = currentRegistrar?.displayName || req.username || 'REGISTRAR';
+      // Fetch current registrar's display name. When this is reached via the
+      // student self-service COR route there is no req.adminId (students
+      // aren't Admin accounts), so fall back to a generic office label.
+      const currentRegistrar = req.adminId ? await Admin.findById(req.adminId).select('displayName') : null;
+      const registrarDisplayName = currentRegistrar?.displayName || req.username || "Registrar's Office";
 
       doc = new PDFDocument({ size: 'LETTER', margin: 50 });
       // EDIT COR PDF LAYOUT HERE: adjust fonts, add logos/images, and change positioning as needed.
@@ -2292,7 +2383,7 @@ class StudentController {
         `Name: ${studentName}`,
         `Semester: ${corSemester}`,
         `Major: ${majorLabel}`,
-        `Curriculum: ${student.curriculum || 'N/A'}`,
+        `Curriculum: ${curriculumLabel}`,
         `Sex: ${student.gender || 'N/A'}`,
         'College: Pio Duran',
         `Year Level: ${corYearLevel}`,
@@ -2493,10 +2584,10 @@ class StudentController {
       rowY += blankRows * baseRowHeight;
       doc.rect(tableX, tableStartY - 2, totalTableWidth, tableHeight + 2).stroke();
 
-      // Totals line on far left
+      // Totals line — bold, readable size, with total units prominent
       const totalsY = tableStartY + tableHeight + 6;
-      doc.fontSize(6).text(
-        `Totals: Subjects: ${totalSubjects}  Credit Units=${totalUnits.toFixed(1)}  Lecture Units=${unitBreakdown.lectureUnits.toFixed(1)}  Lab Units=${unitBreakdown.labUnits.toFixed(1)}`,
+      doc.font('Helvetica-Bold').fontSize(8).text(
+        `Total Subjects: ${totalSubjects}    Total Units: ${totalUnits.toFixed(1)}    (Lecture: ${unitBreakdown.lectureUnits.toFixed(1)} | Lab: ${unitBreakdown.labUnits.toFixed(1)})`,
         40,
         totalsY
       );

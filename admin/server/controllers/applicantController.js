@@ -1,6 +1,10 @@
+const mongoose = require('mongoose');
 const Applicant = require('../models/Applicant');
+const Student = require('../models/Student');
 const { apiCache } = require('../services/apiCache');
 const ApplicantEmailService = require('../services/applicantEmailService');
+const { createOrReactivateEnrollment } = require('../services/enrollmentService');
+const { getCourseOptions, normalizeCourseCode } = require('../lib/programMapping');
 
 const applicantEmailService = new ApplicantEmailService();
 
@@ -13,12 +17,8 @@ const EMAIL_STATUS_TRIGGERS = new Set([
   'Cancelled'
 ]);
 
-const COURSE_OPTIONS = [
-  { id: 101, code: 'BEED', name: 'Bachelor of Elementary Education' },
-  { id: 102, code: 'BSEd-English', name: 'Bachelor of Secondary Education - Major in English' },
-  { id: 103, code: 'BSEd-Math', name: 'Bachelor of Secondary Education - Major in Mathematics' },
-  { id: 201, code: 'BSBA-HRM', name: 'Bachelor of Science in Business Administration - Major in HRM' }
-];
+// Use centralized program mapping (single source of truth)
+const COURSE_OPTIONS = getCourseOptions();
 
 const ALLOWED_STATUSES = new Set([
   'Submitted',
@@ -140,6 +140,9 @@ function collectValidationErrors(body) {
     }
     if (cleanString(shs.generalAverage) && !validateGpa(shs.generalAverage)) {
       errors.push(`Senior high school general average must be a number between ${GPA_MIN} and ${GPA_MAX}.`);
+    }
+    if (!cleanString(shs.strandOrTrack)) {
+      errors.push('Senior high school strand / track is required.');
     }
   }
 
@@ -383,17 +386,140 @@ class ApplicantController {
         return res.status(400).json({ success: false, message: 'Invalid applicant status.' });
       }
 
+      // Fetch the applicant first (without updating) so we can use it
+      // inside the transaction for enrollment creation.
       const applicant = await Applicant.findById(req.params.id);
       if (!applicant) {
         return res.status(404).json({ success: false, message: 'Applicant not found.' });
       }
 
-      applicant.status = status;
-      applicant.registrarRemarks = registrarRemarks;
-      applicant.reviewedBy = req.adminId;
-      applicant.reviewedAt = new Date();
+      let studentNotification = null;
 
-      await applicant.save();
+      // For enrollment transitions, use a transaction so that
+      // Applicant + Student + Enrollment are all atomic.
+      // For non-enrollment statuses (Rejected, Cancelled, etc.),
+      // a simple update is sufficient.
+      if (status === 'Approved for Enrollment' || status === 'Enrolled') {
+        const session = await mongoose.startSession();
+        try {
+          await session.withTransaction(async () => {
+            const lifecycleStatus = status === 'Enrolled' ? 'Enrolled' : 'Pending';
+            const enrollmentStatus = status === 'Enrolled' ? 'Enrolled' : 'Not Enrolled';
+
+            // ─── 1. Update Applicant status (inside transaction) ───
+            applicant.status = status;
+            applicant.registrarRemarks = registrarRemarks;
+            applicant.reviewedBy = req.adminId;
+            applicant.reviewedAt = new Date();
+            await applicant.save({ session });
+
+            // ─── 2. Create or update Student ───
+            let studentRecord = null;
+            const existingStudent = await Student.findOne({ email: applicant.email }).session(session);
+            if (existingStudent) {
+              const wasEnrolled = existingStudent.lifecycleStatus === 'Enrolled';
+              if (!wasEnrolled) {
+                existingStudent.lifecycleStatus = lifecycleStatus;
+                existingStudent.enrollmentStatus = enrollmentStatus;
+                existingStudent.updatedBy = req.adminId;
+                await existingStudent.save({ session });
+              }
+              studentRecord = existingStudent;
+              studentNotification = {
+                upserted: true,
+                updated: true,
+                created: false,
+                alreadyEnrolled: wasEnrolled,
+                studentNumber: existingStudent.studentNumber || '',
+                lifecycleStatus: existingStudent.lifecycleStatus,
+                fullName: `${existingStudent.firstName || ''} ${existingStudent.lastName || ''}`.trim()
+              };
+            } else {
+              const studentStatus =
+                applicant.applicantType === 'Transferee' ? 'Transferee' :
+                applicant.applicantType === 'Returnee' ? 'Returnee' : 'Regular';
+
+              const newStudents = await Student.create([{
+                firstName: applicant.firstName,
+                middleName: applicant.middleName,
+                lastName: applicant.lastName,
+                suffix: applicant.suffix,
+                email: applicant.email,
+                contactNumber: applicant.phoneNumber,
+                address: applicant.currentAddress,
+                permanentAddress: applicant.permanentAddress,
+                currentLocation: applicant.currentLocation,
+                permanentLocation: applicant.permanentLocation,
+                birthDate: applicant.birthDate,
+                birthPlace: applicant.birthPlace,
+                gender: applicant.gender,
+                civilStatus: applicant.civilStatus,
+                nationality: applicant.nationality,
+                religion: applicant.religion,
+                fatherName: applicant.fatherName,
+                motherName: applicant.motherName,
+                guardianName: applicant.guardianName,
+                guardianRelationship: applicant.guardianRelationship,
+                guardianContactNumber: applicant.guardianContactNumber,
+                emergencyContact: applicant.emergencyContact,
+                academicDetails: applicant.academicDetails,
+                course: applicant.selectedCourse,
+                yearLevel: applicant.requestedYearLevel || 1,
+                semester: applicant.semester || '1st',
+                schoolYear: applicant.schoolYear,
+                studentStatus,
+                lifecycleStatus,
+                enrollmentStatus,
+                corStatus: 'Pending',
+                createdBy: req.adminId,
+                updatedBy: req.adminId
+              }], { session });
+              studentRecord = newStudents[0];
+              studentNotification = {
+                upserted: true,
+                updated: false,
+                created: true,
+                alreadyEnrolled: false,
+                studentNumber: studentRecord.studentNumber || '',
+                lifecycleStatus: studentRecord.lifecycleStatus,
+                fullName: `${studentRecord.firstName || ''} ${studentRecord.lastName || ''}`.trim()
+              };
+            }
+
+            // ─── 3. Create Enrollment (only for "Enrolled" status) ───
+            // Enrollment is the authoritative academic-period record.
+            // Student.enrollmentStatus is a denormalized display field.
+            // If this fails, the transaction rolls back — no partial state.
+            if (status === 'Enrolled' && studentRecord) {
+              await createOrReactivateEnrollment({
+                studentId: studentRecord._id,
+                studentNumber: studentRecord.studentNumber || '',
+                programCode: Number(applicant.selectedCourse),
+                yearLevel: Number(applicant.requestedYearLevel || studentRecord.yearLevel || 1),
+                semester: applicant.semester || studentRecord.semester || '1st',
+                schoolYear: applicant.schoolYear || studentRecord.schoolYear,
+                curriculumVersion: studentRecord.curriculumVersion,
+                session,
+              });
+            }
+          });
+        } catch (txError) {
+          // Transaction failed — Applicant, Student, and Enrollment are
+          // all rolled back. Do NOT silently swallow this.
+          const message = txError?.message || 'Unknown enrollment transaction error';
+          console.error('Enrollment transaction failed for applicant:', message);
+          throw txError;
+        } finally {
+          session.endSession();
+        }
+      } else {
+        // Non-enrollment status — simple update without transaction
+        applicant.status = status;
+        applicant.registrarRemarks = registrarRemarks;
+        applicant.reviewedBy = req.adminId;
+        applicant.reviewedAt = new Date();
+        await applicant.save();
+      }
 
       apiCache.invalidatePrefix('/api/registrar/applicants');
 
@@ -422,11 +548,26 @@ class ApplicantController {
         success: true,
         data: serializeApplicant(applicant),
         message: 'Applicant status updated.',
-        emailNotification
+        emailNotification,
+        studentNotification
       });
     } catch (error) {
       console.error('Applicant status update error:', error);
-      res.status(500).json({ success: false, message: 'Failed to update applicant status.' });
+
+      if (error.name === 'ValidationError') {
+        const messages = Object.values(error.errors).map((e) => e.message);
+        return res.status(400).json({ success: false, message: `Unable to update status: ${messages.join(' ')}` });
+      }
+
+      if (error.name === 'MongoError' && error.code === 11000) {
+        const field = Object.keys(error.keyValue || {}).join(', ') || 'a unique field';
+        return res.status(409).json({ success: false, message: `Unable to update status: duplicate value for ${field}.` });
+      }
+
+      res.status(500).json({
+        success: false,
+        message: 'Unable to save the status update. The record may have changed or the server is busy. Please refresh and try again.'
+      });
     }
   }
 }
