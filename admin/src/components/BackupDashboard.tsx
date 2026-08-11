@@ -12,19 +12,21 @@ type BackupRecord = {
   triggeredBy?: string; error?: string | null
 }
 
+type ReadinessCategory = { id: string; label: string; score: number; maxScore: number; status: 'pass' | 'warning' | 'critical' | 'info'; detail: string }
+
 type BackupHealth = {
   totalBackups: number; failedBackups: number; successRate: number; verificationSuccessRate: number;
   averageBackupDurationMs: number; lastSuccessfulBackup: string | null; lastVerifiedBackup: string | null;
   nextScheduledBackup: string | null; activeOperation: { type: string } | null;
   storage: { total: number | null; used: number | null; free: number | null; usedPercentage: number | null; provider: string; warningLevel: string | null };
   health: { score: number; label: string; ageHours: number | null };
-  disasterRecovery: { score: number; label: string; rpoHours: number; rtoMinutes: number; lastVerifiedRestore: string | null; encryptionEnabled: boolean; storageRedundancy: string }
+  disasterRecovery: { score: number; label: string; rpoHours: number; rtoMinutes: number; lastVerifiedRestore: string | null; encryptionEnabled: boolean; storageRedundancy: string; categories?: ReadinessCategory[] }
 }
 
 type Preview = { backup: BackupRecord; compatibility: { compatible: boolean; requiresConfirmation: boolean; warnings: string[]; current: Record<string, string>; backup: Record<string, string> } }
 type Comparison = { first: BackupRecord; second: BackupRecord; differences: { collection: string; firstCount: number; secondCount: number; difference: number }[]; totals: { documentDifference: number; sizeDifference: number; durationDifferenceMs: number } }
 type SortKey = 'createdAt' | 'fileName' | 'status' | 'compressedSize' | 'durationMs'
-type RecoveryIssue = { id: string; severity: 'critical' | 'warning' | 'info'; title: string; value: string; why: string; impact: string; recommendation: string }
+type RecoveryIssue = { id: string; severity: 'critical' | 'warning' | 'info'; title: string; value: string; why: string; impact: string; recommendation: string; action?: string; actionLabel?: string }
 
 const PAGE_SIZE = 5
 
@@ -156,14 +158,98 @@ export default function BackupDashboard({ refreshKey = 0 }: { refreshKey?: numbe
 
   const readinessIssues = useMemo<RecoveryIssue[]>(() => {
     if (!health) return []
+    const dr = health.disasterRecovery
+
+    // Fallback: if backend doesn't provide categories, derive issues from legacy fields
+    if (!dr.categories?.length) {
+      const issues: RecoveryIssue[] = []
+      if (!health.lastSuccessfulBackup || (health.health.ageHours != null && health.health.ageHours > dr.rpoHours)) {
+        issues.push({ id: 'rpo', severity: health.lastSuccessfulBackup ? 'warning' : 'critical', title: 'Recovery Point Objective', value: health.lastSuccessfulBackup ? `${health.health.ageHours}h old` : 'No backup', why: health.lastSuccessfulBackup ? `Latest backup exceeds the ${dr.rpoHours}h RPO.` : 'No usable recovery point exists.', impact: 'Data after the last backup will be lost in a disaster.', recommendation: 'Create and verify a fresh backup.', action: 'create', actionLabel: 'Create Backup' })
+      }
+      if (health.verificationSuccessRate < 95) {
+        issues.push({ id: 'integrity', severity: 'warning', title: 'Backup Integrity', value: `${health.verificationSuccessRate}% verified`, why: 'Verification rate is below 95%.', impact: 'Unverified archives may not be recoverable.', recommendation: 'Verify all completed backups.', action: 'verify', actionLabel: 'Verify Backups' })
+      }
+      if (health.failedBackups > 0) {
+        issues.push({ id: 'failures', severity: 'warning', title: 'Backup Reliability', value: `${health.failedBackups} failed`, why: `${health.failedBackups} backup(s) have failed.`, impact: 'Failures reduce viable restore points.', recommendation: 'Review and delete failed records.', action: 'failed', actionLabel: 'Review Failed' })
+      }
+      if (health.storage.warningLevel) {
+        issues.push({ id: 'storage', severity: health.storage.warningLevel === 'full' ? 'critical' : 'warning', title: 'Storage Capacity', value: `${health.storage.usedPercentage ?? 0}% used`, why: `Storage at ${health.storage.warningLevel} level.`, impact: 'Backups will fail when storage is exhausted.', recommendation: 'Clean old backups or expand storage.', action: 'cleanup', actionLabel: 'Clean Old Backups' })
+      }
+      if (!dr.lastVerifiedRestore) {
+        issues.push({ id: 'rto', severity: 'warning', title: 'Restore Testing (RTO)', value: 'Never tested', why: 'No restore test has been performed.', impact: 'Recovery time is unproven.', recommendation: 'Run an isolated restore test.', action: 'restore', actionLabel: 'Run Restore Test' })
+      }
+      if (dr.storageRedundancy === 'single-copy') {
+        issues.push({ id: 'redundancy', severity: 'warning', title: 'Storage Redundancy', value: 'Single copy', why: 'Only one storage copy is configured.', impact: 'Host failure could destroy all backups.', recommendation: 'Configure off-site secondary storage.' })
+      }
+      if (!dr.encryptionEnabled) {
+        issues.push({ id: 'encryption', severity: 'info', title: 'Encryption', value: 'Disabled', why: 'Backups are not encrypted.', impact: 'Data is readable by anyone with file access.', recommendation: 'Configure BACKUP_ENCRYPTION_KEY.' })
+      }
+      return issues
+    }
+
     const issues: RecoveryIssue[] = []
-    if (!health.lastSuccessfulBackup || (health.health.ageHours != null && health.health.ageHours > health.disasterRecovery.rpoHours)) issues.push({ id: 'recovery-point', severity: health.lastSuccessfulBackup ? 'warning' : 'critical', title: 'Recovery Point', value: health.lastSuccessfulBackup ? `${health.health.ageHours}h old` : 'No successful backup', why: health.lastSuccessfulBackup ? `The latest recovery point exceeds the ${health.disasterRecovery.rpoHours}-hour RPO.` : 'No usable recovery point exists.', impact: 'Recent data may be unavailable after an incident.', recommendation: 'Create and verify a fresh manual backup.' })
-    if (health.verificationSuccessRate < 95) issues.push({ id: 'verification', severity: 'warning', title: 'Backup Integrity', value: `${health.verificationSuccessRate}% verified`, why: 'Integrity verification is below the recommended 95% target.', impact: 'An unverified archive may not be recoverable.', recommendation: 'Verify all completed backups.' })
-    if (health.failedBackups > 0) issues.push({ id: 'failed', severity: 'warning', title: 'Failed Backups', value: `${health.failedBackups} failed`, why: 'Jobs can fail because storage is full, a checksum mismatches, compression fails, or the database is unavailable.', impact: 'Repeated failures reduce the number of viable restore points.', recommendation: 'Review failure reasons, retry verification, then remove obsolete failed records.' })
-    if (health.storage.warningLevel) issues.push({ id: 'storage', severity: health.storage.warningLevel === 'full' ? 'critical' : 'warning', title: 'Storage', value: `${health.storage.usedPercentage ?? 0}% used`, why: `Backup storage has reached the ${health.storage.warningLevel} threshold.`, impact: 'New scheduled backups may fail when capacity is exhausted.', recommendation: 'Clean old automatic backups or move archives to secondary storage.' })
-    if (!health.disasterRecovery.lastVerifiedRestore) issues.push({ id: 'restore', severity: 'warning', title: 'Restore Verification', value: 'Never tested', why: 'A backup has never been restored into an isolated environment.', impact: 'Backup integrity alone does not prove the application can recover.', recommendation: 'Run an isolated restore test.' })
-    if (!health.disasterRecovery.encryptionEnabled) issues.push({ id: 'encryption', severity: 'info', title: 'Encryption', value: 'Disabled', why: 'Backup archives are stored without application-level encryption.', impact: 'Anyone with storage access may be able to read backup data.', recommendation: 'Configure a valid 32-byte key and enable backup encryption.' })
-    if (health.disasterRecovery.storageRedundancy === 'single-copy') issues.push({ id: 'redundancy', severity: 'warning', title: 'Backup Redundancy', value: 'Local storage only', why: 'Only one storage copy is configured.', impact: 'A host or volume failure could remove both the application and its backups.', recommendation: 'Configure durable off-site secondary storage and test replication.' })
+
+    for (const cat of dr.categories) {
+      if (cat.status === 'pass') continue
+      const severity = cat.status === 'critical' ? 'critical' : cat.status === 'warning' ? 'warning' : 'info'
+      let why = '', impact = '', recommendation = '', action: string | undefined, actionLabel: string | undefined
+
+      switch (cat.id) {
+        case 'rpo':
+          why = cat.detail
+          impact = 'Data created after the last backup point will be permanently lost in a disaster scenario.'
+          recommendation = health.lastSuccessfulBackup
+            ? 'Create a fresh backup to bring the recovery point within the RPO window.'
+            : 'Create and verify a backup immediately — no recovery point currently exists.'
+          action = 'create'; actionLabel = 'Create Backup'
+          break
+        case 'integrity':
+          why = cat.detail
+          impact = 'An unverified archive may have silent corruption and fail during restore.'
+          recommendation = 'Verify all completed backups to ensure they can be restored.'
+          action = 'verify'; actionLabel = 'Verify Backups'
+          break
+        case 'rto':
+          why = cat.detail
+          impact = 'Without a tested restore procedure, recovery time is unpredictable and may exceed the RTO target.'
+          recommendation = 'Run an isolated restore test to validate recovery procedures and measure actual RTO.'
+          action = 'restore'; actionLabel = 'Run Restore Test'
+          break
+        case 'redundancy':
+          why = cat.detail
+          impact = 'A single host or volume failure could destroy both the application and all its backups simultaneously.'
+          recommendation = 'Configure off-site or cloud-replicated storage (e.g., S3, Azure Blob) and test replication.'
+          break
+        case 'storage':
+          why = cat.detail
+          impact = 'New scheduled backups will fail when storage capacity is exhausted, creating gaps in recovery points.'
+          recommendation = 'Clean old automatic backups or move archives to secondary storage to free capacity.'
+          action = 'cleanup'; actionLabel = 'Clean Old Backups'
+          break
+        case 'encryption':
+          why = cat.detail
+          impact = 'Anyone with file system access can read backup data, including sensitive student and staff records.'
+          recommendation = 'Configure a valid 32-byte encryption key via BACKUP_ENCRYPTION_KEY and restart the service.'
+          break
+        case 'failures':
+          why = cat.detail
+          impact = 'A high failure rate reduces the number of viable restore points and may indicate systemic issues.'
+          recommendation = health.failedBackups > 0
+            ? 'Review failure reasons, delete obsolete failed records, and ensure scheduled jobs are succeeding.'
+            : 'Monitor backup jobs for failures and investigate any that occur.'
+          action = health.failedBackups > 0 ? 'failed' : undefined; actionLabel = health.failedBackups > 0 ? 'Review Failed' : undefined
+          break
+        default:
+          why = cat.detail; impact = 'This category needs attention.'; recommendation = 'Review and address this issue.'
+      }
+
+      issues.push({
+        id: cat.id, severity, title: cat.label,
+        value: `${cat.score}/${cat.maxScore} pts`,
+        why, impact, recommendation, action, actionLabel
+      })
+    }
+
     return issues
   }, [health])
 
@@ -178,7 +264,16 @@ export default function BackupDashboard({ refreshKey = 0 }: { refreshKey?: numbe
         const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); const link = document.createElement('a'); link.href = url; link.download = 'backup-error-log.csv'; link.click(); URL.revokeObjectURL(url); setRecoveryNotice('Error log exported.'); return
       }
       if (action === 'create') await request('/api/admin/backup/create', { method: 'POST' })
-      if (action === 'restore') await request('/api/admin/backup/restore-test', { method: 'POST' })
+      if (action === 'restore') {
+        try { await request('/api/admin/backup/restore-test', { method: 'POST' }) }
+        catch (restoreErr: any) {
+          const errCode = restoreErr?.data?.code
+          const errMsg = restoreErr?.data?.error || restoreErr?.message || 'Restore test failed'
+          if (errCode === 'BACKUP_BUSY') { setRecoveryNotice('A backup operation is in progress. Restore test will be available once it completes.'); return }
+          if (errMsg.includes('No verified backup')) { setRecoveryNotice('No verified backup available. Verify a backup first, then run the restore test.'); return }
+          throw restoreErr
+        }
+      }
       if (action === 'cleanup') await request('/api/admin/backup/cleanup', { method: 'POST' })
       if (action === 'verify') {
         const candidates = backups.filter(item => item.status === 'completed' && item.verificationStatus !== 'verified')
@@ -210,7 +305,7 @@ export default function BackupDashboard({ refreshKey = 0 }: { refreshKey?: numbe
 
     <div className="backup-dashboard__toolbar"><label className="backup-dashboard__search"><Search size={16} aria-hidden="true" /><span className="sr-only">Search backups</span><input value={query} onChange={event => { setQuery(event.target.value); setPage(1) }} placeholder="Search backups" /></label><select aria-label="Filter backups" value={filter} onChange={event => { setFilter(event.target.value); setPage(1) }}><option value="all">All backups</option><option value="manual">Manual</option><option value="scheduled">Scheduled</option><option value="initial">Startup</option><option value="emergency">Emergency</option><option value="verified">Verified</option><option value="failed">Failed</option><option value="encrypted">Encrypted</option></select><button type="button" disabled={compareSelection.length !== 2} onClick={() => void compare()}><BarChart3 size={16} /> Compare ({compareSelection.length}/2)</button></div>
     {error && <div className="backup-dashboard__error" role="alert">{error}</div>}
-    {loading && backups.length === 0 ? <div className="backup-dashboard__skeleton" aria-label="Loading backups">{Array.from({ length: 4 }, (_, index) => <span key={index} />)}</div> : visible.length === 0 ? <div className="backup-dashboard__empty"><ShieldCheck size={30} /><strong>No backups found</strong><span>Create a backup or adjust the filters.</span></div> : <div className="backup-table-wrap" id="backup-history-table"><table className="backup-table"><thead><tr><th aria-label="Compare" /><th><button onClick={() => changeSort('fileName')}>Name</button></th><th>Type</th><th><button onClick={() => changeSort('status')}>Status</button></th><th><button onClick={() => changeSort('createdAt')}>Created</button></th><th><button onClick={() => changeSort('compressedSize')}>Size</button></th><th>Integrity</th><th><button onClick={() => changeSort('durationMs')}>Duration</button></th><th>Security</th><th>Actions</th></tr></thead><tbody>{visible.map(backup => {
+    {loading && backups.length === 0 ? <div className="backup-dashboard__skeleton" aria-label="Loading backups">{Array.from({ length: 4 }, (_, index) => <span key={index} />)}</div> : visible.length === 0 ? <div className="backup-dashboard__empty"><ShieldCheck size={30} /><strong>No backups found</strong><span>Create a backup or adjust the filters.</span></div> : <div className="backup-table-wrap" id="backup-history-table"><table className="backup-table"><colgroup><col style={{width:'2rem'}} /><col /><col style={{width:'6rem'}} /><col style={{width:'6rem'}} /><col style={{width:'7rem'}} /><col style={{width:'5rem'}} /><col style={{width:'5rem'}} /><col style={{width:'4.5rem'}} /><col style={{width:'6rem'}} /><col style={{width:'6.5rem'}} /></colgroup><thead><tr><th aria-label="Compare" /><th><button onClick={() => changeSort('fileName')}>Name</button></th><th>Type</th><th><button onClick={() => changeSort('status')}>Status</button></th><th><button onClick={() => changeSort('createdAt')}>Created</button></th><th><button onClick={() => changeSort('compressedSize')}>Size</button></th><th>Integrity</th><th><button onClick={() => changeSort('durationMs')}>Duration</button></th><th>Security</th><th>Actions</th></tr></thead><tbody>{visible.map(backup => {
       const busy = busyFile === backup.fileName; const selected = compareSelection.includes(backup.fileName)
       return <tr key={backup._id}>
         <td data-label="Compare"><input type="checkbox" checked={selected} aria-label={`Compare ${backup.fileName}`} onChange={() => setCompareSelection(values => selected ? values.filter(value => value !== backup.fileName) : values.length < 2 ? [...values, backup.fileName] : values)} /></td>
@@ -239,7 +334,7 @@ export default function BackupDashboard({ refreshKey = 0 }: { refreshKey?: numbe
     <footer className="backup-dashboard__pagination"><span>{filtered.length} result{filtered.length === 1 ? '' : 's'}</span><div><button type="button" disabled={currentPage <= 1} onClick={() => setPage(value => value - 1)}>Previous</button><span>Page {currentPage} of {pageCount}</span><button type="button" disabled={currentPage >= pageCount} onClick={() => setPage(value => value + 1)}>Next</button></div></footer>
 
     {preview && <div className="backup-detail-overlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPreview(null) }}><section className="backup-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="backup-detail-title"><header><div><span className="system-health-eyebrow">Restore Preview</span><h3 id="backup-detail-title">{preview.backup.fileName}</h3></div><button onClick={() => setPreview(null)} aria-label="Close backup details">x</button></header>{preview.compatibility.warnings.length > 0 && <div className="backup-compatibility-warning"><strong>Compatibility warning</strong>{preview.compatibility.warnings.map(warning => <span key={warning}>{warning}</span>)}</div>}<dl className="backup-detail-grid"><div><dt>Created</dt><dd>{formatDate(preview.backup.createdAt)}</dd></div><div><dt>Created by</dt><dd>{preview.backup.triggeredBy || 'System'}</dd></div><div><dt>Documents</dt><dd>{preview.backup.documentCount ?? 0}</dd></div><div><dt>Backup size</dt><dd>{formatBytes(preview.backup.compressedSize || preview.backup.size)}</dd></div><div><dt>Verification</dt><dd>{preview.backup.verificationStatus}</dd></div><div><dt>Checksum</dt><dd className="backup-checksum">{preview.backup.checksum || 'Unavailable'}</dd></div><div><dt>Application</dt><dd>{preview.backup.appVersion || 'unknown'}</dd></div><div><dt>Schema / format</dt><dd>{preview.backup.schemaVersion || 'unknown'} / {preview.backup.backupFormatVersion || 'unknown'}</dd></div><div><dt>Encryption</dt><dd>{preview.backup.isEncrypted ? 'AES-256-GCM' : 'Not encrypted'}</dd></div><div><dt>Storage</dt><dd>{preview.backup.storageProvider || 'local'}</dd></div></dl><div className="backup-detail-collections"><strong>Collections ({preview.backup.collections?.length || 0})</strong><div>{preview.backup.collections?.map(item => <span key={item.name}>{item.name}: {item.count}</span>)}</div></div><footer><button onClick={() => setPreview(null)}>Cancel</button><button className="backup-restore-confirm" disabled={!preview.compatibility.compatible || preview.backup.verificationStatus !== 'verified'} onClick={() => void confirmRestore()}><RotateCcw size={16} /> {preview.compatibility.requiresConfirmation ? 'Confirm compatibility and restore' : 'Confirm restore'}</button></footer></section></div>}
-    {showReadinessDetails && health && <div className="backup-detail-overlay" onMouseDown={event => { if (event.target === event.currentTarget) setShowReadinessDetails(false) }}><section className="backup-detail-dialog recovery-center" role="dialog" aria-modal="true" aria-labelledby="readiness-detail-title"><header><div><span className="system-health-eyebrow">Disaster Preparedness</span><h3 id="readiness-detail-title">Recovery Center</h3><p>{readinessIssues.length} issue{readinessIssues.length === 1 ? '' : 's'} affecting recoverability</p></div><button onClick={() => setShowReadinessDetails(false)} aria-label="Close Recovery Center">x</button></header><div className="readiness-summary"><strong className={`readiness-score readiness-score--${health.disasterRecovery.label.toLowerCase()}`}>{health.disasterRecovery.score}/100 - {health.disasterRecovery.label}</strong><span>RPO: {health.disasterRecovery.rpoHours} hours</span><span>RTO: {health.disasterRecovery.rtoMinutes} minutes</span></div>{recoveryNotice && <div className="recovery-notice" role="status"><CheckCircle2 size={16} />{recoveryNotice}</div>}<div className="recovery-layout"><main><h4>Issues reducing score</h4><div className="readiness-issues">{readinessIssues.length === 0 ? <div className="readiness-empty"><ShieldCheck size={24} /><strong>No readiness issues detected</strong><span>Backups, verification, restore testing, and storage are within their configured targets.</span></div> : readinessIssues.map((issue, index) => <article className={`readiness-issue readiness-issue--${issue.severity}`} key={issue.id}><div className="recovery-issue-heading"><span className="recovery-issue-number">{index + 1}</span><div><strong>{issue.title}</strong><span>{issue.value}</span></div><span className={`recovery-severity recovery-severity--${issue.severity}`}>{issue.severity}</span></div><dl><div><dt>Why</dt><dd>{issue.why}</dd></div><div><dt>Impact</dt><dd>{issue.impact}</dd></div><div><dt>Recommendation</dt><dd>{issue.recommendation}</dd></div></dl><div className="recovery-actions">{issue.id === 'failed' && <><button onClick={() => void runRecoveryAction('failed')}>Review Failed</button><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('verify')}>Retry Verification</button><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('delete-failed')}><Trash2 size={14} /> Delete Failed</button><button onClick={() => void runRecoveryAction('export')}><Download size={14} /> Export Logs</button></>}{issue.id === 'storage' && <><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('cleanup')}><Trash2 size={14} /> Clean Old Backups</button><button onClick={() => void runRecoveryAction('largest')}>View Largest</button></>}{issue.id === 'restore' && <button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('restore')}><Play size={14} /> Run Restore Test</button>}{issue.id === 'redundancy' && <button onClick={() => setRecoveryNotice('Set BACKUP_STORAGE_PROVIDER and BACKUP_STORAGE_REDUNDANCY in the server configuration, then restart the service and test replication.')}><Cloud size={14} /> Setup Guide</button>}{issue.id === 'encryption' && <button onClick={() => setRecoveryNotice('Provide a valid 32-byte BACKUP_ENCRYPTION_KEY, enable BACKUP_ENCRYPTION, then restart the server.')}><Lock size={14} /> Setup Guide</button>}{issue.id === 'verification' && <button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('verify')}>Verify Backups</button>}{issue.id === 'recovery-point' && <button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('create')}>Create Backup</button>}</div></article>)}</div></main><aside><h4>Quick actions</h4><div className="recovery-quick-actions"><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('create')}><Database size={16} /><span>Create Backup<small>New recovery point</small></span></button><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('restore')}><Play size={16} /><span>Run Restore Test<small>Isolated validation</small></span></button><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('verify')}><ShieldCheck size={16} /><span>Verify Backups<small>Check integrity</small></span></button><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('cleanup')}><HardDrive size={16} /><span>Clean Storage<small>Apply retention policy</small></span></button><button onClick={() => void runRecoveryAction('failed')}><AlertTriangle size={16} /><span>Failed Backups<small>Review error details</small></span></button></div><h4>Recovery timeline</h4><div className="recovery-timeline"><div className="done"><span /><p><strong>Latest backup</strong><small>{formatDate(health.lastSuccessfulBackup)}</small></p></div><div className={health.lastVerifiedBackup ? 'done' : 'warning'}><span /><p><strong>Integrity verification</strong><small>{formatDate(health.lastVerifiedBackup)}</small></p></div><div className={health.disasterRecovery.lastVerifiedRestore ? 'done' : 'warning'}><span /><p><strong>Restore test</strong><small>{formatDate(health.disasterRecovery.lastVerifiedRestore)}</small></p></div><div><span /><p><strong>Next scheduled backup</strong><small>{formatDate(health.nextScheduledBackup)}</small></p></div></div></aside></div></section></div>}
+    {showReadinessDetails && health && <div className="backup-detail-overlay" onMouseDown={event => { if (event.target === event.currentTarget) setShowReadinessDetails(false) }}><section className="backup-detail-dialog recovery-center" role="dialog" aria-modal="true" aria-labelledby="readiness-detail-title"><header><div><span className="system-health-eyebrow">Disaster Preparedness</span><h3 id="readiness-detail-title">Recovery Center</h3><p>{readinessIssues.length} issue{readinessIssues.length === 1 ? '' : 's'} affecting recoverability</p></div><button onClick={() => setShowReadinessDetails(false)} aria-label="Close Recovery Center">x</button></header><div className="readiness-summary"><strong className={`readiness-score readiness-score--${health.disasterRecovery.label.toLowerCase()}`}>{health.disasterRecovery.score}/100 - {health.disasterRecovery.label}</strong><span>RPO: {health.disasterRecovery.rpoHours}h</span><span>RTO: {health.disasterRecovery.rtoMinutes}min</span></div>{health.disasterRecovery.categories && <div className="readiness-breakdown">{health.disasterRecovery.categories.map(cat => <div key={cat.id} className={`readiness-breakdown-item readiness-breakdown-item--${cat.status}`}><span>{cat.label}</span><strong>{cat.score}/{cat.maxScore}</strong></div>)}</div>}{recoveryNotice && <div className="recovery-notice" role="status"><CheckCircle2 size={16} />{recoveryNotice}</div>}<div className="recovery-layout"><main><h4>Issues reducing score</h4><div className="readiness-issues">{readinessIssues.length === 0 ? <div className="readiness-empty"><ShieldCheck size={24} /><strong>No readiness issues detected</strong><span>Backups, verification, restore testing, and storage are within their configured targets.</span></div> : readinessIssues.map((issue, index) => <article className={`readiness-issue readiness-issue--${issue.severity}`} key={issue.id}><div className="recovery-issue-heading"><span className="recovery-issue-number">{index + 1}</span><div><strong>{issue.title}</strong><span>{issue.value}</span></div><span className={`recovery-severity recovery-severity--${issue.severity}`}>{issue.severity}</span></div><dl><div><dt>Why</dt><dd>{issue.why}</dd></div><div><dt>Impact</dt><dd>{issue.impact}</dd></div><div><dt>Recommendation</dt><dd>{issue.recommendation}</dd></div></dl><div className="recovery-actions">{issue.action && <button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction(issue.action!)}>{recoveryBusy === issue.action ? <><RefreshCw size={14} className="spin" /> Running…</> : issue.actionLabel || issue.action}</button>}{issue.id === 'failed' && <><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('delete-failed')}><Trash2 size={14} /> Delete Failed</button><button onClick={() => void runRecoveryAction('export')}><Download size={14} /> Export Logs</button></>}{issue.id === 'redundancy' && <button onClick={() => setRecoveryNotice('Set BACKUP_STORAGE_PROVIDER and BACKUP_STORAGE_REDUNDANCY in the server configuration, then restart the service and test replication.')}><Cloud size={14} /> Setup Guide</button>}{issue.id === 'encryption' && <button onClick={() => setRecoveryNotice('Provide a valid 32-byte BACKUP_ENCRYPTION_KEY, enable BACKUP_ENCRYPTION, then restart the server.')}><Lock size={14} /> Setup Guide</button>}</div></article>)}</div></main><aside><h4>Quick actions</h4><div className="recovery-quick-actions"><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('create')}><Database size={16} /><span>Create Backup<small>New recovery point</small></span></button><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('restore')}><Play size={16} /><span>Run Restore Test<small>Isolated validation</small></span></button><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('verify')}><ShieldCheck size={16} /><span>Verify Backups<small>Check integrity</small></span></button><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('cleanup')}><HardDrive size={16} /><span>Clean Storage<small>Apply retention policy</small></span></button><button onClick={() => void runRecoveryAction('failed')}><AlertTriangle size={16} /><span>Failed Backups<small>Review error details</small></span></button></div><h4>Recovery timeline</h4><div className="recovery-timeline"><div className="done"><span /><p><strong>Latest backup</strong><small>{formatDate(health.lastSuccessfulBackup)}</small></p></div><div className={health.lastVerifiedBackup ? 'done' : 'warning'}><span /><p><strong>Integrity verification</strong><small>{formatDate(health.lastVerifiedBackup)}</small></p></div><div className={health.disasterRecovery.lastVerifiedRestore ? 'done' : 'warning'}><span /><p><strong>Restore test</strong><small>{formatDate(health.disasterRecovery.lastVerifiedRestore)}</small></p></div><div><span /><p><strong>Next scheduled backup</strong><small>{formatDate(health.nextScheduledBackup)}</small></p></div></div></aside></div></section></div>}
     {comparison && <div className="backup-detail-overlay" onMouseDown={event => { if (event.target === event.currentTarget) setComparison(null) }}><section className="backup-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="backup-compare-title"><header><div><span className="system-health-eyebrow">Backup Analytics</span><h3 id="backup-compare-title">Backup Comparison</h3></div><button onClick={() => setComparison(null)} aria-label="Close comparison">x</button></header><div className="backup-comparison-summary"><span>Documents: {comparison.totals.documentDifference > 0 ? '+' : ''}{comparison.totals.documentDifference}</span><span>Size: {formatBytes(Math.abs(comparison.totals.sizeDifference))} {comparison.totals.sizeDifference >= 0 ? 'larger' : 'smaller'}</span><span>Duration: {formatDuration(Math.abs(comparison.totals.durationDifferenceMs))} difference</span></div><div className="backup-comparison-list">{comparison.differences.map(item => <div className={item.difference ? 'changed' : ''} key={item.collection}><strong>{item.collection}</strong><span>{item.firstCount}</span><span>{item.secondCount}</span><span>{item.difference > 0 ? '+' : ''}{item.difference}</span></div>)}</div></section></div>}
   </section>
 }
