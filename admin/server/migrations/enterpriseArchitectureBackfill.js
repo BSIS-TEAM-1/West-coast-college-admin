@@ -10,6 +10,7 @@
  * Usage: node server/migrations/enterpriseArchitectureBackfill.js
  */
 
+require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
 const mongoose = require('mongoose');
 
 const MONGODB_URI = process.env.MONGODB_URI || process.env.DB_URI || 'mongodb://localhost:27017/wcc';
@@ -53,7 +54,7 @@ async function run() {
   const PROGRAMS = [
     { code: 101, name: 'BEED' },
     { code: 102, name: 'BSED' },
-    { code: 103, name: 'BSIT' },
+    { code: 103, name: 'BSED' },
     { code: 201, name: 'BSBA' },
   ];
   const defaultVersion = String(new Date().getFullYear());

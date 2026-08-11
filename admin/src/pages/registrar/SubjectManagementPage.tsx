@@ -1,53 +1,53 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Archive, CheckCircle, ChevronLeft, ChevronRight, Pencil, Plus, RotateCcw, Search, Trash2 } from 'lucide-react'
+import { Archive, CheckCircle, ChevronLeft, ChevronRight, Pencil, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
-import type { Semester, SubjectItem } from './registrarBlockTypes'
+import type { SubjectItem, SubjectStatus, SubjectType } from './registrarBlockTypes'
 
 type SubjectForm = {
   code: string
   title: string
   units: string
-  course: string
-  yearLevel: string
-  semester: Semester
+  subjectType: SubjectType
+  lecturePeriods: string
+  labPeriods: string
+  status: SubjectStatus
+  prerequisiteSubjectIds: string[]
 }
 
 type SubjectStatusFilter = 'active' | 'archived' | 'all'
 type WizardStep = 1 | 2 | 3
 type SubjectManagementMode = 'catalog' | 'add'
+type SortColumn = 'code' | 'title' | 'units' | 'lecturePeriods' | 'labPeriods' | 'status'
+type SortDirection = 'asc' | 'desc'
 
 type SubjectManagementPageProps = {
   mode?: SubjectManagementMode
 }
 
+const PAGE_SIZE = 15
+
 const emptyForm: SubjectForm = {
   code: '',
   title: '',
   units: '3',
-  course: '',
-  yearLevel: '',
-  semester: '1st'
+  subjectType: 'General Education',
+  lecturePeriods: '0',
+  labPeriods: '0',
+  status: 'Active',
+  prerequisiteSubjectIds: []
 }
 
-const courseOptions = [
-  { value: '101', label: 'BEED', fullLabel: 'Bachelor of Elementary Education' },
-  { value: '102', label: 'BSEd-English', fullLabel: 'Bachelor of Secondary Education - Major in English' },
-  { value: '103', label: 'BSEd-Math', fullLabel: 'Bachelor of Secondary Education - Major in Mathematics' },
-  { value: '201', label: 'BSBA-HRM', fullLabel: 'Bachelor of Science in Business Administration - Major in HRM' }
-]
-
-const courseLabel = (value?: number | string) => {
-  const normalized = value ? Number(value) : null
-  return courseOptions.find((option) => Number(option.value) === normalized)?.label || 'Any program'
-}
+const subjectTypeOptions: SubjectType[] = ['General Education', 'Professional Education', 'Major', 'Elective', 'Core']
 
 function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps) {
   const [subjects, setSubjects] = useState<SubjectItem[]>([])
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<SubjectStatusFilter>('active')
-  const [courseFilter, setCourseFilter] = useState('')
-  const [yearFilter, setYearFilter] = useState('')
-  const [semesterFilter, setSemesterFilter] = useState('')
+  const [typeFilter, setTypeFilter] = useState('')
+  const [sortColumn, setSortColumn] = useState<SortColumn>('code')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
+  const [page, setPage] = useState(1)
+  const [prereqSearch, setPrereqSearch] = useState('')
   const [form, setForm] = useState<SubjectForm>(emptyForm)
   const [editingId, setEditingId] = useState('')
   const [wizardStep, setWizardStep] = useState<WizardStep>(1)
@@ -57,14 +57,48 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
   const [success, setSuccess] = useState('')
 
   const filteredSubjects = useMemo(() => {
-    if (statusFilter === 'active') return subjects.filter((subject) => subject.isActive !== false)
-    if (statusFilter === 'archived') return subjects.filter((subject) => subject.isActive === false)
+    let result = subjects
+    if (statusFilter === 'active') result = result.filter((subject) => subject.isActive !== false)
+    if (statusFilter === 'archived') result = result.filter((subject) => subject.isActive === false)
+    if (typeFilter) result = result.filter((subject) => subject.subjectType === typeFilter)
+
+    const sorted = [...result].sort((a, b) => {
+      let aVal: string | number = a[sortColumn] ?? ''
+      let bVal: string | number = b[sortColumn] ?? ''
+      if (typeof aVal === 'string') aVal = aVal.toLowerCase()
+      if (typeof bVal === 'string') bVal = bVal.toLowerCase()
+      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1
+      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1
+      return 0
+    })
+    return sorted
+  }, [subjects, statusFilter, typeFilter, sortColumn, sortDirection])
+
+  const totalPages = Math.max(1, Math.ceil(filteredSubjects.length / PAGE_SIZE))
+  const pagedSubjects = useMemo(
+    () => filteredSubjects.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [filteredSubjects, page]
+  )
+
+  const prerequisiteCandidates = useMemo(() => {
+    const term = prereqSearch.trim().toLowerCase()
     return subjects
-  }, [subjects, statusFilter])
-  const selectedProgram = courseOptions.find((option) => option.value === form.course)
+      .filter((s) => s._id !== editingId && s.isActive !== false)
+      .filter((s) => !form.prerequisiteSubjectIds.includes(s._id))
+      .filter((s) => !term || s.code.toLowerCase().includes(term) || s.title.toLowerCase().includes(term))
+      .slice(0, 8)
+  }, [subjects, editingId, form.prerequisiteSubjectIds, prereqSearch])
+
+  const selectedPrerequisites = useMemo(
+    () => form.prerequisiteSubjectIds.map((id) => subjects.find((s) => s._id === id)).filter(Boolean) as SubjectItem[],
+    [form.prerequisiteSubjectIds, subjects]
+  )
+
   const normalizedCode = form.code.trim().toUpperCase()
   const normalizedTitle = form.title.trim()
   const normalizedUnits = Number(form.units)
+  const normalizedLecturePeriods = Number(form.lecturePeriods)
+  const normalizedLabPeriods = Number(form.labPeriods)
   const isEditing = Boolean(editingId)
   const showSubjectWizard = mode === 'add' || isEditing
 
@@ -92,9 +126,7 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
     try {
       const params = new URLSearchParams()
       if (query.trim()) params.set('q', query.trim())
-      if (courseFilter) params.set('course', courseFilter)
-      if (yearFilter) params.set('yearLevel', yearFilter)
-      if (semesterFilter) params.set('semester', semesterFilter)
+      if (typeFilter) params.set('subjectType', typeFilter)
 
       const data = await authorizedFetch(`/api/registrar/subjects${params.toString() ? `?${params.toString()}` : ''}`)
       setSubjects(Array.isArray(data?.data) ? data.data as SubjectItem[] : [])
@@ -110,7 +142,11 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
       void fetchSubjects()
     }, 180)
     return () => window.clearTimeout(timeoutId)
-  }, [query, statusFilter, courseFilter, yearFilter, semesterFilter])
+  }, [query, typeFilter])
+
+  useEffect(() => {
+    setPage(1)
+  }, [query, statusFilter, typeFilter])
 
   const updateForm = (field: keyof SubjectForm, value: string) => {
     setError('')
@@ -126,13 +162,18 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
 
   const beginEdit = (subject: SubjectItem) => {
     setEditingId(subject._id)
+    const prereqIds = Array.isArray(subject.prerequisiteSubjectIds)
+      ? subject.prerequisiteSubjectIds.map((p) => (typeof p === 'string' ? p : p._id))
+      : []
     setForm({
       code: subject.code,
       title: subject.title,
       units: String(subject.units),
-      course: subject.course ? String(subject.course) : '',
-      yearLevel: subject.yearLevel ? String(subject.yearLevel) : '',
-      semester: subject.semester || '1st'
+      subjectType: subject.subjectType || 'General Education',
+      lecturePeriods: String(subject.lecturePeriods ?? 0),
+      labPeriods: String(subject.labPeriods ?? 0),
+      status: subject.status || (subject.isActive === false ? 'Inactive' : 'Active'),
+      prerequisiteSubjectIds: prereqIds
     })
     setWizardStep(1)
     setError('')
@@ -145,7 +186,22 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
     if (!Number.isFinite(normalizedUnits) || normalizedUnits <= 0 || normalizedUnits > 6) {
       return 'Units must be greater than 0 and not more than 6'
     }
+    if (!Number.isFinite(normalizedLecturePeriods) || normalizedLecturePeriods < 0) {
+      return 'Lecture periods must be 0 or greater'
+    }
+    if (!Number.isFinite(normalizedLabPeriods) || normalizedLabPeriods < 0) {
+      return 'Lab/Field periods must be 0 or greater'
+    }
     return ''
+  }
+
+  const togglePrerequisite = (id: string) => {
+    setForm((prev) => ({ ...prev, prerequisiteSubjectIds: [...prev.prerequisiteSubjectIds, id] }))
+    setPrereqSearch('')
+  }
+
+  const removePrerequisite = (id: string) => {
+    setForm((prev) => ({ ...prev, prerequisiteSubjectIds: prev.prerequisiteSubjectIds.filter((p) => p !== id) }))
   }
 
   const handleReview = () => {
@@ -171,9 +227,11 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
         code: normalizedCode,
         title: normalizedTitle,
         units: normalizedUnits,
-        course: form.course ? Number(form.course) : undefined,
-        yearLevel: form.yearLevel ? Number(form.yearLevel) : undefined,
-        semester: form.semester
+        subjectType: form.subjectType,
+        lecturePeriods: normalizedLecturePeriods,
+        labPeriods: normalizedLabPeriods,
+        status: form.status,
+        prerequisiteSubjectIds: form.prerequisiteSubjectIds
       }
       const path = editingId ? `/api/registrar/subjects/${editingId}` : '/api/registrar/subjects'
       const method = editingId ? 'PUT' : 'POST'
@@ -226,10 +284,24 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
     }
   }
 
+  const sortIndicator = (column: SortColumn) => {
+    if (sortColumn !== column) return null
+    return sortDirection === 'asc' ? ' ▲' : ' ▼'
+  }
+
+  const toggleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortColumn(column)
+      setSortDirection('asc')
+    }
+  }
+
   return (
     <div className="registrar-section subject-management-page">
-      <h2 className="registrar-section-title">Subject Management</h2>
-      <p className="registrar-section-desc">Maintain the master list of subjects used across block assignments and student records.</p>
+      <h2 className="registrar-section-title">Subject Catalog</h2>
+      <p className="registrar-section-desc">Maintain the master list of subjects. Curriculum placement (year level, semester, sequence) is managed via <strong>Curriculums</strong>.</p>
 
       {error && <p className="registrar-alert registrar-alert-error">{error}</p>}
       {success && <p className="registrar-alert registrar-alert-success">{success}</p>}
@@ -268,11 +340,11 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
                 <div className="sis-wizard-grid">
                   <div className="block-wizard-fields subject-wizard-fields">
                     <label>
-                      <span>Subject Code</span>
+                      <span>Course No. / Code</span>
                       <input value={form.code} onChange={(event) => updateForm('code', event.target.value)} placeholder="ENG101" />
                     </label>
                     <label>
-                      <span>Subject Title</span>
+                      <span>Descriptive Title</span>
                       <input value={form.title} onChange={(event) => updateForm('title', event.target.value)} placeholder="English Communication" />
                     </label>
                     <label>
@@ -280,25 +352,24 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
                       <input type="number" min={0.5} max={6} step={0.5} value={form.units} onChange={(event) => updateForm('units', event.target.value)} />
                     </label>
                     <label>
-                      <span>Program/Course</span>
-                      <select value={form.course} onChange={(event) => updateForm('course', event.target.value)}>
-                        <option value="">Any program</option>
-                        {courseOptions.map((option) => <option key={option.value} value={option.value}>{option.fullLabel}</option>)}
+                      <span>Subject Type / Category</span>
+                      <select value={form.subjectType} onChange={(event) => updateForm('subjectType', event.target.value)}>
+                        {subjectTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                       </select>
                     </label>
                     <label>
-                      <span>Year Level</span>
-                      <select value={form.yearLevel} onChange={(event) => updateForm('yearLevel', event.target.value)}>
-                        <option value="">Any year</option>
-                        {[1, 2, 3, 4, 5].map((level) => <option key={level} value={level}>{level}</option>)}
-                      </select>
+                      <span>Lecture Periods</span>
+                      <input type="number" min={0} step={1} value={form.lecturePeriods} onChange={(event) => updateForm('lecturePeriods', event.target.value)} />
                     </label>
                     <label>
-                      <span>Semester</span>
-                      <select value={form.semester} onChange={(event) => updateForm('semester', event.target.value as Semester)}>
-                        <option value="1st">1st</option>
-                        <option value="2nd">2nd</option>
-                        <option value="Summer">Summer</option>
+                      <span>Lab / Field Periods</span>
+                      <input type="number" min={0} step={1} value={form.labPeriods} onChange={(event) => updateForm('labPeriods', event.target.value)} />
+                    </label>
+                    <label>
+                      <span>Status</span>
+                      <select value={form.status} onChange={(event) => updateForm('status', event.target.value)}>
+                        <option value="Active">Active</option>
+                        <option value="Inactive">Inactive</option>
                       </select>
                     </label>
                   </div>
@@ -316,16 +387,55 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
                         <dd>{form.units || '0'}</dd>
                       </div>
                       <div>
-                        <dt>Program</dt>
-                        <dd>{selectedProgram?.label || 'Any program'}</dd>
+                        <dt>Type</dt>
+                        <dd>{form.subjectType}</dd>
                       </div>
                       <div>
-                        <dt>Year/Semester</dt>
-                        <dd>{form.yearLevel || 'Any'} / {form.semester}</dd>
+                        <dt>Lecture / Lab</dt>
+                        <dd>{form.lecturePeriods || '0'} / {form.labPeriods || '0'}</dd>
+                      </div>
+                      <div>
+                        <dt>Status</dt>
+                        <dd>{form.status}</dd>
                       </div>
                     </dl>
                   </div>
                 </div>
+
+                <div className="subject-prereq-field">
+                  <span className="subject-prereq-label">Prerequisites</span>
+                  <div className="subject-prereq-chips">
+                    {selectedPrerequisites.length === 0 && <span className="subject-prereq-empty">None</span>}
+                    {selectedPrerequisites.map((prereq) => (
+                      <span key={prereq._id} className="subject-prereq-chip">
+                        {prereq.code}
+                        <button type="button" onClick={() => removePrerequisite(prereq._id)} aria-label={`Remove ${prereq.code}`}>
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <label className="subject-search-field subject-prereq-search">
+                    <Search size={14} />
+                    <input
+                      value={prereqSearch}
+                      onChange={(event) => setPrereqSearch(event.target.value)}
+                      placeholder="Search subject code or title to add as prerequisite"
+                    />
+                  </label>
+                  {prereqSearch.trim() && prerequisiteCandidates.length > 0 && (
+                    <ul className="subject-prereq-suggestions">
+                      {prerequisiteCandidates.map((candidate) => (
+                        <li key={candidate._id}>
+                          <button type="button" onClick={() => togglePrerequisite(candidate._id)}>
+                            <strong>{candidate.code}</strong> {candidate.title}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
                 <div className="block-wizard-actions">
                   {isEditing ? (
                     <button className="registrar-btn registrar-btn-secondary" type="button" onClick={resetForm}>
@@ -346,12 +456,14 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
                   <h3>Review Subject</h3>
                 </div>
                 <div className="block-wizard-review">
-                  <div><span>Code</span><strong>{normalizedCode}</strong></div>
-                  <div><span>Title</span><strong>{normalizedTitle}</strong></div>
+                  <div><span>Course No.</span><strong>{normalizedCode}</strong></div>
+                  <div><span>Descriptive Title</span><strong>{normalizedTitle}</strong></div>
                   <div><span>Units</span><strong>{normalizedUnits}</strong></div>
-                  <div><span>Program</span><strong>{selectedProgram?.fullLabel || 'Any program'}</strong></div>
-                  <div><span>Year Level</span><strong>{form.yearLevel || 'Any year'}</strong></div>
-                  <div><span>Semester</span><strong>{form.semester}</strong></div>
+                  <div><span>Subject Type</span><strong>{form.subjectType}</strong></div>
+                  <div><span>Lecture Periods</span><strong>{normalizedLecturePeriods}</strong></div>
+                  <div><span>Lab / Field Periods</span><strong>{normalizedLabPeriods}</strong></div>
+                  <div><span>Status</span><strong>{form.status}</strong></div>
+                  <div><span>Prerequisites</span><strong>{selectedPrerequisites.length ? selectedPrerequisites.map((p) => p.code).join(', ') : 'None'}</strong></div>
                 </div>
                 <div className="block-wizard-actions">
                   <button className="registrar-btn registrar-btn-secondary" type="button" onClick={() => setWizardStep(1)}>
@@ -404,39 +516,35 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
             <option value="archived">Archived</option>
             <option value="all">All</option>
           </select>
-          <select value={courseFilter} onChange={(event) => setCourseFilter(event.target.value)}>
-            <option value="">All programs</option>
-            {courseOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-          <select value={yearFilter} onChange={(event) => setYearFilter(event.target.value)}>
-            <option value="">All years</option>
-            {[1, 2, 3, 4, 5].map((level) => <option key={level} value={level}>{level}</option>)}
-          </select>
-          <select value={semesterFilter} onChange={(event) => setSemesterFilter(event.target.value)}>
-            <option value="">All semesters</option>
-            <option value="1st">1st</option>
-            <option value="2nd">2nd</option>
-            <option value="Summer">Summer</option>
+          <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+            <option value="">All types</option>
+            {subjectTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
           </select>
         </div>
 
-        <div className="subject-table">
-          <div className="subject-table-header subject-management-table-row">
-            <span>Code</span>
-            <span>Title</span>
-            <span>Program</span>
-            <span>Year</span>
-            <span>Units</span>
+        <div className="subject-table subject-management-table">
+          <div className="subject-table-header subject-management-table-row" role="row">
+            <button type="button" className="subject-sort-btn" onClick={() => toggleSort('code')}>Course No.{sortIndicator('code')}</button>
+            <button type="button" className="subject-sort-btn" onClick={() => toggleSort('title')}>Descriptive Title{sortIndicator('title')}</button>
+            <button type="button" className="subject-sort-btn" onClick={() => toggleSort('units')}>Units{sortIndicator('units')}</button>
+            <button type="button" className="subject-sort-btn" onClick={() => toggleSort('lecturePeriods')}>Lecture{sortIndicator('lecturePeriods')}</button>
+            <button type="button" className="subject-sort-btn" onClick={() => toggleSort('labPeriods')}>Lab / Field{sortIndicator('labPeriods')}</button>
+            <button type="button" className="subject-sort-btn" onClick={() => toggleSort('status')}>Status{sortIndicator('status')}</button>
             <span>Actions</span>
           </div>
           <div className="subject-table-body">
-            {filteredSubjects.map((subject) => (
+            {pagedSubjects.map((subject) => (
               <div key={subject._id} className="subject-table-row subject-management-table-row">
-                <span>{subject.code}</span>
-                <span>{subject.title}</span>
-                <span>{courseLabel(subject.course)}</span>
-                <span>{subject.yearLevel || 'Any'}</span>
+                <span className="subject-cell-code" title={subject.code}>{subject.code}</span>
+                <span className="subject-cell-title" title={subject.title}>{subject.title}</span>
                 <span>{subject.units}</span>
+                <span>{subject.lecturePeriods ?? 0}</span>
+                <span>{subject.labPeriods ?? 0}</span>
+                <span>
+                  <span className={`subject-status-badge ${subject.isActive === false ? 'inactive' : 'active'}`}>
+                    {subject.isActive === false ? 'Inactive' : (subject.status || 'Active')}
+                  </span>
+                </span>
                 <span className="subject-cell-actions">
                   <button type="button" className="subject-action-btn edit" onClick={() => beginEdit(subject)}>
                     <Pencil size={14} />
@@ -456,6 +564,17 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
           </div>
         </div>
         {filteredSubjects.length === 0 && <p className="assignment-empty-copy">No subjects match the current filters.</p>}
+        {totalPages > 1 && (
+          <div className="subject-pagination">
+            <button type="button" className="registrar-btn registrar-btn-secondary" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+              <ChevronLeft size={14} /> Prev
+            </button>
+            <span>Page {page} of {totalPages}</span>
+            <button type="button" className="registrar-btn registrar-btn-secondary" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
+              Next <ChevronRight size={14} />
+            </button>
+          </div>
+        )}
       </section>
     </div>
   )

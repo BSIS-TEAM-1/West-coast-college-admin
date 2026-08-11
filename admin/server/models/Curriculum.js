@@ -2,6 +2,15 @@ const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
 const curriculumSchema = new Schema({
+  name: {
+    type: String,
+    trim: true,
+  },
+  code: {
+    type: String,
+    trim: true,
+    uppercase: true,
+  },
   programCode: {
     type: Number,
     required: true,
@@ -23,11 +32,15 @@ const curriculumSchema = new Schema({
   },
   status: {
     type: String,
-    enum: ['Active', 'Legacy', 'Draft'],
+    enum: ['Draft', 'Active', 'Legacy', 'Archived'],
     default: 'Draft',
     index: true,
   },
-  // Subjects that belong to this curriculum version
+  description: {
+    type: String,
+    trim: true,
+  },
+  // DEPRECATED: Use CurriculumSubject model instead. Kept for backward compatibility.
   subjects: [{
     subjectId: {
       type: Schema.Types.ObjectId,
