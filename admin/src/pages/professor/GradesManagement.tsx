@@ -30,6 +30,8 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
   const [message, setMessage] = useState('')
   const [messageTone, setMessageTone] = useState<'info' | 'error'>('info')
   const [pendingFocusStudentId, setPendingFocusStudentId] = useState('')
+  const [submittingGrades, setSubmittingGrades] = useState(false)
+  const [gradeSubmissionStatus, setGradeSubmissionStatus] = useState<string>('Draft')
   const gradeInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   const formatCourseLabel = (value: string | number) => {
@@ -413,6 +415,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
 
     const rawGrade = String(gradeDrafts[student._id] ?? '').trim()
     const nextGrade = rawGrade === '' ? null : Number(rawGrade)
+
     if (nextGrade !== null && (!Number.isFinite(nextGrade) || nextGrade < 1 || nextGrade > 5)) {
       setMessageTone('error')
       setMessage(`Invalid grade for ${getName(student)}. Use 1.0 to 5.0, or leave it blank.`)
@@ -426,6 +429,13 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
         throw new Error('You are not logged in.')
       }
 
+      const body: Record<string, any> = {
+        remarks: String(remarkDrafts[student._id] ?? ''),
+        semester: selectedClass.semester,
+        schoolYear: selectedClass.schoolYear
+      }
+      body.grade = nextGrade
+
       const response = await fetchWithAutoReconnect(
         `${API_URL}/api/professor/sections/${selectedClass.sectionId}/subjects/${selectedClass.subjectId}/students/${student._id}/grade`,
         {
@@ -434,12 +444,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({
-            grade: nextGrade,
-            remarks: String(remarkDrafts[student._id] ?? ''),
-            semester: selectedClass.semester,
-            schoolYear: selectedClass.schoolYear
-          })
+          body: JSON.stringify(body)
         }
       )
 
@@ -469,6 +474,9 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
         ...current,
         [student._id]: String(updated?.remarks || '')
       }))
+      if (updated?.gradeSubmissionStatus) {
+        setGradeSubmissionStatus(updated.gradeSubmissionStatus)
+      }
       setMessageTone('info')
       setMessage(`Published grade for ${getName(student)}.`)
     } catch (saveError) {
@@ -480,6 +488,43 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
       )
     } finally {
       setSavingStudentIds((current) => current.filter((value) => value !== student._id))
+    }
+  }
+
+  const submitGradesForReview = async () => {
+    if (!selectedClass || students.length === 0) return
+    const enrollmentId = students[0]?.enrollmentId
+    if (!enrollmentId) {
+      setMessageTone('error')
+      setMessage('No enrollment found for this class.')
+      return
+    }
+    const ungraded = students.filter(s => s.subjectStatus !== 'Dropped' && !s.currentGrade && !gradeDrafts[s._id])
+    if (ungraded.length > 0) {
+      setMessageTone('error')
+      setMessage(`${ungraded.length} student(s) still need grades before submission.`)
+      return
+    }
+    if (!confirm('Submit all grades for this class for registrar review? You will not be able to edit grades after submission.')) return
+
+    setSubmittingGrades(true)
+    try {
+      const token = await getStoredToken()
+      if (!token) throw new Error('You are not logged in.')
+      const response = await fetchWithAutoReconnect(
+        `${API_URL}/api/professor/grade-submissions/${enrollmentId}/submit`,
+        { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } }
+      )
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.error || 'Failed to submit grades.')
+      setGradeSubmissionStatus('Submitted')
+      setMessageTone('info')
+      setMessage('Grades submitted for registrar review.')
+    } catch (e: any) {
+      setMessageTone('error')
+      setMessage(e.message || 'Failed to submit grades.')
+    } finally {
+      setSubmittingGrades(false)
     }
   }
 
@@ -594,6 +639,38 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
             <Download size={14} />
             Export Grades
           </button>
+          <button
+            type="button"
+            className="professor-btn"
+            onClick={async () => {
+              if (!selectedClass) return
+              try {
+                const token = await getStoredToken()
+                if (!token) throw new Error('You are not logged in.')
+                const params = new URLSearchParams()
+                if (selectedClass.semester) params.set('semester', selectedClass.semester)
+                if (selectedClass.schoolYear) params.set('schoolYear', selectedClass.schoolYear)
+                const response = await fetch(`${API_URL}/api/registrar/sections/${selectedClass.sectionId}/subjects/${selectedClass.subjectId}/grade-sheet?${params.toString()}`, {
+                  headers: { Authorization: `Bearer ${token}` }
+                })
+                if (!response.ok) {
+                  const data = await response.json().catch(() => ({}))
+                  throw new Error(data?.error || 'Failed to generate grade sheet')
+                }
+                const blob = await response.blob()
+                const url = window.URL.createObjectURL(blob)
+                window.open(url, '_blank', 'noopener')
+                window.setTimeout(() => window.URL.revokeObjectURL(url), 30000)
+              } catch (e: any) {
+                setMessageTone('error')
+                setMessage(e.message || 'Failed to generate grade sheet')
+              }
+            }}
+            disabled={students.length === 0}
+          >
+            <Download size={14} />
+            Grade Sheet (PDF)
+          </button>
         </div>
       </div>
 
@@ -631,7 +708,45 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
               <span>Average Grade</span>
               <strong>{averageGrade}</strong>
             </div>
+            <div className="professor-summary-card">
+              <span>Submission Status</span>
+              <strong style={{ fontSize: '0.85rem' }}>{gradeSubmissionStatus}</strong>
+            </div>
           </div>
+
+          {gradeSubmissionStatus === 'Draft' && students.length > 0 && (
+            <div style={{ marginTop: '0.75rem' }}>
+              <button
+                type="button"
+                className="professor-btn-xs"
+                style={{ background: '#3730a3', color: '#fff', padding: '0.5rem 1.25rem' }}
+                onClick={() => void submitGradesForReview()}
+                disabled={submittingGrades || pendingCount > 0}
+              >
+                {submittingGrades ? 'Submitting...' : 'Submit Grades for Review'}
+              </button>
+              {pendingCount > 0 && (
+                <span style={{ marginLeft: '0.75rem', fontSize: '0.8125rem', color: '#b45309' }}>
+                  All students must be graded before submission.
+                </span>
+              )}
+            </div>
+          )}
+          {gradeSubmissionStatus === 'Submitted' && (
+            <div style={{ marginTop: '0.75rem', padding: '0.625rem 0.875rem', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '0.375rem', fontSize: '0.8125rem', color: '#b45309' }}>
+              Grades have been submitted for registrar review. Editing is locked until approved or rejected.
+            </div>
+          )}
+          {gradeSubmissionStatus === 'Approved' && (
+            <div style={{ marginTop: '0.75rem', padding: '0.625rem 0.875rem', background: '#dcfce7', border: '1px solid #bbf7d0', borderRadius: '0.375rem', fontSize: '0.8125rem', color: '#15803d' }}>
+              Grades have been approved and are final.
+            </div>
+          )}
+          {gradeSubmissionStatus === 'Rejected' && (
+            <div style={{ marginTop: '0.75rem', padding: '0.625rem 0.875rem', background: '#fee2e2', border: '1px solid #fecaca', borderRadius: '0.375rem', fontSize: '0.8125rem', color: '#b91c1c' }}>
+              Grades were rejected. Please review and resubmit.
+            </div>
+          )}
         </>
       )}
 
@@ -683,15 +798,15 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
           <tbody>
             {studentsLoading ? (
               <tr>
-                <td colSpan={9}>Loading grades...</td>
+                <td colSpan={10}>Loading grades...</td>
               </tr>
             ) : studentsError ? (
               <tr>
-                <td colSpan={9} className="professor-data-error">{studentsError}</td>
+                <td colSpan={10} className="professor-data-error">{studentsError}</td>
               </tr>
             ) : currentPageStudents.length === 0 ? (
               <tr>
-                <td colSpan={9}>No students matched the current filters.</td>
+                <td colSpan={10}>No students matched the current filters.</td>
               </tr>
             ) : (
               currentPageStudents.map((student) => {
@@ -721,6 +836,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                             }))
                           }}
                           placeholder="1.00"
+                          disabled={gradeSubmissionStatus === 'Submitted' || gradeSubmissionStatus === 'Approved'}
                         />
                         <div className="professor-grade-cell-actions">
                           <button
