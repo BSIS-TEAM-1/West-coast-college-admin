@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'app_colors.dart';
 import 'app_text_styles.dart';
 import 'app_dimensions.dart';
+import 'theme_colors.dart';
 
 class AppTheme {
   // Light Theme (Matching Admin System)
@@ -12,6 +13,7 @@ class AppTheme {
         seedColor: AppColors.primary,
         brightness: Brightness.light,
       ),
+      extensions: const [ThemeColors.light],
       scaffoldBackgroundColor: AppColors.background,
       fontFamily: 'system-ui',
       appBarTheme: _buildAppBarTheme(
@@ -19,7 +21,7 @@ class AppTheme {
         foregroundColor: AppColors.onPrimary,
       ),
       bottomNavigationBarTheme: _buildBottomNavTheme(
-        selectedColor: AppColors.primary,
+        selectedColor: AppColors.gold,
         backgroundColor: AppColors.surface,
         unselectedColor: AppColors.textMuted,
       ),
@@ -99,6 +101,7 @@ class AppTheme {
         seedColor: AppColors.primary,
         brightness: Brightness.dark,
       ),
+      extensions: const [ThemeColors.dark],
       scaffoldBackgroundColor: const Color(0xFF121212),
       fontFamily: 'system-ui',
       appBarTheme: _buildAppBarTheme(
@@ -106,7 +109,7 @@ class AppTheme {
         foregroundColor: const Color(0xFFFFFFFF),
       ),
       bottomNavigationBarTheme: _buildBottomNavTheme(
-        selectedColor: const Color(0xFFD4AF37),
+        selectedColor: AppColors.goldLight,
         backgroundColor: const Color(0xFF1E1E1E),
         unselectedColor: const Color(0xFF999999),
       ),
@@ -118,7 +121,7 @@ class AppTheme {
         color: const Color(0xFF1E1E1E),
       ),
       elevatedButtonTheme: _buildElevatedButtonTheme(
-        backgroundColor: const Color(0xFFD4AF37),
+        backgroundColor: AppColors.goldLight,
         foregroundColor: AppColors.primary,
       ),
       textButtonTheme: _buildTextButtonTheme(
@@ -132,7 +135,7 @@ class AppTheme {
       inputDecorationTheme: _buildInputDecorationTheme(
         fillColor: const Color(0xFF2A2A2A),
         borderColor: const Color(0xFF333333),
-        focusColor: const Color(0xFFD4AF37),
+        focusColor: AppColors.goldLight,
         errorColor: const Color(0xFFCF6679),
         textColor: const Color(0xFFFFFFFF),
         hintColor: const Color(0xFF999999),
