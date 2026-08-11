@@ -126,6 +126,20 @@ body {
   background-color: var(--color-bg);
 }
 
+/* Make native <select> dropdown options match the active theme instead of
+   using the OS-default dark blue hover. */
+select option {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+select option:checked,
+select option:hover,
+select option:focus {
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface));
+  color: var(--color-text);
+}
+
 h1 {
   font-size: 3.2em;
   line-height: 1.1;

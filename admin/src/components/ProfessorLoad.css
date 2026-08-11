@@ -1714,3 +1714,598 @@
     width: 100%;
   }
 }
+
+/* ─── Refactored Professor Load ─── */
+
+/* Spinning refresh icon */
+.spinning {
+  animation: professor-load-spin 0.8s linear infinite;
+}
+
+@keyframes professor-load-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Stats bar */
+.professor-load-stats-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+}
+
+.professor-load-stat-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.professor-load-stat-card--alert {
+  border: 2px solid color-mix(in srgb, var(--color-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+  cursor: pointer;
+}
+
+.professor-load-stat-card--alert:hover {
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.15);
+}
+
+.professor-load-stat-icon-circle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+.professor-load-stat-icon-circle--alert {
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  color: color-mix(in srgb, var(--color-primary) 80%, #d97706);
+}
+
+.professor-load-stat-card > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.professor-load-stat-card strong {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.1;
+}
+
+.professor-load-stat-card--alert strong {
+  color: color-mix(in srgb, var(--color-primary) 70%, #d97706);
+}
+
+.professor-load-stat-card span {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+/* Attention panel */
+.professor-load-attention-panel {
+  background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 25%, transparent);
+  border-radius: 0.5rem;
+  padding: 0.85rem 1rem;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  position: relative;
+  overflow: hidden;
+}
+
+.professor-load-attention-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px;
+  height: 100%;
+  background: color-mix(in srgb, var(--color-primary) 50%, transparent);
+}
+
+.professor-load-attention-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
+}
+
+.professor-load-attention-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.professor-load-attention-title h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.professor-load-attention-title svg {
+  color: color-mix(in srgb, var(--color-primary) 60%, #d97706);
+}
+
+.professor-load-attention-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary) 50%, transparent);
+  color: var(--color-on-primary, #fff);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.professor-load-attention-close {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.35rem;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.professor-load-attention-close:hover {
+  background: color-mix(in srgb, var(--color-border) 30%, var(--color-surface));
+}
+
+.professor-load-attention-scroll {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.4rem;
+  scroll-snap-type: x mandatory;
+}
+
+.professor-load-attention-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 280px;
+  flex-shrink: 0;
+  scroll-snap-align: start;
+  padding: 0.65rem 0.8rem;
+  background: var(--color-surface);
+  border: 1px solid color-mix(in srgb, #dc2626 15%, var(--color-border));
+  border-radius: 0.4rem;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.professor-load-attention-card:hover {
+  border-color: color-mix(in srgb, #dc2626 40%, var(--color-border));
+}
+
+.professor-load-attention-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px;
+  height: 100%;
+}
+
+.professor-load-attention-card--tba::before { background: #dc2626; }
+.professor-load-attention-card--unmatched::before { background: #f59e0b; }
+.professor-load-attention-card--orphaned::before { background: #8b5cf6; }
+
+.professor-load-attention-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.professor-load-attention-card-id {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.professor-load-attention-card-id strong {
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--color-text);
+}
+
+.professor-load-attention-card-title {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+}
+
+.professor-load-attention-card-meta {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.professor-load-attention-badge {
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.3rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.professor-load-attention-card--tba .professor-load-attention-badge {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.professor-load-attention-card--unmatched .professor-load-attention-badge {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.professor-load-attention-card--orphaned .professor-load-attention-badge {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+/* Toolbar */
+.professor-load-toolbar {
+  grid-template-columns: minmax(200px, 1.4fr) repeat(auto-fit, minmax(120px, 1fr)) auto auto;
+}
+
+.professor-load-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.55rem;
+  padding: 0 0.2rem;
+  color: var(--color-text-secondary);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.professor-load-checkbox input {
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+}
+
+/* Filter summary */
+.professor-load-filter-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.professor-load-clear-filters {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 0.35rem;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.professor-load-clear-filters:hover {
+  background: var(--color-surface);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+/* Empty state */
+.professor-load-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 2.5rem 1rem;
+  color: var(--color-text-muted);
+}
+
+.professor-load-empty-state svg {
+  opacity: 0.4;
+}
+
+/* Professor card */
+.professor-load-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.professor-load-card--expanded {
+  border-color: var(--color-primary);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+}
+
+.professor-load-card--empty {
+  opacity: 0.72;
+}
+
+.professor-load-card-main {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 0.5rem;
+}
+
+.professor-load-card-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  border: none;
+  background: none;
+  border-radius: 0.35rem;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  transition: background 0.15s, color 0.15s;
+}
+
+.professor-load-card-toggle:hover:not(:disabled) {
+  background: var(--color-bg-soft, #f3f4f6);
+  color: var(--color-text);
+}
+
+.professor-load-card-toggle:disabled {
+  cursor: default;
+  opacity: 0.3;
+}
+
+.professor-load-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
+  color: color-mix(in srgb, var(--color-primary) 70%, var(--color-text));
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.professor-load-card--empty .professor-load-avatar {
+  background: color-mix(in srgb, var(--color-text-muted) 12%, var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-text-muted) 20%, transparent);
+  color: var(--color-text-muted);
+}
+
+.professor-load-chevron {
+  transition: transform 0.2s ease;
+}
+
+.professor-load-chevron--open {
+  transform: rotate(180deg);
+}
+
+.professor-load-chevron--disabled {
+  opacity: 0.3;
+}
+
+.professor-load-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.professor-load-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.professor-load-badge--empty {
+  background: #f3f4f6;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.3rem;
+}
+
+.professor-load-card-metrics {
+  display: flex;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.professor-load-metric {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.professor-load-metric svg {
+  opacity: 0.6;
+}
+
+/* Expanded detail */
+.professor-load-card-detail {
+  border-top: 1px solid var(--color-border);
+  padding: 0.75rem 0.5rem 0.85rem 2.55rem;
+  background: color-mix(in srgb, var(--color-bg-soft, #f9fafb) 50%, transparent);
+}
+
+.professor-load-assignment-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.professor-load-assignment-table th {
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.professor-load-assignment-table td {
+  padding: 0.45rem 0.5rem;
+  border-bottom: 1px solid #f3f4f6;
+  vertical-align: top;
+}
+
+.professor-load-assignment-table tbody tr:hover {
+  background: var(--color-surface);
+}
+
+.professor-load-assignment-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.professor-load-assignment-title {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+}
+
+.professor-load-assignment-schedule,
+.professor-load-assignment-room,
+.professor-load-assignment-students {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.professor-load-assignment-schedule svg,
+.professor-load-assignment-room svg,
+.professor-load-assignment-students svg {
+  opacity: 0.55;
+}
+
+.professor-load-card-detail-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}
+
+.professor-load-detail-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.professor-load-detail-meta svg {
+  opacity: 0.55;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .professor-load-toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .professor-load-toolbar .registrar-course-search {
+    grid-column: 1 / -1;
+  }
+
+  .professor-load-checkbox {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 600px) {
+  .professor-load-stats-bar {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .professor-load-stat-card strong {
+    font-size: 1.1rem;
+  }
+
+  .professor-load-card-main {
+    grid-template-columns: auto auto 1fr;
+  }
+
+  .professor-load-card-main .registrar-professor-workspace-btn {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .professor-load-avatar {
+    width: 2.5rem;
+    height: 2.5rem;
+    font-size: 0.85rem;
+  }
+
+  .professor-load-assignment-table {
+    font-size: 0.75rem;
+  }
+
+  .professor-load-assignment-title {
+    max-width: 120px;
+  }
+
+  .professor-load-card-detail {
+    padding-left: 0.5rem;
+  }
+
+  .professor-load-attention-scroll {
+    flex-wrap: nowrap;
+  }
+}
