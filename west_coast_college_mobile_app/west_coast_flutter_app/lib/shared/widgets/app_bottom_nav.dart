@@ -35,7 +35,7 @@ class AppBottomNav extends StatelessWidget {
         NavigationDestination(
           icon: Icon(Icons.notifications_outlined),
           selectedIcon: Icon(Icons.notifications),
-          label: 'Alerts',
+          label: 'Notif',
         ),
         NavigationDestination(
           icon: Icon(Icons.person_outlined),

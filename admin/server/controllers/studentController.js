@@ -487,6 +487,28 @@ class StudentController {
         .sort({ isCurrent: -1, createdAt: -1 })
         .lean();
 
+      // Collect subjectIds referenced by enrollments so we can filter out
+      // entries whose Subject was archived (isActive:false) or hard-deleted.
+      const enrollmentSubjectIds = Array.from(
+        new Set(
+          enrollmentDocs.flatMap((enrollment) => (Array.isArray(enrollment.subjects) ? enrollment.subjects : []))
+            .map((entry) => entry?.subjectId)
+            .filter((id) => id && mongoose.Types.ObjectId.isValid(String(id)))
+            .map((id) => new mongoose.Types.ObjectId(String(id)))
+        )
+      );
+      const activeSubjectDocs = enrollmentSubjectIds.length > 0
+        ? await Subject.find({ _id: { $in: enrollmentSubjectIds }, isActive: { $ne: false } })
+            .select('_id')
+            .lean()
+        : [];
+      const activeSubjectIds = new Set(activeSubjectDocs.map((doc) => String(doc._id)));
+      const isEnrollmentSubjectActive = (subjectEntry) => {
+        const sid = String(subjectEntry?.subjectId || '').trim();
+        if (!sid) return true; // no subjectId link — keep legacy code-only entries
+        return activeSubjectIds.has(sid);
+      };
+
       if (enrollmentDocs.length === 0) {
         const payload = buildEmptyResponse();
         payload.data.filterOptions = filterOptions;
@@ -535,6 +557,7 @@ class StudentController {
         enrollment.subjects.forEach((subjectEntry) => {
           const subjectStatus = String(subjectEntry?.status || '').toLowerCase();
           if (subjectStatus === 'dropped' || subjectStatus === 'removed') return;
+          if (!isEnrollmentSubjectActive(subjectEntry)) return;
 
           const instructorRaw = String(subjectEntry?.instructor || '').trim();
           const normalizedInstructor = StudentController.normalizeProfessorIdentifier(instructorRaw);
@@ -608,6 +631,7 @@ class StudentController {
         enrollment.subjects.forEach((subjectEntry) => {
           const subjectStatus = String(subjectEntry?.status || '').toLowerCase();
           if (subjectStatus === 'dropped' || subjectStatus === 'removed') return;
+          if (!isEnrollmentSubjectActive(subjectEntry)) return;
 
           const instructorRaw = String(subjectEntry?.instructor || '').trim();
           const normalizedInstructor = StudentController.normalizeProfessorIdentifier(instructorRaw);
@@ -1468,19 +1492,6 @@ class StudentController {
 
       const requestedCorStatus = String(req.body?.corStatus || '').trim();
       const previousCorStatus = String(previous.corStatus || '').trim();
-      const requesterRole = String(req.accountType || '').trim().toLowerCase();
-
-      if (
-        requesterRole === 'registrar' &&
-        requestedCorStatus &&
-        requestedCorStatus !== previousCorStatus &&
-        requestedCorStatus === 'Verified'
-      ) {
-        return res.status(403).json({
-          success: false,
-          message: 'COR approval is only available on the admin side.'
-        });
-      }
 
       const hasAcademicChange =
         (req.body?.course !== undefined && Number(req.body.course) !== Number(previous.course)) ||
@@ -1513,6 +1524,9 @@ class StudentController {
         description += ' (academic change — block membership cleared)';
       }
 
+      const performedByRole = String(req.accountType || 'registrar').toLowerCase() === 'admin' ? 'admin' : 'registrar';
+      const corVerifiedTransition = requestedCorStatus === 'Verified' && previousCorStatus !== 'Verified';
+
       await AuditLog.create({
         action: 'UPDATE',
         resourceType: 'STUDENT',
@@ -1520,12 +1534,28 @@ class StudentController {
         resourceName: `${student.studentNumber} — ${student.lastName}, ${student.firstName}`,
         description,
         performedBy: req.adminId,
-        performedByRole: String(req.accountType || 'registrar').toLowerCase() === 'admin' ? 'admin' : 'registrar',
-        oldValue: { course: previous.course, yearLevel: previous.yearLevel, studentStatus: previous.studentStatus, enrollmentStatus: previous.enrollmentStatus, latestGrade: previous.latestGrade },
-        newValue: { course: student.course, yearLevel: student.yearLevel, studentStatus: student.studentStatus, enrollmentStatus: student.enrollmentStatus, latestGrade: student.latestGrade },
+        performedByRole,
+        oldValue: { course: previous.course, yearLevel: previous.yearLevel, studentStatus: previous.studentStatus, enrollmentStatus: previous.enrollmentStatus, latestGrade: previous.latestGrade, corStatus: previousCorStatus || 'Pending' },
+        newValue: { course: student.course, yearLevel: student.yearLevel, studentStatus: student.studentStatus, enrollmentStatus: student.enrollmentStatus, latestGrade: student.latestGrade, corStatus: student.corStatus || 'Pending' },
         status: 'SUCCESS',
         severity: hasAcademicChange ? 'HIGH' : 'MEDIUM',
       });
+
+      if (corVerifiedTransition) {
+        await AuditLog.create({
+          action: 'APPROVE',
+          resourceType: 'STUDENT',
+          resourceId: String(student._id),
+          resourceName: `${student.studentNumber} — ${student.lastName}, ${student.firstName}`,
+          description: `COR verified for ${student.studentNumber} (corStatus: ${previousCorStatus || 'Pending'} → Verified)`,
+          performedBy: req.adminId,
+          performedByRole,
+          oldValue: { corStatus: previousCorStatus || 'Pending' },
+          newValue: { corStatus: 'Verified' },
+          status: 'SUCCESS',
+          severity: 'HIGH',
+        });
+      }
 
       res.json({
         success: true,

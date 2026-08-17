@@ -493,8 +493,12 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
 
   const submitGradesForReview = async () => {
     if (!selectedClass || students.length === 0) return
-    const enrollmentId = students[0]?.enrollmentId
-    if (!enrollmentId) {
+
+    // Collect all unique enrollment IDs from students in this class
+    const enrollmentIds = [...new Set(
+      students.map(s => s.enrollmentId).filter((id): id is string => !!id)
+    )]
+    if (enrollmentIds.length === 0) {
       setMessageTone('error')
       setMessage('No enrollment found for this class.')
       return
@@ -511,15 +515,37 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
     try {
       const token = await getStoredToken()
       if (!token) throw new Error('You are not logged in.')
-      const response = await fetchWithAutoReconnect(
-        `${API_URL}/api/professor/grade-submissions/${enrollmentId}/submit`,
-        { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } }
-      )
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(payload?.error || 'Failed to submit grades.')
-      setGradeSubmissionStatus('Submitted')
-      setMessageTone('info')
-      setMessage('Grades submitted for registrar review.')
+
+      let succeeded = 0
+      let failed = 0
+      const errors: string[] = []
+
+      for (const enrollmentId of enrollmentIds) {
+        const response = await fetchWithAutoReconnect(
+          `${API_URL}/api/professor/grade-submissions/${enrollmentId}/submit`,
+          { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } }
+        )
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok) {
+          failed++
+          errors.push(payload?.error || `Enrollment ${enrollmentId} failed`)
+        } else {
+          succeeded++
+        }
+      }
+
+      if (succeeded > 0 && failed === 0) {
+        setGradeSubmissionStatus('Submitted')
+        setMessageTone('info')
+        setMessage(`Grades submitted for registrar review (${succeeded} enrollment${succeeded !== 1 ? 's' : ''}).`)
+      } else if (succeeded > 0 && failed > 0) {
+        setGradeSubmissionStatus('Submitted')
+        setMessageTone('error')
+        setMessage(`${succeeded} submitted, ${failed} failed: ${errors[0]}`)
+      } else {
+        setMessageTone('error')
+        setMessage(errors[0] || 'Failed to submit grades.')
+      }
     } catch (e: any) {
       setMessageTone('error')
       setMessage(e.message || 'Failed to submit grades.')

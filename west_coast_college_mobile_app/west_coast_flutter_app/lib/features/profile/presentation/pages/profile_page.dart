@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -51,7 +53,7 @@ class ProfilePage extends ConsumerWidget {
           child: ListView(
             padding: const EdgeInsets.all(AppDimensions.md),
             children: [
-              _ProfileHeader(profile: profile, colors: colors),
+              _ProfilePictureCard(profile: profile, colors: colors),
               const SizedBox(height: AppDimensions.lg),
               _SectionCard(
                 title: 'Academic Information',
@@ -140,31 +142,233 @@ class ProfilePage extends ConsumerWidget {
       };
 }
 
-class _ProfileHeader extends StatelessWidget {
-  const _ProfileHeader({required this.profile, required this.colors});
+/// Profile picture card. Students can upload a profile picture exactly once.
+/// Once set, the picture is locked and cannot be changed or removed from the
+/// mobile app. A clear warning message is shown before upload and a locked
+/// indicator is shown after.
+class _ProfilePictureCard extends ConsumerStatefulWidget {
+  const _ProfilePictureCard({required this.profile, required this.colors});
   final ProfileEntity profile;
   final ThemeColors colors;
 
   @override
+  ConsumerState<_ProfilePictureCard> createState() => _ProfilePictureCardState();
+}
+
+class _ProfilePictureCardState extends ConsumerState<_ProfilePictureCard> {
+  final ImagePicker _picker = ImagePicker();
+
+  bool get _hasPicture =>
+      widget.profile.profilePictureUrl != null && widget.profile.profilePictureUrl!.isNotEmpty;
+
+  Future<void> _pickAndUpload() async {
+    if (_hasPicture) return; // safety: UI also disables the action
+
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take a Photo'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_outlined),
+              title: const Text('Choose from Gallery'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return;
+
+    try {
+      final xfile = await _picker.pickImage(
+        source: source,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 85,
+      );
+      if (xfile == null) return;
+
+      final bytes = await xfile.readAsBytes();
+      if (bytes.lengthInBytes > 5 * 1024 * 1024) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Image is too large. Maximum 5MB allowed.'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      }
+
+      // Determine mime type
+      String mimeType = 'image/jpeg';
+      final path = xfile.name.toLowerCase();
+      if (path.endsWith('.png')) {
+        mimeType = 'image/png';
+      } else if (path.endsWith('.webp')) {
+        mimeType = 'image/webp';
+      }
+
+      final base64Str = base64Encode(bytes);
+
+      if (!mounted) return;
+      final ok = await ref
+          .read(profileControllerProvider.notifier)
+          .uploadProfilePicture(imageBase64: base64Str, mimeType: mimeType);
+
+      if (!mounted) return;
+      final state = ref.read(profileControllerProvider);
+      final msg = state is ProfileLoaded
+          ? (ok ? state.saveSuccess : state.saveError)
+          : null;
+      if (msg != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(msg),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: ok ? Colors.green.shade700 : Colors.red.shade700,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not pick image: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final colors = widget.colors;
+    final hasPicture = _hasPicture;
+
     return Container(
       padding: const EdgeInsets.all(AppDimensions.cardPadding),
       decoration: BoxDecoration(
         color: colors.surface,
-        borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
-        boxShadow: [BoxShadow(color: colors.divider.withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 2))],
+        borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+        border: Border.all(color: colors.border),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          StudentAvatar(name: profile.fullName.isEmpty ? profile.firstName : profile.fullName, size: 64),
-          const SizedBox(width: AppDimensions.md),
-          Expanded(
+          Row(
+            children: [
+              Icon(Icons.account_circle_outlined, color: colors.primary, size: 20),
+              const SizedBox(width: AppDimensions.sm),
+              Text(
+                'Profile Picture',
+                style: AppTextStyles.headlineSmall.copyWith(fontSize: 15, color: colors.textBold),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppDimensions.sm),
+          Divider(height: 1, color: colors.divider),
+          const SizedBox(height: AppDimensions.md),
+          Center(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(profile.fullName, style: AppTextStyles.titleLarge.copyWith(fontSize: 18, color: colors.textBold)),
-                const SizedBox(height: 2),
-                Text(profile.studentNumber, style: AppTextStyles.bodySmall.copyWith(color: colors.textMuted)),
+                Stack(
+                  children: [
+                    StudentAvatar(
+                      name: widget.profile.fullName.isEmpty
+                          ? widget.profile.firstName
+                          : widget.profile.fullName,
+                      size: 96,
+                      photoUrl: widget.profile.profilePictureUrl,
+                    ),
+                    if (hasPicture)
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: colors.surface,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: colors.border, width: 1.5),
+                          ),
+                          child: Icon(Icons.lock, size: 14, color: colors.textMuted),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: AppDimensions.md),
+                if (hasPicture) ...[
+                  Text(
+                    'Your profile picture is set.',
+                    style: AppTextStyles.bodyMedium.copyWith(color: colors.textPrimary),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: AppDimensions.xs),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.lock_outline, size: 14, color: colors.textMuted),
+                      const SizedBox(width: 4),
+                      Text(
+                        'This cannot be changed or removed.',
+                        style: AppTextStyles.caption.copyWith(color: colors.textMuted),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                  Text(
+                    'No profile picture set.',
+                    style: AppTextStyles.bodyMedium.copyWith(color: colors.textPrimary),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: AppDimensions.xs),
+                  // Warning message — one-time only
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(AppDimensions.sm),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade50,
+                      borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
+                      border: Border.all(color: Colors.amber.shade300, width: 1),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.warning_amber_rounded, size: 18, color: Colors.amber.shade800),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'You can only upload a profile picture once. After uploading, it cannot be changed or removed. Please choose carefully.',
+                            style: AppTextStyles.caption.copyWith(
+                              color: Colors.amber.shade900,
+                              height: 1.3,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppDimensions.md),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _pickAndUpload,
+                      icon: const Icon(Icons.add_a_photo_outlined, size: 18),
+                      label: const Text('Add Profile Picture'),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

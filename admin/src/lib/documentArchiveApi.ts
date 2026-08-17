@@ -93,11 +93,7 @@ export type ArchiveDocumentUploadPayload = {
   category: DocumentCategory
   subcategory?: string
   folderId?: string
-  fileName: string
-  originalFileName: string
-  mimeType: string
-  fileSize: number
-  fileData: string
+  file: File
   version?: string
   isPublic?: boolean
   allowedRoles?: string[]
@@ -399,15 +395,33 @@ export async function getArchiveDocument(documentId: string): Promise<ArchiveDoc
 }
 
 export async function uploadArchiveDocument(payload: ArchiveDocumentUploadPayload): Promise<ArchiveDocument> {
-  const response = await requestJson<{ document: ArchiveDocument }>(
-    '/api/admin/documents',
-    {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }
-  )
+  const formData = new FormData()
+  formData.append('file', payload.file)
+  formData.append('title', payload.title)
+  if (payload.description) formData.append('description', payload.description)
+  formData.append('category', payload.category)
+  if (payload.subcategory) formData.append('subcategory', payload.subcategory)
+  if (payload.folderId) formData.append('folderId', payload.folderId)
+  if (payload.version) formData.append('version', payload.version)
+  if (payload.isPublic !== undefined) formData.append('isPublic', String(payload.isPublic))
+  if (payload.allowedRoles) payload.allowedRoles.forEach(r => formData.append('allowedRoles', r))
+  if (payload.tags) payload.tags.forEach(t => formData.append('tags', t))
+  if (payload.effectiveDate) formData.append('effectiveDate', payload.effectiveDate)
+  if (payload.expiryDate) formData.append('expiryDate', payload.expiryDate)
+  if (payload.status) formData.append('status', payload.status)
 
-  return response.document
+  const token = await getStoredToken()
+  if (!token) throw new Error('Authentication required')
+  const response = await fetch(`${API_URL}/api/admin/documents`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  })
+  const json = await response.json().catch(() => ({}))
+  if (!response.ok || json.success === false) {
+    throw new Error(json.error || `Request failed (${response.status})`)
+  }
+  return json.document as ArchiveDocument
 }
 
 export async function updateArchiveDocument(documentId: string, payload: ArchiveDocumentUpdatePayload): Promise<ArchiveDocument> {

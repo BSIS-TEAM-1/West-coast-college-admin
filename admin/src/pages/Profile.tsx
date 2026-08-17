@@ -827,27 +827,13 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
                   id="phone"
                   name="phone"
                   type="tel"
-                  className={`profile-input ${showPhoneActionButton ? 'profile-input-has-action' : ''}`}
+                  className="profile-input"
                   value={formData.phone}
                   onChange={handleChange}
                   autoComplete="tel"
                   placeholder="09XXXXXXXXX"
-                  readOnly={phoneInputLocked}
                 />
-                {showPhoneActionButton && (
-                  <button
-                    type="button"
-                    className="profile-input-action-btn"
-                    onClick={handlePhoneAction}
-                    disabled={saving || updatingPrimaryLogin || sendingPhoneCode || sendingEmailCode || confirmingVerificationCode}
-                  >
-                    {activePhoneIsVerified ? 'Edit' : (sendingPhoneCode ? 'Sending...' : 'Verify')}
-                  </button>
-                )}
               </div>
-              <p className={`profile-verify-hint ${activePhoneIsVerified ? 'verified' : 'unverified'}`}>
-                {phoneVerificationHint}
-              </p>
             </div>
 
             <div className="profile-actions">

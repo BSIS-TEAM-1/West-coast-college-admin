@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Users, Blocks, FolderOpen, UserPlus, Plus, TrendingUp, LayoutGrid, List, Archive, ClipboardCheck } from 'lucide-react'
+import { User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Users, Blocks, FolderOpen, UserPlus, Plus, TrendingUp, LayoutGrid, List, Archive, ClipboardCheck, CheckCircle2, ChevronDown } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
@@ -9,7 +9,6 @@ import Announcements from './Announcements'
 import AnnouncementDetail from './AnnouncementDetail'
 import PersonalDetails from './PersonalDetails'
 import CorGeneration from './CorGeneration'
-import AcademicArchivePage from './registrar/AcademicArchivePage'
 import StudentManagement from '../components/StudentManagement'
 import ProfessorLoad from '../components/ProfessorLoad'
 import RegistrarCourseWorkspace, { type RegistrarCourseWorkspaceSelection } from '../components/RegistrarCourseWorkspace'
@@ -27,6 +26,7 @@ import SubjectManagementPage from './registrar/SubjectManagementPage'
 import CurriculumManagementLayout from './registrar/CurriculumManagementLayout'
 import CurriculumDetailsPage from './registrar/CurriculumDetailsPage'
 import GradeSubmissionReviewPage from './registrar/GradeSubmissionReviewPage'
+import DocumentManagementPage from './registrar/DocumentManagementPage'
 import StudentWizard from '../components/AddStudent/StudentWizard'
 import './RegistrarDashboard.css'
 
@@ -49,23 +49,47 @@ type RegistrarDashboardProps = {
   initialProfile?: ProfileResponse | null
 }
 
-const REGISTRAR_NAV_ITEMS: { id: RegistrarView; label: string; icon: any }[] = [
-  { id: 'applicants', label: 'Applicants', icon: UserPlus },
-  { id: 'students', label: 'Student Management', icon: GraduationCap },
-  { id: 'block-overview', label: 'Block Overview', icon: Blocks },
-  { id: 'curriculum-management', label: 'Curriculums', icon: BookOpen },
-  { id: 'subject-management', label: 'Subject Catalog', icon: BookOpen },
-  { id: 'courses', label: 'Professor Loads', icon: BookOpen },
-  { id: 'grade-submissions', label: 'Grade Submissions', icon: ClipboardCheck },
-  { id: 'documents', label: 'Academic Archive', icon: FolderOpen },
-  { id: 'announcements', label: 'Announcements', icon: Bell },
-  { id: 'reports', label: 'Reports', icon: FileText },
-  { id: 'profile', label: 'Profile', icon: User },
-  { id: 'settings', label: 'Settings', icon: SettingsIcon },
+type RegistrarNavItem = { id: RegistrarView; label: string; icon: any }
+
+const REGISTRAR_NAV_SECTIONS: { label: string; items: RegistrarNavItem[] }[] = [
+  {
+    label: 'People',
+    items: [
+      { id: 'applicants', label: 'Applicants', icon: UserPlus },
+      { id: 'students', label: 'Student Management', icon: GraduationCap },
+    ],
+  },
+  {
+    label: 'Academic',
+    items: [
+      { id: 'block-overview', label: 'Block Overview', icon: Blocks },
+      { id: 'curriculum-management', label: 'Curriculums', icon: BookOpen },
+      { id: 'subject-management', label: 'Subject Catalog', icon: BookOpen },
+      { id: 'courses', label: 'Professor Loads', icon: BookOpen },
+      { id: 'grade-submissions', label: 'Grade Submissions', icon: ClipboardCheck },
+      { id: 'cor-docs', label: 'COR Generation', icon: CheckCircle2 },
+    ],
+  },
+  {
+    label: 'Records',
+    items: [
+      { id: 'documents', label: 'Documents', icon: FolderOpen },
+      { id: 'announcements', label: 'Announcements', icon: Bell },
+      { id: 'reports', label: 'Reports', icon: FileText },
+    ],
+  },
+  {
+    label: 'Account',
+    items: [
+      { id: 'profile', label: 'Profile', icon: User },
+      { id: 'settings', label: 'Settings', icon: SettingsIcon },
+    ],
+  },
 ]
 
 export default function RegistrarDashboard({ username, onLogout, onProfileUpdated, initialProfile = null }: RegistrarDashboardProps) {
   const [view, setView] = useState<RegistrarView>('applicants')
+  const [expandedNavId, setExpandedNavId] = useState<RegistrarView | null>(null)
   const [profile, setProfile] = useState<ProfileResponse | null>(initialProfile)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string | null>(null)
@@ -220,7 +244,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
       case 'grade-submissions':
         return <GradeSubmissionReviewPage onBack={() => setView('applicants')} />
       case 'documents':
-        return <AcademicArchivePage />
+        return <DocumentManagementPage />
       case 'reports':
         return <ReportsDashboard />
       case 'profile':
@@ -281,7 +305,10 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
         </div>
 
         <nav className="registrar-sidebar-nav" aria-label="Registrar navigation">
-          {REGISTRAR_NAV_ITEMS.map(({ id, label, icon: Icon }) => {
+          {REGISTRAR_NAV_SECTIONS.map((section) => (
+            <div key={section.label} className="registrar-sidebar-section">
+              <div className="registrar-sidebar-section-label">{section.label}</div>
+              {section.items.map(({ id, label, icon: Icon }) => {
             const isActive = (
               view === id
               || (id === 'courses' && view === 'course-workspace')
@@ -294,10 +321,12 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
             const isSubjectManagement = id === 'subject-management'
             const isStudentManagement = id === 'students'
             const isCurriculumManagement = id === 'curriculum-management'
-            const showBlockSubnav = isBlockOverview && isActive
-            const showSubjectSubnav = isSubjectManagement && isActive
-            const showStudentSubnav = isStudentManagement && isActive
-            const showCurriculumSubnav = isCurriculumManagement && isActive
+            const hasSubnav = isBlockOverview || isSubjectManagement || isStudentManagement || isCurriculumManagement
+            const isExpanded = expandedNavId === id
+            const showBlockSubnav = isBlockOverview && isExpanded
+            const showSubjectSubnav = isSubjectManagement && isExpanded
+            const showStudentSubnav = isStudentManagement && isExpanded
+            const showCurriculumSubnav = isCurriculumManagement && isExpanded
             const isBlockOverviewActive = view === 'block-overview'
             const isAddBlockActive = view === 'block-management'
             const isAssignBlockActive = view === 'assign-block'
@@ -310,16 +339,27 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
             const isCurriculumCreateActive = view === 'curriculum-create'
             const isCurriculumArchivedActive = view === 'curriculum-archived'
 
+            const handleParentClick = () => {
+              if (hasSubnav) {
+                setExpandedNavId((prev) => (prev === id ? null : id))
+              }
+              setView(isBlockOverview ? 'block-overview' : id)
+            }
+
             return (
-              <div key={id} className={isBlockOverview || isSubjectManagement || isStudentManagement || isCurriculumManagement ? 'registrar-sidebar-group' : undefined}>
+              <div key={id} className={hasSubnav ? 'registrar-sidebar-group' : undefined}>
                 <button
                   type="button"
                   className={`registrar-sidebar-link ${isActive ? 'registrar-sidebar-link-active' : ''}`}
-                  onClick={() => setView(isBlockOverview ? 'block-overview' : id)}
+                  onClick={handleParentClick}
                   aria-current={isActive ? 'page' : undefined}
+                  aria-expanded={hasSubnav ? isExpanded : undefined}
                 >
                   <Icon size={18} className="registrar-sidebar-icon" />
                   <span>{label}</span>
+                  {hasSubnav && (
+                    <ChevronDown size={14} className={`registrar-sidebar-chevron${isExpanded ? ' registrar-sidebar-chevron-open' : ''}`} />
+                  )}
                 </button>
 
                 {showStudentSubnav && (
@@ -443,6 +483,8 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
               </div>
             )
           })}
+            </div>
+          ))}
         </nav>
 
         <div className="registrar-sidebar-time">

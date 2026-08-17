@@ -16,6 +16,17 @@ const DOCUMENT_CATEGORIES = [
   'OTHER'
 ];
 const DOCUMENT_STATUSES = ['DRAFT', 'ACTIVE', 'ARCHIVED', 'SUPERSEDED'];
+const DOCUMENT_DEPARTMENTS = [
+  'REGISTRAR',
+  'FINANCE',
+  'ACADEMIC_AFFAIRS',
+  'STUDENT_AFFAIRS',
+  'ADMISSIONS',
+  'IT',
+  'HUMAN_RESOURCES',
+  'LIBRARY',
+  'GENERAL'
+];
 const DOCUMENT_ALLOWED_ROLES = ['admin', 'registrar', 'faculty', 'staff', 'student'];
 const DOCUMENT_FOLDER_SEGMENT_TYPES = ['DOCUMENT_TYPE', 'DEPARTMENT', 'DATE', 'CUSTOM'];
 const STUDENT_COURSES = [101, 102, 103, 201];
@@ -197,6 +208,10 @@ function inputValidationMiddleware(options = {}) {
   const bodySchema = options.bodySchema || options.body?.body || options.body;
   const querySchema = options.querySchema || options.query?.query || options.query;
   const paramsSchema = options.paramsSchema || options.params?.params || options.params;
+  // When true, Joi converts string form fields to their target types
+  // (e.g. "true" → boolean true). Needed for multipart/form-data routes
+  // where all values arrive as strings.
+  const convertBody = Boolean(options.convertBody);
 
   return (req, res, next) => {
     try {
@@ -207,7 +222,7 @@ function inputValidationMiddleware(options = {}) {
 
       // If schemas are provided, validate against them
       if (bodySchema) {
-        const { error, value } = bodySchema.validate(req.body, { abortEarly: false });
+        const { error, value } = bodySchema.validate(req.body, { abortEarly: false, convert: convertBody });
         if (error) {
           return res.status(400).json({
             error: 'Invalid request body.',
@@ -592,18 +607,14 @@ const schemas = {
         category: Joi.string().uppercase().valid(...DOCUMENT_CATEGORIES).required(),
         subcategory: Joi.string().trim().max(100).allow('').optional(),
         folderId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
-        fileName: Joi.string().trim().min(1).max(254).required(),
-        originalFileName: Joi.string().trim().min(1).max(254).required(),
-        mimeType: Joi.string().trim().min(1).max(100).required(),
-        fileSize: Joi.number().integer().min(1).required(),
-        fileData: Joi.string().required(),
         version: Joi.string().trim().max(50).optional(),
         isPublic: Joi.boolean().optional(),
         allowedRoles: Joi.array().items(Joi.string().valid(...DOCUMENT_ALLOWED_ROLES)).optional(),
         tags: Joi.array().items(Joi.string().trim().max(50)).optional(),
         effectiveDate: Joi.date().optional(),
         expiryDate: Joi.date().optional(),
-        status: Joi.string().valid(...DOCUMENT_STATUSES).optional()
+        status: Joi.string().valid(...DOCUMENT_STATUSES).optional(),
+        department: Joi.string().uppercase().valid(...DOCUMENT_DEPARTMENTS).optional()
       })
     },
     update: {
@@ -621,7 +632,8 @@ const schemas = {
         tags: Joi.array().items(Joi.string().trim().max(50)).optional(),
         effectiveDate: Joi.date().optional(),
         expiryDate: Joi.date().optional(),
-        status: Joi.string().valid(...DOCUMENT_STATUSES).optional()
+        status: Joi.string().valid(...DOCUMENT_STATUSES).optional(),
+        department: Joi.string().uppercase().valid(...DOCUMENT_DEPARTMENTS).optional()
       }).min(1)
     },
     query: {
@@ -637,8 +649,35 @@ const schemas = {
         page: Joi.number().integer().min(1).optional(),
         limit: Joi.number().integer().min(1).max(100).optional(),
         sortBy: Joi.string().valid('updatedAt', 'createdAt', 'title', 'fileSize', 'category').optional(),
-        sortOrder: Joi.string().valid('asc', 'desc').optional()
+        sortOrder: Joi.string().valid('asc', 'desc').optional(),
+        department: Joi.string().uppercase().valid(...DOCUMENT_DEPARTMENTS).optional()
       })
+    },
+    version: {
+      body: Joi.object({
+        changeSummary: Joi.string().trim().max(500).allow('').optional()
+      })
+    },
+    bulkDelete: {
+      body: Joi.object({
+        documentIds: Joi.array().items(Joi.string().pattern(/^[0-9a-fA-F]{24}$/)).min(1).max(500).required()
+      })
+    },
+    bulkMove: {
+      body: Joi.object({
+        documentIds: Joi.array().items(Joi.string().pattern(/^[0-9a-fA-F]{24}$/)).min(1).max(500).required(),
+        folderId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).allow(null).optional()
+      })
+    },
+    bulkUpdate: {
+      body: Joi.object({
+        documentIds: Joi.array().items(Joi.string().pattern(/^[0-9a-fA-F]{24}$/)).min(1).max(500).required(),
+        isPublic: Joi.boolean().optional(),
+        status: Joi.string().valid(...DOCUMENT_STATUSES).optional(),
+        department: Joi.string().uppercase().valid(...DOCUMENT_DEPARTMENTS).optional(),
+        allowedRoles: Joi.array().items(Joi.string().valid(...DOCUMENT_ALLOWED_ROLES)).optional(),
+        tags: Joi.array().items(Joi.string().trim().max(50)).optional()
+      }).min(2)
     }
   },
 
@@ -646,19 +685,27 @@ const schemas = {
     create: {
       body: Joi.object({
         name: Joi.string().trim().min(1).max(120).required(),
+        category: Joi.string().uppercase().valid(...DOCUMENT_CATEGORIES).optional(),
         segmentType: Joi.string().valid(...DOCUMENT_FOLDER_SEGMENT_TYPES).optional(),
         segmentValue: Joi.string().trim().max(120).allow('').optional(),
         description: Joi.string().trim().max(300).allow('').optional(),
-        parentFolderId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).allow(null).optional()
+        parentFolderId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).allow(null).optional(),
+        visibility: Joi.string().valid('public', 'restricted', 'private').optional(),
+        allowedRoles: Joi.array().items(Joi.string().valid('admin', 'registrar', 'professor', 'staff', 'faculty')).optional(),
+        departmentRestriction: Joi.array().items(Joi.string().valid(...DOCUMENT_DEPARTMENTS)).optional()
       })
     },
     update: {
       body: Joi.object({
         name: Joi.string().trim().min(1).max(120).optional(),
+        category: Joi.string().uppercase().valid(...DOCUMENT_CATEGORIES).optional(),
         segmentType: Joi.string().valid(...DOCUMENT_FOLDER_SEGMENT_TYPES).optional(),
         segmentValue: Joi.string().trim().max(120).allow('').optional(),
         description: Joi.string().trim().max(300).allow('').optional(),
-        parentFolderId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).allow(null).optional()
+        parentFolderId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).allow(null).optional(),
+        visibility: Joi.string().valid('public', 'restricted', 'private').optional(),
+        allowedRoles: Joi.array().items(Joi.string().valid('admin', 'registrar', 'professor', 'staff', 'faculty')).optional(),
+        departmentRestriction: Joi.array().items(Joi.string().valid(...DOCUMENT_DEPARTMENTS)).optional()
       }).min(1)
     },
     query: {

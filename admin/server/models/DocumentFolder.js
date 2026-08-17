@@ -1,6 +1,7 @@
 const mongoose = require('mongoose')
 
 const DOCUMENT_FOLDER_SEGMENT_TYPES = ['DOCUMENT_TYPE', 'DEPARTMENT', 'DATE', 'CUSTOM']
+const DOCUMENT_FOLDER_CATEGORIES = ['POLICY', 'HANDBOOK', 'ACCREDITATION', 'FORM', 'GUIDELINE', 'PROCEDURE', 'REPORT', 'OTHER']
 
 const documentFolderSchema = new mongoose.Schema({
   name: {
@@ -8,6 +9,11 @@ const documentFolderSchema = new mongoose.Schema({
     required: true,
     trim: true,
     maxlength: 120
+  },
+  category: {
+    type: String,
+    enum: DOCUMENT_FOLDER_CATEGORIES,
+    default: 'OTHER'
   },
   segmentType: {
     type: String,
@@ -30,6 +36,19 @@ const documentFolderSchema = new mongoose.Schema({
     ref: 'DocumentFolder',
     default: null
   },
+  visibility: {
+    type: String,
+    enum: ['public', 'restricted', 'private'],
+    default: 'public'
+  },
+  allowedRoles: [{
+    type: String,
+    enum: ['admin', 'registrar', 'professor', 'staff', 'faculty']
+  }],
+  departmentRestriction: [{
+    type: String,
+    enum: ['REGISTRAR', 'FINANCE', 'ACADEMIC_AFFAIRS', 'STUDENT_AFFAIRS', 'ADMISSIONS', 'IT', 'HUMAN_RESOURCES', 'LIBRARY', 'GENERAL']
+  }],
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Admin',
@@ -63,3 +82,4 @@ const DocumentFolder = mongoose.model('DocumentFolder', documentFolderSchema)
 
 module.exports = DocumentFolder
 module.exports.DOCUMENT_FOLDER_SEGMENT_TYPES = DOCUMENT_FOLDER_SEGMENT_TYPES
+module.exports.DOCUMENT_FOLDER_CATEGORIES = DOCUMENT_FOLDER_CATEGORIES

@@ -13,6 +13,7 @@ class ProfileSummaryModel extends ProfileSummary {
     super.semester,
     super.studentStatus,
     super.corStatus,
+    super.profilePictureUrl,
   });
 
   factory ProfileSummaryModel.fromJson(Map<String, dynamic> json) {
@@ -28,6 +29,7 @@ class ProfileSummaryModel extends ProfileSummary {
       semester: json['semester']?.toString(),
       studentStatus: json['studentStatus']?.toString(),
       corStatus: json['corStatus']?.toString(),
+      profilePictureUrl: json['profilePictureUrl']?.toString(),
     );
   }
 }
@@ -40,6 +42,7 @@ class AcademicSummaryModel extends AcademicSummary {
     super.semester,
     super.schoolYear,
     super.yearLevel,
+    super.scheduleStatus,
   });
 
   factory AcademicSummaryModel.fromJson(Map<String, dynamic> json) {
@@ -50,6 +53,23 @@ class AcademicSummaryModel extends AcademicSummary {
       semester: json['semester']?.toString(),
       schoolYear: json['schoolYear']?.toString(),
       yearLevel: json['yearLevel'] is int ? json['yearLevel'] as int : int.tryParse('${json['yearLevel']}'),
+      scheduleStatus: json['scheduleStatus']?.toString(),
+    );
+  }
+}
+
+class UpcomingScheduleModel extends UpcomingSchedule {
+  const UpcomingScheduleModel({
+    required super.dayLabel,
+    required super.classes,
+  });
+
+  factory UpcomingScheduleModel.fromJson(Map<String, dynamic> json) {
+    return UpcomingScheduleModel(
+      dayLabel: (json['dayLabel'] ?? '').toString(),
+      classes: ((json['classes'] as List?) ?? [])
+          .map((item) => ScheduleItemModel.fromJson((item as Map).cast<String, dynamic>()))
+          .toList(),
     );
   }
 }
@@ -125,6 +145,7 @@ class DashboardSummaryModel extends DashboardSummary {
     required super.profile,
     required super.academicSummary,
     required super.todaySchedule,
+    super.upcomingSchedule,
     required super.latestGrades,
     required super.announcements,
   });
@@ -136,6 +157,9 @@ class DashboardSummaryModel extends DashboardSummary {
       todaySchedule: ((json['todaySchedule'] as List?) ?? [])
           .map((item) => ScheduleItemModel.fromJson((item as Map).cast<String, dynamic>()))
           .toList(),
+      upcomingSchedule: json['upcomingSchedule'] is Map
+          ? UpcomingScheduleModel.fromJson((json['upcomingSchedule'] as Map).cast<String, dynamic>())
+          : null,
       latestGrades: ((json['latestGrades'] as List?) ?? [])
           .map((item) => GradeSummaryModel.fromJson((item as Map).cast<String, dynamic>()))
           .toList(),

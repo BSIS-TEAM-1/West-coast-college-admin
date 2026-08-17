@@ -93,11 +93,17 @@ class _TodayTab extends StatelessWidget {
       child: todayClasses.isEmpty
           ? ListView(
               children: [
-                EmptyState(
-                  icon: Icons.event_available_outlined,
-                  title: 'No classes today',
-                  message: 'Enjoy your day — switch to the Week tab to see your full schedule.',
-                ),
+                schedule.isEmpty
+                    ? const EmptyState(
+                        icon: Icons.event_busy,
+                        title: 'Schedules not yet posted',
+                        message: 'Your subjects are enrolled but class schedules haven\'t been assigned yet. Check back later or contact the Registrar.',
+                      )
+                    : const EmptyState(
+                        icon: Icons.event_available_outlined,
+                        title: 'No classes today',
+                        message: 'Enjoy your day — switch to the Week tab to see your full schedule.',
+                      ),
               ],
             )
           : ListView(

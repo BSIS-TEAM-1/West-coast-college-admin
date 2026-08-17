@@ -12,4 +12,8 @@ class ProfileRepositoryImpl implements ProfileRepository {
   @override
   Future<ProfileEntity> updateProfile(Map<String, dynamic> updates) =>
       _remote.updateProfile(updates);
+
+  @override
+  Future<String> uploadProfilePicture({required String imageBase64, required String mimeType}) =>
+      _remote.uploadProfilePicture(imageBase64: imageBase64, mimeType: mimeType);
 }

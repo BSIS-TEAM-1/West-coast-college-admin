@@ -10,6 +10,7 @@ class ProfileSummary {
   final String? semester;
   final String? studentStatus;
   final String? corStatus;
+  final String? profilePictureUrl;
 
   const ProfileSummary({
     required this.id,
@@ -23,6 +24,7 @@ class ProfileSummary {
     this.semester,
     this.studentStatus,
     this.corStatus,
+    this.profilePictureUrl,
   });
 }
 
@@ -33,6 +35,7 @@ class AcademicSummary {
   final String? semester;
   final String? schoolYear;
   final int? yearLevel;
+  final String? scheduleStatus; // 'today' | 'none_today' | 'not_set'
 
   const AcademicSummary({
     required this.hasCurrentEnrollment,
@@ -41,6 +44,7 @@ class AcademicSummary {
     this.semester,
     this.schoolYear,
     this.yearLevel,
+    this.scheduleStatus,
   });
 }
 
@@ -104,6 +108,7 @@ class DashboardSummary {
   final ProfileSummary profile;
   final AcademicSummary academicSummary;
   final List<ScheduleItemSummary> todaySchedule;
+  final UpcomingSchedule? upcomingSchedule;
   final List<GradeSummary> latestGrades;
   final List<AnnouncementTeaser> announcements;
 
@@ -111,7 +116,18 @@ class DashboardSummary {
     required this.profile,
     required this.academicSummary,
     required this.todaySchedule,
+    this.upcomingSchedule,
     required this.latestGrades,
     required this.announcements,
+  });
+}
+
+class UpcomingSchedule {
+  final String dayLabel;
+  final List<ScheduleItemSummary> classes;
+
+  const UpcomingSchedule({
+    required this.dayLabel,
+    required this.classes,
   });
 }

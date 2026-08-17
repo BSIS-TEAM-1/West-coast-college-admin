@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Check, X, RotateCcw, AlertCircle, FileText, Clock } from 'lucide-react'
+import { Check, X, RotateCcw, AlertCircle, FileText, Clock, ChevronLeft } from 'lucide-react'
 import {
   listGradeSubmissions,
   approveGradeSubmission,
@@ -11,6 +11,7 @@ import {
   type GradeAuditEntry
 } from '../../lib/gradingApi'
 import { COURSE_OPTIONS } from '../../lib/blockAssignmentShared'
+import './GradeSubmissionReviewPage.css'
 
 interface GradeSubmissionReviewPageProps {
   onBack?: () => void
@@ -27,7 +28,7 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
   const [submissions, setSubmissions] = useState<GradeSubmissionSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [statusFilter, setStatusFilter] = useState<GradeSubmissionStatus | ''>('Submitted')
+  const [statusFilter, setStatusFilter] = useState<GradeSubmissionStatus | ''>('')
   const [schoolYearFilter, setSchoolYearFilter] = useState('')
   const [semesterFilter, setSemesterFilter] = useState('')
   const [courseFilter, setCourseFilter] = useState('')
@@ -126,13 +127,15 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
 
   return (
     <div className="grade-submission-page">
-      <div className="grade-submission-header">
-        <div>
-          <h1>Grade Submissions</h1>
-          <p>Review and approve grade submissions from professors.</p>
-        </div>
-        {onBack && <button type="button" className="btn-secondary" onClick={onBack}>Back</button>}
-      </div>
+      <header className="grade-submission-header">
+        <h1>Grade Submissions</h1>
+        <p>Review and approve grade submissions from professors.</p>
+        {onBack && (
+          <button type="button" className="grade-submission-back-btn" onClick={onBack}>
+            <ChevronLeft size={16} /> Back
+          </button>
+        )}
+      </header>
 
       {error && <div className="grade-submission-error"><AlertCircle size={16} /> {error}</div>}
 
@@ -199,8 +202,8 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
                 return (
                   <tr key={s._id}>
                     <td>
-                      <strong>{s.studentId?.lastName}, {s.studentId?.firstName}</strong>
-                      <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{s.studentId?.studentNumber}</div>
+                      <div className="gs-student-name">{s.studentId?.lastName}, {s.studentId?.firstName}</div>
+                      <div className="gs-student-number">{s.studentId?.studentNumber}</div>
                     </td>
                     <td>{courseLabel(s.studentId?.course || s.course)}</td>
                     <td>{s.studentId?.yearLevel || s.yearLevel}</td>
@@ -213,12 +216,12 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
                     </td>
                     <td style={{ fontSize: '0.8125rem', color: '#6b7280' }}>{formatDate(s.gradeSubmission?.submittedAt)}</td>
                     <td>
-                      <div style={{ display: 'flex', gap: '0.25rem' }}>
-                        <button type="button" className="btn-icon" title="View details" onClick={() => handleView(s)}>
-                          <FileText size={16} />
+                      <div style={{ display: 'flex', gap: '0.375rem' }}>
+                        <button type="button" className="gs-action-btn" title="View details" onClick={() => handleView(s)} aria-label="View Details">
+                          <FileText size={18} />
                         </button>
                         {(s.gradeSubmission?.status === 'Approved' || s.gradeSubmission?.status === 'Rejected') && (
-                          <button type="button" className="btn-icon" title="Revert to draft" onClick={() => handleRevert(s._id)}>
+                          <button type="button" className="gs-action-btn gs-action-btn--revert" title="Revert to draft" onClick={() => handleRevert(s._id)} aria-label="Revert to Draft">
                             <RotateCcw size={16} />
                           </button>
                         )}
