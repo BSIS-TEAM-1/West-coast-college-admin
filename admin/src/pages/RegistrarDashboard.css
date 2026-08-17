@@ -174,10 +174,25 @@
   padding: 1rem var(--registrar-sidebar-x);
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.75rem;
   overflow-y: auto;
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+.registrar-sidebar-section {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.registrar-sidebar-section-label {
+  padding: 0 var(--registrar-sidebar-link-x);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: color-mix(in srgb, var(--registrar-gold-light) 70%, var(--color-text-muted));
+  margin-bottom: 0.15rem;
 }
 
 .registrar-sidebar-nav::-webkit-scrollbar {
@@ -190,7 +205,7 @@
   width: 100%;
   min-height: var(--registrar-sidebar-link-height);
   display: grid;
-  grid-template-columns: var(--registrar-sidebar-icon-col) minmax(0, 1fr);
+  grid-template-columns: var(--registrar-sidebar-icon-col) minmax(0, 1fr) auto;
   align-items: center;
   column-gap: var(--registrar-sidebar-icon-gap);
   padding: 0 var(--registrar-sidebar-link-x);
@@ -204,6 +219,15 @@
   cursor: pointer;
   transition: all 0.2s;
   text-align: left;
+}
+
+.registrar-sidebar-chevron {
+  color: rgba(255, 255, 255, 0.5);
+  transition: transform 0.2s ease;
+}
+
+.registrar-sidebar-chevron-open {
+  transform: rotate(180deg);
 }
 
 .registrar-sidebar-link span,
@@ -3255,8 +3279,9 @@
   margin-bottom: 0.8rem;
 }
 
-.subject-management-table-row {
-  grid-template-columns: 0.8fr 1.8fr 0.6fr 0.6fr 0.7fr 0.8fr 230px;
+.subject-table-header.subject-management-table-row,
+.subject-table-row.subject-management-table-row {
+  grid-template-columns: 0.8fr 1.8fr 0.6fr 0.6fr 0.7fr 0.8fr 48px;
 }
 
 .subject-sort-btn {
@@ -3635,10 +3660,15 @@
 .subject-table-header,
 .subject-table-row {
   display: grid;
-  grid-template-columns: 80px 1fr 2fr 90px 120px;
   gap: 0.6rem;
   align-items: center;
   padding: 0.9rem 0.7rem;
+}
+
+/* Default 5-column layout (used by AssignSubjectPage base) */
+.subject-table-header:not(.subject-management-table-row):not(.curriculum-subject-table-header):not(.subject-table-header-assign),
+.subject-table-row:not(.subject-management-table-row):not(.curriculum-subject-table-row):not(.subject-table-row-assign) {
+  grid-template-columns: 80px 1fr 2fr 90px 120px;
 }
 
 .subject-table-header {
@@ -3689,6 +3719,79 @@
   display: flex;
   gap: 0.4rem;
 }
+
+.subject-actions-dropdown {
+  position: relative;
+  display: inline-flex;
+}
+
+.subject-actions-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.4rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.subject-actions-trigger:hover {
+  background: var(--color-surface-hover, #f1f5f9);
+  border-color: var(--color-border-strong, #cbd5e1);
+}
+
+.subject-actions-trigger[aria-expanded="true"] {
+  background: var(--color-surface-hover, #f1f5f9);
+  border-color: var(--color-primary);
+}
+
+.subject-actions-menu {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-width: 8rem;
+  padding: 0.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+}
+
+.subject-actions-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  border: none;
+  border-radius: 0.35rem;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s;
+}
+
+.subject-actions-item.edit { color: #2563eb; }
+.subject-actions-item.delete { color: #dc2626; }
+.subject-actions-item.cancel { color: #6b7280; }
+
+.subject-actions-item:hover {
+  background: var(--color-surface-hover, #f1f5f9);
+}
+
+.subject-actions-item.edit:hover { background: #eff6ff; }
+.subject-actions-item.delete:hover { background: #fef2f2; }
+.subject-actions-item.cancel:hover { background: #f9fafb; }
 
 .subject-action-btn {
   display: inline-flex;
@@ -4388,7 +4491,8 @@
     grid-template-columns: 1fr;
   }
 
-  .subject-management-table-row {
+  .subject-table-header.subject-management-table-row,
+  .subject-table-row.subject-management-table-row {
     grid-template-columns: 1fr;
   }
 

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Archive, CheckCircle, ChevronLeft, ChevronRight, Pencil, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Archive, CheckCircle, ChevronLeft, ChevronRight, MoreVertical, Pencil, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import type { SubjectItem, SubjectStatus, SubjectType } from './registrarBlockTypes'
 
@@ -55,6 +55,8 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [openMenuId, setOpenMenuId] = useState('')
+  const menuRef = useRef<HTMLDivElement | null>(null)
 
   const filteredSubjects = useMemo(() => {
     let result = subjects
@@ -147,6 +149,24 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
   useEffect(() => {
     setPage(1)
   }, [query, statusFilter, typeFilter])
+
+  useEffect(() => {
+    if (!openMenuId) return
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setOpenMenuId('')
+      }
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpenMenuId('')
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [openMenuId])
 
   const updateForm = (field: keyof SubjectForm, value: string) => {
     setError('')
@@ -524,7 +544,7 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
 
         <div className="subject-table subject-management-table">
           <div className="subject-table-header subject-management-table-row" role="row">
-            <button type="button" className="subject-sort-btn" onClick={() => toggleSort('code')}>Course No.{sortIndicator('code')}</button>
+            <button type="button" className="subject-sort-btn" onClick={() => toggleSort('code')}>Course Code{sortIndicator('code')}</button>
             <button type="button" className="subject-sort-btn" onClick={() => toggleSort('title')}>Descriptive Title{sortIndicator('title')}</button>
             <button type="button" className="subject-sort-btn" onClick={() => toggleSort('units')}>Units{sortIndicator('units')}</button>
             <button type="button" className="subject-sort-btn" onClick={() => toggleSort('lecturePeriods')}>Lecture{sortIndicator('lecturePeriods')}</button>
@@ -546,18 +566,33 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
                   </span>
                 </span>
                 <span className="subject-cell-actions">
-                  <button type="button" className="subject-action-btn edit" onClick={() => beginEdit(subject)}>
-                    <Pencil size={14} />
-                    Edit
-                  </button>
-                  <button type="button" className="subject-action-btn cancel" onClick={() => void archiveSubject(subject)}>
-                    <Archive size={14} />
-                    {subject.isActive ? 'Archive' : 'Restore'}
-                  </button>
-                  <button type="button" className="subject-action-btn delete" onClick={() => void deleteSubject(subject)}>
-                    <Trash2 size={14} />
-                    Delete
-                  </button>
+                  <div className="subject-actions-dropdown" ref={openMenuId === subject._id ? menuRef : undefined}>
+                    <button
+                      type="button"
+                      className="subject-actions-trigger"
+                      onClick={() => setOpenMenuId((prev) => (prev === subject._id ? '' : subject._id))}
+                      aria-label="Subject actions"
+                      aria-expanded={openMenuId === subject._id}
+                    >
+                      <MoreVertical size={16} />
+                    </button>
+                    {openMenuId === subject._id && (
+                      <div className="subject-actions-menu" role="menu">
+                        <button type="button" className="subject-actions-item edit" role="menuitem" onClick={() => { setOpenMenuId(''); beginEdit(subject) }}>
+                          <Pencil size={14} />
+                          Edit
+                        </button>
+                        <button type="button" className="subject-actions-item cancel" role="menuitem" onClick={() => { setOpenMenuId(''); void archiveSubject(subject) }}>
+                          <Archive size={14} />
+                          {subject.isActive ? 'Archive' : 'Restore'}
+                        </button>
+                        <button type="button" className="subject-actions-item delete" role="menuitem" onClick={() => { setOpenMenuId(''); void deleteSubject(subject) }}>
+                          <Trash2 size={14} />
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </span>
               </div>
             ))}

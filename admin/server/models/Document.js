@@ -25,6 +25,21 @@ const documentSchema = new mongoose.Schema({
     trim: true,
     maxlength: 100
   },
+  department: {
+    type: String,
+    enum: [
+      'REGISTRAR',
+      'FINANCE',
+      'ACADEMIC_AFFAIRS',
+      'STUDENT_AFFAIRS',
+      'ADMISSIONS',
+      'IT',
+      'HUMAN_RESOURCES',
+      'LIBRARY',
+      'GENERAL'
+    ],
+    default: 'GENERAL'
+  },
   folderId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'DocumentFolder',
@@ -49,6 +64,14 @@ const documentSchema = new mongoose.Schema({
   filePath: {
     type: String,
     required: true
+  },
+  storageProvider: {
+    type: String,
+    enum: ['local', 'supabase'],
+    default: 'local'
+  },
+  storageKey: {
+    type: String
   },
   version: {
     type: String,
@@ -119,6 +142,7 @@ const documentSchema = new mongoose.Schema({
 
 // Indexes for common queries
 documentSchema.index({ category: 1, status: 1 })
+documentSchema.index({ department: 1, status: 1 })
 documentSchema.index({ tags: 1 })
 documentSchema.index({ isPublic: 1, status: 1 })
 documentSchema.index({ createdBy: 1, createdAt: -1 })

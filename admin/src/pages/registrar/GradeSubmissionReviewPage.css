@@ -1,28 +1,46 @@
 .grade-submission-page {
-  padding: 1.5rem;
+  padding: 2rem;
   max-width: 80rem;
   margin: 0 auto;
+  background: #f4f5f7;
+  min-height: 100vh;
 }
 
 .grade-submission-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  margin-bottom: 1.5rem;
-  gap: 1rem;
+  margin-bottom: 2rem;
 }
 
 .grade-submission-header h1 {
-  margin: 0 0 0.25rem 0;
-  font-size: 1.5rem;
-  color: var(--color-text, #1f2937);
+  margin: 0 0 0.5rem 0;
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: #1a2a3a;
+  letter-spacing: -0.025em;
 }
 
 .grade-submission-header p {
-  margin: 0;
+  margin: 0 0 1.5rem 0;
   font-size: 0.875rem;
-  color: var(--color-text-muted, #6b7280);
+  color: #6b7280;
 }
+
+.grade-submission-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  background: #fff;
+  color: #374151;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  transition: background 0.15s;
+}
+
+.grade-submission-back-btn:hover { background: #f9fafb; }
 
 .grade-submission-error {
   display: flex;
@@ -41,51 +59,54 @@
 .grade-submission-empty {
   text-align: center;
   padding: 3rem 1rem;
-  color: var(--color-text-muted, #6b7280);
+  color: #6b7280;
 }
 
+/* Filters — 4-column grid */
 .grade-submission-filters {
-  display: flex;
-  gap: 1rem;
-  margin-bottom: 1rem;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
 }
 
 .grade-submission-filters .form-group {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  min-width: 120px;
+  gap: 0.5rem;
 }
 
 .grade-submission-filters label {
   font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--color-text-muted, #6b7280);
+  font-weight: 700;
+  color: #374151;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.05em;
 }
 
 .grade-submission-filters input,
 .grade-submission-filters select {
-  padding: 0.4rem 0.625rem;
-  border: 1px solid var(--color-border, #d1d5db);
-  border-radius: 0.25rem;
+  height: 2.5rem;
+  padding: 0 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
   font-size: 0.875rem;
-  min-width: 100px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  box-sizing: border-box;
+  width: 100%;
 }
 
 .grade-submission-filters input:focus,
 .grade-submission-filters select:focus {
   outline: none;
-  border-color: #4f46e5;
-  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
+  border-color: #0b2447;
+  box-shadow: 0 0 0 2px rgba(11, 36, 71, 0.15);
 }
 
+/* Table */
 .grade-submission-list {
-  background: var(--color-surface, #fff);
-  border: 1px solid var(--color-border, #e5e7eb);
-  border-radius: 0.5rem;
+  background: transparent;
   overflow-x: auto;
 }
 
@@ -93,38 +114,77 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 0.875rem;
+  border-bottom: 1px solid #e5e7eb;
 }
 
 .grade-submission-table th {
   text-align: left;
-  padding: 0.625rem 0.75rem;
-  font-weight: 600;
-  color: var(--color-text-muted, #6b7280);
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  padding: 0.75rem 1.5rem;
+  font-weight: 700;
+  color: #111827;
+  font-size: 0.875rem;
   white-space: nowrap;
 }
 
 .grade-submission-table td {
-  padding: 0.625rem 0.75rem;
-  border-bottom: 1px solid #f3f4f6;
-  vertical-align: top;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #f3f4f6;
+  vertical-align: middle;
+  color: #374151;
 }
 
 .grade-submission-table tbody tr:hover {
   background: #f9fafb;
 }
 
+/* Student cell */
+.grade-submission-table td .gs-student-name {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.grade-submission-table td .gs-student-number {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+/* Status badge — uppercase, bold, subtle */
 .status-badge {
-  display: inline-block;
-  padding: 0.2rem 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
   border-radius: 0.25rem;
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
   white-space: nowrap;
 }
+
+/* Action button — dark blue like the mockup */
+.gs-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  border-radius: 0.375rem;
+  background: #0b2447;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.gs-action-btn:hover { background: #193a6f; }
+
+.gs-action-btn--revert {
+  background: #fff;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+}
+
+.gs-action-btn--revert:hover { background: #f9fafb; color: #374151; }
 
 /* Audit trail */
 .audit-trail-list {
@@ -133,7 +193,7 @@
   gap: 0.5rem;
   max-height: 200px;
   overflow-y: auto;
-  border: 1px solid var(--color-border, #e5e7eb);
+  border: 1px solid #e5e7eb;
   border-radius: 0.375rem;
   padding: 0.5rem;
 }
@@ -172,7 +232,7 @@
   margin-top: 0.5rem;
 }
 
-/* Modal styles (previously inherited from TransmutationTablePage.css) */
+/* Modal styles */
 .grade-submission-page .transmutation-modal-overlay {
   position: fixed;
   inset: 0;
@@ -185,7 +245,7 @@
 }
 
 .grade-submission-page .transmutation-modal {
-  background: var(--color-surface, #fff);
+  background: #fff;
   border-radius: 0.5rem;
   width: 100%;
   max-width: 50rem;
@@ -199,10 +259,10 @@
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.5rem;
-  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  border-bottom: 1px solid #e5e7eb;
   position: sticky;
   top: 0;
-  background: var(--color-surface, #fff);
+  background: #fff;
   z-index: 1;
 }
 
@@ -218,7 +278,7 @@
   justify-content: flex-end;
   gap: 0.5rem;
   padding-top: 0.5rem;
-  border-top: 1px solid var(--color-border, #e5e7eb);
+  border-top: 1px solid #e5e7eb;
 }
 
 /* Buttons */
@@ -246,20 +306,20 @@
   gap: 0.4rem;
   padding: 0.5rem 1rem;
   border-radius: 0.375rem;
-  background: var(--color-bg-soft, #f3f4f6);
-  color: var(--color-text, #374151);
+  background: #f3f4f6;
+  color: #374151;
   font-weight: 500;
   font-size: 0.875rem;
-  border: 1px solid var(--color-border, #d1d5db);
+  border: 1px solid #d1d5db;
   cursor: pointer;
 }
 
-.grade-submission-page .btn-secondary:hover:not(:disabled) { background: var(--color-border, #e5e7eb); }
+.grade-submission-page .btn-secondary:hover:not(:disabled) { background: #e5e7eb; }
 
 .grade-submission-page .btn-icon {
   background: none;
   border: none;
-  color: var(--color-text-muted, #6b7280);
+  color: #6b7280;
   cursor: pointer;
   padding: 0.35rem;
   border-radius: 0.25rem;
@@ -269,13 +329,12 @@
   transition: all 0.15s;
 }
 
-.grade-submission-page .btn-icon:hover { background: var(--color-bg-soft, #f3f4f6); color: var(--color-text, #1f2937); }
-.grade-submission-page .btn-icon-danger:hover { background: #fef2f2; color: #dc2626; }
+.grade-submission-page .btn-icon:hover { background: #f3f4f6; color: #1f2937; }
 
 .grade-submission-page textarea {
   width: 100%;
   padding: 0.5rem 0.75rem;
-  border: 1px solid var(--color-border, #d1d5db);
+  border: 1px solid #d1d5db;
   border-radius: 0.375rem;
   font-size: 0.875rem;
   font-family: inherit;
@@ -285,6 +344,10 @@
 
 .grade-submission-page textarea:focus {
   outline: none;
-  border-color: #4f46e5;
-  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+  border-color: #0b2447;
+  box-shadow: 0 0 0 3px rgba(11, 36, 71, 0.1);
+}
+
+@media (max-width: 768px) {
+  .grade-submission-filters { grid-template-columns: 1fr; }
 }

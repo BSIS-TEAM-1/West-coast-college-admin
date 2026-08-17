@@ -292,6 +292,18 @@ const studentSchema = new Schema({
     type: Date
   },
 
+  // Profile Picture (one-time upload by student; not editable after set)
+  profilePicture: {
+    type: String,
+    default: null,
+    description: 'Base64-encoded profile picture uploaded once by the student.'
+  },
+  profilePictureMimeType: {
+    type: String,
+    default: null,
+    trim: true
+  },
+
   // System Information
   isActive: { 
     type: Boolean, 

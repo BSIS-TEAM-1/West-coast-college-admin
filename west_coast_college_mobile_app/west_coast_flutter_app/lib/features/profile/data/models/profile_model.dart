@@ -48,6 +48,7 @@ class ProfileModel extends ProfileEntity {
     super.civilStatus,
     super.nationality,
     super.religion,
+    super.profilePictureUrl,
     super.emergencyContact,
   });
 
@@ -81,6 +82,7 @@ class ProfileModel extends ProfileEntity {
       civilStatus: json['civilStatus']?.toString(),
       nationality: json['nationality']?.toString(),
       religion: json['religion']?.toString(),
+      profilePictureUrl: json['profilePictureUrl']?.toString(),
       emergencyContact: json['emergencyContact'] is Map
           ? EmergencyContactModel.fromJson((json['emergencyContact'] as Map).cast<String, dynamic>())
           : null,

@@ -1,7 +1,10 @@
 class ApiConstants {
   // Base URL — use the host machine's LAN IP so physical devices on the same
   // network can reach the dev server. For Android emulator, use 10.0.2.2.
-  static const String baseUrl = 'http://192.168.5.192:3001/api';
+  static const String baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://192.168.0.240:3001/api',
+  );
   
   // Endpoints - Authentication
   static const String login = '/student/login';
@@ -11,6 +14,7 @@ class ApiConstants {
   // Endpoints - Student Data
   static const String studentMe = '/student/me';
   static const String studentProfileUpdate = '/student/profile';
+  static const String studentProfilePicture = '/student/profile-picture';
   static const String studentDashboard = '/student/dashboard';
   static const String studentSchedule = '/student/schedule';
   static const String studentScheduleWeekly = '/student/schedule/weekly';

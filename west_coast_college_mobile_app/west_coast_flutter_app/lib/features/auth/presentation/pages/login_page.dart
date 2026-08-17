@@ -95,16 +95,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           ),
         ),
         const SizedBox(height: AppDimensions.md),
-        // Title in navy
-        Text(
-          'WCConnect',
-          style: AppTextStyles.headlineLarge.copyWith(
-            color: AppColors.primary,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.5,
-          ),
-        ),
-        const SizedBox(height: AppDimensions.xs),
         // Kicker in gold (landing page style)
         Text(
           'WEST COAST COLLEGE',

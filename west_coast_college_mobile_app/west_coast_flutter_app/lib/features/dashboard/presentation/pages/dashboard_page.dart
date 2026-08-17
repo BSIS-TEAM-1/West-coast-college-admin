@@ -59,7 +59,11 @@ class DashboardPage extends ConsumerWidget {
                 onAction: () => context.go('/schedule'),
               ),
               const SizedBox(height: AppDimensions.sm),
-              _TodayScheduleSection(items: summary.todaySchedule),
+              _TodayScheduleSection(
+                items: summary.todaySchedule,
+                upcomingSchedule: summary.upcomingSchedule,
+                scheduleStatus: summary.academicSummary.scheduleStatus,
+              ),
               const SizedBox(height: AppDimensions.lg),
               SectionHeader(
                 title: 'Latest Grades',
@@ -101,7 +105,10 @@ class _HeaderCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          StudentAvatar(name: profile.fullName.isEmpty ? profile.firstName : profile.fullName),
+          StudentAvatar(
+            name: profile.fullName.isEmpty ? profile.firstName : profile.fullName,
+            photoUrl: profile.profilePictureUrl,
+          ),
           const SizedBox(width: AppDimensions.md),
           Expanded(
             child: Column(
@@ -153,47 +160,47 @@ class _AcademicContextRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!academicSummary.hasCurrentEnrollment) {
-      return Container(
-        padding: const EdgeInsets.all(AppDimensions.cardPadding),
-        decoration: BoxDecoration(
-          color: AppColors.warning.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
-          border: Border.all(color: AppColors.warning.withValues(alpha: 0.25)),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: AppDimensions.md, vertical: AppDimensions.sm),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(
+            children: [
+              _metric('School Year', academicSummary.schoolYear ?? '—'),
+              _divider(),
+              _metric('Semester', academicSummary.semester ?? '—'),
+              _divider(),
+              _metric('Enrolled Subjects', '${academicSummary.enrolledSubjects}'),
+              _divider(),
+              _metric('Units', '${academicSummary.totalUnits}'),
+            ],
+          ),
         ),
-        child: Row(
-          children: [
-            const Icon(Icons.info_outline, color: AppColors.warning, size: AppDimensions.iconMedium),
-            const SizedBox(width: AppDimensions.sm),
-            Expanded(
-              child: Text(
-                'You have no active enrollment for this term. Contact the Registrar if this is unexpected.',
-                style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary),
-              ),
+        if (!academicSummary.hasCurrentEnrollment) ...[
+          const SizedBox(height: AppDimensions.sm),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppDimensions.xs),
+            child: Row(
+              children: [
+                const Icon(Icons.info_outline, color: AppColors.warning, size: AppDimensions.iconSmall),
+                const SizedBox(width: AppDimensions.xs),
+                Expanded(
+                  child: Text(
+                    'No active enrollment for this term. Contact the Registrar if this is unexpected.',
+                    style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: AppDimensions.md, vertical: AppDimensions.sm),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          _metric('School Year', academicSummary.schoolYear ?? '—'),
-          _divider(),
-          _metric('Semester', academicSummary.semester ?? '—'),
-          _divider(),
-          _metric('Subjects', '${academicSummary.enrolledSubjects}'),
-          _divider(),
-          _metric('Units', '${academicSummary.totalUnits}'),
+          ),
         ],
-      ),
+      ],
     );
   }
 
@@ -205,7 +212,7 @@ class _AcademicContextRow extends StatelessWidget {
         children: [
           Text(value, style: AppTextStyles.titleLarge.copyWith(color: AppColors.textBold)),
           const SizedBox(height: 2),
-          Text(label, style: AppTextStyles.caption),
+          Text(label, style: AppTextStyles.caption, textAlign: TextAlign.center),
         ],
       ),
     );
@@ -213,34 +220,104 @@ class _AcademicContextRow extends StatelessWidget {
 }
 
 class _TodayScheduleSection extends StatelessWidget {
-  const _TodayScheduleSection({required this.items});
+  const _TodayScheduleSection({
+    required this.items,
+    this.upcomingSchedule,
+    this.scheduleStatus,
+  });
   final List<ScheduleItemSummary> items;
+  final UpcomingSchedule? upcomingSchedule;
+  final String? scheduleStatus;
 
   @override
   Widget build(BuildContext context) {
-    if (items.isEmpty) {
+    // Case 1: Schedules haven't been set by the registrar yet
+    if (scheduleStatus == 'not_set') {
       return const EmptyState(
-        icon: Icons.event_available_outlined,
-        title: 'No classes today',
-        message: 'Enjoy your day off — check "View All" for your full weekly schedule.',
+        icon: Icons.event_busy,
+        title: 'Schedules not yet posted',
+        message: 'Your subjects are enrolled but class schedules haven\'t been assigned yet. Check back later or contact the Registrar.',
       );
     }
 
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        children: [
-          for (var i = 0; i < items.length; i++) ...[
-            if (i > 0) const Divider(height: 1, color: AppColors.divider),
-            _ScheduleRow(item: items[i]),
+    // Case 2: Today has classes — show them
+    if (items.isNotEmpty) {
+      return Container(
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          children: [
+            for (var i = 0; i < items.length; i++) ...[
+              if (i > 0) const Divider(height: 1, color: AppColors.divider),
+              _ScheduleRow(item: items[i]),
+            ],
           ],
+        ),
+      );
+    }
+
+    // Case 3: No classes today, but there are upcoming classes this week
+    if (upcomingSchedule != null && upcomingSchedule!.classes.isNotEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppDimensions.md,
+              vertical: AppDimensions.sm,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.wb_sunny_outlined, size: AppDimensions.iconSmall, color: AppColors.textMuted),
+                    const SizedBox(width: AppDimensions.xs),
+                    Text(
+                      'No classes today — next class on ${_dayLabel(upcomingSchedule!.dayLabel)}',
+                      style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppDimensions.sm),
+                for (var i = 0; i < upcomingSchedule!.classes.length; i++) ...[
+                  if (i > 0) const Divider(height: 1, color: AppColors.divider),
+                  _ScheduleRow(item: upcomingSchedule!.classes[i]),
+                ],
+              ],
+            ),
+          ),
         ],
-      ),
+      );
+    }
+
+    // Case 4: No classes today and no upcoming classes found
+    return const EmptyState(
+      icon: Icons.event_available_outlined,
+      title: 'No classes today',
+      message: 'Enjoy your day off — check "View All" for your full weekly schedule.',
     );
+  }
+
+  String _dayLabel(String code) {
+    return switch (code) {
+      'M' => 'Monday',
+      'T' => 'Tuesday',
+      'W' => 'Wednesday',
+      'TH' => 'Thursday',
+      'F' => 'Friday',
+      'S' => 'Saturday',
+      'SU' => 'Sunday',
+      _ => code,
+    };
   }
 }
 

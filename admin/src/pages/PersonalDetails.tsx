@@ -169,16 +169,6 @@ export default function PersonalDetails({ onBack }: PersonalDetailsProps) {
       )
     },
     { label: 'Phone Number', value: profile.phone?.trim() ? profile.phone : 'Not set' },
-    {
-      label: 'Phone Verification',
-      value: (
-        <span className={`verification-badge ${profile.phoneVerified ? 'verified' : 'unverified'}`}>
-          {profile.phone?.trim()
-            ? (profile.phoneVerified ? 'Verified' : 'Not verified')
-            : 'No phone'}
-        </span>
-      )
-    }
   ];
 
   const additionalInfoItems = compactDefined<DetailItem>([
@@ -243,9 +233,6 @@ export default function PersonalDetails({ onBack }: PersonalDetailsProps) {
                 <span className="personal-overview-pill">{accountTypeLabel}</span>
                 <span className={`verification-badge ${profile.emailVerified ? 'verified' : 'unverified'}`}>
                   {profile.emailVerified ? 'Email Verified' : 'Email Pending'}
-                </span>
-                <span className={`verification-badge ${profile.phoneVerified ? 'verified' : 'unverified'}`}>
-                  {profile.phoneVerified ? 'Phone Verified' : 'Phone Pending'}
                 </span>
               </div>
             </div>

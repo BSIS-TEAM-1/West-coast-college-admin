@@ -622,7 +622,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                       ))}
                     </select>
                     <span id="curriculum-help" className="block-form-help">
-                      Select the academic program for this block (e.g., BEED, BSEd-English)
+                      e.g., BEED, BSEd-English
                     </span>
                   </label>
 
@@ -643,7 +643,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                       ))}
                     </select>
                     <span id="linked-curriculum-help" className="block-form-help">
-                      Required subjects from this curriculum will be auto-assigned to block sections
+                      Subjects auto-assigned from curriculum
                     </span>
                   </label>
 
@@ -665,7 +665,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                       ))}
                     </select>
                     <span id="block-number-help" className="block-form-help">
-                      Select the year level and section (e.g., 1-A for first year, section A)
+                      Year and section, e.g., 1-A
                     </span>
                   </label>
 
@@ -684,7 +684,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                       <option value="Summer">Summer Semester</option>
                     </select>
                     <span id="semester-help" className="block-form-help">
-                      Select the academic semester for this block
+                      Academic semester
                     </span>
                   </label>
 
@@ -702,7 +702,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                       aria-required="true"
                     />
                     <span id="academic-year-help" className="block-form-help">
-                      Enter the starting academic year (e.g., 2024 for 2024-2025)
+                      Starting year, e.g., 2024 for 2024-2025
                     </span>
                   </label>
 
@@ -739,7 +739,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                       </button>
                     </div>
                     <span id="capacity-help" className="block-form-help">
-                      Recommended: {getCapacityRecommendation()} students for this curriculum type. Enter between 1-50 students.
+                      1-50 students (recommended: {getCapacityRecommendation()})
                     </span>
                   </label>
 
@@ -759,7 +759,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                       <option value="Returning">Returning only</option>
                     </select>
                     <span id="classification-help" className="block-form-help">
-                      Restrict this block to a specific student classification
+                      Optional restriction by classification
                     </span>
                   </label>
                 </div>
@@ -800,13 +800,13 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                 {!courseIsSelected && (
                   <div className="block-validation-item block-validation-item--error">
                     <AlertCircle size={16} />
-                    <span>Select a curriculum before creating a block.</span>
+                    <span>Select a curriculum first.</span>
                   </div>
                 )}
                 {!blockNumberIsSelected && (
                   <div className="block-validation-item block-validation-item--error">
                     <AlertCircle size={16} />
-                    <span>Select a block number before creating a block.</span>
+                    <span>Select a block number first.</span>
                   </div>
                 )}
                 {blockNumberIsSelected && !blockNumberIsValid && (
@@ -873,7 +873,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                 </button>
               </div>
               <div className="block-wizard-keyboard-hint">
-                <small>Keyboard shortcuts: Enter to continue, Escape to cancel, Ctrl+S to save draft</small>
+                <small>Enter = continue · Esc = cancel · Ctrl+S = save draft</small>
               </div>
             </div>
           )}

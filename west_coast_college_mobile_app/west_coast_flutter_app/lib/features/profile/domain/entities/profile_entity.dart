@@ -27,6 +27,7 @@ class ProfileEntity {
   final String? civilStatus;
   final String? nationality;
   final String? religion;
+  final String? profilePictureUrl;
   final EmergencyContactEntity? emergencyContact;
 
   const ProfileEntity({
@@ -58,6 +59,7 @@ class ProfileEntity {
     this.civilStatus,
     this.nationality,
     this.religion,
+    this.profilePictureUrl,
     this.emergencyContact,
   });
 }

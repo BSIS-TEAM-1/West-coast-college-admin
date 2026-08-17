@@ -52,6 +52,8 @@ const BackupSystem = require('./backup')
 const { getAnnouncementAudienceQueryValues, normalizeAnnouncementAudience, validateAnnouncementAudience } = require('./announcementAudience')
 const SemaphoreSmsService = require('./services/semaphoreSmsService')
 const SmsApiPhService = require('./services/smsApiPhService')
+const TextlocalSmsService = require('./services/textlocalSmsService')
+const supabaseAuthService = require('./services/supabaseAuth')
 const VerificationEmailService = require('./services/verificationEmailService')
 const { apiCache, cacheMiddleware } = require('./services/apiCache')
 const registrarRoutes = require('./routes/registrarRoutes')
@@ -67,6 +69,8 @@ const StudentController = require('./controllers/studentController')
 const AcademicYearRolloverService = require('./services/academicYearRolloverService')
 const BlockSubjectAssignmentController = require('./controllers/blockSubjectAssignmentController')
 const { requireAnyRole, requireAdminRole, isOwnerOrAdmin, normalizeAccountType } = require('./authorization')
+const { registerDocumentRoutes } = require('./routes/documentRoutes')
+const { purgeExpiredArchiveBinItems } = require('./services/documentService')
 
 // Register domain event handlers
 const { registerArchiveEventHandlers } = require('./domains/archive/eventHandlers')
@@ -76,6 +80,7 @@ registerArchiveEventHandlers()
 const backupSystem = new BackupSystem()
 const semaphoreSmsService = new SemaphoreSmsService()
 const smsApiPhService = new SmsApiPhService()
+const textlocalSmsService = new TextlocalSmsService()
 const verificationEmailService = new VerificationEmailService()
 
 logger.debug('Verification email service status:', {
@@ -126,12 +131,15 @@ const app = express()
 const PORT = process.env.PORT || 3001
 const operationsMonitor = createOperationsMonitor()
 const JWT_SECRET = process.env.JWT_SECRET || 'wcc-admin-dev-secret-change-in-production'
-const UPLOADS_ROOT_DIR = path.join(__dirname, 'uploads')
-const DOCUMENT_UPLOADS_DIR = path.join(UPLOADS_ROOT_DIR, 'documents')
 const DOCUMENT_MANAGEMENT_ROLES = ['admin', 'registrar']
 const requireAdminOrRegistrarRole = requireAnyRole(...DOCUMENT_MANAGEMENT_ROLES)
 const requireBlockManagementRole = requireAnyRole('admin', 'registrar')
-const ARCHIVE_ACTOR_POPULATE = 'username displayName avatar avatarMimeType'
+const PHONE_AUTH_PROVIDER = String(process.env.PHONE_AUTH_PROVIDER || 'sms-api-ph').trim().toLowerCase()
+const useSupabasePhoneAuth = PHONE_AUTH_PROVIDER === 'supabase'
+const useTextlocalSms = PHONE_AUTH_PROVIDER === 'textlocal'
+function getActiveSmsService() {
+  return useTextlocalSms ? textlocalSmsService : smsApiPhService
+}
 const parsedPhoneVerificationTtlMs = Number(process.env.PHONE_VERIFICATION_CODE_TTL_MS)
 const PHONE_VERIFICATION_CODE_TTL_MS = Number.isFinite(parsedPhoneVerificationTtlMs) && parsedPhoneVerificationTtlMs > 0
   ? parsedPhoneVerificationTtlMs
@@ -144,11 +152,6 @@ const parsedLoginEmailVerificationTtlMs = Number(process.env.LOGIN_EMAIL_VERIFIC
 const LOGIN_EMAIL_VERIFICATION_CODE_TTL_MS = Number.isFinite(parsedLoginEmailVerificationTtlMs) && parsedLoginEmailVerificationTtlMs > 0
   ? parsedLoginEmailVerificationTtlMs
   : EMAIL_VERIFICATION_CODE_TTL_MS
-const parsedArchiveBinRetentionDays = Number(process.env.ARCHIVE_BIN_RETENTION_DAYS || 30)
-const ARCHIVE_BIN_RETENTION_DAYS = Number.isFinite(parsedArchiveBinRetentionDays) && parsedArchiveBinRetentionDays > 0
-  ? Math.max(30, Math.floor(parsedArchiveBinRetentionDays))
-  : 30
-const ARCHIVE_BIN_RETENTION_MS = ARCHIVE_BIN_RETENTION_DAYS * 24 * 60 * 60 * 1000
 const parsedArchiveBinCleanupIntervalMs = Number(process.env.ARCHIVE_BIN_CLEANUP_INTERVAL_MS)
 const ARCHIVE_BIN_CLEANUP_INTERVAL_MS = Number.isFinite(parsedArchiveBinCleanupIntervalMs) && parsedArchiveBinCleanupIntervalMs > 0
   ? parsedArchiveBinCleanupIntervalMs
@@ -412,521 +415,6 @@ app.use((req, res, next) => {
   
   next()
 })
-
-function sanitizeStorageFileName(fileName) {
-  const trimmedFileName = String(fileName || '').trim()
-  const safeFileName = trimmedFileName
-    .replace(/[^A-Za-z0-9._-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^[-.]+|[-.]+$/g, '')
-
-  return safeFileName || 'document.bin'
-}
-
-function decodeBase64FileData(fileData) {
-  const rawValue = String(fileData || '').trim()
-  if (!rawValue) {
-    const error = new Error('Document file data is required.')
-    error.statusCode = 400
-    throw error
-  }
-
-  const dataUriMatch = rawValue.match(/^data:([^;,]+);base64,(.+)$/i)
-  const detectedMimeType = dataUriMatch ? String(dataUriMatch[1] || '').trim().toLowerCase() : ''
-  const encodedPayload = (dataUriMatch ? dataUriMatch[2] : rawValue).replace(/\s+/g, '')
-
-  let fileBuffer
-  try {
-    fileBuffer = Buffer.from(encodedPayload, 'base64')
-  } catch (error) {
-    const decodeError = new Error('Document file data must be valid base64.')
-    decodeError.statusCode = 400
-    throw decodeError
-  }
-
-  const normalizedInput = encodedPayload.replace(/=+$/g, '')
-  const normalizedDecoded = fileBuffer.toString('base64').replace(/=+$/g, '')
-  if (!fileBuffer.length || normalizedDecoded !== normalizedInput) {
-    const validationError = new Error('Document file data must be valid base64.')
-    validationError.statusCode = 400
-    throw validationError
-  }
-
-  return {
-    buffer: fileBuffer,
-    detectedMimeType
-  }
-}
-
-async function persistDocumentUpload({ originalFileName, fileData, mimeType, fileSize }) {
-  const { buffer, detectedMimeType } = decodeBase64FileData(fileData)
-  const normalizedMimeType = String(mimeType || '').trim().toLowerCase()
-  if (detectedMimeType && normalizedMimeType && detectedMimeType !== normalizedMimeType) {
-    const mimeError = new Error('Document MIME type does not match the uploaded file data.')
-    mimeError.statusCode = 400
-    throw mimeError
-  }
-
-  if (Number(fileSize) !== buffer.length) {
-    const sizeError = new Error('Document size does not match the uploaded file data.')
-    sizeError.statusCode = 400
-    throw sizeError
-  }
-
-  await fs.promises.mkdir(DOCUMENT_UPLOADS_DIR, { recursive: true })
-
-  const safeOriginalFileName = sanitizeStorageFileName(originalFileName)
-  const extension = path.extname(safeOriginalFileName)
-  const baseName = path.basename(safeOriginalFileName, extension) || 'document'
-  const storedFileName = `${Date.now()}-${crypto.randomUUID()}-${baseName}${extension}`
-  const absoluteFilePath = path.join(DOCUMENT_UPLOADS_DIR, storedFileName)
-
-  await fs.promises.writeFile(absoluteFilePath, buffer)
-
-  return {
-    fileName: storedFileName,
-    filePath: path.posix.join('documents', storedFileName)
-  }
-}
-
-function resolveUploadPath(relativePath) {
-  return path.resolve(UPLOADS_ROOT_DIR, String(relativePath || ''))
-}
-
-function getArchiveDocumentAssetPath(documentId, options = {}) {
-  const normalizedId = encodeURIComponent(String(documentId || '').trim())
-  const params = new URLSearchParams()
-
-  if (options.download) {
-    params.set('download', 'true')
-  }
-
-  return `/api/admin/documents/${normalizedId}/asset${params.toString() ? `?${params.toString()}` : ''}`
-}
-
-function getDocumentAccessRoleAliases(accountType) {
-  const normalizedAccountType = normalizeAccountType(accountType)
-  const roleAliases = new Set([normalizedAccountType])
-
-  if (normalizedAccountType === 'registrar') {
-    roleAliases.add('staff')
-  } else if (normalizedAccountType === 'professor') {
-    roleAliases.add('faculty')
-  }
-
-  return roleAliases
-}
-
-function canAccessDocumentAsset(document, accountType) {
-  if (!document || document.isTrashed) {
-    return false
-  }
-
-  const normalizedAccountType = normalizeAccountType(accountType)
-  if (!normalizedAccountType) {
-    return false
-  }
-
-  if (normalizedAccountType === 'admin' || document.isPublic) {
-    return true
-  }
-
-  const allowedRoles = Array.isArray(document.allowedRoles)
-    ? document.allowedRoles.map((role) => normalizeAccountType(role)).filter(Boolean)
-    : []
-
-  if (allowedRoles.length === 0) {
-    return normalizedAccountType === 'registrar'
-  }
-
-  const roleAliases = getDocumentAccessRoleAliases(accountType)
-  return allowedRoles.some((role) => roleAliases.has(role))
-}
-
-async function deleteStoredUpload(relativePath) {
-  const resolvedPath = resolveUploadPath(relativePath)
-  const uploadsRoot = path.resolve(UPLOADS_ROOT_DIR)
-  if (!resolvedPath.startsWith(uploadsRoot)) {
-    const pathError = new Error('Invalid upload path.')
-    pathError.statusCode = 400
-    throw pathError
-  }
-
-  try {
-    await fs.promises.unlink(resolvedPath)
-  } catch (error) {
-    if (error.code !== 'ENOENT') {
-      throw error
-    }
-  }
-}
-
-function escapeRegex(value) {
-  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function sanitizeFolderForAudit(folder) {
-  if (!folder) return null
-  const source = folder.toObject ? folder.toObject() : folder
-
-  return {
-    _id: source._id,
-    name: source.name,
-    segmentType: source.segmentType,
-    segmentValue: source.segmentValue,
-    description: source.description,
-    parentFolder: source.parentFolder,
-    createdBy: source.createdBy,
-    updatedBy: source.updatedBy,
-    isTrashed: source.isTrashed,
-    trashedAt: source.trashedAt,
-    trashedBy: source.trashedBy,
-    createdAt: source.createdAt,
-    updatedAt: source.updatedAt
-  }
-}
-
-function applyTrashedFilter(target, trashed = 'exclude') {
-  if (trashed === 'only') {
-    target.isTrashed = true
-    return target
-  }
-
-  if (trashed !== 'include') {
-    target.isTrashed = { $ne: true }
-  }
-
-  return target
-}
-
-async function ensureFolderExists(folderId) {
-  if (!folderId) {
-    return null
-  }
-
-  const folder = await DocumentFolder.findOne({
-    _id: folderId,
-    isTrashed: { $ne: true }
-  })
-  if (!folder) {
-    const error = new Error('Selected folder was not found.')
-    error.statusCode = 400
-    throw error
-  }
-
-  return folder
-}
-
-async function ensureUniqueFolderName(name, parentFolderId, excludeFolderId = null) {
-  const normalizedName = String(name || '').trim()
-  if (!normalizedName) {
-    const error = new Error('Folder name is required.')
-    error.statusCode = 400
-    throw error
-  }
-
-  const duplicateQuery = {
-    parentFolder: parentFolderId || null,
-    name: { $regex: `^${escapeRegex(normalizedName)}$`, $options: 'i' },
-    isTrashed: { $ne: true }
-  }
-
-  if (excludeFolderId) {
-    duplicateQuery._id = { $ne: excludeFolderId }
-  }
-
-  const duplicateFolder = await DocumentFolder.findOne(duplicateQuery).select('_id')
-
-  if (duplicateFolder) {
-    const error = new Error('A folder with the same name already exists in this location.')
-    error.statusCode = 409
-    throw error
-  }
-}
-
-async function assertFolderCanMove(folderId, nextParentFolder) {
-  if (!nextParentFolder) {
-    return
-  }
-
-  const normalizedFolderId = String(folderId)
-  let cursorFolder = nextParentFolder
-
-  while (cursorFolder) {
-    if (String(cursorFolder._id) === normalizedFolderId) {
-      const error = new Error('A folder cannot be moved into itself or one of its subfolders.')
-      error.statusCode = 400
-      throw error
-    }
-
-    const parentFolderId = cursorFolder.parentFolder?._id || cursorFolder.parentFolder || null
-    if (!parentFolderId) {
-      break
-    }
-
-    cursorFolder = await DocumentFolder.findById(parentFolderId)
-      .select('_id parentFolder')
-      .lean()
-  }
-}
-
-const DOCUMENT_TYPE_FOLDER_RESTRICTIONS = [
-  { matchValues: ['PDF'], label: 'PDF', allowedTypes: ['PDF'] },
-  { matchValues: ['DOC', 'DOCX', 'DOCS', 'WORD', 'DOCUMENT'], label: 'DOC or DOCX', allowedTypes: ['DOC', 'DOCX'] },
-  { matchValues: ['XLS', 'XLSX', 'SPREADSHEET'], label: 'XLS, XLSX, or CSV', allowedTypes: ['XLS', 'XLSX', 'CSV'] },
-  { matchValues: ['PPT', 'PPTX', 'PRESENTATION'], label: 'PPT or PPTX', allowedTypes: ['PPT', 'PPTX'] },
-  { matchValues: ['PNG'], label: 'PNG', allowedTypes: ['PNG'] },
-  { matchValues: ['JPG', 'JPEG'], label: 'JPG or JPEG', allowedTypes: ['JPG', 'JPEG'] },
-  { matchValues: ['IMAGE'], label: 'image', allowedTypes: ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'SVG'] },
-  { matchValues: ['TXT', 'TEXT'], label: 'TXT', allowedTypes: ['TXT'] },
-  { matchValues: ['CSV'], label: 'CSV', allowedTypes: ['CSV'] },
-  { matchValues: ['ZIP', 'ARCHIVE'], label: 'ZIP', allowedTypes: ['ZIP'] }
-]
-
-function normalizeDocumentFileType(value) {
-  const cleanedValue = String(value || '').replace(/^\./, '').trim()
-  if (!cleanedValue) {
-    return 'File'
-  }
-
-  const normalizedValue = cleanedValue.toUpperCase()
-  return normalizedValue === 'JPG' ? 'JPEG' : normalizedValue
-}
-
-function getDocumentFileTypeFromMetadata({ originalFileName, fileName, mimeType }) {
-  const nameCandidates = [originalFileName, fileName]
-
-  for (const candidateName of nameCandidates) {
-    const extension = String(candidateName || '').split('.').pop()
-    if (extension && extension !== candidateName) {
-      return normalizeDocumentFileType(extension)
-    }
-  }
-
-  if (String(mimeType || '').startsWith('image/')) return 'Image'
-  if (String(mimeType || '').includes('pdf')) return 'PDF'
-  if (String(mimeType || '').includes('spreadsheet') || String(mimeType || '').includes('excel') || String(mimeType || '').includes('csv')) return 'Spreadsheet'
-  if (String(mimeType || '').includes('word') || String(mimeType || '').includes('document')) return 'Document'
-  return 'File'
-}
-
-function resolveFolderDocumentTypeRestriction(segmentValue) {
-  const normalizedSegmentValue = normalizeDocumentFileType(segmentValue)
-  if (!normalizedSegmentValue || normalizedSegmentValue === 'File') {
-    return null
-  }
-
-  return DOCUMENT_TYPE_FOLDER_RESTRICTIONS.find((entry) => entry.matchValues.includes(normalizedSegmentValue)) || null
-}
-
-async function getFolderDocumentTypeRestriction(folder) {
-  let currentFolder = folder
-
-  while (currentFolder) {
-    if (currentFolder.segmentType === 'DOCUMENT_TYPE') {
-      const restriction = resolveFolderDocumentTypeRestriction(currentFolder.segmentValue || currentFolder.name)
-      if (restriction) {
-        return restriction
-      }
-    }
-
-    const parentFolderId = currentFolder.parentFolder?._id || currentFolder.parentFolder || null
-    if (!parentFolderId) {
-      break
-    }
-
-    currentFolder = await DocumentFolder.findById(parentFolderId)
-      .select('name segmentType segmentValue parentFolder')
-      .lean()
-  }
-
-  return null
-}
-
-async function assertDocumentMatchesFolderRestriction(folder, documentMetadata) {
-  if (!folder) {
-    return
-  }
-
-  const restriction = await getFolderDocumentTypeRestriction(folder)
-  if (!restriction) {
-    return
-  }
-
-  const fileType = getDocumentFileTypeFromMetadata(documentMetadata)
-  if (restriction.allowedTypes.includes(fileType)) {
-    return
-  }
-
-  const error = new Error(`Only ${restriction.label} files can be uploaded in this folder.`)
-  error.statusCode = 400
-  throw error
-}
-
-async function collectFolderBranchIds(rootFolderId) {
-  const discoveredIds = [String(rootFolderId)]
-  const queue = [String(rootFolderId)]
-
-  while (queue.length > 0) {
-    const batch = queue.splice(0, queue.length)
-    const childFolders = await DocumentFolder.find({
-      parentFolder: { $in: batch }
-    }).select('_id').lean()
-
-    childFolders.forEach((childFolder) => {
-      const childId = String(childFolder._id)
-      if (discoveredIds.includes(childId)) return
-      discoveredIds.push(childId)
-      queue.push(childId)
-    })
-  }
-
-  return discoveredIds
-}
-
-async function getFolderBranchDetails(rootFolderId) {
-  const folderIds = await collectFolderBranchIds(rootFolderId)
-  const documents = await Document.find({
-    folderId: { $in: folderIds }
-  }).select('_id title filePath').lean()
-
-  return {
-    folderIds,
-    childFolderCount: Math.max(0, folderIds.length - 1),
-    documents
-  }
-}
-
-function getArchiveBinExpirationCutoff(referenceTime = Date.now()) {
-  return new Date(referenceTime - ARCHIVE_BIN_RETENTION_MS)
-}
-
-async function permanentlyDeleteStoredDocuments(documents) {
-  for (const document of documents) {
-    await deleteStoredUpload(document.filePath)
-  }
-
-  if (documents.length > 0) {
-    await Document.deleteMany({ _id: { $in: documents.map((document) => document._id) } })
-  }
-
-  return documents.length
-}
-
-async function permanentlyDeleteFolderBranch(rootFolderId) {
-  const { folderIds, documents } = await getFolderBranchDetails(rootFolderId)
-  await permanentlyDeleteStoredDocuments(documents)
-  await DocumentFolder.deleteMany({ _id: { $in: folderIds } })
-
-  return {
-    deletedFolderCount: folderIds.length,
-    deletedDocumentCount: documents.length
-  }
-}
-
-async function purgeExpiredArchiveBinItems() {
-  if (!dbReady) {
-    return
-  }
-
-  const cutoffDate = getArchiveBinExpirationCutoff()
-  let deletedFolderCount = 0
-  let deletedDocumentCount = 0
-
-  const expiredFolders = await DocumentFolder.find({
-    isTrashed: true,
-    trashedAt: { $lte: cutoffDate }
-  })
-    .select('_id parentFolder')
-    .lean()
-
-  const expiredFolderIdSet = new Set(expiredFolders.map((folder) => String(folder._id)))
-  const rootExpiredFolders = expiredFolders.filter((folder) => {
-    const parentId = folder.parentFolder ? String(folder.parentFolder) : null
-    return !parentId || !expiredFolderIdSet.has(parentId)
-  })
-
-  for (const folder of rootExpiredFolders) {
-    const result = await permanentlyDeleteFolderBranch(folder._id)
-    deletedFolderCount += result.deletedFolderCount
-    deletedDocumentCount += result.deletedDocumentCount
-  }
-
-  const remainingTrashedFolderIds = await DocumentFolder.find({ isTrashed: true }).distinct('_id')
-  const expiredStandaloneDocuments = await Document.find({
-    isTrashed: true,
-    trashedAt: { $lte: cutoffDate },
-    $or: [
-      { folderId: null },
-      { folderId: { $nin: remainingTrashedFolderIds } }
-    ]
-  })
-    .select('_id title filePath')
-    .lean()
-
-  deletedDocumentCount += await permanentlyDeleteStoredDocuments(expiredStandaloneDocuments)
-
-  if (deletedFolderCount > 0 || deletedDocumentCount > 0) {
-    console.log(
-      `[archive-bin] Purged expired items older than ${ARCHIVE_BIN_RETENTION_DAYS} days: ` +
-      `${deletedFolderCount} folder(s), ${deletedDocumentCount} document(s).`
-    )
-  }
-}
-
-async function withFolderCounts(folders, trashed = 'exclude') {
-  if (!Array.isArray(folders) || folders.length === 0) {
-    return []
-  }
-
-  const folderIds = folders.map((folder) => folder._id)
-  const documentMatch = applyTrashedFilter({ folderId: { $in: folderIds } }, trashed)
-  const childFolderMatch = applyTrashedFilter({ parentFolder: { $in: folderIds } }, trashed)
-  const [documentCounts, childFolderCounts] = await Promise.all([
-    Document.aggregate([
-      { $match: documentMatch },
-      {
-        $group: {
-          _id: '$folderId',
-          count: { $sum: 1 },
-          totalSize: { $sum: '$fileSize' }
-        }
-      }
-    ]),
-    DocumentFolder.aggregate([
-      { $match: childFolderMatch },
-      {
-        $group: {
-          _id: '$parentFolder',
-          count: { $sum: 1 }
-        }
-      }
-    ])
-  ])
-
-  const documentCountMap = new Map(
-    documentCounts.map((entry) => [String(entry._id), {
-      count: Number(entry.count) || 0,
-      totalSize: Number(entry.totalSize) || 0
-    }])
-  )
-  const childFolderCountMap = new Map(
-    childFolderCounts.map((entry) => [String(entry._id), Number(entry.count) || 0])
-  )
-
-  return folders.map((folder) => {
-    const folderObject = folder.toObject ? folder.toObject() : folder
-    const folderId = String(folderObject._id)
-    const documentCountEntry = documentCountMap.get(folderId)
-
-    return {
-      ...folderObject,
-      directDocumentCount: documentCountEntry?.count || 0,
-      directChildFolderCount: childFolderCountMap.get(folderId) || 0,
-      directStorageBytes: documentCountEntry?.totalSize || 0
-    }
-  })
-}
 
 // Serve frontend static files
 const distPath = path.join(__dirname, '..', 'dist')
@@ -1774,7 +1262,12 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
 
 async function authMiddleware(req, res, next) {
   const auth = req.headers.authorization
-  const token = auth && auth.startsWith('Bearer ') ? auth.slice(7) : null
+  let token = auth && auth.startsWith('Bearer ') ? auth.slice(7) : null
+  // Fallback: accept token from query string (used by browser-initiated
+  // downloads/previews via window.open() where Authorization header can't be set).
+  if (!token && typeof req.query?.token === 'string' && req.query.token.length > 0) {
+    token = req.query.token
+  }
   if (!token) {
     return res.status(401).json({ error: 'Unauthorized.' })
   }
@@ -2294,6 +1787,13 @@ function normalizePhilippineMobileNumber(rawNumber) {
 
 function isValidPhilippineMobileNumber(normalizedNumber) {
   return /^09\d{9}$/.test(String(normalizedNumber || ''))
+}
+
+// Convert a normalized PH number (09XXXXXXXXX) to E.164 (+63XXXXXXXXX) for Supabase.
+function philippineNumberToE164(normalizedNumber) {
+  const local = String(normalizedNumber || '').trim()
+  if (!/^09\d{9}$/.test(local)) return ''
+  return `+63${local.slice(1)}`
 }
 
 function isValidEmailAddress(email) {
@@ -3460,6 +2960,9 @@ app.get('/api/student/me', async (req, res) => {
           googleEmail: student.googleEmail,
           googleEmailVerified: student.googleEmailVerified,
           googlePicture: student.googlePicture,
+          profilePictureUrl: student.profilePicture && student.profilePictureMimeType
+            ? `data:${student.profilePictureMimeType};base64,${student.profilePicture}`
+            : null,
           lastLogin: student.lastLogin,
           createdAt: student.createdAt,
           blockInfo: blockInfo
@@ -3575,6 +3078,65 @@ app.put('/api/student/profile', studentAuthMiddleware, async (req, res) => {
   }
 })
 
+// POST /api/student/profile-picture — one-time profile picture upload.
+// Students can set their profile picture only once. Once set, the picture
+// cannot be changed or removed from the mobile app. Subsequent attempts
+// return 409 Conflict.
+app.post('/api/student/profile-picture', studentAuthMiddleware, async (req, res) => {
+  try {
+    const student = req.student
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found.' })
+    }
+
+    // Enforce one-time-only upload
+    if (student.profilePicture && student.profilePictureMimeType) {
+      return res.status(409).json({
+        error: 'Profile picture has already been set and cannot be changed.',
+        errorCode: 'PROFILE_PICTURE_LOCKED'
+      })
+    }
+
+    const { imageBase64, mimeType } = req.body || {}
+
+    if (!imageBase64 || typeof imageBase64 !== 'string') {
+      return res.status(400).json({ error: 'Image data is required.' })
+    }
+
+    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg']
+    const normalizedMime = (mimeType || '').toString().toLowerCase()
+    if (!allowedMimeTypes.includes(normalizedMime)) {
+      return res.status(400).json({ error: 'Only JPEG, PNG, or WebP images are allowed.' })
+    }
+
+    // Validate image size (base64 string size) — 5MB max
+    const imageSizeInBytes = Buffer.byteLength(imageBase64, 'base64')
+    if (imageSizeInBytes > 5 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Image size too large. Maximum 5MB allowed.' })
+    }
+    if (imageSizeInBytes < 1) {
+      return res.status(400).json({ error: 'Image data is empty.' })
+    }
+
+    student.profilePicture = imageBase64
+    student.profilePictureMimeType = normalizedMime
+    await student.save()
+
+    console.log(`[profile-picture] ${student.studentNumber}: profile picture uploaded (one-time)`)
+
+    res.status(201).json({
+      success: true,
+      message: 'Profile picture uploaded successfully. This cannot be changed later.',
+      data: {
+        profilePictureUrl: `data:${normalizedMime};base64,${imageBase64}`
+      }
+    })
+  } catch (error) {
+    console.error('Upload student profile picture error:', error)
+    res.status(500).json({ error: 'Failed to upload profile picture.' })
+  }
+})
+
 // ==================== STUDENT MOBILE APP — SHARED HELPERS ====================
 
 // Reusable auth guard for student-mobile-only endpoints. Verifies the bearer
@@ -3673,10 +3235,15 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
     }
     let todaySchedule = []
     let latestGrades = []
+    let nextDayClasses = []
+    let nextDayLabel = null
 
     if (enrollment) {
+      // Only count subjects the student is currently enrolled in for this term.
+      // Exclude Dropped, Removed, and Completed (finished subjects are no longer
+      // "currently enrolled" even though they remain on the term record).
       const activeSubjects = (enrollment.subjects || []).filter(
-        (subject) => !['Dropped', 'Removed'].includes(subject.status)
+        (subject) => ['Enrolled', 'Incomplete'].includes(subject.status)
       )
 
       academicSummary = {
@@ -3689,6 +3256,10 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
       }
 
       const todayCode = WEEKDAY_INDEX_TO_CODE[new Date().getDay()]
+      const subjectsWithSchedule = activeSubjects.filter(
+        (subject) => parseScheduleString(subject.schedule)
+      )
+
       todaySchedule = activeSubjects
         .map((subject) => {
           const parsed = parseScheduleString(subject.schedule)
@@ -3704,6 +3275,47 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
         })
         .filter(Boolean)
         .sort((a, b) => a.startTime.localeCompare(b.startTime))
+
+      // Build the weekly schedule so the dashboard can show a preview
+      // when today has no classes (avoids the "enrolled but no schedule" confusion).
+      const weeklyByDay = { M: [], T: [], W: [], TH: [], F: [], S: [], SU: [] }
+      for (const subject of activeSubjects) {
+        const parsed = parseScheduleString(subject.schedule)
+        if (!parsed) continue
+        for (const dayCode of parsed.days) {
+          if (!weeklyByDay[dayCode]) continue
+          weeklyByDay[dayCode].push({
+            subjectCode: subject.code,
+            subjectTitle: subject.title,
+            room: subject.room || 'TBA',
+            instructor: subject.instructor || 'TBA',
+            startTime: parsed.startTime,
+            endTime: parsed.endTime
+          })
+        }
+      }
+      for (const dayCode of Object.keys(weeklyByDay)) {
+        weeklyByDay[dayCode].sort((a, b) => a.startTime.localeCompare(b.startTime))
+      }
+
+      // Find the next day (from today forward) that has classes, for the
+      // "no classes today" preview.
+      const dayOrder = ['SU', 'M', 'T', 'W', 'TH', 'F', 'S']
+      const todayIdx = dayOrder.indexOf(todayCode)
+      for (let offset = 1; offset <= 7; offset++) {
+        const dayCode = dayOrder[(todayIdx + offset) % 7]
+        if (weeklyByDay[dayCode] && weeklyByDay[dayCode].length > 0) {
+          nextDayClasses = weeklyByDay[dayCode]
+          nextDayLabel = dayCode
+          break
+        }
+      }
+
+      academicSummary.scheduleStatus = subjectsWithSchedule.length === 0
+        ? 'not_set'
+        : todaySchedule.length > 0
+          ? 'today'
+          : 'none_today'
 
       latestGrades = activeSubjects
         .filter((subject) => subject.grade !== null && subject.grade !== undefined)
@@ -3743,10 +3355,17 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
           schoolYear: student.schoolYear,
           semester: student.semester,
           studentStatus: student.studentStatus,
-          corStatus: student.corStatus
+          corStatus: student.corStatus,
+          profilePictureUrl: student.profilePicture && student.profilePictureMimeType
+            ? `data:${student.profilePictureMimeType};base64,${student.profilePicture}`
+            : null
         },
         academicSummary,
         todaySchedule,
+        upcomingSchedule: nextDayClasses.length > 0 ? {
+          dayLabel: nextDayLabel,
+          classes: nextDayClasses
+        } : null,
         latestGrades,
         announcements: announcements.map((announcement) => ({
           id: announcement._id.toString(),
@@ -4668,10 +4287,17 @@ app.post('/api/admin/profile/phone/send-code', verificationLimiter, authMiddlewa
     return res.status(503).json({ error: 'Database unavailable.' })
   }
 
-  if (!smsApiPhService.isConfigured()) {
-    return res.status(503).json({
-      error: 'SMS gateway is not configured. Set SMS_API_PH_API_KEY.'
-    })
+  // Provider check
+  if (useSupabasePhoneAuth) {
+    if (!supabaseAuthService.isConfigured()) {
+      return res.status(503).json({ error: 'Supabase Auth is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.' })
+    }
+  } else {
+    const activeSmsService = getActiveSmsService()
+    if (!activeSmsService.isConfigured()) {
+      const missingEnv = useTextlocalSms ? 'TEXTLOCAL_API_KEY' : 'SMS_API_PH_API_KEY'
+      return res.status(503).json({ error: `SMS gateway is not configured. Set ${missingEnv}.` })
+    }
   }
 
   try {
@@ -4684,6 +4310,42 @@ app.post('/api/admin/profile/phone/send-code', verificationLimiter, authMiddlewa
       return res.status(400).json({ error: 'Invalid mobile number. Use 09XXXXXXXXX.' })
     }
 
+    // ── Supabase provider ──
+    // Supabase generates and sends the OTP itself; we don't store a code hash.
+    if (useSupabasePhoneAuth) {
+      const phoneE164 = philippineNumberToE164(normalizedPhone)
+      admin.phone = normalizedPhone
+      admin.phoneVerified = false
+      admin.phoneVerificationCodeHash = 'supabase-managed'
+      admin.phoneVerificationExpiresAt = new Date(Date.now() + PHONE_VERIFICATION_CODE_TTL_MS)
+      await admin.save()
+
+      try {
+        await supabaseAuthService.sendOtp(phoneE164)
+      } catch (deliveryError) {
+        admin.phoneVerificationCodeHash = ''
+        admin.phoneVerificationExpiresAt = null
+        await admin.save()
+        console.error('Supabase phone OTP send error:', deliveryError.message)
+        return res.status(502).json({ error: deliveryError.message || 'Failed to send verification code.' })
+      }
+
+      return res.json({
+        message: 'Verification code sent.',
+        phone: normalizedPhone,
+        expiresAt: admin.phoneVerificationExpiresAt.toISOString(),
+        channel: 'sms',
+        provider: 'supabase',
+        destination: phoneE164,
+        fallbackUsed: false,
+        fallbackReason: null,
+        deliveryStatus: 'sent',
+        messageId: null,
+        providerMessage: null,
+      })
+    }
+
+    // ── sms-api-ph / textlocal provider (default) ──
     const verificationCode = generatePhoneVerificationCode()
     const verificationCodeHash = hashPhoneVerificationCode(verificationCode)
     const expiresAt = new Date(Date.now() + PHONE_VERIFICATION_CODE_TTL_MS)
@@ -4697,10 +4359,11 @@ app.post('/api/admin/profile/phone/send-code', verificationLimiter, authMiddlewa
 
     const smsMessage = `Your verification code is ${verificationCode}`
     const adminEmail = String(admin.email || '').trim().toLowerCase()
+    const activeSmsService = getActiveSmsService()
     let deliveryResult = null
 
     try {
-      deliveryResult = await smsApiPhService.sendMessage({
+      deliveryResult = await activeSmsService.sendMessage({
         recipient: normalizedPhone,
         message: smsMessage,
         fallbackEmail: adminEmail
@@ -4718,7 +4381,7 @@ app.post('/api/admin/profile/phone/send-code', verificationLimiter, authMiddlewa
 
     const channel = deliveryResult.channel === 'email' ? 'email' : 'sms'
     const usedEmailFallback = Boolean(channel === 'email' || deliveryResult.fallbackUsed)
-    const emailProvider = channel === 'email' ? 'sms-api-ph' : null
+    const emailProvider = channel === 'email' ? deliveryResult.provider : null
 
     res.json({
       message: 'Verification code sent.',
@@ -4765,6 +4428,33 @@ app.post('/api/admin/profile/phone/verify', verificationLimiter, authMiddleware,
       return res.status(400).json({ error: 'Verification code has expired. Request a new one.' })
     }
 
+    // ── Supabase provider ──
+    // Supabase verifies the OTP on its side; we don't compare hashes.
+    if (useSupabasePhoneAuth) {
+      const phoneE164 = philippineNumberToE164(normalizedPhone)
+      try {
+        await supabaseAuthService.verifyOtp(phoneE164, req.body.code)
+      } catch (verifyError) {
+        console.error('Supabase phone OTP verify error:', verifyError.message)
+        return res.status(400).json({ error: verifyError.message || 'Invalid verification code.' })
+      }
+
+      admin.phone = normalizedPhone
+      admin.phoneVerified = true
+      admin.phoneVerificationCodeHash = ''
+      admin.phoneVerificationExpiresAt = null
+      await admin.save()
+
+      await logAudit(
+        'UPDATE', 'ADMIN', admin._id.toString(), `Phone: ${normalizedPhone}`,
+        `Phone verified via Supabase OTP: ${normalizedPhone}`, req.adminId, req.accountType,
+        { phoneVerified: false }, { phoneVerified: true }, 'SUCCESS', 'MEDIUM'
+      )
+
+      return res.json(buildAdminProfileResponse(admin))
+    }
+
+    // ── sms-api-ph / textlocal provider (default) ──
     const providedCodeHash = hashPhoneVerificationCode(req.body.code)
     if (providedCodeHash !== admin.phoneVerificationCodeHash) {
       return res.status(400).json({ error: 'Invalid verification code.' })
@@ -5467,755 +5157,8 @@ app.delete('/api/admin/announcements/:id', authMiddleware, requireAdminOrRegistr
 // Audit log routes have been extracted to domains/archive/routes/archiveRoutes.js
 // and mounted at /api/admin above.
 
-// ==================== DOCUMENTS ====================
-
-// GET /api/admin/document-folders - list archive folders
-app.get('/api/admin/document-folders', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.documentFolders.query), async (req, res) => {
-  if (!dbReady) {
-    return res.status(503).json({ error: 'Database unavailable.' })
-  }
-
-  try {
-    const { parentId, search, trashed = 'exclude' } = req.query
-    const filter = applyTrashedFilter({}, trashed)
-
-    if (parentId) {
-      filter.parentFolder = parentId
-    }
-
-    if (search) {
-      filter.$or = [
-        { name: { $regex: escapeRegex(search), $options: 'i' } },
-        { segmentValue: { $regex: escapeRegex(search), $options: 'i' } }
-      ]
-    }
-
-    const folders = await DocumentFolder.find(filter)
-      .populate('createdBy', ARCHIVE_ACTOR_POPULATE)
-      .populate('updatedBy', ARCHIVE_ACTOR_POPULATE)
-      .populate('parentFolder', 'name segmentType segmentValue parentFolder')
-      .sort({ parentFolder: 1, name: 1 })
-      .lean()
-
-    res.json({
-      folders: await withFolderCounts(folders, trashed),
-      total: folders.length
-    })
-  } catch (err) {
-    console.error('Get document folders error:', err.message)
-    res.status(500).json({ error: 'Failed to load document folders.' })
-  }
-})
-
-// POST /api/admin/document-folders - create folder
-app.post('/api/admin/document-folders', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.documentFolders.create), async (req, res) => {
-  if (!dbReady) {
-    return res.status(503).json({ error: 'Database unavailable.' })
-  }
-
-  try {
-    const {
-      name,
-      segmentType = 'CUSTOM',
-      segmentValue = '',
-      description = '',
-      parentFolderId = null
-    } = req.body
-
-    const parentFolder = await ensureFolderExists(parentFolderId)
-    await ensureUniqueFolderName(name, parentFolder?._id || null)
-
-    const folder = new DocumentFolder({
-      name,
-      segmentType,
-      segmentValue,
-      description,
-      parentFolder: parentFolder?._id || null,
-      createdBy: req.adminId
-    })
-
-    await folder.save()
-    await folder.populate('createdBy', ARCHIVE_ACTOR_POPULATE)
-    await folder.populate('parentFolder', 'name segmentType segmentValue parentFolder')
-
-    const hydratedFolder = (await withFolderCounts([folder]))[0]
-
-    await logAudit(
-      'CREATE',
-      'DOCUMENT',
-      folder._id.toString(),
-      `Folder: ${folder.name}`,
-      `Created document folder: ${folder.name}`,
-      req.adminId,
-      req.accountType,
-      null,
-      sanitizeFolderForAudit(folder),
-      'SUCCESS',
-      'LOW'
-    )
-
-    res.status(201).json({
-      message: 'Folder created successfully.',
-      folder: hydratedFolder
-    })
-  } catch (err) {
-    console.error('Create document folder error:', err.message)
-    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to create folder.' })
-  }
-})
-
-// PUT /api/admin/document-folders/:id - rename/update folder
-app.put('/api/admin/document-folders/:id', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware({
-  body: securityMiddleware.schemas.documentFolders.update.body,
-  params: Joi.object({ id: securityMiddleware.schemas.objectId })
-}), async (req, res) => {
-  if (!dbReady) {
-    return res.status(503).json({ error: 'Database unavailable.' })
-  }
-
-  try {
-    const folder = await DocumentFolder.findOne({
-      _id: req.params.id,
-      isTrashed: { $ne: true }
-    })
-    if (!folder) {
-      return res.status(404).json({ error: 'Folder not found.' })
-    }
-
-    const previousValue = sanitizeFolderForAudit(folder)
-    const { name, segmentType, segmentValue, description, parentFolderId } = req.body
-    const nextParentFolder = parentFolderId === undefined ? undefined : await ensureFolderExists(parentFolderId)
-    const resolvedParentFolderId = nextParentFolder?._id || null
-    const resolvedName = name && name.trim() ? name.trim() : folder.name
-    const isMovingFolder = parentFolderId !== undefined && String(folder.parentFolder || '') !== String(resolvedParentFolderId || '')
-
-    if (isMovingFolder) {
-      await assertFolderCanMove(folder._id, nextParentFolder || null)
-    }
-
-    if ((name && name.trim() !== folder.name) || isMovingFolder) {
-      await ensureUniqueFolderName(resolvedName, resolvedParentFolderId, folder._id)
-      folder.name = resolvedName
-    }
-
-    if (segmentType) folder.segmentType = segmentType
-    if (segmentValue !== undefined) folder.segmentValue = segmentValue
-    if (description !== undefined) folder.description = description
-    if (parentFolderId !== undefined) folder.parentFolder = resolvedParentFolderId
-    folder.updatedBy = req.adminId
-
-    await folder.save()
-    await folder.populate('createdBy', ARCHIVE_ACTOR_POPULATE)
-    await folder.populate('updatedBy', ARCHIVE_ACTOR_POPULATE)
-    await folder.populate('parentFolder', 'name segmentType segmentValue parentFolder')
-
-    const hydratedFolder = (await withFolderCounts([folder]))[0]
-
-    await logAudit(
-      'UPDATE',
-      'DOCUMENT',
-      folder._id.toString(),
-      `Folder: ${folder.name}`,
-      `Updated document folder: ${folder.name}`,
-      req.adminId,
-      req.accountType,
-      previousValue,
-      sanitizeFolderForAudit(folder),
-      'SUCCESS',
-      'LOW'
-    )
-
-    res.json({
-      message: 'Folder updated successfully.',
-      folder: hydratedFolder
-    })
-  } catch (err) {
-    console.error('Update document folder error:', err.message)
-    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to update folder.' })
-  }
-})
-
-// DELETE /api/admin/document-folders/:id - delete folder, optionally cascading
-app.delete('/api/admin/document-folders/:id', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware({
-  params: Joi.object({ id: securityMiddleware.schemas.objectId }),
-  query: Joi.object({ force: Joi.boolean().optional() })
-}), async (req, res) => {
-  if (!dbReady) {
-    return res.status(503).json({ error: 'Database unavailable.' })
-  }
-
-  try {
-    const folder = await DocumentFolder.findById(req.params.id)
-    if (!folder) {
-      return res.status(404).json({ error: 'Folder not found.' })
-    }
-
-    const { folderIds, childFolderCount, documents } = await getFolderBranchDetails(folder._id)
-    const forceDelete = req.query.force === true
-
-    if (!folder.isTrashed && !forceDelete && (childFolderCount > 0 || documents.length > 0)) {
-      return res.status(409).json({
-        error: 'Folder still contains archived items.',
-        details: {
-          childFolderCount,
-          documentCount: documents.length
-        }
-      })
-    }
-
-    if (folder.isTrashed) {
-      const result = await permanentlyDeleteFolderBranch(folder._id)
-
-      await logAudit(
-        'DELETE',
-        'DOCUMENT',
-        folder._id.toString(),
-        `Folder: ${folder.name}`,
-        `Permanently deleted document folder from archive bin: ${folder.name}`,
-        req.adminId,
-        req.accountType,
-        sanitizeFolderForAudit(folder),
-        {
-          permanentlyDeleted: true,
-          deletedFolderCount: result.deletedFolderCount,
-          deletedDocumentCount: result.deletedDocumentCount
-        },
-        'SUCCESS',
-        'HIGH'
-      )
-
-      return res.json({
-        message: 'Folder permanently deleted from Archive Bin.',
-        deletedFolderCount: result.deletedFolderCount,
-        deletedDocumentCount: result.deletedDocumentCount,
-        permanentlyDeleted: true
-      })
-    }
-
-    const trashedAt = new Date()
-    if (documents.length > 0) {
-      await Document.updateMany(
-        { _id: { $in: documents.map((document) => document._id) } },
-        {
-          $set: {
-            isTrashed: true,
-            trashedAt,
-            trashedBy: req.adminId,
-            updatedBy: req.adminId
-          }
-        }
-      )
-    }
-
-    await DocumentFolder.updateMany(
-      { _id: { $in: folderIds } },
-      {
-        $set: {
-          isTrashed: true,
-          trashedAt,
-          trashedBy: req.adminId,
-          updatedBy: req.adminId
-        }
-      }
-    )
-
-    await logAudit(
-      'DELETE',
-      'DOCUMENT',
-      folder._id.toString(),
-      `Folder: ${folder.name}`,
-      `Moved document folder to archive bin: ${folder.name}`,
-      req.adminId,
-      req.accountType,
-      sanitizeFolderForAudit(folder),
-      {
-        movedToArchiveBin: true,
-        trashedAt,
-        deletedFolderCount: folderIds.length,
-        deletedDocumentCount: documents.length
-      },
-      'SUCCESS',
-      'MEDIUM'
-    )
-
-    res.json({
-      message: 'Folder moved to Archive Bin.',
-      deletedFolderCount: folderIds.length,
-      deletedDocumentCount: documents.length,
-      movedToTrash: true
-    })
-  } catch (err) {
-    console.error('Delete document folder error:', err.message)
-    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to delete folder.' })
-  }
-})
-
-// GET /api/documents - get public documents
-app.get('/api/documents', publicReadLimiter, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.documents.query), async (req, res) => {
-  if (!dbReady) {
-    return res.status(503).json({ error: 'Database unavailable.' })
-  }
-  try {
-    const { category, search, page = 1, limit = 10 } = req.query
-    const filter = { isPublic: true, status: 'ACTIVE', isTrashed: { $ne: true } }
-
-    if (category !== undefined) {
-      if (typeof category !== 'string') {
-        return res.status(400).json({ error: 'Invalid category parameter.' })
-      }
-      const safeCategory = category.trim()
-      if (safeCategory) {
-        filter.category = safeCategory
-      }
-    }
-    if (search) {
-      filter.$text = { $search: search }
-    }
-
-    const documents = await Document.find(filter)
-      .populate('createdBy', ARCHIVE_ACTOR_POPULATE)
-      .sort({ updatedAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-    
-    const total = await Document.countDocuments(filter)
-    
-    res.json({
-      documents,
-      totalPages: Math.ceil(total / limit),
-      currentPage: page,
-      total
-    })
-  } catch (err) {
-    console.error('Get documents error:', err.message)
-    res.status(500).json({ error: 'Failed to load documents.' })
-  }
-})
-
-// GET /api/admin/documents - get all documents (admin)
-app.get('/api/admin/documents', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.documents.query), async (req, res) => {
-  if (!dbReady) {
-    return res.status(503).json({ error: 'Database unavailable.' })
-  }
-  try {
-    const {
-      category,
-      status,
-      search,
-      page,
-      limit,
-      folderId,
-      includeUnfoldered,
-      trashed = 'exclude',
-      trashRootOnly,
-      visibility = 'all',
-      sortBy = 'updatedAt',
-      sortOrder = 'desc'
-    } = req.query
-    const pageInt = Math.max(1, parseInt(page, 10) || 1)
-    const limitInt = Math.max(1, Math.min(100, parseInt(limit, 10) || 20))
-    const filter = applyTrashedFilter({}, trashed)
-    const sortField = ['updatedAt', 'createdAt', 'title', 'fileSize', 'category'].includes(String(sortBy))
-      ? String(sortBy)
-      : 'updatedAt'
-    const sortDirection = sortOrder === 'asc' ? 1 : -1
-
-    if (category) filter.category = category
-    if (status) filter.status = status
-    if (folderId) {
-      filter.folderId = folderId
-    } else if (includeUnfoldered === true) {
-      filter.folderId = null
-    }
-    if (visibility === 'public') {
-      filter.isPublic = true
-    } else if (visibility === 'restricted') {
-      filter.isPublic = false
-    }
-    if (search) {
-      filter.$text = { $search: search }
-    }
-
-    if (trashed === 'only' && trashRootOnly === true && !folderId) {
-      const trashedFolderIds = await DocumentFolder.find({ isTrashed: true }).distinct('_id')
-      filter.$and = [
-        ...(Array.isArray(filter.$and) ? filter.$and : []),
-        {
-          $or: [
-            { folderId: null },
-            { folderId: { $nin: trashedFolderIds } }
-          ]
-        }
-      ]
-    }
-
-    const projection = search ? { score: { $meta: 'textScore' } } : null
-    const sort = search
-      ? { score: { $meta: 'textScore' }, [sortField]: sortDirection }
-      : { [sortField]: sortDirection }
-
-    if (sortField !== 'updatedAt') {
-      sort.updatedAt = -1
-    }
-
-    const [documents, total] = await Promise.all([
-      Document.find(filter, projection || undefined)
-        .populate('folderId', 'name segmentType segmentValue parentFolder')
-        .populate('createdBy', ARCHIVE_ACTOR_POPULATE)
-        .populate('updatedBy', ARCHIVE_ACTOR_POPULATE)
-        .sort(sort)
-        .limit(limitInt)
-        .skip((pageInt - 1) * limitInt)
-        .lean(),
-      Document.countDocuments(filter)
-    ])
-    
-    res.json({
-      documents,
-      totalPages: Math.ceil(total / limitInt),
-      currentPage: pageInt,
-      total
-    })
-  } catch (err) {
-    console.error('Get admin documents error:', err.message)
-    res.status(500).json({ error: 'Failed to load documents.' })
-  }
-})
-
-// GET /api/admin/documents/:id - get one document (admin)
-app.get('/api/admin/documents/:id', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware({
-  params: Joi.object({ id: securityMiddleware.schemas.objectId })
-}), async (req, res) => {
-  if (!dbReady) {
-    return res.status(503).json({ error: 'Database unavailable.' })
-  }
-
-  try {
-    const document = await Document.findById(req.params.id)
-      .populate('folderId', 'name segmentType segmentValue parentFolder')
-      .populate('createdBy', ARCHIVE_ACTOR_POPULATE)
-      .populate('updatedBy', ARCHIVE_ACTOR_POPULATE)
-      .lean()
-
-    if (!document) {
-      return res.status(404).json({ error: 'Document not found.' })
-    }
-
-    res.json({ document })
-  } catch (err) {
-    console.error('Get admin document error:', err.message)
-    res.status(500).json({ error: 'Failed to load document.' })
-  }
-})
-
-// GET /api/admin/documents/:id/asset - serve a protected document file
-app.get('/api/admin/documents/:id/asset', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware({
-  params: Joi.object({ id: securityMiddleware.schemas.objectId }),
-  query: Joi.object({ download: Joi.boolean().optional() })
-}), async (req, res) => {
-  if (!dbReady) {
-    return res.status(503).json({ error: 'Database unavailable.' })
-  }
-
-  try {
-    const document = await Document.findById(req.params.id)
-      .select('title fileName originalFileName mimeType filePath isPublic allowedRoles isTrashed')
-      .lean()
-
-    if (!document || document.isTrashed) {
-      return res.status(404).json({ error: 'Document file not found.' })
-    }
-
-    if (!canAccessDocumentAsset(document, req.accountType)) {
-      return res.status(403).json({ error: 'You do not have permission to access this document.' })
-    }
-
-    const absoluteFilePath = resolveUploadPath(document.filePath)
-    const uploadsRoot = path.resolve(UPLOADS_ROOT_DIR)
-    if (!absoluteFilePath.startsWith(uploadsRoot) || !fs.existsSync(absoluteFilePath)) {
-      return res.status(404).json({ error: 'Document file not found.' })
-    }
-
-    const isDownloadRequest = req.query.download === true
-    const preferredFileName = sanitizeStorageFileName(document.originalFileName || document.fileName || document.title || 'document')
-
-    res.setHeader('Cache-Control', 'private, max-age=300')
-    res.type(document.mimeType || 'application/octet-stream')
-    res.setHeader(
-      'Content-Disposition',
-      `${isDownloadRequest ? 'attachment' : 'inline'}; filename="${preferredFileName.replace(/"/g, '')}"`
-    )
-
-    res.sendFile(absoluteFilePath)
-  } catch (err) {
-    console.error('Get admin document asset error:', err.message)
-    res.status(500).json({ error: 'Failed to load document file.' })
-  }
-})
-
-// POST /api/admin/documents - upload new document
-app.post('/api/admin/documents', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.documents.create), async (req, res) => {
-  if (!dbReady) {
-    return res.status(503).json({ error: 'Database unavailable.' })
-  }
-  let storedFilePath = ''
-  try {
-    const { 
-      title, description, category, subcategory, folderId, fileName, originalFileName, 
-      mimeType, fileSize, fileData, version, isPublic, allowedRoles, tags,
-      effectiveDate, expiryDate, status
-    } = req.body
-    const selectedFolder = await ensureFolderExists(folderId)
-    await assertDocumentMatchesFolderRestriction(selectedFolder, {
-      originalFileName: originalFileName || fileName,
-      fileName,
-      mimeType
-    })
-    const persistedFile = await persistDocumentUpload({
-      originalFileName: originalFileName || fileName,
-      fileData,
-      mimeType,
-      fileSize
-    })
-    storedFilePath = persistedFile.filePath
-
-    const document = new Document({
-      title,
-      description,
-      category,
-      subcategory,
-      folderId: selectedFolder?._id || null,
-      fileName: persistedFile.fileName,
-      originalFileName,
-      mimeType,
-      fileSize,
-      filePath: persistedFile.filePath,
-      version: version || '1.0',
-      isPublic: isPublic || false,
-      allowedRoles: allowedRoles || [],
-      tags: tags || [],
-      effectiveDate: effectiveDate ? new Date(effectiveDate) : undefined,
-      expiryDate: expiryDate ? new Date(expiryDate) : undefined,
-      status: status || 'ACTIVE',
-      createdBy: req.adminId
-    })
-
-    await document.save()
-    await document.populate('folderId', 'name segmentType segmentValue parentFolder')
-    await document.populate('createdBy', ARCHIVE_ACTOR_POPULATE)
-
-    // Log the action
-    await logAudit(
-      'UPLOAD',
-      'DOCUMENT',
-      document._id.toString(),
-      document.title,
-      `Uploaded document: ${document.title}`,
-      req.adminId,
-      req.accountType,
-      null,
-      auditObject(document, 'DOCUMENT'),
-      'SUCCESS',
-      'MEDIUM'
-    )
-
-    res.status(201).json({ 
-      message: 'Document uploaded successfully.',
-      document
-    })
-  } catch (err) {
-    console.error('Upload document error:', err.message)
-    if (storedFilePath) {
-      try {
-        await deleteStoredUpload(storedFilePath)
-      } catch (cleanupError) {
-        console.error('Failed to clean up uploaded document file:', cleanupError.message)
-      }
-    }
-    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to upload document.' })
-  }
-})
-
-// PUT /api/admin/documents/:id - update document
-app.put('/api/admin/documents/:id', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware({ body: securityMiddleware.schemas.documents.update, params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
-  if (!dbReady) {
-    return res.status(503).json({ error: 'Database unavailable.' })
-  }
-  try {
-    const { title, description, category, subcategory, folderId, isPublic, allowedRoles, tags, effectiveDate, expiryDate, status } = req.body
-    
-    const document = await Document.findOne({
-      _id: req.params.id,
-      isTrashed: { $ne: true }
-    })
-    if (!document) {
-      return res.status(404).json({ error: 'Document not found.' })
-    }
-
-    const oldValue = auditObject(document, 'DOCUMENT')
-    const selectedFolder = folderId === undefined ? undefined : await ensureFolderExists(folderId)
-    if (folderId !== undefined) {
-      await assertDocumentMatchesFolderRestriction(selectedFolder, {
-        originalFileName: document.originalFileName,
-        fileName: document.fileName,
-        mimeType: document.mimeType
-      })
-    }
-    
-    if (title) document.title = title
-    if (description !== undefined) document.description = description
-    if (category) document.category = category
-    if (subcategory !== undefined) document.subcategory = subcategory
-    if (folderId !== undefined) document.folderId = selectedFolder?._id || null
-    if (isPublic !== undefined) document.isPublic = isPublic
-    if (allowedRoles !== undefined) document.allowedRoles = allowedRoles
-    if (tags !== undefined) document.tags = tags
-    if (effectiveDate !== undefined) document.effectiveDate = effectiveDate ? new Date(effectiveDate) : undefined
-    if (expiryDate !== undefined) document.expiryDate = expiryDate ? new Date(expiryDate) : undefined
-    if (status) document.status = status
-    document.updatedBy = req.adminId
-
-    await document.save()
-    await document.populate('folderId', 'name segmentType segmentValue parentFolder')
-    await document.populate('createdBy', ARCHIVE_ACTOR_POPULATE)
-    await document.populate('updatedBy', ARCHIVE_ACTOR_POPULATE)
-
-    // Log the action
-    await logAudit(
-      'UPDATE',
-      'DOCUMENT',
-      document._id.toString(),
-      document.title,
-      `Updated document: ${document.title}`,
-      req.adminId,
-      req.accountType,
-      oldValue,
-      auditObject(document, 'DOCUMENT'),
-      'SUCCESS',
-      'MEDIUM'
-    )
-
-    res.json({ 
-      message: 'Document updated successfully.',
-      document
-    })
-  } catch (err) {
-    console.error('Update document error:', err.message)
-    res.status(500).json({ error: 'Failed to update document.' })
-  }
-})
-
-// POST /api/admin/documents/:id/download - track document download
-app.post('/api/admin/documents/:id/download', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware({ params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
-  if (!dbReady) {
-    return res.status(503).json({ error: 'Database unavailable.' })
-  }
-  try {
-    const document = await Document.findById(req.params.id)
-      .select('title fileName originalFileName filePath downloadCount lastDownloadedBy lastDownloadedAt isPublic allowedRoles isTrashed')
-    if (!document || document.isTrashed) {
-      return res.status(404).json({ error: 'Document not found.' })
-    }
-
-    if (!canAccessDocumentAsset(document, req.accountType)) {
-      return res.status(403).json({ error: 'You do not have permission to access this document.' })
-    }
-
-    // Update download tracking
-    document.downloadCount += 1
-    document.lastDownloadedBy = req.adminId
-    document.lastDownloadedAt = new Date()
-    await document.save()
-
-    // Log the action
-    await logAudit(
-      'DOWNLOAD',
-      'DOCUMENT',
-      document._id.toString(),
-      document.title,
-      `Downloaded document: ${document.title}`,
-      req.adminId,
-      req.accountType,
-      null,
-      null,
-      'SUCCESS',
-      'LOW'
-    )
-
-    res.json({ 
-      message: 'Download tracked successfully.',
-      downloadUrl: getArchiveDocumentAssetPath(document._id, { download: true })
-    })
-  } catch (err) {
-    console.error('Track download error:', err.message)
-    res.status(500).json({ error: 'Failed to track download.' })
-  }
-})
-
-// DELETE /api/admin/documents/:id - delete document
-app.delete('/api/admin/documents/:id', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware({ params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
-  if (!dbReady) {
-    return res.status(503).json({ error: 'Database unavailable.' })
-  }
-  try {
-    const document = await Document.findById(req.params.id)
-    if (!document) {
-      return res.status(404).json({ error: 'Document not found.' })
-    }
-
-    if (document.isTrashed) {
-      await permanentlyDeleteStoredDocuments([{ _id: document._id, title: document.title, filePath: document.filePath }])
-
-      await logAudit(
-        'DELETE',
-        'DOCUMENT',
-        document._id.toString(),
-        document.title,
-        `Permanently deleted document from archive bin: ${document.title}`,
-        req.adminId,
-        req.accountType,
-        document.toObject(),
-        { permanentlyDeleted: true },
-        'SUCCESS',
-        'HIGH'
-      )
-
-      return res.json({
-        message: 'Document permanently deleted from Archive Bin.',
-        permanentlyDeleted: true
-      })
-    }
-
-    const oldValue = auditObject(document, 'DOCUMENT')
-    document.isTrashed = true
-    document.trashedAt = new Date()
-    document.trashedBy = req.adminId
-    document.updatedBy = req.adminId
-    await document.save()
-
-    await logAudit(
-      'DELETE',
-      'DOCUMENT',
-      document._id.toString(),
-      document.title,
-      `Moved document to archive bin: ${document.title}`,
-      req.adminId,
-      req.accountType,
-      oldValue,
-      auditObject(document, 'DOCUMENT'),
-      'SUCCESS',
-      'MEDIUM'
-    )
-
-    res.json({
-      message: 'Document moved to Archive Bin.',
-      movedToTrash: true
-    })
-  } catch (err) {
-    console.error('Delete document error:', err.message)
-    res.status(500).json({ error: 'Failed to delete document.' })
-  }
-})
+// Document & folder routes extracted to routes/documentRoutes.js
+registerDocumentRoutes(app, authMiddleware, requireAdminOrRegistrarRole, publicReadLimiter, logAudit, () => dbReady)
 
 // MongoDB Atlas API Helper Functions
 const getAtlasMetrics = async () => {

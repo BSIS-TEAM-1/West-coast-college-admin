@@ -5,6 +5,7 @@ import '../../data/repositories/profile_repository_impl.dart';
 import '../../domain/repositories/profile_repository.dart';
 import '../../domain/usecases/get_profile_usecase.dart';
 import '../../domain/usecases/update_profile_usecase.dart';
+import '../../domain/usecases/upload_profile_picture_usecase.dart';
 
 final profileRemoteDataSourceProvider = Provider<ProfileRemoteDataSource>((ref) {
   return ProfileRemoteDataSource(ref.watch(apiClientProvider));
@@ -20,4 +21,8 @@ final getProfileUseCaseProvider = Provider<GetProfileUseCase>((ref) {
 
 final updateProfileUseCaseProvider = Provider<UpdateProfileUseCase>((ref) {
   return UpdateProfileUseCase(ref.watch(profileRepositoryProvider));
+});
+
+final uploadProfilePictureUseCaseProvider = Provider<UploadProfilePictureUseCase>((ref) {
+  return UploadProfilePictureUseCase(ref.watch(profileRepositoryProvider));
 });

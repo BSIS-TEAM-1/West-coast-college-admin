@@ -162,33 +162,40 @@
 
 /* Form Input with Action Button */
 .block-form-input-with-action {
+  position: relative;
   display: flex;
-  gap: var(--block-spacing-sm);
+  align-items: center;
 }
 
 .block-form-input-with-action .block-form-input {
-  flex: 1;
+  width: 100%;
+  padding-right: 3.75rem;
 }
 
 .block-form-action-btn {
-  padding: var(--block-spacing-sm) var(--block-spacing-md);
-  background: var(--color-primary);
-  color: var(--color-on-primary);
+  position: absolute;
+  right: 0.3125rem;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0.1875rem 0.5rem;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
   border: none;
-  border-radius: 0.5rem;
+  border-radius: 0.3125rem;
   font-size: var(--block-body-sm);
   font-weight: 600;
   cursor: pointer;
   transition: background var(--block-transition-fast);
   white-space: nowrap;
+  line-height: 1.4;
 }
 
 .block-form-action-btn:hover {
-  background: var(--color-primary-hover);
+  background: color-mix(in srgb, var(--color-primary) 20%, transparent);
 }
 
 .block-form-action-btn:active {
-  transform: scale(0.98);
+  transform: translateY(-50%) scale(0.96);
 }
 
 /* Enhanced Validation Messages */
