@@ -6,6 +6,7 @@ class GradeEntryModel extends GradeEntry {
     required super.subjectTitle,
     required super.units,
     required super.grade,
+    super.gradeMark,
     required super.remarks,
     required super.status,
   });
@@ -16,6 +17,7 @@ class GradeEntryModel extends GradeEntry {
       subjectTitle: (json['subjectTitle'] ?? '').toString(),
       units: (json['units'] as num?) ?? 0,
       grade: (json['grade'] as num?) ?? 0,
+      gradeMark: (json['gradeMark'] as String?)?.isNotEmpty == true ? json['gradeMark'] as String : null,
       remarks: (json['remarks'] ?? '').toString(),
       status: (json['status'] ?? '').toString(),
     );

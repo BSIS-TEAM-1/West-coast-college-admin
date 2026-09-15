@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ArrowLeft, BookOpen, ChevronDown, ChevronRight, Copy, Plus, Search, Trash2, GraduationCap, BookPlus, Info, X } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import type { CurriculumStructure, Semester, SubjectItem } from './registrarBlockTypes'
+import '../CurriculumManagement.css'
 
 type CurriculumDetailsPageProps = {
   curriculumId: string

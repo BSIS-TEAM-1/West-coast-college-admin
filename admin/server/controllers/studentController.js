@@ -2501,6 +2501,24 @@ class StudentController {
         const scheduleText = String(rawSchedule || '').trim();
         if (!scheduleText) return { days: 'TBA', time: 'TBA' };
 
+        // Per-day format: "M 07:30-09:00 @ Room 205 / W 13:00-14:30 @ Lab 3"
+        if (scheduleText.includes('/')) {
+          const segments = scheduleText.split('/').map((s) => s.trim()).filter(Boolean);
+          const parts = segments.map((segment) => {
+            // Extract optional @ room suffix
+            const roomMatch = segment.match(/^(.+?)\s*@\s*(.+)$/);
+            const body = roomMatch ? roomMatch[1].trim() : segment;
+            const room = roomMatch ? roomMatch[2].trim() : '';
+            const match = body.match(/^([A-Za-z]+)\s+(.+)$/);
+            if (!match) return { days: '', time: '', room };
+            return { days: match[1].toUpperCase(), time: match[2].trim(), room };
+          });
+          return {
+            days: parts.map((p) => p.days).filter(Boolean).join(', '),
+            time: parts.map((p) => p.time).filter(Boolean).join(' / ')
+          };
+        }
+
         const compactMatch = scheduleText.match(/^([A-Za-z]{1,7})(\d{1,2}:\d{2}.*)$/);
         if (compactMatch) {
           return {

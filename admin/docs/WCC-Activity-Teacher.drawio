@@ -1,0 +1,57 @@
+<mxfile host="app.diagrams.net" modified="2026-08-25T00:00:00.000Z" agent="WCC" version="24.0.0"><diagram name="Teacher" id="lane_prof"><mxGraphModel dx="540" dy="1210" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="540" pageHeight="1210" math="0" shadow="0"><root><mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="pool" value="WCC Student Information System — Teacher Activity Diagram" style="shape=swimlane;startSize=30;horizontal=1;fillColor=none;strokeColor=#000000;strokeWidth=2;fontSize=12;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="10" y="10" width="500" height="1180" as="geometry" /></mxCell>
+        <mxCell id="actor_lane" value="TEACHER" style="shape=swimlane;startSize=35;horizontal=1;fillColor=none;strokeColor=#000000;strokeWidth=1;fontSize=11;fontStyle=1;" vertex="1" parent="pool"><mxGeometry x="40" y="30" width="420" height="1110" as="geometry" /></mxCell>
+        <mxCell id="p_login" value="Log In" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="65" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="p_viewcourse" value="View My&#xa;Courses" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="135" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="p_opensub" value="Open Subject" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="205" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="p_viewroster" value="View Class&#xa;Roster" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="275" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="p_entergrade" value="Enter Grades" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="345" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="p_setmark" value="Set Grade&#xa;Marks" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="415" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="d_allgrades" value="All Grades&#xa;Entered?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=7;" vertex="1" parent="actor_lane">
+          <mxGeometry x="175" y="485" width="70" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="p_continue" value="Continue&#xa;Entering" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="555" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="p_submit" value="Submit for&#xa;Review" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;fontStyle=1;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="625" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="p_fix" value="Fix Grades" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="695" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="p_resubmit" value="Resubmit" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="765" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="d_change" value="Grade Change&#xa;Needed?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=7;" vertex="1" parent="actor_lane">
+          <mxGeometry x="175" y="835" width="70" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="p_reqchange" value="Request Grade&#xa;Change" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="905" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="p_notified" value="Notified of&#xa;Denial" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="975" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="e36" style="edgeStyle=orthogonalEdgeStyle;rounded=0;jettySize=auto;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#000000;endArrow=classic;" edge="1" parent="1" source="p_login" target="p_viewcourse"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e37" style="edgeStyle=orthogonalEdgeStyle;rounded=0;jettySize=auto;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#000000;endArrow=classic;" edge="1" parent="1" source="p_viewcourse" target="p_opensub"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e38" style="edgeStyle=orthogonalEdgeStyle;rounded=0;jettySize=auto;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#000000;endArrow=classic;" edge="1" parent="1" source="p_opensub" target="p_viewroster"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e39" style="edgeStyle=orthogonalEdgeStyle;rounded=0;jettySize=auto;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#000000;endArrow=classic;" edge="1" parent="1" source="p_viewroster" target="p_entergrade"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e40" style="edgeStyle=orthogonalEdgeStyle;rounded=0;jettySize=auto;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#000000;endArrow=classic;" edge="1" parent="1" source="p_entergrade" target="p_setmark"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e41" style="edgeStyle=orthogonalEdgeStyle;rounded=0;jettySize=auto;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#000000;endArrow=classic;" edge="1" parent="1" source="p_setmark" target="d_allgrades"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e42" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=0;jettySize=auto;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#000000;endArrow=classic;fontSize=8;fontStyle=1;" edge="1" parent="1" source="d_allgrades" target="p_continue"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e43" style="edgeStyle=orthogonalEdgeStyle;rounded=0;jettySize=auto;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#000000;endArrow=classic;" edge="1" parent="1" source="p_continue" target="p_entergrade"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e44" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;jettySize=auto;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#000000;endArrow=classic;fontSize=8;fontStyle=1;" edge="1" parent="1" source="d_allgrades" target="p_submit"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e53" style="edgeStyle=orthogonalEdgeStyle;rounded=0;jettySize=auto;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#000000;endArrow=classic;" edge="1" parent="1" source="p_fix" target="p_resubmit"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e62" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;jettySize=auto;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#000000;endArrow=classic;fontSize=8;fontStyle=1;" edge="1" parent="1" source="d_change" target="p_reqchange"><mxGeometry relative="1" as="geometry" /></mxCell></root></mxGraphModel></diagram></mxfile>

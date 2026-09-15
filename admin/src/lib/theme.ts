@@ -30,8 +30,14 @@ const BLACK_RGB: RgbColor = { r: 0, g: 0, b: 0 }
 const DARK_RGB: RgbColor = { r: 17, g: 24, b: 39 }
 const DARK_SURFACE_RGB: RgbColor = { r: 18, g: 18, b: 18 }
 
-export const DEFAULT_THEME_ACCENT_COLOR = '#4f46e5'
+export const DEFAULT_THEME_ACCENT_COLOR = '#775a19'
 export const THEME_ACCENT_PRESETS: ThemeAccentPreset[] = [
+  {
+    id: 'default',
+    label: 'Default',
+    color: '#775a19',
+    description: 'The original gold accent used across the admin panel.',
+  },
   {
     id: 'indigo',
     label: 'Indigo',
@@ -339,6 +345,9 @@ export const applyAccentColorPreference = (
   }
 
   root.style.setProperty('--theme-accent-base', normalizedAccentColor)
+  root.style.setProperty('--theme-on-accent', onAccentColor)
+  root.style.setProperty('--theme-accent-on-surface', accentOnSurface)
+  root.style.setProperty('--theme-accent-on-dark-surface', accentOnDarkSurface)
   root.style.setProperty('--color-on-primary', onAccentColor)
   root.style.setProperty('--color-primary-on-surface', accentOnSurface)
   root.style.setProperty('--color-primary-on-dark-surface', accentOnDarkSurface)

@@ -1,0 +1,156 @@
+<mxfile host="app.diagrams.net" modified="2026-08-21T00:00:00.000Z" agent="WCC" version="24.0.0">
+  <diagram name="WCC Activity Diagram - Phase 1: Application" id="wcc-activity-phase1">
+    <mxGraphModel dx="1800" dy="1200" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2400" pageHeight="1400" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ===== MAIN POOL ===== -->
+        <mxCell id="pool" value="WCC Activity Diagram — Phase 1: Application Process" style="shape=swimlane;startSize=40;horizontal=1;fillColor=none;strokeColor=#333333;strokeWidth=2;fontSize=18;fontStyle=1;swimlaneFillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="20" y="20" width="2360" height="1360" as="geometry" />
+        </mxCell>
+
+        <!-- ===== HORIZONTAL LANES (top to bottom) ===== -->
+        <mxCell id="lane_app" value="APPLICANT" style="shape=swimlane;startSize=80;horizontal=1;fillColor=#FFE6CC;strokeColor=#D79B00;strokeWidth=2;fontSize=13;fontStyle=1;swimlaneFillColor=#FFE6CC;" vertex="1" parent="pool">
+          <mxGeometry x="0" y="40" width="2360" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_sys" value="SYSTEM" style="shape=swimlane;startSize=80;horizontal=1;fillColor=#F5F5F5;strokeColor=#666666;strokeWidth=2;fontSize=13;fontStyle=1;swimlaneFillColor=#F5F5F5;" vertex="1" parent="pool">
+          <mxGeometry x="0" y="320" width="2360" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_reg" value="REGISTRAR" style="shape=swimlane;startSize=80;horizontal=1;fillColor=#D5E8D4;strokeColor=#82B366;strokeWidth=2;fontSize=13;fontStyle=1;swimlaneFillColor=#D5E8D4;" vertex="1" parent="pool">
+          <mxGeometry x="0" y="600" width="2360" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_decision" value="DECISION POINTS" style="shape=swimlane;startSize=80;horizontal=1;fillColor=#FFF2CC;strokeColor=#D6B656;strokeWidth=2;fontSize=13;fontStyle=1;swimlaneFillColor=#FFF2CC;" vertex="1" parent="pool">
+          <mxGeometry x="0" y="880" width="2360" height="280" as="geometry" />
+        </mxCell>
+
+        <!-- ===== APPLICANT LANE ===== -->
+        <mxCell id="start" value="" style="ellipse;fillColor=#000000;strokeColor=#000000;strokeWidth=2;" vertex="1" parent="lane_app">
+          <mxGeometry x="50" y="120" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="a_fillform" value="Fill Application Form" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_app">
+          <mxGeometry x="100" y="105" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="a_selectcourse" value="Select Course" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_app">
+          <mxGeometry x="280" y="105" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="a_submitapp" value="Submit Application" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;strokeWidth=2;fontSize=12;fontStyle=1;" vertex="1" parent="lane_app">
+          <mxGeometry x="460" y="105" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="a_fix" value="Fix Errors" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_app">
+          <mxGeometry x="1100" y="105" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="a_resubmit" value="Resubmit" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_app">
+          <mxGeometry x="1280" y="105" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="a_submitreq" value="Submit Missing Requirements" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_app">
+          <mxGeometry x="1800" y="105" width="140" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ===== SYSTEM LANE ===== -->
+        <mxCell id="s_validate" value="Validate Application Data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#666666;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_sys">
+          <mxGeometry x="460" y="385" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="s_reterr" value="Return Validation Errors" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#666666;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_sys">
+          <mxGeometry x="900" y="385" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="s_revalidate" value="Re-validate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#666666;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_sys">
+          <mxGeometry x="1280" y="385" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="s_save" value="Save to Database" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#666666;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_sys">
+          <mxGeometry x="1650" y="385" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="s_confirmemail" value="Send Confirmation Email" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#666666;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_sys">
+          <mxGeometry x="1850" y="385" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="s_emailinc" value="Send Incomplete Email" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#666666;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_sys">
+          <mxGeometry x="1800" y="385" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="s_emailrej" value="Send Rejection Email" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#666666;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_sys">
+          <mxGeometry x="2050" y="385" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="s_emailappr" value="Send Approval Email" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#666666;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_sys">
+          <mxGeometry x="2050" y="385" width="140" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ===== REGISTRAR LANE ===== -->
+        <mxCell id="r_viewq" value="View Applicant Queue" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_reg">
+          <mxGeometry x="1850" y="665" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="r_review" value="Review Application" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_reg">
+          <mxGeometry x="2020" y="665" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="r_markinc" value="Mark Incomplete" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_reg">
+          <mxGeometry x="1650" y="665" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="r_rereview" value="Re-review" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_reg">
+          <mxGeometry x="2050" y="665" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="r_reject" value="Reject Applicant" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_reg">
+          <mxGeometry x="2050" y="665" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="r_approve" value="Approve Applicant" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;strokeWidth=2;fontSize=12;fontStyle=1;" vertex="1" parent="lane_reg">
+          <mxGeometry x="2050" y="665" width="140" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ===== DECISION POINTS LANE ===== -->
+        <mxCell id="d_valid" value="Valid?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_decision">
+          <mxGeometry x="650" y="945" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="d_req" value="Requirements Complete?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_decision">
+          <mxGeometry x="2020" y="945" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="d_qual" value="Qualifications Met?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_decision">
+          <mxGeometry x="2050" y="945" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="stop_rej" value="STOP" style="ellipse;fillColor=#000000;strokeColor=#000000;strokeWidth=2;fontColor=#FFFFFF;fontSize=10;fontStyle=1;" vertex="1" parent="lane_decision">
+          <mxGeometry x="2100" y="955" width="50" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ===== EDGES ===== -->
+        <!-- Applicant: Start -> Fill -> Select -> Submit -->
+        <mxCell id="e1" style="html=1;strokeWidth=2;strokeColor=#333333;endArrow=classic;" edge="1" parent="1" source="start" target="a_fillform"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2" style="html=1;strokeWidth=2;strokeColor=#333333;endArrow=classic;" edge="1" parent="1" source="a_fillform" target="a_selectcourse"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e3" style="html=1;strokeWidth=2;strokeColor=#333333;endArrow=classic;" edge="1" parent="1" source="a_selectcourse" target="a_submitapp"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <!-- -> System: Validate -->
+        <mxCell id="e4" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="a_submitapp" target="s_validate"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e5" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="s_validate" target="d_valid"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <!-- Valid? No -> Return Errors -> Fix -> Resubmit -> Re-validate -> loop -->
+        <mxCell id="e6" value="No" style="html=1;strokeWidth=2;strokeColor:#CC0000;endArrow=classic;fontSize=11;fontStyle=1;" edge="1" parent="1" source="d_valid" target="s_reterr"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e7" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="s_reterr" target="a_fix"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e8" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="a_fix" target="a_resubmit"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e9" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="a_resubmit" target="s_revalidate"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e10" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;curved=1;" edge="1" parent="1" source="s_revalidate" target="d_valid"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <!-- Valid? Yes -> Save -> Send Email -->
+        <mxCell id="e11" value="Yes" style="html=1;strokeWidth=2;strokeColor:#009900;endArrow=classic;fontSize=11;fontStyle=1;" edge="1" parent="1" source="d_valid" target="s_save"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e12" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="s_save" target="s_confirmemail"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <!-- -> Registrar: View Queue -> Review -->
+        <mxCell id="e13" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="s_confirmemail" target="r_viewq"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e14" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="r_viewq" target="r_review"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e15" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="r_review" target="d_req"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <!-- Requirements? No -> Mark Incomplete -> Send Email -> Submit Missing -> Re-review -> loop -->
+        <mxCell id="e16" value="No" style="html=1;strokeWidth=2;strokeColor:#CC0000;endArrow=classic;fontSize=11;fontStyle=1;" edge="1" parent="1" source="d_req" target="r_markinc"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e17" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="r_markinc" target="s_emailinc"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e18" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="s_emailinc" target="a_submitreq"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e19" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="a_submitreq" target="r_rereview"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e20" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;curved=1;" edge="1" parent="1" source="r_rereview" target="d_req"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <!-- Requirements? Yes -> Qualifications Met? -->
+        <mxCell id="e21" value="Yes" style="html=1;strokeWidth=2;strokeColor:#009900;endArrow=classic;fontSize=11;fontStyle=1;" edge="1" parent="1" source="d_req" target="d_qual"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <!-- Qualifications? No -> Reject -> Send Rejection Email -> STOP -->
+        <mxCell id="e22" value="No" style="html=1;strokeWidth=2;strokeColor:#CC0000;endArrow=classic;fontSize=11;fontStyle=1;" edge="1" parent="1" source="d_qual" target="r_reject"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e23" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="r_reject" target="s_emailrej"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e24" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="s_emailrej" target="stop_rej"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <!-- Qualifications? Yes -> Approve -> Send Approval Email -->
+        <mxCell id="e25" value="Yes" style="html=1;strokeWidth=2;strokeColor:#009900;endArrow=classic;fontSize=11;fontStyle=1;" edge="1" parent="1" source="d_qual" target="r_approve"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e26" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="r_approve" target="s_emailappr"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- Note: Continue to Phase 2 -->
+        <mxCell id="note_phase2" value="→ Continue to Phase 2: Enrollment" style="shape=note;whiteSpace=wrap;html=1;fillColor=#FFFFCC;strokeColor=#D6B656;strokeWidth=1;fontSize=11;fontStyle=2;align=center;" vertex="1" parent="1">
+          <mxGeometry x="2100" y="350" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="e_phase2" style="html=1;strokeWidth=1;strokeColor=#D6B656;endArrow=classic;dashed=1;" edge="1" parent="1" source="s_emailappr" target="note_phase2"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

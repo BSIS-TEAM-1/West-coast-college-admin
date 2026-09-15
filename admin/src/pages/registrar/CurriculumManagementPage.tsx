@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Archive, CheckCircle, ChevronRight, Copy, Plus, Search } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import type { Curriculum, CurriculumStatus } from './registrarBlockTypes'
+import '../CurriculumManagement.css'
 
 type CurriculumManagementPageProps = {
   onOpenCurriculum: (id: string) => void

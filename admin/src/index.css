@@ -38,7 +38,7 @@
   --color-success: #16a34a;
   --color-warning: #f59e0b;
   --color-maintenance: #8b5cf6;
-  --color-info: var(--color-primary);
+  --color-info: #0ea5e9;
 
   color: var(--color-text);
   background-color: var(--color-bg);
@@ -74,7 +74,7 @@
   --color-success: #34d399;
   --color-warning: #f59e0b;
   --color-maintenance: #a78bfa;
-  --color-info: var(--color-primary);
+  --color-info: #38bdf8;
   background-color: var(--color-bg);
 }
 

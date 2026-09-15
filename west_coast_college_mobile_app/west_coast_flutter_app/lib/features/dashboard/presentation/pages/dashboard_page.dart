@@ -53,6 +53,16 @@ class DashboardPage extends ConsumerWidget {
               const SizedBox(height: AppDimensions.lg),
               _AcademicContextRow(academicSummary: summary.academicSummary),
               const SizedBox(height: AppDimensions.lg),
+              if (summary.enrolledSubjects.isNotEmpty) ...[
+                SectionHeader(
+                  title: 'My Subjects',
+                  actionLabel: 'View Grades',
+                  onAction: () => context.go('/grades'),
+                ),
+                const SizedBox(height: AppDimensions.sm),
+                _EnrolledSubjectsSection(subjects: summary.enrolledSubjects),
+                const SizedBox(height: AppDimensions.lg),
+              ],
               SectionHeader(
                 title: "Today's Schedule",
                 actionLabel: 'View All',
@@ -416,6 +426,95 @@ class _GradeRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _EnrolledSubjectsSection extends StatelessWidget {
+  const _EnrolledSubjectsSection({required this.subjects});
+  final List<EnrolledSubject> subjects;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < subjects.length; i++) ...[
+            if (i > 0) const Divider(height: 1, color: AppColors.divider),
+            _EnrolledSubjectRow(subject: subjects[i]),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _EnrolledSubjectRow extends StatelessWidget {
+  const _EnrolledSubjectRow({required this.subject});
+  final EnrolledSubject subject;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(AppDimensions.md),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${subject.subjectCode} — ${subject.subjectTitle}',
+                  style: AppTextStyles.bodyMedium,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${subject.units} units • ${subject.instructor}',
+                  style: AppTextStyles.caption.copyWith(color: AppColors.textMuted),
+                ),
+                if (subject.schedule != 'TBA') ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    '${subject.schedule} • ${subject.room}',
+                    style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: AppDimensions.sm),
+          _buildTrailing(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTrailing() {
+    if (subject.hasGrade && subject.grade != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(
+            subject.grade!.toStringAsFixed(2),
+            style: AppTextStyles.titleLarge.copyWith(color: AppColors.textBold),
+          ),
+          const SizedBox(height: 2),
+          StatusBadge(
+            label: subject.isPassed ? 'PASSED' : 'FAILED',
+            tone: subject.isPassed ? StatusTone.success : StatusTone.danger,
+          ),
+        ],
+      );
+    }
+    return StatusBadge(
+      label: subject.subjectStatus,
+      tone: StatusTone.neutral,
     );
   }
 }

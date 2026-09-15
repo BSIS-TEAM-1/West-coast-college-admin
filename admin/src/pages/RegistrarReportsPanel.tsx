@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Search, Download, Printer, RefreshCw, FileDown, ChevronRight, ChevronDown } from 'lucide-react'
 import { getStoredToken } from '../lib/authApi'
 import StudentService from '../lib/studentApi'
-import './RegistrarDashboard.css'
+import './RegistrarReports.css'
 
 type Semester = '1st' | '2nd' | 'Summer'
 

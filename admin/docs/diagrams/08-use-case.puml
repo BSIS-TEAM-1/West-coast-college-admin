@@ -1,0 +1,79 @@
+@startuml
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Segoe UI"
+skinparam packageStyle rectangle
+left to right direction
+
+title Registrar Portal — Use Case Diagram
+
+actor "Registrar" as Reg
+actor "Professor" as Prof
+actor "Applicant" as App
+actor "Student" as Stu
+
+rectangle "Registrar Portal" {
+  usecase "Review Applicants" as UC1
+  usecase "Approve / Reject Applicant" as UC2
+  usecase "Enroll Student" as UC3
+  usecase "Manage Student Records" as UC4
+  usecase "View Student History" as UC5
+
+  usecase "Manage Block Sections" as UC6
+  usecase "Assign Students to Blocks" as UC7
+  usecase "Assign Subjects to Blocks" as UC8
+  usecase "Run School Year Rollover" as UC9
+
+  usecase "Manage Subject Catalog" as UC10
+  usecase "Manage Curriculums" as UC11
+
+  usecase "View Professor Loads" as UC12
+  usecase "Verify Grade Submission" as UC13
+  usecase "Publish Grades" as UC14
+  usecase "Return Grades for Revision" as UC15
+  usecase "Review Grade Change Requests" as UC16
+
+  usecase "Generate COR" as UC17
+  usecase "Manage Documents" as UC18
+  usecase "Post Announcements" as UC19
+  usecase "View Reports" as UC20
+}
+
+' Applicant actions
+App --> UC1
+
+' Registrar actions
+Reg --> UC1
+Reg --> UC2
+Reg --> UC3
+Reg --> UC4
+Reg --> UC5
+Reg --> UC6
+Reg --> UC7
+Reg --> UC8
+Reg --> UC9
+Reg --> UC10
+Reg --> UC11
+Reg --> UC12
+Reg --> UC13
+Reg --> UC14
+Reg --> UC15
+Reg --> UC16
+Reg --> UC17
+Reg --> UC18
+Reg --> UC19
+Reg --> UC20
+
+' Professor interactions (grades feed into registrar review)
+Prof --> UC12
+Prof --> UC16
+
+' Student interactions (output of registrar work)
+Stu --> UC17
+
+' Include / Extend relationships
+UC2 ..> UC3 : <<include>>
+UC3 ..> UC7 : <<include>>
+UC13 ..> UC14 : <<extend>>
+UC1 ..> UC2 : <<extend>>
+
+@enduml

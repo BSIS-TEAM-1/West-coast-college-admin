@@ -1,6 +1,6 @@
 # Remove WCC-Admin from OneDrive Sync
 
-> **Status:** TODO — tackle later
+> **Status:** DONE — project moved to `C:\dev\WCC-Admin`
 > **Reason:** OneDrive locks files during sync, which conflicts with Flutter/Gradle's aggressive file operations during builds. This caused `AccessDeniedException` on `mergeDebugAssets` and build failures.
 
 ---

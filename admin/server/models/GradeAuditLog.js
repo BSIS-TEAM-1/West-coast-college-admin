@@ -29,7 +29,7 @@ const gradeAuditLogSchema = new Schema({
   subjectId: {
     type: Schema.Types.ObjectId,
     ref: 'Subject',
-    required: true
+    default: null
   },
   subjectCode: {
     type: String,
@@ -46,7 +46,11 @@ const gradeAuditLogSchema = new Schema({
   // Action type
   action: {
     type: String,
-    enum: ['grade_entry', 'grade_update', 'grade_clear', 'raw_score_entry', 'submission', 'approval', 'rejection', 'revert'],
+    enum: [
+      'grade_entry', 'grade_update', 'grade_clear', 'raw_score_entry',
+      'submission', 'verification', 'publication', 'return', 'revert',
+      'change_requested', 'change_approved', 'change_rejected'
+    ],
     required: true
   },
   // Who made the change
@@ -62,6 +66,14 @@ const gradeAuditLogSchema = new Schema({
   // Context
   schoolYear: { type: String, trim: true },
   semester: { type: String, trim: true },
+  // Reason for change requests / rejections / returns
+  reason: { type: String, default: '' },
+  // Link to GradeChangeRequest when applicable
+  gradeChangeRequestId: {
+    type: Schema.Types.ObjectId,
+    ref: 'GradeChangeRequest',
+    default: null
+  },
   transmutationTableId: {
     type: Schema.Types.ObjectId,
     ref: 'TransmutationTable',

@@ -135,13 +135,10 @@ function AssignSubjectPage() {
   )
   const availableSubjects = subjects.filter((subject) => !assignedSubjectIds.has(subject._id))
 
-  // Subject is now a global catalog entry with no program/year/semester
-  // scoping of its own — CurriculumSubject placements are the authoritative
-  // source for "which subjects belong to this program/year/semester".
   const getCurriculumSubjectItem = (cs: CurriculumSubject): SubjectItem | null =>
     typeof cs.subjectId === 'object' && cs.subjectId !== null ? cs.subjectId : null
 
-  const authorizedFetch = async (path: string | string[], init: RequestInit = {}) => {
+  const authorizedFetch = async <T = any,>(path: string | string[], init: RequestInit = {}): Promise<T> => {
     const token = await getStoredToken()
     if (!token) throw new Error('No authentication token found')
 
@@ -165,7 +162,7 @@ function AssignSubjectPage() {
           return { message: responseText }
         }
       })() : {}
-      if (response.ok) return data
+      if (response.ok) return data as T
 
       lastResponseStatus = response.status
       lastData = { ...data, path: currentPath }
@@ -180,7 +177,7 @@ function AssignSubjectPage() {
   useEffect(() => {
     const fetchGroups = async () => {
       try {
-        const data = await authorizedFetch('/api/blocks/groups')
+        const data = await authorizedFetch<BlockGroup[]>('/api/blocks/groups')
         setBlockGroups(Array.isArray(data) ? data : [])
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch block groups')
@@ -198,8 +195,8 @@ function AssignSubjectPage() {
 
     const fetchSections = async () => {
       try {
-        const data = await authorizedFetch(`/api/blocks/groups/${selectedGroupId}/sections`)
-        const nextSections = Array.isArray(data) ? data as BlockSection[] : []
+        const data = await authorizedFetch<BlockSection[]>(`/api/blocks/groups/${selectedGroupId}/sections`)
+        const nextSections = Array.isArray(data) ? data : []
         setSections(nextSections)
         if (!nextSections.some((section) => section._id === selectedSectionId)) {
           setSelectedSectionId('')
@@ -218,15 +215,7 @@ function AssignSubjectPage() {
       return
     }
 
-    // Subject no longer carries program/year/semester scoping itself.
-    // CurriculumSubject placements (fetched below, keyed on the selected
-    // block group's curriculum + year + semester) are the authoritative
-    // source for which subjects belong here.
     if (selectedGroup?.curriculumId) {
-      // Default: only subjects matching the block's yearLevel + semester.
-      // Override: if showAllCurriculumSubjects is checked, show all
-      // subjects from the linked curriculum (any year/semester) for
-      // cross-year exceptions.
       const source = showAllCurriculumSubjects ? allCurriculumSubjects : curriculumSubjects
       const fromCurriculum: SubjectItem[] = []
       for (const cs of source) {
@@ -238,13 +227,10 @@ function AssignSubjectPage() {
       return
     }
 
-    // Fallback for block groups with no linked curriculum: show all active
-    // subjects since there is no other way to scope them. Registrar should
-    // link a curriculum to the block group for accurate subject scoping.
     const fetchSubjects = async () => {
       try {
-        const data = await authorizedFetch(`/api/registrar/subjects?isActive=true`)
-        const nextSubjects = Array.isArray(data?.data) ? data.data as SubjectItem[] : []
+        const data = await authorizedFetch<{ data: SubjectItem[] }>(`/api/registrar/subjects?isActive=true`)
+        const nextSubjects = Array.isArray(data?.data) ? data.data : []
         setSubjects(nextSubjects.filter((subject) => subject.isActive !== false))
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch subjects')
@@ -273,15 +259,13 @@ function AssignSubjectPage() {
         return
       }
       try {
-        // Fetch subjects matching the block's yearLevel + semester (default scope)
-        const data = await authorizedFetch(`/api/registrar/curriculums/${selectedGroup.curriculumId}/subjects?yearLevel=${yearLevel}&semester=${semester}`)
+        const data = await authorizedFetch<{ data: CurriculumSubject[] }>(`/api/registrar/curriculums/${selectedGroup.curriculumId}/subjects?yearLevel=${yearLevel}&semester=${semester}`)
         setCurriculumSubjects(Array.isArray(data?.data) ? data.data : [])
       } catch {
         setCurriculumSubjects([])
       }
-      // Fetch ALL subjects from the curriculum (for the "show all" override)
       try {
-        const allData = await authorizedFetch(`/api/registrar/curriculums/${selectedGroup.curriculumId}/subjects`)
+        const allData = await authorizedFetch<{ data: CurriculumSubject[] }>(`/api/registrar/curriculums/${selectedGroup.curriculumId}/subjects`)
         setAllCurriculumSubjects(Array.isArray(allData?.data) ? allData.data : [])
       } catch {
         setAllCurriculumSubjects([])
@@ -290,7 +274,6 @@ function AssignSubjectPage() {
     void fetchCurriculumSubjects()
   }, [selectedGroup?.curriculumId, yearLevel, semester])
 
-  // Reset the "show all" override when the block group changes
   useEffect(() => {
     setShowAllCurriculumSubjects(false)
   }, [selectedGroupId])
@@ -307,8 +290,8 @@ function AssignSubjectPage() {
         schoolYear: academicYear,
         semester
       })
-      const data = await authorizedFetch(`/api/registrar/sections/${selectedSectionId}/subject-assignments?${query.toString()}`)
-      const summaries = Array.isArray(data?.data?.assignments) ? data.data.assignments as SectionSubjectAssignmentSummary[] : []
+      const data = await authorizedFetch<{ data: { assignments: SectionSubjectAssignmentSummary[] } }>(`/api/registrar/sections/${selectedSectionId}/subject-assignments?${query.toString()}`)
+      const summaries = Array.isArray(data?.data?.assignments) ? data.data.assignments : []
       const nextAssignments = summaries.map((assignment) => ({
         _id: `section-${assignment.subjectId || assignment.subjectCode}`,
         subject: {
@@ -381,7 +364,7 @@ function AssignSubjectPage() {
 
     setSaving(true)
     try {
-      const data = await authorizedFetch(['/api/registrar/block-subject-assignments', '/registrar/block-subject-assignments'], {
+      const data = await authorizedFetch<{ data: BlockSubjectAssignment[]; message: string }>(['/api/registrar/block-subject-assignments', '/registrar/block-subject-assignments'], {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -391,10 +374,10 @@ function AssignSubjectPage() {
           academicYear
         })
       })
-      const nextAssignments = Array.isArray(data?.data) ? data.data as BlockSubjectAssignment[] : []
+      const nextAssignments = Array.isArray(data?.data) ? data.data : []
       setAssignments(nextAssignments.map((assignment) => ({ ...assignment, canRemove: true })))
       setSelectedSubjectIds([])
-      setSuccess((data?.message as string) || 'Selected subjects assigned successfully')
+      setSuccess(data?.message || 'Selected subjects assigned successfully')
       setWizardStep(3)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to assign selected subjects')
@@ -416,14 +399,14 @@ function AssignSubjectPage() {
     setError('')
     setSuccess('')
     try {
-      const data = await authorizedFetch([
+      const data = await authorizedFetch<{ message: string }>([
         `/api/registrar/block-subject-assignments/${assignment._id}`,
         `/registrar/block-subject-assignments/${assignment._id}`
       ], {
         method: 'DELETE'
       })
       setAssignments((prev) => prev.filter((item) => item._id !== assignment._id))
-      setSuccess((data?.message as string) || 'Subject assignment removed successfully')
+      setSuccess(data?.message || 'Subject assignment removed successfully')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove subject assignment')
     }
@@ -442,14 +425,17 @@ function AssignSubjectPage() {
     setError('')
     setSuccess('')
     try {
-      const data = await authorizedFetch<{ success: boolean; summary: {
-        sections: number
-        curriculumSubjectsFound: number
-        created: number
-        skipped: number
-        warnings: string[]
-        errors: string[]
-      } }>(`/api/blocks/groups/${selectedGroup._id}/sync-subjects`, {
+      const data = await authorizedFetch<{
+        success: boolean
+        summary: {
+          sections: number
+          curriculumSubjectsFound: number
+          created: number
+          skipped: number
+          warnings: string[]
+          errors: string[]
+        }
+      }>(`/api/blocks/groups/${selectedGroup._id}/sync-subjects`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ includeElectives: false })
@@ -467,7 +453,6 @@ function AssignSubjectPage() {
       } else {
         setSuccess('Sync complete.')
       }
-      // Refresh assignments if a section is selected
       if (selectedSectionId) {
         await fetchAssignments()
       }
@@ -666,7 +651,7 @@ function AssignSubjectPage() {
                           <div className="curriculum-recommended-info">
                             <strong>{subj?.code || 'N/A'}</strong>
                             <span>{subj?.title || 'Subject unavailable'}</span>
-                            <small>{subj?.units || 0} units \u00B7 {cs.type} \u00B7 {cs.isRequired ? 'Required' : 'Elective'}</small>
+                            <small>{subj?.units || 0} units · {cs.type} · {cs.isRequired ? 'Required' : 'Elective'}</small>
                           </div>
                           {isAssigned && <span className="curriculum-recommended-badge">Assigned</span>}
                         </label>

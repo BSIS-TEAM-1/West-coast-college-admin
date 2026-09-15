@@ -4,7 +4,6 @@ import type { BlockGroup, BlockSection, BlockStudent, SectionStudent, BlockWorks
 import BlockStatusBadge from '../../components/BlockStatusBadge'
 import CapacityIndicator from '../../components/CapacityIndicator'
 import { formatStudentNumber as formatStudentNumberShared, courseFullLabel, getCourseAbbreviation } from '../../lib/blockAssignmentShared'
-import './BlockManagement.css'
 
 type BlockWorkspaceProps = {
   selection: BlockWorkspaceSelection | null

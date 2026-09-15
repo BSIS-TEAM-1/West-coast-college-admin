@@ -49,6 +49,7 @@ export interface ProfessorAssignedBlock {
   semester: string
   schoolYear: string
   yearLevel: number | null
+  needsBlockAssignment?: boolean
   subjects: ProfessorAssignedSubject[]
 }
 
@@ -96,6 +97,7 @@ export interface ProfessorRosterClassOption {
   subjectTitle: string
   schedule: string
   room: string
+  needsBlockAssignment?: boolean
 }
 
 export interface ProfessorRosterSectionOption {
@@ -141,6 +143,8 @@ export interface ProfessorRosterStudent extends Omit<ProfessorAssignedStudent, '
   classSchoolYear?: string
   subjectStatus?: string
   gradeUpdatedAt?: string
+  gradeSubmissionStatus?: string
+  currentGradeMark?: string | null
 }
 
 export type RosterSortBy = 'name-asc' | 'name-desc' | 'id-asc' | 'id-desc'

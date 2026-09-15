@@ -249,6 +249,8 @@ class _GradeRow extends StatelessWidget {
               const SizedBox(width: AppDimensions.sm),
               if (entry.hasNoGrade)
                 const StatusBadge(label: 'NO GRADE', tone: StatusTone.neutral)
+              else if (entry.hasGradeMark)
+                StatusBadge(label: entry.gradeMark!, tone: StatusTone.info)
               else if (entry.isInProgress)
                 const StatusBadge(label: 'IN PROGRESS', tone: StatusTone.info)
               else if (entry.isPassed)
@@ -262,7 +264,7 @@ class _GradeRow extends StatelessWidget {
           const SizedBox(height: AppDimensions.sm),
           Row(
             children: [
-              _meta('Grade', entry.hasNoGrade ? '—' : entry.grade.toStringAsFixed(2)),
+              _meta('Grade', entry.displayGrade),
               _meta('Units', entry.units.toString()),
               _meta('Status', entry.status.isEmpty ? '—' : entry.status),
             ],

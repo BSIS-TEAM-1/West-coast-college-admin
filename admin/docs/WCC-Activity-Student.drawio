@@ -1,0 +1,56 @@
+<mxfile host="app.diagrams.net" modified="2026-08-25T00:00:00.000Z" agent="WCC" version="24.0.0"><diagram name="Student" id="lane_stu"><mxGraphModel dx="540" dy="1280" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="540" pageHeight="1280" math="0" shadow="0"><root><mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="pool" value="WCC Student Information System — Student Activity Diagram" style="shape=swimlane;startSize=30;horizontal=1;fillColor=none;strokeColor=#000000;strokeWidth=2;fontSize=12;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="10" y="10" width="500" height="1250" as="geometry" /></mxCell>
+        <mxCell id="actor_lane" value="STUDENT" style="shape=swimlane;startSize=35;horizontal=1;fillColor=none;strokeColor=#000000;strokeWidth=1;fontSize=11;fontStyle=1;" vertex="1" parent="pool"><mxGeometry x="40" y="30" width="420" height="1180" as="geometry" /></mxCell>
+        <mxCell id="start" value="" style="ellipse;fillColor=#000000;strokeColor=#000000;strokeWidth=1.5;" vertex="1" parent="actor_lane">
+          <mxGeometry x="202" y="65" width="16" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="a_fillform" value="Fill Application&#xa;Form" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="135" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="a_selectcourse" value="Select Course" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="205" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="a_submitapp" value="Submit&#xa;Application" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;fontStyle=1;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="275" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="a_fix" value="Fix Errors" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="345" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="a_resubmit" value="Resubmit" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="415" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="a_submitreq" value="Submit Missing&#xa;Requirements" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="485" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="st_login" value="Log In" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="555" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="st_dash" value="View Student&#xa;Dashboard" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="625" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="st_dlcor" value="Download COR" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="695" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="st_readann" value="Read&#xa;Announcements" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="765" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="st_viewgrades" value="View Grades" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="835" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="st_viewgwa" value="View GWA" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="905" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="st_viewupdated" value="View Updated&#xa;Grades" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1;fontSize=8;" vertex="1" parent="actor_lane">
+          <mxGeometry x="170" y="975" width="80" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="end" value="END" style="ellipse;fillColor=#000000;strokeColor=#000000;strokeWidth=1;fontColor=#ffffff;fontSize=7;fontStyle=1;" vertex="1" parent="actor_lane">
+          <mxGeometry x="190" y="1045" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;jettySize=auto;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#000000;endArrow=classic;" edge="1" parent="1" source="start" target="a_fillform"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;jettySize=auto;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#000000;endArrow=classic;" edge="1" parent="1" source="a_fillform" target="a_selectcourse"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;jettySize=auto;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#000000;endArrow=classic;" edge="1" parent="1" source="a_selectcourse" target="a_submitapp"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;jettySize=auto;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#000000;endArrow=classic;" edge="1" parent="1" source="a_fix" target="a_resubmit"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e34" style="edgeStyle=orthogonalEdgeStyle;rounded=0;jettySize=auto;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#000000;endArrow=classic;" edge="1" parent="1" source="st_login" target="st_dash"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e60" style="edgeStyle=orthogonalEdgeStyle;rounded=0;jettySize=auto;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#000000;endArrow=classic;" edge="1" parent="1" source="st_viewgrades" target="st_viewgwa"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e82" style="edgeStyle=orthogonalEdgeStyle;rounded=0;jettySize=auto;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#000000;endArrow=classic;" edge="1" parent="1" source="st_readann" target="end"><mxGeometry relative="1" as="geometry" /></mxCell></root></mxGraphModel></diagram></mxfile>

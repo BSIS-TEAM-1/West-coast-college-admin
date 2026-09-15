@@ -87,8 +87,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   const [subjects, setSubjects] = useState<SubjectItem[]>([])
   const [selectedSubjectId, setSelectedSubjectId] = useState('')
   const [subjectDaySelections, setSubjectDaySelections] = useState<string[]>([])
-  const [subjectTimeStart, setSubjectTimeStart] = useState('')
-  const [subjectTimeEnd, setSubjectTimeEnd] = useState('')
+  const [subjectDaySchedules, setSubjectDaySchedules] = useState<Record<string, { start: string; end: string; room: string }>>({})
   const [subjectRoom, setSubjectRoom] = useState('')
   const [professorLoads, setProfessorLoads] = useState<ProfessorCourseLoad[]>([])
   const [selectedProfessorId, setSelectedProfessorId] = useState('')
@@ -141,24 +140,58 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     setEditingAssignmentId('')
     setSelectedSubjectId('')
     setSubjectDaySelections([])
-    setSubjectTimeStart('')
-    setSubjectTimeEnd('')
+    setSubjectDaySchedules({})
     setSubjectRoom('')
   }
 
-  const parseScheduleIntoFields = (schedule: string) => {
+  const parseScheduleIntoFields = (schedule: string, room?: string) => {
     const trimmed = String(schedule || '').trim()
+    const fallbackRoom = String(room || '').trim() === 'TBA' ? '' : String(room || '').trim()
     if (!trimmed || /^TBA$/i.test(trimmed)) {
-      return { days: [] as string[], start: '', end: '' }
+      return { days: [] as string[], daySchedules: {} as Record<string, { start: string; end: string; room: string }> }
     }
+
+    const tokenOrder = ['TH', 'SU', 'M', 'T', 'W', 'F', 'S']
+
+    // Per-day format: "M 07:30-09:00 @ Room 205 / W 13:00-14:30 @ Lab 3"
+    if (trimmed.includes('/')) {
+      const segments = trimmed.split('/').map(s => s.trim()).filter(Boolean)
+      const daySchedules: Record<string, { start: string; end: string; room: string }> = {}
+      const days: string[] = []
+
+      for (const segment of segments) {
+        // Extract optional @ room suffix
+        const roomMatch = segment.match(/^(.+?)\s*@\s*(.+)$/)
+        const segmentBody = roomMatch ? roomMatch[1].trim() : segment
+        const segmentRoom = roomMatch ? roomMatch[2].trim() : fallbackRoom
+
+        const match = segmentBody.match(/^([A-Z]+)\s+(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})$/i)
+        if (!match) continue
+        const daysRaw = match[1].toUpperCase()
+        const start = match[2]
+        const end = match[3]
+
+        let cursor = daysRaw
+        while (cursor.length > 0) {
+          const token = tokenOrder.find((value) => cursor.startsWith(value))
+          if (!token) break
+          days.push(token)
+          daySchedules[token] = { start, end, room: segmentRoom }
+          cursor = cursor.slice(token.length)
+        }
+      }
+
+      return { days: dayOptions.filter((day) => days.includes(day)), daySchedules }
+    }
+
+    // Classic format: "MW 07:30-09:00"
     const separatorIndex = trimmed.indexOf(' ')
     if (separatorIndex < 0) {
-      return { days: [] as string[], start: '', end: '' }
+      return { days: [] as string[], daySchedules: {} as Record<string, { start: string; end: string; room: string }> }
     }
     const daysRaw = trimmed.slice(0, separatorIndex).toUpperCase()
     const timeRaw = trimmed.slice(separatorIndex + 1).trim()
     const timeMatch = timeRaw.match(/^(\d{2}:\d{2})-(\d{2}:\d{2})$/)
-    const tokenOrder = ['TH', 'SU', 'M', 'T', 'W', 'F', 'S']
     const days: string[] = []
     let cursor = daysRaw
 
@@ -169,11 +202,12 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
       cursor = cursor.slice(token.length)
     }
 
-    return {
-      days: dayOptions.filter((day) => days.includes(day)),
-      start: timeMatch?.[1] || '',
-      end: timeMatch?.[2] || ''
-    }
+    const start = timeMatch?.[1] || ''
+    const end = timeMatch?.[2] || ''
+    const daySchedules: Record<string, { start: string; end: string; room: string }> = {}
+    days.forEach((day) => { daySchedules[day] = { start, end, room: fallbackRoom } })
+
+    return { days: dayOptions.filter((day) => days.includes(day)), daySchedules }
   }
 
   const extractGroupMeta = (groupName: string) => {
@@ -388,17 +422,17 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     && Boolean(selectedSectionId)
     && Boolean(selectedSubjectId)
     && subjectDaySelections.length > 0
-    && Boolean(subjectTimeStart)
-    && Boolean(subjectTimeEnd)
-    && Boolean(subjectRoom.trim())
+    && subjectDaySelections.every((day) => {
+      const s = subjectDaySchedules[day]
+      return s && s.start && s.end && s.room.trim()
+    })
 
   const populateAssignmentEditor = (assignment: Pick<SectionSubjectAssignment, 'subjectId' | 'schedule' | 'room'>) => {
-    const parsedSchedule = parseScheduleIntoFields(assignment.schedule)
+    const parsedSchedule = parseScheduleIntoFields(assignment.schedule, assignment.room)
     setEditingAssignmentId(assignment.subjectId)
     setSelectedSubjectId(assignment.subjectId)
     setSubjectDaySelections(parsedSchedule.days)
-    setSubjectTimeStart(parsedSchedule.start)
-    setSubjectTimeEnd(parsedSchedule.end)
+    setSubjectDaySchedules(parsedSchedule.daySchedules)
     setSubjectRoom(assignment.room === 'TBA' ? '' : assignment.room)
   }
 
@@ -434,16 +468,46 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   ])
 
   const handleAssignSubjectInstructor = async () => {
-    const assignmentTargetId = editingAssignmentId || selectedSubjectId
+    const assignmentTargetId = selectedSubjectId || editingAssignmentId
     if (!selectedProfessor) return setError('Please choose a professor workspace first.')
     if (!selectedSectionId) return setError('Please select a section first.')
     if (!assignmentTargetId) return setError('Please select a subject.')
-    const normalizedDays = dayOptions.filter((day) => subjectDaySelections.includes(day)).join('')
-    const normalizedSchedule = `${normalizedDays} ${subjectTimeStart}-${subjectTimeEnd}`.trim()
-    const normalizedRoom = subjectRoom.trim()
-    if (!normalizedDays) return setError('Please select at least one class day.')
-    if (!subjectTimeStart || !subjectTimeEnd) return setError('Please select a start and end time.')
-    if (!normalizedRoom) return setError('Please enter a room.')
+    const orderedDays = dayOptions.filter((day) => subjectDaySelections.includes(day))
+    if (orderedDays.length === 0) return setError('Please select at least one class day.')
+
+    // Validate each selected day has a time range and room
+    for (const day of orderedDays) {
+      const s = subjectDaySchedules[day]
+      if (!s || !s.start || !s.end) {
+        return setError(`Please set a start and end time for ${day}.`)
+      }
+      if (!s.room.trim()) {
+        return setError(`Please enter a room for ${day}.`)
+      }
+    }
+
+    // Check if all days share the same time AND room
+    const ref = subjectDaySchedules[orderedDays[0]]
+    const allSame = orderedDays.every((day) => {
+      const s = subjectDaySchedules[day]
+      return s && s.start === ref.start && s.end === ref.end && s.room.trim() === ref.room.trim()
+    })
+
+    let normalizedSchedule: string
+    let normalizedRoom: string
+    if (allSame) {
+      // Compact: "MW 07:30-09:00" with room in separate field
+      normalizedSchedule = `${orderedDays.join('')} ${ref.start}-${ref.end}`.trim()
+      normalizedRoom = ref.room.trim()
+    } else {
+      // Per-day: "M 07:30-09:00 @ Room 205 / W 13:00-14:30 @ Lab 3"
+      normalizedSchedule = orderedDays.map((day) => {
+        const s = subjectDaySchedules[day]
+        return `${day} ${s.start}-${s.end} @ ${s.room.trim()}`
+      }).join(' / ')
+      // Use first day's room as the primary room field for backward compat
+      normalizedRoom = ref.room.trim()
+    }
 
     setAssigning(true)
     setError('')
@@ -699,7 +763,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
 
             <label>
               Subject
-              <select value={selectedSubjectId} onChange={(e) => setSelectedSubjectId(e.target.value)} disabled={!selectedGroupId || Boolean(editingAssignmentId)}>
+              <select value={selectedSubjectId} onChange={(e) => setSelectedSubjectId(e.target.value)} disabled={!selectedGroupId}>
                 <option value="">Select subject</option>
                 {subjects.map((subject) => (
                   <option key={subject._id} value={subject._id}>
@@ -717,7 +781,25 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                     <input
                       type="checkbox"
                       checked={subjectDaySelections.includes(dayCode)}
-                      onChange={() => setSubjectDaySelections((prev) => prev.includes(dayCode) ? prev.filter((day) => day !== dayCode) : [...prev, dayCode])}
+                      onChange={() => setSubjectDaySelections((prev) => {
+                        if (prev.includes(dayCode)) {
+                          const next = prev.filter((day) => day !== dayCode)
+                          setSubjectDaySchedules((curr) => {
+                            const copy = { ...curr }
+                            delete copy[dayCode]
+                            return copy
+                          })
+                          return next
+                        }
+                        // When adding a new day, default its time+room from the first existing day
+                        const existingDays = prev.length > 0 ? prev : []
+                        const refSchedule = existingDays.length > 0 ? subjectDaySchedules[existingDays[0]] : null
+                        setSubjectDaySchedules((curr) => ({
+                          ...curr,
+                          [dayCode]: refSchedule ? { ...refSchedule } : { start: '', end: '', room: '' }
+                        }))
+                        return [...prev, dayCode]
+                      })}
                       disabled={!selectedSectionId || !selectedSubjectId}
                     />
                     <span>{dayCode}</span>
@@ -726,19 +808,55 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
               </div>
             </div>
 
-            <label>
-              Time
-              <div className="time-box-group">
-                <input type="time" className="time-box-input" value={subjectTimeStart} onChange={(e) => setSubjectTimeStart(e.target.value)} disabled={!selectedSectionId || !selectedSubjectId} />
-                <span className="time-box-separator">to</span>
-                <input type="time" className="time-box-input" value={subjectTimeEnd} onChange={(e) => setSubjectTimeEnd(e.target.value)} disabled={!selectedSectionId || !selectedSubjectId} />
+            {subjectDaySelections.length > 0 && (
+              <div className="registrar-course-per-day-times">
+                <span>Time & Room per Day</span>
+                {dayOptions.filter((day) => subjectDaySelections.includes(day)).map((dayCode) => {
+              const daySchedule = subjectDaySchedules[dayCode] || { start: '', end: '', room: '' }
+              return (
+                <div key={dayCode} className="per-day-time-row">
+                  <span className="per-day-time-label">{dayCode}</span>
+                  <div className="per-day-fields">
+                    <div className="time-box-group">
+                      <input
+                        type="time"
+                        className="time-box-input"
+                        value={daySchedule.start}
+                        onChange={(e) => setSubjectDaySchedules((curr) => ({
+                          ...curr,
+                          [dayCode]: { ...curr[dayCode], start: e.target.value }
+                        }))}
+                        disabled={!selectedSectionId || !selectedSubjectId}
+                      />
+                      <span className="time-box-separator">to</span>
+                      <input
+                        type="time"
+                        className="time-box-input"
+                        value={daySchedule.end}
+                        onChange={(e) => setSubjectDaySchedules((curr) => ({
+                          ...curr,
+                          [dayCode]: { ...curr[dayCode], end: e.target.value }
+                        }))}
+                        disabled={!selectedSectionId || !selectedSubjectId}
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      className="per-day-room-input"
+                      value={daySchedule.room}
+                      onChange={(e) => setSubjectDaySchedules((curr) => ({
+                        ...curr,
+                        [dayCode]: { ...curr[dayCode], room: e.target.value }
+                      }))}
+                      placeholder="Room"
+                      disabled={!selectedSectionId || !selectedSubjectId}
+                    />
+                  </div>
+                </div>
+              )
+            })}
               </div>
-            </label>
-
-            <label>
-              Room
-              <input type="text" value={subjectRoom} onChange={(e) => setSubjectRoom(e.target.value)} placeholder="e.g. Room 204" disabled={!selectedSectionId || !selectedSubjectId} />
-            </label>
+            )}
           </div>
 
           <div className="registrar-course-workspace-footer">

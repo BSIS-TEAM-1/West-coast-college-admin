@@ -3,6 +3,7 @@ class GradeEntry {
   final String subjectTitle;
   final num units;
   final num grade;
+  final String? gradeMark;
   final String remarks;
   final String status;
 
@@ -11,14 +12,19 @@ class GradeEntry {
     required this.subjectTitle,
     required this.units,
     required this.grade,
+    this.gradeMark,
     required this.remarks,
     required this.status,
   });
 
-  bool get isPassed => grade <= 3.0;
+  bool get isPassed => grade > 0 && grade <= 3.0;
   bool get isFailed => grade > 3.0;
   bool get isInProgress => status.toLowerCase() == 'in progress';
-  bool get hasNoGrade => grade == 0 && remarks.isEmpty;
+  bool get hasNoGrade => grade == 0 && gradeMark == null && remarks.isEmpty;
+  bool get hasGradeMark => gradeMark != null && gradeMark!.isNotEmpty;
+
+  /// Display string for the grade: numerical grade, grade mark, or em dash.
+  String get displayGrade => hasGradeMark ? gradeMark! : (grade > 0 ? grade.toStringAsFixed(2) : '—');
 }
 
 class GradePeriod {

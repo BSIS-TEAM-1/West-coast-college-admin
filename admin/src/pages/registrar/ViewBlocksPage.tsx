@@ -15,8 +15,6 @@ import {
   parseBlockSlot,
   type Semester
 } from '../../lib/blockAssignmentShared'
-import './BlockManagement.css'
-
 type ViewBlocksPageProps = {
   onBack: () => void
   onOpenWorkspace: (selection: BlockWorkspaceSelection) => void

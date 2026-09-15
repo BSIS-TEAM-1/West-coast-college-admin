@@ -1,0 +1,154 @@
+<mxfile host="app.diagrams.net" modified="2026-08-21T00:00:00.000Z" agent="WCC" version="24.0.0">
+  <diagram name="WCC Activity Diagram - Phase 3: Grading" id="wcc-activity-phase3">
+    <mxGraphModel dx="1800" dy="1200" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2800" pageHeight="1600" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ===== MAIN POOL ===== -->
+        <mxCell id="pool" value="WCC Activity Diagram — Phase 3: Grading Process" style="shape=swimlane;startSize=40;horizontal=1;fillColor=none;strokeColor=#333333;strokeWidth=2;fontSize=18;fontStyle=1;swimlaneFillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="20" y="20" width="2760" height="1560" as="geometry" />
+        </mxCell>
+
+        <!-- ===== HORIZONTAL LANES (top to bottom) ===== -->
+        <mxCell id="lane_prof" value="PROFESSOR" style="shape=swimlane;startSize=80;horizontal=1;fillColor=#E1D5E7;strokeColor=#9673A6;strokeWidth=2;fontSize=13;fontStyle=1;swimlaneFillColor=#E1D5E7;" vertex="1" parent="pool">
+          <mxGeometry x="0" y="40" width="2760" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_sys" value="SYSTEM" style="shape=swimlane;startSize=80;horizontal=1;fillColor=#F5F5F5;strokeColor=#666666;strokeWidth=2;fontSize=13;fontStyle=1;swimlaneFillColor=#F5F5F5;" vertex="1" parent="pool">
+          <mxGeometry x="0" y="340" width="2760" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_reg" value="REGISTRAR" style="shape=swimlane;startSize=80;horizontal=1;fillColor=#D5E8D4;strokeColor=#82B366;strokeWidth=2;fontSize=13;fontStyle=1;swimlaneFillColor=#D5E8D4;" vertex="1" parent="pool">
+          <mxGeometry x="0" y="640" width="2760" height="300" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_stu" value="STUDENT" style="shape=swimlane;startSize=80;horizontal=1;fillColor=#F8CECC;strokeColor=#B85450;strokeWidth=2;fontSize=13;fontStyle=1;swimlaneFillColor=#F8CECC;" vertex="1" parent="pool">
+          <mxGeometry x="0" y="940" width="2760" height="300" as="geometry" />
+        </mxCell>
+
+        <!-- ===== PROFESSOR LANE ===== -->
+        <mxCell id="p_login" value="Log In" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_prof">
+          <mxGeometry x="100" y="105" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p_viewcourse" value="View My Courses" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_prof">
+          <mxGeometry x="250" y="105" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p_opensub" value="Open Subject" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_prof">
+          <mxGeometry x="400" y="105" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p_viewroster" value="View Class Roster" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_prof">
+          <mxGeometry x="550" y="105" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p_entergrade" value="Enter Grades" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_prof">
+          <mxGeometry x="700" y="105" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p_setmark" value="Set Grade Marks" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_prof">
+          <mxGeometry x="850" y="105" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p_continue" value="Continue Entering" style="rounded=1;whiteSpace=wrap;html=1;fillColor:#E1D5E7;strokeColor=#9673A6;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_prof">
+          <mxGeometry x="1100" y="105" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p_submit" value="Submit for Review" style="rounded=1;whiteSpace=wrap;html=1;fillColor:#E1D5E7;strokeColor=#9673A6;strokeWidth=2;fontSize=12;fontStyle=1;" vertex="1" parent="lane_prof">
+          <mxGeometry x="1300" y="105" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p_fix" value="Fix Grades" style="rounded=1;whiteSpace=wrap;html=1;fillColor:#E1D5E7;strokeColor=#9673A6;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_prof">
+          <mxGeometry x="1650" y="105" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p_resubmit" value="Resubmit for Review" style="rounded=1;whiteSpace=wrap;html=1;fillColor:#E1D5E7;strokeColor=#9673A6;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_prof">
+          <mxGeometry x="1820" y="105" width="120" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ===== SYSTEM LANE ===== -->
+        <mxCell id="s_notify" value="Notify Registrar" style="rounded=1;whiteSpace=wrap;html=1;fillColor:#FFFFFF;strokeColor=#666666;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_sys">
+          <mxGeometry x="1400" y="405" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="s_lock" value="Lock Grade Edits" style="rounded=1;whiteSpace=wrap;html=1;fillColor:#FFFFFF;strokeColor:#666666;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_sys">
+          <mxGeometry x="1550" y="405" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="s_notifyprof" value="Notify Professor" style="rounded=1;whiteSpace=wrap;html=1;fillColor:#FFFFFF;strokeColor:#666666;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_sys">
+          <mxGeometry x="1650" y="405" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="s_release" value="Release Grades to Students" style="rounded=1;whiteSpace=wrap;html=1;fillColor:#FFFFFF;strokeColor:#666666;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_sys">
+          <mxGeometry x="2050" y="405" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="s_updategwa" value="Update GWA" style="rounded=1;whiteSpace=wrap;html=1;fillColor:#FFFFFF;strokeColor:#666666;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_sys">
+          <mxGeometry x="2200" y="405" width="120" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ===== REGISTRAR LANE ===== -->
+        <mxCell id="r_viewgrades" value="View Grade Submissions" style="rounded=1;whiteSpace=wrap;html=1;fillColor:#D5E8D4;strokeColor=#82B366;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_reg">
+          <mxGeometry x="1550" y="705" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="r_verify" value="Verify Grades" style="rounded=1;whiteSpace=wrap;html=1;fillColor:#D5E8D4;strokeColor=#82B366;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_reg">
+          <mxGeometry x="1700" y="705" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="r_return" value="Return Grades" style="rounded=1;whiteSpace=wrap;html=1;fillColor:#D5E8D4;strokeColor=#82B366;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_reg">
+          <mxGeometry x="1550" y="705" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="r_reverify" value="Re-verify" style="rounded=1;whiteSpace=wrap;html=1;fillColor:#D5E8D4;strokeColor=#82B366;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_reg">
+          <mxGeometry x="1820" y="705" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="r_publish" value="Publish Grades" style="rounded=1;whiteSpace=wrap;html=1;fillColor:#D5E8D4;strokeColor=#82B366;strokeWidth=2;fontSize=12;fontStyle=1;" vertex="1" parent="lane_reg">
+          <mxGeometry x="2050" y="705" width="120" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ===== STUDENT LANE ===== -->
+        <mxCell id="st_viewgrades" value="View Grades" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_stu">
+          <mxGeometry x="2200" y="1005" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="st_viewgwa" value="View GWA" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;strokeWidth=2;fontSize=12;" vertex="1" parent="lane_stu">
+          <mxGeometry x="2350" y="1005" width="120" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ===== DECISION POINTS ===== -->
+        <mxCell id="d_allgrades" value="All Grades Entered?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;strokeWidth=2;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="170" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="d_correct" value="Grades Correct?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;strokeWidth=2;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1750" y="770" width="100" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ===== EDGES ===== -->
+        <!-- Professor: Login -> View Courses -> Open Subject -> View Roster -> Enter Grades -> Set Marks -->
+        <mxCell id="e1" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="p_login" target="p_viewcourse"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="p_viewcourse" target="p_opensub"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e3" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="p_opensub" target="p_viewroster"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e4" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="p_viewroster" target="p_entergrade"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e5" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="p_entergrade" target="p_setmark"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e6" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="p_setmark" target="d_allgrades"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <!-- All Grades? No -> Continue Entering -> loop -->
+        <mxCell id="e7" value="No" style="html=1;strokeWidth=2;strokeColor:#CC0000;endArrow=classic;fontSize=11;fontStyle=1;" edge="1" parent="1" source="d_allgrades" target="p_continue"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e8" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;curved=1;" edge="1" parent="1" source="p_continue" target="p_entergrade"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <!-- All Grades? Yes -> Submit for Review -->
+        <mxCell id="e9" value="Yes" style="html=1;strokeWidth=2;strokeColor:#009900;endArrow=classic;fontSize=11;fontStyle=1;" edge="1" parent="1" source="d_allgrades" target="p_submit"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <!-- -> System: Notify Registrar -> Lock Grade Edits -->
+        <mxCell id="e10" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="p_submit" target="s_notify"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e11" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="s_notify" target="s_lock"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <!-- -> Registrar: View Grade Submissions -> Verify Grades -->
+        <mxCell id="e12" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="s_lock" target="r_viewgrades"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e13" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="r_viewgrades" target="r_verify"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e14" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="r_verify" target="d_correct"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <!-- Grades Correct? No -> Return Grades -> Notify Professor -> Fix Grades -> Resubmit -> Re-verify -> loop -->
+        <mxCell id="e15" value="No" style="html=1;strokeWidth=2;strokeColor:#CC0000;endArrow=classic;fontSize=11;fontStyle=1;" edge="1" parent="1" source="d_correct" target="r_return"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e16" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="r_return" target="s_notifyprof"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e17" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="s_notifyprof" target="p_fix"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e18" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="p_fix" target="p_resubmit"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e19" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="p_resubmit" target="r_reverify"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e20" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;curved=1;" edge="1" parent="1" source="r_reverify" target="d_correct"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <!-- Grades Correct? Yes -> Publish Grades -->
+        <mxCell id="e21" value="Yes" style="html=1;strokeWidth=2;strokeColor:#009900;endArrow=classic;fontSize=11;fontStyle=1;" edge="1" parent="1" source="d_correct" target="r_publish"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <!-- -> System: Release Grades -> Update GWA -->
+        <mxCell id="e22" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="r_publish" target="s_release"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e23" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="s_release" target="s_updategwa"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <!-- -> Student: View Grades -> View GWA -->
+        <mxCell id="e24" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="s_updategwa" target="st_viewgrades"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e25" style="html=1;strokeWidth=2;strokeColor:#333333;endArrow=classic;" edge="1" parent="1" source="st_viewgrades" target="st_viewgwa"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- Note: Continue to Phase 4 -->
+        <mxCell id="note_phase4" value="→ Continue to Phase 4: COR &amp; Announcements" style="shape=note;whiteSpace=wrap;html=1;fillColor=#FFFFCC;strokeColor=#D6B656;strokeWidth=1;fontSize=11;fontStyle=2;align=center;" vertex="1" parent="1">
+          <mxGeometry x="2450" y="1000" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="e_phase4" style="html=1;strokeWidth=1;strokeColor:#D6B656;endArrow=classic;dashed=1;" edge="1" parent="1" source="st_viewgwa" target="note_phase4"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

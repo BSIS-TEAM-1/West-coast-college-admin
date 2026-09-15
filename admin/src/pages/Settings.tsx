@@ -1,12 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { getProfile, updateProfile, clearStoredToken } from '../lib/authApi';
 import type { ProfileResponse, UpdateProfileRequest } from '../lib/authApi';
-import { LogOut } from 'lucide-react';
 import {
   applyAccentColorPreference,
   applyThemePreference,
-  DEFAULT_THEME_ACCENT_COLOR,
+  getStoredAccentColor,
   getStoredTheme,
+  THEME_ACCENT_PRESETS,
+  type ThemeAccentColor,
   type ThemePreference,
 } from '../lib/theme';
 import { getAcademicTerm, updateAcademicTerm, type AcademicSemester } from '../lib/settingsApi';
@@ -26,6 +27,14 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
 
   // Theme state
   const [theme, setTheme] = useState<Theme>('auto');
+
+  // Accent color state
+  const [accentColor, setAccentColor] = useState<ThemeAccentColor>(() => getStoredAccentColor());
+
+  const handleAccentChange = (color: ThemeAccentColor) => {
+    setAccentColor(color);
+    applyAccentColorPreference(color, { animate: true });
+  };
 
   // Form state for security settings
   const [formData, setFormData] = useState({
@@ -96,7 +105,7 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
     const initialTheme = getStoredTheme();
     setTheme(initialTheme);
     applyThemePreference(initialTheme, { persist: false });
-    applyAccentColorPreference(DEFAULT_THEME_ACCENT_COLOR, { persist: true });
+    applyAccentColorPreference(getStoredAccentColor(), { persist: false });
 
     getProfile()
       .then((loadedProfile) => {
@@ -133,13 +142,8 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
     applyThemePreference(newTheme, { animate: true });
   };
 
-  const themeLabel = theme === 'auto' ? 'Device Auto' : theme === 'dark' ? 'Dark Mode' : 'Light Mode';
+  const themeLabel = theme === 'auto' ? 'System (Auto)' : theme === 'dark' ? 'Dark Mode' : 'Light Mode';
   const loginVerificationStatus = formData.loginEmailVerificationEnabled ? 'Enabled' : 'Disabled';
-  const emailStatus = profile?.email
-    ? profile.emailVerified
-      ? 'Verified email'
-      : 'Verification pending'
-    : 'No email linked';
 
   // Helper to detect if the user has actually changed anything
   const isDirty = useMemo(() => {
@@ -151,9 +155,6 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
   }, [formData, profile]);
 
   const canEnableLoginEmailVerification = Boolean(profile?.emailVerified && profile?.email);
-  const loginEmailVerificationHint = canEnableLoginEmailVerification
-    ? `A 6-digit code will be sent to ${profile?.email} during email-based sign-in verification.`
-    : 'Verify an email address on your profile first before enabling login email verification.';
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, type, value, checked } = e.target;
@@ -225,27 +226,42 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
   return (
     <div className="settings-page">
       <header className="settings-hero">
-        <div className="settings-hero-copy">
-          <p className="settings-eyebrow">Admin Preferences</p>
-          <h2 className="settings-title">Settings</h2>
-          <p className="settings-desc">Manage appearance, account security, and sign-in safeguards from one place.</p>
+        <div className="settings-hero-top">
+          <div className="settings-hero-copy">
+            <p className="settings-eyebrow">Admin Preferences</p>
+            <h2 className="settings-title">Settings</h2>
+          </div>
+          <button
+            type="button"
+            className="settings-hero-save-btn"
+            onClick={() => handleSubmit({ preventDefault: () => {} } as React.FormEvent<HTMLFormElement>)}
+            disabled={saving || !isDirty}
+          >
+            {saving ? 'Saving...' : 'Save Changes'}
+          </button>
         </div>
 
         <div className="settings-hero-stats" aria-label="Settings summary">
           <article className="settings-hero-stat">
-            <span className="settings-hero-stat-label">Theme</span>
-            <strong>{themeLabel}</strong>
-            <span className="settings-hero-stat-meta">Appearance mode</span>
+            <span className="settings-hero-stat-icon material-symbols-outlined" aria-hidden="true">palette</span>
+            <div className="settings-hero-stat-text">
+              <span className="settings-hero-stat-label">Theme</span>
+              <strong>{themeLabel}</strong>
+            </div>
           </article>
           <article className="settings-hero-stat">
-            <span className="settings-hero-stat-label">Login Verification</span>
-            <strong>{loginVerificationStatus}</strong>
-            <span className="settings-hero-stat-meta">Email code on sign-in</span>
+            <span className="settings-hero-stat-icon material-symbols-outlined" aria-hidden="true">verified_user</span>
+            <div className="settings-hero-stat-text">
+              <span className="settings-hero-stat-label">Login Verification</span>
+              <strong className={loginVerificationStatus === 'Enabled' ? 'is-primary' : ''}>{loginVerificationStatus}</strong>
+            </div>
           </article>
           <article className="settings-hero-stat">
-            <span className="settings-hero-stat-label">Profile Email</span>
-            <strong>{emailStatus}</strong>
-            <span className="settings-hero-stat-meta">{profile?.email ?? 'Add one in Profile'}</span>
+            <span className="settings-hero-stat-icon material-symbols-outlined" aria-hidden="true">account_circle</span>
+            <div className="settings-hero-stat-text">
+              <span className="settings-hero-stat-label">Profile Email</span>
+              <strong className="settings-hero-stat-email">{profile?.email ?? 'No email linked'}</strong>
+            </div>
           </article>
         </div>
       </header>
@@ -257,205 +273,203 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
       )}
 
       <div className="settings-content">
-        <section className="settings-section settings-section-appearance">
-          <div className="settings-section-header">
-            <div>
-              <span className="settings-section-kicker">Appearance</span>
-              <h3 className="settings-section-title">Theme Mode</h3>
-              <p className="settings-section-desc">Keep the interface consistent while choosing the brightness mode that fits your workspace.</p>
+        <div className="settings-bento-grid">
+          {/* Appearance & Theme — full width */}
+          <section className="settings-card settings-card-appearance">
+            <div className="settings-card-label-col">
+              <span className="settings-card-kicker">Appearance</span>
+              <p className="settings-card-label-title">Theme &amp; Accent</p>
             </div>
-          </div>
-
-          <div className="theme-options">
-            <div className="theme-option">
-              <input
-                type="radio"
-                id="theme-light"
-                name="theme"
-                value="light"
-                checked={theme === 'light'}
-                onChange={() => handleThemeChange('light')}
-                className="theme-radio"
-              />
-              <label htmlFor="theme-light" className="theme-label">
-                <div className="theme-preview theme-light">
-                  <div className="theme-preview-header"></div>
-                  <div className="theme-preview-content">
-                    <div className="theme-preview-line"></div>
-                    <div className="theme-preview-line short"></div>
-                  </div>
-                </div>
-                <div className="theme-info">
-                  <div className="theme-name">Light Mode</div>
-                  <div className="theme-description">Bright and clean interface</div>
-                </div>
-              </label>
-            </div>
-
-            <div className="theme-option">
-              <input
-                type="radio"
-                id="theme-dark"
-                name="theme"
-                value="dark"
-                checked={theme === 'dark'}
-                onChange={() => handleThemeChange('dark')}
-                className="theme-radio"
-              />
-              <label htmlFor="theme-dark" className="theme-label">
-                <div className="theme-preview theme-dark">
-                  <div className="theme-preview-header"></div>
-                  <div className="theme-preview-content">
-                    <div className="theme-preview-line"></div>
-                    <div className="theme-preview-line short"></div>
-                  </div>
-                </div>
-                <div className="theme-info">
-                  <div className="theme-name">Dark Mode</div>
-                  <div className="theme-description">Easy on the eyes in low light</div>
-                </div>
-              </label>
-            </div>
-
-            <div className="theme-option">
-              <input
-                type="radio"
-                id="theme-auto"
-                name="theme"
-                value="auto"
-                checked={theme === 'auto'}
-                onChange={() => handleThemeChange('auto')}
-                className="theme-radio"
-              />
-              <label htmlFor="theme-auto" className="theme-label">
-                <div className="theme-preview theme-auto">
-                  <div className="theme-preview-header"></div>
-                  <div className="theme-preview-content">
-                    <div className="theme-preview-line"></div>
-                    <div className="theme-preview-line short"></div>
-                  </div>
-                </div>
-                <div className="theme-info">
-                  <div className="theme-name">Device Auto</div>
-                  <div className="theme-description">Follows your system preference</div>
-                </div>
-              </label>
-            </div>
-          </div>
-        </section>
-
-        {profile?.accountType !== 'professor' ? (
-          <form className="settings-form" onSubmit={handleAcademicTermSubmit}>
-            <section className="settings-section">
-              <div className="settings-section-header">
-                <div>
-                  <span className="settings-section-kicker">Academic</span>
-                  <h3 className="settings-section-title">Current School Year</h3>
-                  <p className="settings-section-desc">
-                    This is the default school year and semester used when creating new students and block groups. Individual records can still be created for other terms when needed.
-                  </p>
-                </div>
-              </div>
-
-              {academicTermStatus && (
-                <p className={`settings-status ${academicTermStatus.type === 'error' ? 'settings-error' : 'settings-success'}`} role="alert">
-                  {academicTermStatus.message}
-                </p>
-              )}
-
-              <div className="settings-card-body settings-two-col">
-                <div className="form-group">
-                  <label htmlFor="academicTermSchoolYear">School Year</label>
+            <div className="settings-card-body-col">
+              <div className="theme-options-compact" role="radiogroup" aria-label="Theme mode">
+                <label className={`theme-card-compact ${theme === 'light' ? 'is-selected' : ''}`}>
                   <input
-                    id="academicTermSchoolYear"
-                    name="schoolYear"
-                    type="text"
-                    className="settings-input"
-                    placeholder="e.g. 2025-2026"
-                    pattern="\d{4}-\d{4}"
-                    value={academicTermDraft.schoolYear}
-                    onChange={(event) => setAcademicTermDraft((prev) => ({ ...prev, schoolYear: event.target.value }))}
-                    disabled={academicTermLoading}
-                    required
+                    type="radio"
+                    name="theme"
+                    value="light"
+                    checked={theme === 'light'}
+                    onChange={() => handleThemeChange('light')}
+                    className="theme-radio"
                   />
-                </div>
-
-                <div className="form-group">
-                  <label htmlFor="academicTermSemester">Semester</label>
-                  <select
-                    id="academicTermSemester"
-                    name="semester"
-                    className="settings-input"
-                    value={academicTermDraft.semester}
-                    onChange={(event) => setAcademicTermDraft((prev) => ({ ...prev, semester: event.target.value as AcademicSemester }))}
-                    disabled={academicTermLoading}
-                  >
-                    <option value="1st">1st Semester</option>
-                    <option value="2nd">2nd Semester</option>
-                    <option value="Summer">Summer</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="settings-save-panel">
-                <div>
-                  <span className="settings-save-title">Academic Term Changes</span>
-                  <span className="settings-save-copy">
-                    {academicTermDirty ? 'Review and save the updated school year/semester.' : 'No pending changes.'}
+                  <span className="theme-card-compact-info">
+                    <span className="theme-card-compact-name">
+                      <span className="material-symbols-outlined theme-card-icon" aria-hidden="true">light_mode</span>
+                      Light
+                    </span>
+                    <span className="theme-card-compact-desc">Bright interface</span>
                   </span>
-                </div>
-                <button
-                  type="submit"
-                  className="settings-submit"
-                  disabled={academicTermLoading || academicTermSaving || !academicTermDirty}
-                >
-                  {academicTermSaving ? 'Saving changes...' : 'Save Changes'}
-                </button>
-              </div>
-            </section>
-          </form>
-        ) : null}
+                </label>
 
-        <form className="settings-form" onSubmit={handleSubmit}>
-          <div className="settings-form-grid">
-            <section className="settings-section">
-              <div className="settings-section-header">
-                <div>
-                  <span className="settings-section-kicker">Account</span>
-                  <h3 className="settings-section-title">Username</h3>
-                  <p className="settings-section-desc">Update the username used for admin sign-in.</p>
+                <label className={`theme-card-compact ${theme === 'dark' ? 'is-selected' : ''}`}>
+                  <input
+                    type="radio"
+                    name="theme"
+                    value="dark"
+                    checked={theme === 'dark'}
+                    onChange={() => handleThemeChange('dark')}
+                    className="theme-radio"
+                  />
+                  <span className="theme-card-compact-info">
+                    <span className="theme-card-compact-name">
+                      <span className="material-symbols-outlined theme-card-icon" aria-hidden="true">dark_mode</span>
+                      Dark
+                    </span>
+                    <span className="theme-card-compact-desc">Low light</span>
+                  </span>
+                </label>
+
+                <label className={`theme-card-compact ${theme === 'auto' ? 'is-selected' : ''}`}>
+                  <input
+                    type="radio"
+                    name="theme"
+                    value="auto"
+                    checked={theme === 'auto'}
+                    onChange={() => handleThemeChange('auto')}
+                    className="theme-radio"
+                  />
+                  <span className="theme-card-compact-info">
+                    <span className="theme-card-compact-name">
+                      <span className="material-symbols-outlined theme-card-icon" aria-hidden="true">desktop_windows</span>
+                      System
+                    </span>
+                    <span className="theme-card-compact-desc">Auto match</span>
+                  </span>
+                </label>
+              </div>
+
+              <div className="accent-chip-row">
+                <span className="accent-chip-label">Accent Color</span>
+                <div className="accent-chips" role="radiogroup" aria-label="Accent color presets">
+                  {THEME_ACCENT_PRESETS.map((preset) => {
+                    const isChecked = accentColor.toLowerCase() === preset.color.toLowerCase();
+                    return (
+                      <button
+                        type="button"
+                        key={preset.id}
+                        className={`accent-chip ${isChecked ? 'is-selected' : ''}`}
+                        style={{ ['--swatch-color' as string]: preset.color }}
+                        onClick={() => handleAccentChange(preset.color)}
+                        aria-label={`${preset.label} — ${preset.description}`}
+                        aria-pressed={isChecked}
+                        title={`${preset.label} — ${preset.description}`}
+                      />
+                    );
+                  })}
                 </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Academic Setup — half width */}
+          {profile?.accountType !== 'professor' ? (
+            <form className="settings-card" onSubmit={handleAcademicTermSubmit}>
+              <div className="settings-card-header">
+                <h4 className="settings-card-header-title">Academic Setup</h4>
               </div>
 
               <div className="settings-card-body">
-                <div className="form-group">
-                  <label htmlFor="newUsername">New Username</label>
-                  <input
-                    id="newUsername"
-                    name="newUsername"
-                    type="text"
-                    className="settings-input"
-                    value={formData.newUsername}
-                    onChange={handleChange}
-                    autoComplete="off"
-                    placeholder="Enter new username"
-                  />
+                {academicTermStatus && (
+                  <p className={`settings-status ${academicTermStatus.type === 'error' ? 'settings-error' : 'settings-success'}`} role="alert">
+                    {academicTermStatus.message}
+                  </p>
+                )}
+                <div className="settings-card-body-grid">
+                  <div className="form-group">
+                    <label htmlFor="academicTermSchoolYear" className="settings-field-label">School Year</label>
+                    <input
+                      id="academicTermSchoolYear"
+                      name="schoolYear"
+                      type="text"
+                      className="settings-input"
+                      placeholder="YYYY-YYYY"
+                      pattern="\d{4}-\d{4}"
+                      value={academicTermDraft.schoolYear}
+                      onChange={(event) => setAcademicTermDraft((prev) => ({ ...prev, schoolYear: event.target.value }))}
+                      disabled={academicTermLoading}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="academicTermSemester" className="settings-field-label">Semester</label>
+                    <select
+                      id="academicTermSemester"
+                      name="semester"
+                      className="settings-input"
+                      value={academicTermDraft.semester}
+                      onChange={(event) => setAcademicTermDraft((prev) => ({ ...prev, semester: event.target.value as AcademicSemester }))}
+                      disabled={academicTermLoading}
+                    >
+                      <option value="1st">1st Semester</option>
+                      <option value="2nd">2nd Semester</option>
+                      <option value="Summer">Summer</option>
+                    </select>
+                  </div>
                 </div>
-              </div>
-            </section>
-
-            <section className="settings-section">
-              <div className="settings-section-header">
-                <div>
-                  <span className="settings-section-kicker">Security</span>
-                  <h3 className="settings-section-title">Password</h3>
-                  <p className="settings-section-desc">Set a new password after confirming the current one.</p>
-                </div>
+                <p className="settings-card-hint">Default term for new student enrollments.</p>
               </div>
 
-              <div className="settings-card-body settings-two-col">
+              <div className="settings-card-footer">
+                <span className="settings-card-footer-status">
+                  {academicTermDirty ? 'Review and save changes' : 'No pending changes'}
+                </span>
+                <button
+                  type="submit"
+                  className="settings-card-save-btn"
+                  disabled={academicTermLoading || academicTermSaving || !academicTermDirty}
+                >
+                  {academicTermSaving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </form>
+          ) : null}
+
+          {/* Account Details — half width */}
+          <form className="settings-card" onSubmit={handleSubmit}>
+            <div className="settings-card-header">
+              <h4 className="settings-card-header-title">Account Details</h4>
+            </div>
+
+            <div className="settings-card-body">
+              <div className="form-group">
+                <label htmlFor="newUsername" className="settings-field-label">New Username</label>
+                <input
+                  id="newUsername"
+                  name="newUsername"
+                  type="text"
+                  className="settings-input"
+                  value={formData.newUsername}
+                  onChange={handleChange}
+                  autoComplete="off"
+                  placeholder="Enter new username"
+                />
+              </div>
+              <p className="settings-card-hint">Update your login identifier.</p>
+            </div>
+
+            <div className="settings-card-footer">
+              <span className="settings-card-footer-status">
+                {formData.newUsername.trim() ? 'Review and save changes' : 'No pending changes'}
+              </span>
+              <button
+                type="submit"
+                className="settings-card-save-btn"
+                disabled={saving || !isDirty}
+              >
+                Save
+              </button>
+            </div>
+          </form>
+
+          {/* Security — half width */}
+          <form className="settings-card" onSubmit={handleSubmit}>
+            <div className="settings-card-header">
+              <h4 className="settings-card-header-title">Security</h4>
+            </div>
+
+            <div className="settings-card-body">
+              <div className="settings-card-body-grid">
                 <div className="form-group">
-                  <label htmlFor="currentPassword">Current Password</label>
+                  <label htmlFor="currentPassword" className="settings-field-label">Current Password</label>
                   <input
                     id="currentPassword"
                     name="currentPassword"
@@ -463,13 +477,12 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
                     className="settings-input"
                     value={formData.currentPassword}
                     onChange={handleChange}
-                    placeholder="Confirm current password"
+                    placeholder="••••••••"
                     autoComplete="current-password"
                   />
                 </div>
-
                 <div className="form-group">
-                  <label htmlFor="newPassword">New Password</label>
+                  <label htmlFor="newPassword" className="settings-field-label">New Password</label>
                   <input
                     id="newPassword"
                     name="newPassword"
@@ -477,30 +490,42 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
                     className="settings-input"
                     value={formData.newPassword}
                     onChange={handleChange}
-                    placeholder="Minimum 6 characters"
+                    placeholder="••••••••"
                     autoComplete="new-password"
                     minLength={6}
                   />
                 </div>
               </div>
-            </section>
+            </div>
 
-            <section className="settings-section">
-              <div className="settings-section-header">
-                <div>
-                  <span className="settings-section-kicker">Access Control</span>
-                  <h3 className="settings-section-title">Login Verification</h3>
-                  <p className="settings-section-desc">Require a one-time email code during sign-in for this account.</p>
-                </div>
-              </div>
+            <div className="settings-card-footer">
+              <span className="settings-card-footer-status">
+                {formData.newPassword.length >= 6 ? 'Review and save changes' : 'No pending changes'}
+              </span>
+              <button
+                type="submit"
+                className="settings-card-save-btn"
+                disabled={saving || !isDirty}
+              >
+                Update Password
+              </button>
+            </div>
+          </form>
 
+          {/* Access & Session — half width */}
+          <form className="settings-card" onSubmit={handleSubmit}>
+            <div className="settings-card-header">
+              <h4 className="settings-card-header-title">Access &amp; Session</h4>
+            </div>
+
+            <div className="settings-card-body">
               <label
                 className={`settings-toggle-card ${!canEnableLoginEmailVerification && !formData.loginEmailVerificationEnabled ? 'is-disabled' : ''}`}
                 htmlFor="loginEmailVerificationEnabled"
               >
                 <div className="settings-toggle-copy">
                   <span className="settings-toggle-title">Email Code on Login</span>
-                  <span className="settings-toggle-description">{loginEmailVerificationHint}</span>
+                  <span className="settings-toggle-description">Require verification code sent to email</span>
                 </div>
                 <span className="settings-toggle-control">
                   <input
@@ -515,44 +540,20 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
                   <span className="settings-toggle-slider" aria-hidden="true" />
                 </span>
               </label>
-            </section>
 
-            <section className="settings-section">
-              <div className="settings-section-header">
-                <div>
-                  <span className="settings-section-kicker">Session</span>
-                  <h3 className="settings-section-title">Sign Out</h3>
-                  <p className="settings-section-desc">End the current admin session on this device.</p>
-                </div>
+              <div className="settings-signout-section">
+                <button
+                  type="button"
+                  className="settings-signout-btn"
+                  onClick={handleSignOut}
+                >
+                  <span className="material-symbols-outlined" aria-hidden="true">logout</span>
+                  Sign Out
+                </button>
               </div>
-
-              <button
-                type="button"
-                className="settings-signout-btn"
-                onClick={handleSignOut}
-              >
-                <LogOut size={18} />
-                Sign Out
-              </button>
-            </section>
-          </div>
-
-          <div className="settings-save-panel">
-            <div>
-              <span className="settings-save-title">Security Changes</span>
-              <span className="settings-save-copy">
-                {isDirty ? 'Review and save your pending account changes.' : 'No pending security changes.'}
-              </span>
             </div>
-            <button
-              type="submit"
-              className="settings-submit"
-              disabled={saving || !isDirty}
-            >
-              {saving ? 'Saving changes...' : 'Save Changes'}
-            </button>
-          </div>
-        </form>
+          </form>
+        </div>
       </div>
     </div>
   );

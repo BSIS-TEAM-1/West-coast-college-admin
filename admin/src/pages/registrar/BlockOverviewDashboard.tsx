@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Blocks, Users, CheckCircle, XCircle, AlertTriangle, ShieldAlert, RefreshCw, ListChecks } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import type { BlockGroup, BlockSection } from './registrarBlockTypes'
-import './BlockManagement.css'
+import '../BlockManagement.css'
 
 type BlockOverviewDashboardProps = {
   onManageAssignments: () => void

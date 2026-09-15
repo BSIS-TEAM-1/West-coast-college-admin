@@ -1,0 +1,50 @@
+@startuml
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Segoe UI"
+skinparam rectangle {
+  BackgroundColor #F3F4F6
+  BorderColor #6B7280
+  FontColor #1F2937
+}
+
+title Registrar Navigation Map
+
+rectangle "**Registrar Portal**" as Portal #DBEAFE
+
+package "People" #FEF3C7 {
+  rectangle "Applicants" as Applicants
+  rectangle "Student Management" as Students
+}
+
+package "Academic" #D1FAE5 {
+  rectangle "Block Overview" as BlockOverview
+  rectangle "Curriculums" as Curriculum
+  rectangle "Subject Catalog" as Subjects
+  rectangle "Professor Loads" as ProfLoads
+  rectangle "Grade Submissions" as Grades
+  rectangle "COR Generation" as COR
+}
+
+package "Records" #EDE9FE {
+  rectangle "Documents" as Docs
+  rectangle "Announcements" as Announcements
+  rectangle "Reports" as Reports
+}
+
+package "Account" #FCE7F3 {
+  rectangle "Profile" as Profile
+  rectangle "Settings" as Settings
+}
+
+Portal --> People
+Portal --> Academic
+Portal --> Records
+Portal --> Account
+
+Applicants --> Students : approve & enroll
+BlockOverview --> Subjects : assign subjects
+BlockOverview --> Curriculum : align with curriculum
+ProfLoads --> Grades : submit grades
+Grades --> COR : published grades visible
+Students --> Reports : history & data
+@enduml

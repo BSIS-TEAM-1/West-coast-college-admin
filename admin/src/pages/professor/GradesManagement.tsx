@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Download, Search } from 'lucide-react'
+import { Download, Search, Edit3, Send, FileText, ChevronLeft, ChevronRight, X, Info, AlertCircle } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import { fetchWithAutoReconnect, isAbortRequestError, isNetworkRequestError } from '../../lib/network'
 import type { ProfessorAssignedCourse, ProfessorRosterClassOption, ProfessorRosterStudent } from './professorTypes'
 import { buildReconnectMessage } from './professorUtils'
+import GradeChangeRequestModal from '../../components/GradeChangeRequestModal'
+import './GradesManagement.css'
 
 interface GradesManagementProps {
   courses: ProfessorAssignedCourse[]
@@ -26,12 +28,14 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
   const [currentPage, setCurrentPage] = useState(1)
   const [savingStudentIds, setSavingStudentIds] = useState<string[]>([])
   const [gradeDrafts, setGradeDrafts] = useState<Record<string, string>>({})
+  const [gradeMarkDrafts, setGradeMarkDrafts] = useState<Record<string, string>>({})
   const [remarkDrafts, setRemarkDrafts] = useState<Record<string, string>>({})
   const [message, setMessage] = useState('')
   const [messageTone, setMessageTone] = useState<'info' | 'error'>('info')
   const [pendingFocusStudentId, setPendingFocusStudentId] = useState('')
   const [submittingGrades, setSubmittingGrades] = useState(false)
   const [gradeSubmissionStatus, setGradeSubmissionStatus] = useState<string>('Draft')
+  const [changeRequestStudent, setChangeRequestStudent] = useState<ProfessorRosterStudent | null>(null)
   const gradeInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   const formatCourseLabel = (value: string | number) => {
@@ -127,13 +131,14 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
   const classOptions = useMemo<ProfessorRosterClassOption[]>(() => {
     return courses.flatMap((course) => {
       return course.blocks
-        .filter((block) => Boolean(block.sectionId))
+        .filter((block) => Boolean(block.sectionId) || block.needsBlockAssignment)
         .flatMap((block) => {
+          const sectionId = block.sectionId || `unassigned-${block.sectionCode}-${block.semester}-${block.schoolYear}`
           return block.subjects.map((subject) => ({
-            key: `${course.courseCode}|${block.sectionId}|${subject.subjectId}`,
+            key: `${course.courseCode}|${sectionId}|${subject.subjectId}`,
             courseCode: course.courseCode,
             blockCode: formatBlockCode(course.courseCode, block.sectionCode),
-            sectionId: block.sectionId as string,
+            sectionId: block.sectionId || sectionId,
             sectionCode: block.sectionCode,
             semester: block.semester,
             schoolYear: block.schoolYear,
@@ -142,7 +147,8 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
             subjectCode: subject.code,
             subjectTitle: subject.title,
             schedule: subject.schedule || 'TBA',
-            room: subject.room || 'TBA'
+            room: subject.room || 'TBA',
+            needsBlockAssignment: block.needsBlockAssignment || false
           }))
         })
     })
@@ -239,6 +245,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
             course: raw?.course || selectedClass.courseCode,
             corStatus: raw?.corStatus || 'Pending',
             currentGrade: raw?.currentGrade ?? '',
+            currentGradeMark: raw?.currentGradeMark ?? null,
             remarks: raw?.remarks || '',
             classBlockCode: selectedClass.blockCode,
             classSectionCode: selectedClass.sectionCode,
@@ -247,13 +254,22 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
             classSemester: selectedClass.semester,
             classSchoolYear: selectedClass.schoolYear,
             subjectStatus: raw?.subjectStatus ? String(raw.subjectStatus) : 'Enrolled',
-            gradeUpdatedAt: raw?.gradeUpdatedAt ? String(raw.gradeUpdatedAt) : undefined
+            gradeUpdatedAt: raw?.gradeUpdatedAt ? String(raw.gradeUpdatedAt) : undefined,
+            gradeSubmissionStatus: raw?.gradeSubmissionStatus ? String(raw.gradeSubmissionStatus) : 'Draft'
           } as ProfessorRosterStudent
         })
 
         if (!cancelled) {
           setStudents(normalized)
           setCurrentPage(1)
+          // Set the grade submission status from the first student's per-subject status.
+          // All students in the same subject share the same submission status.
+          const firstStatus = normalized[0]?.gradeSubmissionStatus
+          if (firstStatus) {
+            setGradeSubmissionStatus(firstStatus)
+          } else {
+            setGradeSubmissionStatus('Draft')
+          }
         }
       } catch (loadError) {
         if (isAbortRequestError(loadError)) {
@@ -390,11 +406,17 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
     .map((student) => Number(student.currentGrade))
     .filter((value) => Number.isFinite(value))
 
-  const gradedCount = gradeValues.length
+  const gradedCount = students.filter(s =>
+    (s.currentGrade !== undefined && s.currentGrade !== null && s.currentGrade !== '') ||
+    s.currentGradeMark
+  ).length
   const pendingCount = Math.max(students.length - gradedCount, 0)
   const averageGrade = gradeValues.length > 0
     ? (gradeValues.reduce((sum, value) => sum + value, 0) / gradeValues.length).toFixed(2)
     : 'N/A'
+
+  const canEditGrades = gradeSubmissionStatus === 'Draft' || gradeSubmissionStatus === 'Returned'
+  const isPublished = gradeSubmissionStatus === 'Published'
 
   const formatGradeUpdatedAt = (value?: string) => {
     if (!value) return 'Not graded'
@@ -405,22 +427,29 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
   const hasDraftChanges = (student: ProfessorRosterStudent) => {
     const gradeDraft = String(gradeDrafts[student._id] ?? '')
     const currentGrade = student.currentGrade === undefined || student.currentGrade === null ? '' : String(student.currentGrade)
+    const gradeMarkDraft = String(gradeMarkDrafts[student._id] ?? '')
+    const currentGradeMark = String(student.currentGradeMark ?? '')
     const remarkDraft = String(remarkDrafts[student._id] ?? '')
     const currentRemark = String(student.remarks || '')
-    return gradeDraft !== currentGrade || remarkDraft !== currentRemark
+    return gradeDraft !== currentGrade || gradeMarkDraft !== currentGradeMark || remarkDraft !== currentRemark
   }
 
   const saveGrade = async (student: ProfessorRosterStudent) => {
     if (!selectedClass) return
 
     const rawGrade = String(gradeDrafts[student._id] ?? '').trim()
+    const rawGradeMark = String(gradeMarkDrafts[student._id] ?? '').trim()
     const nextGrade = rawGrade === '' ? null : Number(rawGrade)
 
     if (nextGrade !== null && (!Number.isFinite(nextGrade) || nextGrade < 1 || nextGrade > 5)) {
       setMessageTone('error')
-      setMessage(`Invalid grade for ${getName(student)}. Use 1.0 to 5.0, or leave it blank.`)
+      setMessage(`Invalid grade for ${getName(student)}. Use 1.0 to 5.0, a grade mark, or leave both blank.`)
       return
     }
+
+    const nextGradeMark = rawGradeMark || null
+    // If a grade mark is selected, clear the numerical grade
+    const finalGrade = nextGradeMark ? null : nextGrade
 
     try {
       setSavingStudentIds((current) => current.includes(student._id) ? current : [...current, student._id])
@@ -434,7 +463,8 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
         semester: selectedClass.semester,
         schoolYear: selectedClass.schoolYear
       }
-      body.grade = nextGrade
+      body.grade = finalGrade
+      if (nextGradeMark) body.gradeMark = nextGradeMark
 
       const response = await fetchWithAutoReconnect(
         `${API_URL}/api/professor/sections/${selectedClass.sectionId}/subjects/${selectedClass.subjectId}/students/${student._id}/grade`,
@@ -461,6 +491,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
           enrollmentId: updated?.enrollmentId ? String(updated.enrollmentId) : entry.enrollmentId,
           subjectEntryId: updated?.subjectEntryId ? String(updated.subjectEntryId) : entry.subjectEntryId,
           currentGrade: updated?.currentGrade ?? '',
+          currentGradeMark: updated?.currentGradeMark ?? null,
           remarks: updated?.remarks || '',
           subjectStatus: updated?.subjectStatus || entry.subjectStatus,
           gradeUpdatedAt: updated?.gradeUpdatedAt ? String(updated.gradeUpdatedAt) : entry.gradeUpdatedAt
@@ -469,6 +500,10 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
       setGradeDrafts((current) => ({
         ...current,
         [student._id]: updated?.currentGrade === undefined || updated?.currentGrade === null ? '' : String(updated.currentGrade)
+      }))
+      setGradeMarkDrafts((current) => ({
+        ...current,
+        [student._id]: updated?.currentGradeMark ?? ''
       }))
       setRemarkDrafts((current) => ({
         ...current,
@@ -503,13 +538,18 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
       setMessage('No enrollment found for this class.')
       return
     }
-    const ungraded = students.filter(s => s.subjectStatus !== 'Dropped' && !s.currentGrade && !gradeDrafts[s._id])
+    const ungraded = students.filter(s =>
+      s.subjectStatus !== 'Dropped'
+      && !s.currentGrade && !gradeDrafts[s._id]
+      && !s.currentGradeMark && !gradeMarkDrafts[s._id]
+    )
     if (ungraded.length > 0) {
       setMessageTone('error')
-      setMessage(`${ungraded.length} student(s) still need grades before submission.`)
+      setMessage(`${ungraded.length} student(s) still need a grade or grade mark (INC, DRP, W, FA, NG). Enter grades before submitting.`)
       return
     }
-    if (!confirm('Submit all grades for this class for registrar review? You will not be able to edit grades after submission.')) return
+    const confirmMessage = 'Submit all grades for this class for registrar review? You will not be able to edit grades after submission.'
+    if (!confirm(confirmMessage)) return
 
     setSubmittingGrades(true)
     try {
@@ -594,33 +634,75 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
     URL.revokeObjectURL(url)
   }
 
+  const statusBadgeClass = (status: string) => {
+    const map: Record<string, string> = {
+      Draft: 'gm-status-badge--draft',
+      Submitted: 'gm-status-badge--submitted',
+      Verified: 'gm-status-badge--verified',
+      Published: 'gm-status-badge--published',
+      Returned: 'gm-status-badge--returned',
+      Rejected: 'gm-status-badge--returned'
+    }
+    return `gm-status-badge ${map[status] || 'gm-status-badge--draft'}`
+  }
+
+  const alertConfig = (status: string): { cls: string; icon: typeof Info; msg: string } | null => {
+    const gradedInfo = students.length > 0
+      ? `${gradedCount} of ${students.length} students graded${gradeValues.length > 0 ? ` (avg ${averageGrade})` : ''}.`
+      : ''
+    switch (status) {
+      case 'Submitted':
+        return { cls: 'gm-alert--warning', icon: Info, msg: `Grades submitted for registrar review. ${gradedInfo} Editing is locked until verified or returned.` }
+      case 'Verified':
+        return { cls: 'gm-alert--info', icon: Info, msg: `Grades verified by registrar — awaiting publication. ${gradedInfo} Editing is locked.` }
+      case 'Published':
+        return { cls: 'gm-alert--success', icon: Info, msg: `Grades published and visible to students. ${gradedInfo} Use "Request Change" to submit corrections.` }
+      case 'Returned':
+        return { cls: 'gm-alert--error', icon: AlertCircle, msg: 'Grades were returned by the registrar. Please review and resubmit.' }
+      default:
+        return null
+    }
+  }
+
   if (loading) {
     return (
-      <div className="professor-section">
-        <h2 className="professor-section-title">Grades</h2>
-        <p className="professor-section-desc">Manage subject grades based on enrolled student subjects.</p>
-        <p>Loading your assigned classes...</p>
+      <div className="gm-page">
+        <div className="gm-header">
+          <div className="gm-header-text">
+            <h2>Grades</h2>
+            <p>Manage subject grades based on enrolled student subjects.</p>
+          </div>
+        </div>
+        <div className="gm-loading">Loading your assigned classes...</div>
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="professor-section">
-        <h2 className="professor-section-title">Grades</h2>
-        <p className="professor-section-desc">Manage subject grades based on enrolled student subjects.</p>
-        <p className="professor-data-error">{error}</p>
-        <button className="professor-btn professor-btn-secondary" onClick={() => void onRefresh()}>Retry</button>
+      <div className="gm-page">
+        <div className="gm-header">
+          <div className="gm-header-text">
+            <h2>Grades</h2>
+            <p>Manage subject grades based on enrolled student subjects.</p>
+          </div>
+        </div>
+        <div className="gm-error">{error}</div>
+        <button className="gm-retry-btn" onClick={() => void onRefresh()}>Retry</button>
       </div>
     )
   }
 
   if (classOptions.length === 0) {
     return (
-      <div className="professor-section">
-        <h2 className="professor-section-title">Grades</h2>
-        <p className="professor-section-desc">Manage subject grades based on enrolled student subjects.</p>
-        <div className="placeholder-card">
+      <div className="gm-page">
+        <div className="gm-header">
+          <div className="gm-header-text">
+            <h2>Grades</h2>
+            <p>Manage subject grades based on enrolled student subjects.</p>
+          </div>
+        </div>
+        <div className="gm-empty">
           <h3>No assigned class found</h3>
           <p>No classes are currently assigned to your account.</p>
         </div>
@@ -628,316 +710,415 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
     )
   }
 
+  const statusAlert = selectedClass ? alertConfig(gradeSubmissionStatus) : null
+  const needsBlockWarning = selectedClass?.needsBlockAssignment
+
   return (
-    <div className="professor-section">
-      <h2 className="professor-section-title">Grades</h2>
-      <p className="professor-section-desc">Manage subject grades directly from each student&apos;s enrolled subject entry.</p>
-
-      <div className="professor-roster-controls">
-        <div className="professor-roster-class-select">
-          <label htmlFor="professor-grade-class-select">Class / Subject</label>
-          <select
-            id="professor-grade-class-select"
-            value={selectedClassKey}
-            onChange={(event) => {
-              setSelectedClassKey(event.target.value)
-              setSearchQuery('')
-              setSortBy('name-asc')
-              setCurrentPage(1)
-              setMessage('')
-            }}
-          >
-            {classOptions.map((option) => (
-              <option key={option.key} value={option.key}>
-                {option.blockCode} • {option.subjectCode} - {option.subjectTitle}
-              </option>
-            ))}
-          </select>
+    <div className="gm-page">
+      {/* Header */}
+      <div className="gm-header">
+        <div className="gm-header-text">
+          <h2>Grades</h2>
+          <p>Manage subject grades directly from each student&apos;s enrolled subject entry.</p>
         </div>
-
-        <div className="professor-tool-actions">
-          <button
-            type="button"
-            className="professor-btn"
-            onClick={exportGrades}
-            disabled={students.length === 0}
-          >
-            <Download size={14} />
-            Export Grades
-          </button>
-          <button
-            type="button"
-            className="professor-btn"
-            onClick={async () => {
-              if (!selectedClass) return
-              try {
-                const token = await getStoredToken()
-                if (!token) throw new Error('You are not logged in.')
-                const params = new URLSearchParams()
-                if (selectedClass.semester) params.set('semester', selectedClass.semester)
-                if (selectedClass.schoolYear) params.set('schoolYear', selectedClass.schoolYear)
-                const response = await fetch(`${API_URL}/api/registrar/sections/${selectedClass.sectionId}/subjects/${selectedClass.subjectId}/grade-sheet?${params.toString()}`, {
-                  headers: { Authorization: `Bearer ${token}` }
-                })
-                if (!response.ok) {
-                  const data = await response.json().catch(() => ({}))
-                  throw new Error(data?.error || 'Failed to generate grade sheet')
+        <div className="gm-header-controls">
+          <div className="gm-class-select">
+            <label htmlFor="professor-grade-class-select">Class / Subject</label>
+            <select
+              id="professor-grade-class-select"
+              value={selectedClassKey}
+              onChange={(event) => {
+                setSelectedClassKey(event.target.value)
+                setSearchQuery('')
+                setSortBy('name-asc')
+                setCurrentPage(1)
+                setMessage('')
+              }}
+            >
+              {classOptions.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.blockCode} • {option.subjectCode} - {option.subjectTitle}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="gm-tool-actions">
+            <button type="button" className="gm-btn" onClick={exportGrades} disabled={students.length === 0}>
+              <Download size={16} /> Export Grades
+            </button>
+            <button
+              type="button"
+              className="gm-btn"
+              onClick={async () => {
+                if (!selectedClass) return
+                try {
+                  const token = await getStoredToken()
+                  if (!token) throw new Error('You are not logged in.')
+                  const params = new URLSearchParams()
+                  if (selectedClass.semester) params.set('semester', selectedClass.semester)
+                  if (selectedClass.schoolYear) params.set('schoolYear', selectedClass.schoolYear)
+                  const response = await fetch(`${API_URL}/api/registrar/sections/${selectedClass.sectionId}/subjects/${selectedClass.subjectId}/grade-sheet?${params.toString()}`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                  })
+                  if (!response.ok) {
+                    const data = await response.json().catch(() => ({}))
+                    throw new Error(data?.error || 'Failed to generate grade sheet')
+                  }
+                  const blob = await response.blob()
+                  const url = window.URL.createObjectURL(blob)
+                  window.open(url, '_blank', 'noopener')
+                  window.setTimeout(() => window.URL.revokeObjectURL(url), 30000)
+                } catch (e: any) {
+                  setMessageTone('error')
+                  setMessage(e.message || 'Failed to generate grade sheet')
                 }
-                const blob = await response.blob()
-                const url = window.URL.createObjectURL(blob)
-                window.open(url, '_blank', 'noopener')
-                window.setTimeout(() => window.URL.revokeObjectURL(url), 30000)
-              } catch (e: any) {
-                setMessageTone('error')
-                setMessage(e.message || 'Failed to generate grade sheet')
-              }
-            }}
-            disabled={students.length === 0}
-          >
-            <Download size={14} />
-            Grade Sheet (PDF)
-          </button>
+              }}
+              disabled={students.length === 0}
+            >
+              <FileText size={16} /> Grade Sheet
+            </button>
+          </div>
         </div>
       </div>
 
-      {message ? (
-        <div className={messageTone === 'error' ? 'professor-data-error' : 'professor-inline-note'}>
+      {/* Message banner */}
+      {message && (
+        <div className={`gm-alert ${messageTone === 'error' ? 'gm-alert--error' : 'gm-alert--info'}`}>
+          {messageTone === 'error' ? <AlertCircle size={18} /> : <Info size={18} />}
           {message}
+          <button className="gm-alert-dismiss" onClick={() => setMessage('')}><X size={14} /></button>
         </div>
-      ) : null}
+      )}
+
+      {/* Status alert */}
+      {statusAlert && (
+        <div className={`gm-alert ${statusAlert.cls}`}>
+          <statusAlert.icon size={18} />
+          {statusAlert.msg}
+        </div>
+      )}
+
+      {/* Block assignment warning */}
+      {needsBlockWarning && (
+        <div className="gm-alert gm-alert--warning">
+          <AlertCircle size={18} />
+          Students in this class are not assigned to a block section. Please notify the registrar to assign them to a block. Grades can still be entered below.
+        </div>
+      )}
 
       {selectedClass && (
         <>
-          <div className="professor-class-overview">
-            <div className="professor-overview-row"><span>Block</span><strong>{selectedClass.blockCode}</strong></div>
-            <div className="professor-overview-row"><span>Subject</span><strong>{selectedClass.subjectCode} - {selectedClass.subjectTitle}</strong></div>
-            <div className="professor-overview-row"><span>Schedule</span><strong>{selectedClass.schedule || 'TBA'}</strong></div>
-            <div className="professor-overview-row"><span>Room</span><strong>{selectedClass.room || 'TBA'}</strong></div>
-            <div className="professor-overview-row"><span>Semester / School Year</span><strong>{selectedClass.semester} / {selectedClass.schoolYear}</strong></div>
-            <div className="professor-overview-row"><span>Year Level</span><strong>{selectedClass.yearLevel ?? 'N/A'}</strong></div>
-          </div>
-
-          <div className="professor-summary-grid">
-            <div className="professor-summary-card">
-              <span>Enrolled Students</span>
-              <strong>{students.length}</strong>
+          {/* Bento Grid — Subject Info */}
+          <div className="gm-bento">
+            <div className="gm-bento-cell">
+              <span className="gm-bento-label">Block</span>
+              <span className="gm-bento-value">{selectedClass.blockCode}</span>
             </div>
-            <div className="professor-summary-card">
-              <span>Graded</span>
-              <strong>{gradedCount}</strong>
+            <div className="gm-bento-cell gm-bento-cell--wide">
+              <span className="gm-bento-label">Subject</span>
+              <span className="gm-bento-value" title={`${selectedClass.subjectCode} - ${selectedClass.subjectTitle}`}>
+                {selectedClass.subjectCode} - {selectedClass.subjectTitle}
+              </span>
             </div>
-            <div className="professor-summary-card">
-              <span>Pending Grade</span>
-              <strong>{pendingCount}</strong>
+            <div className="gm-bento-cell">
+              <span className="gm-bento-label">Schedule</span>
+              <span className="gm-bento-value">{selectedClass.schedule || 'TBA'}</span>
             </div>
-            <div className="professor-summary-card">
-              <span>Average Grade</span>
-              <strong>{averageGrade}</strong>
+            <div className="gm-bento-cell">
+              <span className="gm-bento-label">Room</span>
+              <span className="gm-bento-value">{selectedClass.room || 'TBA'}</span>
             </div>
-            <div className="professor-summary-card">
-              <span>Submission Status</span>
-              <strong style={{ fontSize: '0.85rem' }}>{gradeSubmissionStatus}</strong>
+            <div className="gm-bento-cell">
+              <span className="gm-bento-label">Term</span>
+              <span className="gm-bento-value">{selectedClass.semester} / {selectedClass.schoolYear}</span>
+            </div>
+            <div className="gm-bento-cell">
+              <span className="gm-bento-label">Year Lvl</span>
+              <span className="gm-bento-value">{selectedClass.yearLevel ?? 'N/A'}</span>
             </div>
           </div>
 
-          {gradeSubmissionStatus === 'Draft' && students.length > 0 && (
-            <div style={{ marginTop: '0.75rem' }}>
-              <button
-                type="button"
-                className="professor-btn-xs"
-                style={{ background: '#3730a3', color: '#fff', padding: '0.5rem 1.25rem' }}
-                onClick={() => void submitGradesForReview()}
-                disabled={submittingGrades || pendingCount > 0}
-              >
-                {submittingGrades ? 'Submitting...' : 'Submit Grades for Review'}
-              </button>
-              {pendingCount > 0 && (
-                <span style={{ marginLeft: '0.75rem', fontSize: '0.8125rem', color: '#b45309' }}>
-                  All students must be graded before submission.
-                </span>
+          {/* Metrics Cards */}
+          <div className="gm-metrics">
+            <div className="gm-metric-card">
+              <span className="gm-metric-label">Enrolled</span>
+              <span className="gm-metric-value">{students.length}</span>
+            </div>
+            <div className="gm-metric-card">
+              <span className="gm-metric-label">Graded</span>
+              <span className="gm-metric-value">{gradedCount}</span>
+            </div>
+            <div className="gm-metric-card">
+              <span className="gm-metric-label">Pending</span>
+              <span className="gm-metric-value">{pendingCount}</span>
+            </div>
+            <div className="gm-metric-card">
+              <span className="gm-metric-label">Avg Grade</span>
+              <span className="gm-metric-value gm-metric-value--primary">{averageGrade}</span>
+            </div>
+            <div className="gm-metric-card gm-metric-card--span2">
+              <span className="gm-metric-label">Status</span>
+              <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                <span className={statusBadgeClass(gradeSubmissionStatus)}>{gradeSubmissionStatus}</span>
+                {(gradeSubmissionStatus === 'Verified' || gradeSubmissionStatus === 'Published' || gradeSubmissionStatus === 'Submitted') && students.length > 0 && (
+                  <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted, #6b7280)' }}>
+                    {gradedCount} of {students.length} students graded
+                    {gradeValues.length > 0 && ` · Avg ${averageGrade}`}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Action Bar */}
+          <div className="gm-action-bar">
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
+              {(gradeSubmissionStatus === 'Draft' || gradeSubmissionStatus === 'Returned') && students.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    className="gm-submit-btn"
+                    onClick={() => void submitGradesForReview()}
+                    disabled={submittingGrades}
+                  >
+                    <Send size={18} />
+                    {submittingGrades ? 'Submitting...' : 'Submit Grades for Review'}
+                  </button>
+                  {pendingCount > 0 && (
+                    <span className="gm-submit-hint gm-submit-hint--warning">
+                      {pendingCount} student(s) still need a grade or grade mark (INC, DRP, W, FA, NG). All students must have a grade before submitting.
+                    </span>
+                  )}
+                </>
               )}
             </div>
-          )}
-          {gradeSubmissionStatus === 'Submitted' && (
-            <div style={{ marginTop: '0.75rem', padding: '0.625rem 0.875rem', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '0.375rem', fontSize: '0.8125rem', color: '#b45309' }}>
-              Grades have been submitted for registrar review. Editing is locked until approved or rejected.
+            <div className="gm-search-sort">
+              <div className="gm-search">
+                <Search size={18} />
+                <input
+                  type="text"
+                  placeholder="Search name, ID, course..."
+                  value={searchQuery}
+                  onChange={(event) => {
+                    setSearchQuery(event.target.value)
+                    setCurrentPage(1)
+                  }}
+                />
+              </div>
+              <div className="gm-sort">
+                <label>Sort By</label>
+                <select
+                  value={sortBy}
+                  onChange={(event) => {
+                    setSortBy(event.target.value as GradeSortBy)
+                    setCurrentPage(1)
+                  }}
+                >
+                  <option value="name-asc">Name A-Z</option>
+                  <option value="name-desc">Name Z-A</option>
+                  <option value="grade-asc">Lowest grade</option>
+                  <option value="grade-desc">Highest grade</option>
+                </select>
+              </div>
             </div>
-          )}
-          {gradeSubmissionStatus === 'Approved' && (
-            <div style={{ marginTop: '0.75rem', padding: '0.625rem 0.875rem', background: '#dcfce7', border: '1px solid #bbf7d0', borderRadius: '0.375rem', fontSize: '0.8125rem', color: '#15803d' }}>
-              Grades have been approved and are final.
+          </div>
+
+          {/* Data Table */}
+          <div className="gm-table-container">
+            <div className="gm-table-scroll">
+              <table className="gm-table">
+                <thead>
+                  <tr>
+                    <th>Student ID</th>
+                    <th>Full Name</th>
+                    <th>Program / Course</th>
+                    <th>Yr Lvl</th>
+                    <th>Status</th>
+                    <th className="gm-grade-header">
+                      Grade
+                      <span className="gm-grade-info-icon" title="Grade Scale:
+1.00 - 3.00 = Passed
+5.00 = Failed
+INC = Incomplete
+DRP = Dropped
+W = Withdrawn
+FA = Failure due to Absences
+NG = No Grade">
+                        <Info size={13} />
+                      </span>
+                    </th>
+                    <th>Remarks</th>
+                    <th>Updated</th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {studentsLoading ? (
+                    <tr>
+                      <td colSpan={9} className="gm-loading">Loading grades...</td>
+                    </tr>
+                  ) : studentsError ? (
+                    <tr>
+                      <td colSpan={9} className="gm-error">{studentsError}</td>
+                    </tr>
+                  ) : currentPageStudents.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="gm-empty">No students matched the current filters.</td>
+                    </tr>
+                  ) : (
+                    currentPageStudents.map((student) => {
+                      const isSaving = savingStudentIds.includes(student._id)
+                      return (
+                        <tr key={student.rosterEntryKey}>
+                          <td className="gm-student-id">{student.studentNumber}</td>
+                          <td className="gm-student-name">{getName(student)}</td>
+                          <td className="gm-muted">{getStudentCourseDisplay(student)}</td>
+                          <td className="gm-muted">{student.yearLevel ?? 'N/A'}</td>
+                          <td>
+                            <span className="gm-pill">{student.subjectStatus || student.studentStatus || 'Enrolled'}</span>
+                          </td>
+                          <td>
+                            <div className="gm-grade-cell">
+                              <input
+                                ref={(element) => {
+                                  gradeInputRefs.current[student._id] = element
+                                }}
+                                type="number"
+                                min="1"
+                                max="5"
+                                step="0.25"
+                                className="gm-grade-input"
+                                value={gradeDrafts[student._id] ?? ''}
+                                onChange={(event) => {
+                                  setGradeDrafts((current) => ({
+                                    ...current,
+                                    [student._id]: event.target.value
+                                  }))
+                                  // Clear grade mark when typing a numerical grade
+                                  if (event.target.value) {
+                                    setGradeMarkDrafts((current) => ({ ...current, [student._id]: '' }))
+                                  }
+                                }}
+                                placeholder="1.00"
+                                disabled={!canEditGrades || !!gradeMarkDrafts[student._id]}
+                              />
+                              <select
+                                className="gm-grade-mark-select"
+                                value={gradeMarkDrafts[student._id] ?? ''}
+                                onChange={(event) => {
+                                  setGradeMarkDrafts((current) => ({
+                                    ...current,
+                                    [student._id]: event.target.value
+                                  }))
+                                  // Clear numerical grade when selecting a mark
+                                  if (event.target.value) {
+                                    setGradeDrafts((current) => ({ ...current, [student._id]: '' }))
+                                  }
+                                }}
+                                disabled={!canEditGrades || !!gradeDrafts[student._id]}
+                              >
+                                <option value="">—</option>
+                                <option value="INC">INC</option>
+                                <option value="DRP">DRP</option>
+                                <option value="W">W</option>
+                                <option value="FA">FA</option>
+                                <option value="NG">NG</option>
+                              </select>
+                            </div>
+                          </td>
+                          <td>
+                            <input
+                              type="text"
+                              className="gm-remark-input"
+                              value={remarkDrafts[student._id] ?? ''}
+                              onChange={(event) => {
+                                setRemarkDrafts((current) => ({
+                                  ...current,
+                                  [student._id]: event.target.value
+                                }))
+                              }}
+                              placeholder="Optional"
+                              disabled={!canEditGrades}
+                            />
+                          </td>
+                          <td className="gm-muted gm-text-xs">{formatGradeUpdatedAt(student.gradeUpdatedAt)}</td>
+                          <td>
+                            <div className="gm-row-actions">
+                              {canEditGrades ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="gm-action-btn gm-action-btn--primary"
+                                    onClick={() => void saveGrade(student)}
+                                    disabled={isSaving || !hasDraftChanges(student)}
+                                  >
+                                    {isSaving ? 'Saving...' : 'Save'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="gm-action-btn"
+                                    onClick={() => goToNextGrade(student)}
+                                    disabled={isSaving || filteredStudents[filteredStudents.length - 1]?._id === student._id}
+                                  >
+                                    Next
+                                  </button>
+                                </>
+                              ) : isPublished && student.currentGrade !== '' && student.currentGrade !== null && student.currentGrade !== undefined ? (
+                                <button
+                                  type="button"
+                                  className="gm-action-btn gm-action-btn--warning"
+                                  onClick={() => setChangeRequestStudent(student)}
+                                >
+                                  <Edit3 size={14} /> Request Change
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                className="gm-action-btn"
+                                onClick={() => setSelectedStudent(student)}
+                              >
+                                Profile
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
             </div>
-          )}
-          {gradeSubmissionStatus === 'Rejected' && (
-            <div style={{ marginTop: '0.75rem', padding: '0.625rem 0.875rem', background: '#fee2e2', border: '1px solid #fecaca', borderRadius: '0.375rem', fontSize: '0.8125rem', color: '#b91c1c' }}>
-              Grades were rejected. Please review and resubmit.
-            </div>
-          )}
+            {/* Table Footer / Pagination */}
+            {currentPageStudents.length > 0 && (
+              <div className="gm-table-footer">
+                <span>Showing {currentPageStudents.length} of {filteredStudents.length} students</span>
+                <div className="gm-pagination">
+                  <button type="button" className="gm-pagination-btn" onClick={() => setCurrentPage((prev) => prev - 1)} disabled={!canGoPrev}>
+                    <ChevronLeft size={16} /> Prev
+                  </button>
+                  <span className="gm-pagination-info">Page {currentPage} of {totalPages}</span>
+                  <button type="button" className="gm-pagination-btn" onClick={() => setCurrentPage((prev) => prev + 1)} disabled={!canGoNext}>
+                    Next <ChevronRight size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </>
       )}
 
-      <div className="professor-roster-toolbar">
-        <div className="professor-roster-search">
-          <Search size={16} />
-          <input
-            type="text"
-            placeholder="Search name, student ID, course, or status"
-            value={searchQuery}
-            onChange={(event) => {
-              setSearchQuery(event.target.value)
-              setCurrentPage(1)
-            }}
-          />
-        </div>
-        <label>
-          <span>Sort</span>
-          <select
-            value={sortBy}
-            onChange={(event) => {
-              setSortBy(event.target.value as GradeSortBy)
-              setCurrentPage(1)
-            }}
-          >
-            <option value="name-asc">Name A-Z</option>
-            <option value="name-desc">Name Z-A</option>
-            <option value="grade-asc">Lowest grade</option>
-            <option value="grade-desc">Highest grade</option>
-          </select>
-        </label>
-      </div>
-
-      <div className="professor-table-wrap">
-        <table className="professor-table">
-          <thead>
-            <tr>
-              <th>Student ID</th>
-              <th>Full Name</th>
-              <th>Program / Course</th>
-              <th>Year Level</th>
-              <th>Status</th>
-              <th>Grade</th>
-              <th>Remarks</th>
-              <th>Updated</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {studentsLoading ? (
-              <tr>
-                <td colSpan={10}>Loading grades...</td>
-              </tr>
-            ) : studentsError ? (
-              <tr>
-                <td colSpan={10} className="professor-data-error">{studentsError}</td>
-              </tr>
-            ) : currentPageStudents.length === 0 ? (
-              <tr>
-                <td colSpan={10}>No students matched the current filters.</td>
-              </tr>
-            ) : (
-              currentPageStudents.map((student) => {
-                const isSaving = savingStudentIds.includes(student._id)
-                return (
-                  <tr key={student.rosterEntryKey}>
-                    <td>{student.studentNumber}</td>
-                    <td>{getName(student)}</td>
-                    <td>{getStudentCourseDisplay(student)}</td>
-                    <td>{student.yearLevel ?? 'N/A'}</td>
-                    <td>{student.subjectStatus || student.studentStatus || 'Enrolled'}</td>
-                    <td>
-                      <div className="professor-grade-cell">
-                        <input
-                          ref={(element) => {
-                            gradeInputRefs.current[student._id] = element
-                          }}
-                          type="number"
-                          min="1"
-                          max="5"
-                          step="0.25"
-                          value={gradeDrafts[student._id] ?? ''}
-                          onChange={(event) => {
-                            setGradeDrafts((current) => ({
-                              ...current,
-                              [student._id]: event.target.value
-                            }))
-                          }}
-                          placeholder="1.00"
-                          disabled={gradeSubmissionStatus === 'Submitted' || gradeSubmissionStatus === 'Approved'}
-                        />
-                        <div className="professor-grade-cell-actions">
-                          <button
-                            type="button"
-                            className="professor-btn-xs"
-                            onClick={() => void saveGrade(student)}
-                            disabled={isSaving || !hasDraftChanges(student)}
-                          >
-                            {isSaving ? 'Saving...' : 'Publish Grade'}
-                          </button>
-                          <button
-                            type="button"
-                            className="professor-btn-xs professor-btn-secondary"
-                            onClick={() => goToNextGrade(student)}
-                            disabled={isSaving || filteredStudents[filteredStudents.length - 1]?._id === student._id}
-                          >
-                            Next
-                          </button>
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        value={remarkDrafts[student._id] ?? ''}
-                        onChange={(event) => {
-                          setRemarkDrafts((current) => ({
-                            ...current,
-                            [student._id]: event.target.value
-                          }))
-                        }}
-                        placeholder="Optional remarks"
-                      />
-                    </td>
-                    <td>{formatGradeUpdatedAt(student.gradeUpdatedAt)}</td>
-                    <td className="professor-table-actions">
-                      <button
-                        type="button"
-                        className="professor-btn-xs professor-btn-secondary"
-                        onClick={() => setSelectedStudent(student)}
-                      >
-                        View Profile
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {currentPageStudents.length > 0 && (
-        <div className="professor-pagination">
-          <button type="button" onClick={() => setCurrentPage((prev) => prev - 1)} disabled={!canGoPrev}>
-            Prev
-          </button>
-          <span>{`Page ${currentPage} of ${totalPages}`}</span>
-          <button type="button" onClick={() => setCurrentPage((prev) => prev + 1)} disabled={!canGoNext}>
-            Next
-          </button>
-        </div>
-      )}
-
+      {/* Student Profile Modal */}
       {selectedStudent && (
-        <div className="professor-student-modal-backdrop" onClick={() => setSelectedStudent(null)}>
-          <div className="professor-student-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="professor-student-modal-header">
+        <div className="gm-modal-backdrop" onClick={() => setSelectedStudent(null)}>
+          <div className="gm-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="gm-modal-header">
               <h3>Student Profile</h3>
-              <button type="button" className="professor-btn-xs" onClick={() => setSelectedStudent(null)}>
-                Close
+              <button type="button" className="gm-modal-close" onClick={() => setSelectedStudent(null)}>
+                <X size={20} />
               </button>
             </div>
-            <div className="professor-student-modal-content">
-              <div className="professor-student-modal-grid">
+            <div className="gm-modal-body">
+              <div className="gm-modal-grid">
                 <div><strong>Full Name:</strong> {getName(selectedStudent)}</div>
                 <div><strong>Student ID:</strong> {selectedStudent.studentNumber}</div>
                 <div><strong>Program / Course:</strong> {getStudentCourseDisplay(selectedStudent)}</div>
@@ -949,6 +1130,25 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
             </div>
           </div>
         </div>
+      )}
+
+      {/* Grade Change Request Modal */}
+      {changeRequestStudent && selectedClass && (
+        <GradeChangeRequestModal
+          open={!!changeRequestStudent}
+          onClose={() => setChangeRequestStudent(null)}
+          onSuccess={() => {
+            setMessageTone('info')
+            setMessage(`Grade change request submitted for ${getName(changeRequestStudent)}.`)
+          }}
+          enrollmentId={changeRequestStudent.enrollmentId || ''}
+          studentId={changeRequestStudent._id}
+          studentName={getName(changeRequestStudent)}
+          subjectId={selectedClass.subjectId}
+          subjectCode={selectedClass.subjectCode}
+          subjectTitle={selectedClass.subjectTitle}
+          currentGrade={changeRequestStudent.currentGrade === '' || changeRequestStudent.currentGrade === null || changeRequestStudent.currentGrade === undefined ? null : Number(changeRequestStudent.currentGrade)}
+        />
       )}
     </div>
   )

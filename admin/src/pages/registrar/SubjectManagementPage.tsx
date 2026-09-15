@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Archive, CheckCircle, ChevronLeft, ChevronRight, MoreVertical, Pencil, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react'
+import { Archive, AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, GraduationCap, MoreVertical, Pencil, Plus, RotateCcw, Search, Trash2, UserX, X } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
+import { getSubjectsNeedingAttention, type AttentionSubject } from '../../lib/gradingApi'
+import { getAcademicTerm } from '../../lib/settingsApi'
 import type { SubjectItem, SubjectStatus, SubjectType } from './registrarBlockTypes'
+import '../SubjectManagement.css'
+
 
 type SubjectForm = {
   code: string
@@ -57,6 +61,20 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
   const [success, setSuccess] = useState('')
   const [openMenuId, setOpenMenuId] = useState('')
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const [attentionSubjects, setAttentionSubjects] = useState<AttentionSubject[]>([])
+  const [showAttentionModal, setShowAttentionModal] = useState(false)
+
+  // Fetch subjects needing attention for the current academic term
+  useEffect(() => {
+    let cancelled = false
+    getAcademicTerm()
+      .then((term) =>
+        getSubjectsNeedingAttention({ schoolYear: term.schoolYear, semester: term.semester })
+      )
+      .then((data) => { if (!cancelled) setAttentionSubjects(data) })
+      .catch(() => { /* leave empty */ })
+    return () => { cancelled = true }
+  }, [])
 
   const filteredSubjects = useMemo(() => {
     let result = subjects
@@ -322,6 +340,57 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
     <div className="registrar-section subject-management-page">
       <h2 className="registrar-section-title">Subject Catalog</h2>
       <p className="registrar-section-desc">Maintain the master list of subjects. Curriculum placement (year level, semester, sequence) is managed via <strong>Curriculums</strong>.</p>
+
+      {/* Subjects Needing Attention Button */}
+      {attentionSubjects.length > 0 && (
+        <button
+          type="button"
+          className="gs-attention-trigger-btn"
+          onClick={() => setShowAttentionModal(true)}
+        >
+          <AlertTriangle size={18} />
+          <span>Subjects Needing Attention</span>
+          <span className="gs-attention-trigger-count">{attentionSubjects.length}</span>
+        </button>
+      )}
+
+      {/* Subjects Needing Attention Modal */}
+      {showAttentionModal && (
+        <div className="gs-attention-modal-overlay" onClick={() => setShowAttentionModal(false)}>
+          <div className="gs-attention-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="gs-attention-modal-header">
+              <div className="gs-attention-modal-title">
+                <AlertTriangle size={20} />
+                <h3>Subjects Needing Attention</h3>
+                <span className="gs-attention-modal-count">{attentionSubjects.length}</span>
+              </div>
+              <button type="button" className="gs-attention-modal-close" onClick={() => setShowAttentionModal(false)}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className="gs-attention-modal-scroll">
+              {attentionSubjects.map((subject, i) => (
+                <div key={`${subject.subjectCode}-${subject.issueType}-${i}`} className={`gs-attention-card gs-attention-card--${subject.issueType}`}>
+                  <div className="gs-attention-card-top">
+                    <div className="gs-attention-card-id">
+                      <strong>{subject.subjectCode}</strong>
+                      <span className="gs-attention-card-title">{subject.subjectTitle}</span>
+                    </div>
+                    <span className="gs-attention-badge">
+                      {subject.issueType === 'no-block' ? <><UserX size={12} /> No Block</> : subject.issueType === 'tba' ? <><UserX size={12} /> No Instructor</> : <><GraduationCap size={12} /> Missing Grade</>}
+                    </span>
+                  </div>
+                  <p className="gs-attention-card-meta">
+                    {subject.courseShortLabel} · {subject.sectionLabel} · {subject.studentCount} student{subject.studentCount !== 1 ? 's' : ''}
+                    {subject.instructor !== 'TBA' && ` · ${subject.instructor}`}
+                    {' · '}{subject.semester} {subject.schoolYear}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {error && <p className="registrar-alert registrar-alert-error">{error}</p>}
       {success && <p className="registrar-alert registrar-alert-success">{success}</p>}

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -219,10 +221,7 @@ class _AnnouncementDetailPage extends StatelessWidget {
           for (final media in announcement.media) ...[
             const SizedBox(height: AppDimensions.md),
             if (media.type == 'image')
-              ClipRRect(
-                borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
-                child: Image.network(media.url, fit: BoxFit.cover, errorBuilder: (context, error, stackTrace) => const SizedBox()),
-              ),
+              _AnnouncementImage(url: media.url),
             if (media.caption != null) ...[
               const SizedBox(height: AppDimensions.xs),
               Text(media.caption!, style: AppTextStyles.caption.copyWith(color: colors.textMuted)),
@@ -230,6 +229,47 @@ class _AnnouncementDetailPage extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _AnnouncementImage extends StatelessWidget {
+  const _AnnouncementImage({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = _buildImage();
+    if (image == null) return const SizedBox();
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+      child: image,
+    );
+  }
+
+  Widget? _buildImage() {
+    if (url.startsWith('data:image/')) {
+      final commaIndex = url.indexOf(',');
+      if (commaIndex < 0) return null;
+
+      try {
+        return Image.memory(
+          base64Decode(url.substring(commaIndex + 1)),
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => const SizedBox(),
+        );
+      } on FormatException {
+        return null;
+      }
+    }
+
+    if (url.isEmpty) return null;
+    return Image.network(
+      url,
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) => const SizedBox(),
     );
   }
 }
