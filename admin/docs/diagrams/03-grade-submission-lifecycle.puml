@@ -1,0 +1,37 @@
+@startuml
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Segoe UI"
+
+title Grade Submission Lifecycle
+
+state "Draft" as Draft #F3F4F6
+state "Submitted" as Submitted #FEF3C7
+state "Verified" as Verified #DBEAFE
+state "Published" as Published #D1FAE5
+state "Returned" as Returned #FEE2E2
+
+[*] --> Draft : Professor creates grades
+
+Draft --> Submitted : Professor submits for review
+Submitted --> Verified : Registrar verifies
+Submitted --> Returned : Registrar returns for changes
+Verified --> Published : Registrar publishes
+Verified --> Returned : Registrar finds issues
+Returned --> Draft : Professor edits again
+Published --> [*] : Grades visible to students
+
+note right of Submitted
+  **Registrar sees:**
+  - Per-professor rows
+  - Student count
+  - Grade status
+end note
+
+note right of Published
+  **After publish:**
+  - Grades on student portal
+  - COR generation available
+  - Change requests possible
+end note
+
+@enduml

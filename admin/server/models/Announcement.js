@@ -36,6 +36,10 @@ const announcementSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  isArchived: {
+    type: Boolean,
+    default: false
+  },
   isPinned: {
     type: Boolean,
     default: false
@@ -105,8 +109,11 @@ announcementSchema.virtual('isExpired').get(function() {
   return new Date() > this.expiresAt
 })
 
-// Pre-find middleware to automatically filter expired announcements
+// Pre-find middleware to automatically filter expired announcements.
+// Admin endpoints can bypass this by setting { skipExpiryFilter: true }
+// in the query options so registrars can see/manage expired announcements.
 announcementSchema.pre(/^find/, function() {
+  if (this.getOptions().skipExpiryFilter) return
   this.find({
     $or: [
       { expiresAt: { $gt: new Date() } },

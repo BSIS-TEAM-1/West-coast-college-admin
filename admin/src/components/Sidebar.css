@@ -6,9 +6,9 @@
   --sidebar-item-height: 2.75rem;
   --sidebar-primary: #000a1e;
   --sidebar-primary-container: #002147;
-  --sidebar-gold: #775a19;
-  --sidebar-gold-light: #e9c176;
-  --sidebar-gold-soft: #ffdea5;
+  --sidebar-gold: var(--theme-accent-base, #775a19);
+  --sidebar-gold-light: color-mix(in srgb, var(--theme-accent-base, #e9c176) 72%, white);
+  --sidebar-gold-soft: color-mix(in srgb, var(--theme-accent-base, #ffdea5) 48%, white);
   --sidebar-surface: #ffffff;
   --sidebar-surface-soft: #f6f3f2;
   --sidebar-text: #1c1b1b;
@@ -58,7 +58,7 @@
 }
 
 .sidebar-close-btn:hover {
-  background: color-mix(in srgb, var(--sidebar-gold-soft) 48%, #ffffff);
+  background: color-mix(in srgb, var(--sidebar-gold-soft) 48%, var(--sidebar-surface));
   border-color: var(--sidebar-gold);
   color: var(--sidebar-primary);
   transform: translateY(-1px);
@@ -175,7 +175,7 @@
 
 .sidebar-link:hover {
   color: var(--sidebar-primary);
-  background: color-mix(in srgb, var(--sidebar-gold-soft) 42%, #ffffff);
+  background: color-mix(in srgb, var(--sidebar-gold-soft) 42%, var(--sidebar-surface));
   box-shadow: 0 10px 20px rgba(0, 33, 71, 0.08);
   transform: translateX(2px);
 }
@@ -187,7 +187,7 @@
 
 .sidebar-link-active {
   color: var(--sidebar-primary);
-  background: color-mix(in srgb, var(--sidebar-gold-soft) 52%, #ffffff);
+  background: color-mix(in srgb, var(--sidebar-gold-soft) 52%, var(--sidebar-surface));
   font-weight: 800;
 }
 
@@ -216,7 +216,7 @@
   border-radius: 6px;
   text-align: center;
   border: 1px solid color-mix(in srgb, var(--sidebar-gold) 34%, var(--sidebar-border));
-  background: color-mix(in srgb, var(--sidebar-gold-soft) 30%, #ffffff);
+  background: color-mix(in srgb, var(--sidebar-gold-soft) 30%, var(--sidebar-surface));
 }
 
 .sidebar-time-label {
@@ -248,7 +248,7 @@
 }
 
 .profile-section:hover {
-  background: color-mix(in srgb, var(--sidebar-gold-soft) 34%, #ffffff);
+  background: color-mix(in srgb, var(--sidebar-gold-soft) 34%, var(--sidebar-surface));
   box-shadow: 0 10px 20px rgba(0, 33, 71, 0.08);
   transform: translateY(-1px);
 }
@@ -271,7 +271,7 @@
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--sidebar-gold-soft) 38%, #ffffff);
+  background: color-mix(in srgb, var(--sidebar-gold-soft) 38%, var(--sidebar-surface));
   display: flex;
   align-items: center;
   justify-content: center;

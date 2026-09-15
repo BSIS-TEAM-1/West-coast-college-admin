@@ -1,0 +1,46 @@
+@startuml
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Segoe UI"
+
+title Applicant Enrollment Workflow
+
+|Applicant|
+start
+:Fill out application form;
+:Submit requirements;
+
+|System|
+:Save application;
+:Send confirmation email;
+:Set status = **Submitted**;
+
+|Registrar|
+:Review application;
+:Check requirements;
+
+if (Requirements complete?) then (No)
+  :Set status = **Incomplete Requirements**;
+  |Applicant|
+  :Submit missing requirements;
+  |Registrar|
+  :Re-review;
+else (Yes)
+  :Set status = **For Evaluation**;
+  :Evaluate qualifications;
+
+  if (Approved?) then (No)
+    :Set status = **Rejected**;
+    stop
+  else (Yes)
+    :Set status = **Approved for Enrollment**;
+    |Applicant|
+    :Complete enrollment;
+    |Registrar|
+    :Set status = **Enrolled**;
+    :Create student record;
+    :Assign to block section;
+    stop
+  endif
+endif
+
+@enduml

@@ -28,7 +28,7 @@
 }
 
 .navbar-menu-btn {
-  display: none;
+  display: none !important;
   align-items: center;
   justify-content: center;
   width: 2.25rem;
@@ -291,7 +291,7 @@
   }
 
   .navbar-menu-btn {
-    display: inline-flex;
+    display: inline-flex !important;
   }
 
   .navbar-date {

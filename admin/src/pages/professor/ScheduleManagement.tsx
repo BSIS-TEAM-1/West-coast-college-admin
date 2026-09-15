@@ -195,8 +195,8 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
   }
 
   const parseDays = (value: string) => {
-    const heading = String(value || '').toUpperCase().split(/\d{1,2}:\d{2}/)[0]
-    const normalized = heading
+    // Scan the entire string for day tokens (handles per-day format "M 07:30-09:00 / W 13:00-14:30")
+    const normalized = String(value || '').toUpperCase()
       .replace(/TTH/g, 'TUE THU')
       .replace(/MWF/g, 'MON WED FRI')
       .replace(/,/g, ' ')
@@ -226,6 +226,53 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
     if (hasSunday) list.push('Sunday')
 
     return list.filter((day, index, arr) => arr.indexOf(day) === index)
+  }
+
+  // Parse per-day schedule format: "M 07:30-09:00 @ Room 205 / W 13:00-14:30 @ Lab 3"
+  // Returns null if the schedule is not in per-day format.
+  const parsePerDaySchedule = (value: string): { day: SchoolDay; startMinutes: number | null; endMinutes: number | null; startTime: string; endTime: string; room: string }[] | null => {
+    const trimmed = String(value || '').trim()
+    if (!trimmed.includes('/')) return null
+
+    const dayCodeToSchoolDay: Record<string, SchoolDay> = {
+      M: 'Monday', T: 'Tuesday', W: 'Wednesday', TH: 'Thursday', F: 'Friday', S: 'Saturday', SU: 'Sunday'
+    }
+
+    const segments = trimmed.split('/').map(s => s.trim()).filter(Boolean)
+    const results: { day: SchoolDay; startMinutes: number | null; endMinutes: number | null; startTime: string; endTime: string; room: string }[] = []
+
+    for (const segment of segments) {
+      // Extract optional @ room suffix
+      const roomMatch = segment.match(/^(.+?)\s*@\s*(.+)$/)
+      const segmentBody = roomMatch ? roomMatch[1].trim() : segment
+      const segmentRoom = roomMatch ? roomMatch[2].trim() : ''
+
+      const match = segmentBody.match(/^([A-Z]+)\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})$/i)
+      if (!match) continue
+      const daysRaw = match[1].toUpperCase()
+      const parsedTime = parseTimeRange(`${match[2]}-${match[3]}`)
+
+      const tokenOrder = ['TH', 'SU', 'M', 'T', 'W', 'F', 'S']
+      let cursor = daysRaw
+      while (cursor.length > 0) {
+        const token = tokenOrder.find((t) => cursor.startsWith(t))
+        if (!token) break
+        const schoolDay = dayCodeToSchoolDay[token]
+        if (schoolDay) {
+          results.push({
+            day: schoolDay,
+            startMinutes: parsedTime.startMinutes,
+            endMinutes: parsedTime.endMinutes,
+            startTime: parsedTime.startTime,
+            endTime: parsedTime.endTime,
+            room: segmentRoom
+          })
+        }
+        cursor = cursor.slice(token.length)
+      }
+    }
+
+    return results.length > 0 ? results : null
   }
 
   const normalizeCourseCode = (courseCode: string) => {
@@ -313,27 +360,19 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
       course.blocks
         .flatMap((block) =>
           block.subjects.map((subject) => {
-            const days = parseDays(subject.schedule || '')
-            const parsedTime = parseTimeRange(subject.schedule || '')
             const courseCode = normalizeCourseCode(course.courseCode)
             const room = getRoomParts(subject.room || 'TBA')
             const sectionCode = String(block.sectionCode || 'UNASSIGNED')
             const sectionId = block.sectionId || `unassigned-${sectionCode}`
-
-            return {
-              id: `${course.courseCode}-${sectionId}-${subject.subjectId}`,
+            const scheduleText = String(subject.schedule || '')
+            const baseItem = {
               courseCode: String(course.courseCode || ''),
               courseDisplayCode: courseCode,
               sectionCode,
               blockCode: formatSectionCode(course.courseCode, sectionCode),
               subjectCode: String(subject.code || 'N/A'),
               subjectTitle: String(subject.title || 'N/A'),
-              scheduleText: String(subject.schedule || ''),
-              days,
-              startMinutes: parsedTime.startMinutes,
-              endMinutes: parsedTime.endMinutes,
-              startTime: parsedTime.startTime,
-              endTime: parsedTime.endTime,
+              scheduleText,
               room: room.room,
               building: room.building,
               classType: /lab|laboratory/i.test(`${subject.code} ${subject.title}`) ? 'Laboratory' : 'Lecture',
@@ -341,6 +380,38 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
               schoolYear: String(block.schoolYear || 'N/A'),
               yearLevel: block.yearLevel ?? null,
               enrolledStudents: Number.isFinite(subject.enrolledStudents) ? subject.enrolledStudents : 0
+            }
+
+            // Check for per-day schedule format first
+            const perDay = parsePerDaySchedule(scheduleText)
+            if (perDay) {
+              return perDay.map((entry) => {
+                const entryRoom = entry.room ? getRoomParts(entry.room) : room
+                return {
+                  ...baseItem,
+                  id: `${course.courseCode}-${sectionId}-${subject.subjectId}-${entry.day}`,
+                  days: [entry.day],
+                  startMinutes: entry.startMinutes,
+                  endMinutes: entry.endMinutes,
+                  startTime: entry.startTime,
+                  endTime: entry.endTime,
+                  room: entryRoom.room,
+                  building: entryRoom.building
+                }
+              })
+            }
+
+            // Classic format: single time for all days
+            const days = parseDays(scheduleText)
+            const parsedTime = parseTimeRange(scheduleText)
+            return {
+              ...baseItem,
+              id: `${course.courseCode}-${sectionId}-${subject.subjectId}`,
+              days,
+              startMinutes: parsedTime.startMinutes,
+              endMinutes: parsedTime.endMinutes,
+              startTime: parsedTime.startTime,
+              endTime: parsedTime.endTime
             }
           })
         )

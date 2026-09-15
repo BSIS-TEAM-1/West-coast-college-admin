@@ -87,10 +87,24 @@ const enrollmentSchema = new Schema({
       max: 5.0,
       default: null
     },
+    // Non-numerical grade mark for special cases (INC, DRP, W, FA, NG).
+    // When set, grade should be null. Displayed instead of the numerical grade.
+    gradeMark: {
+      type: String,
+      enum: ['INC', 'DRP', 'W', 'FA', 'NG', null],
+      default: null
+    },
     status: {
       type: String,
       enum: ['Enrolled', 'Dropped', 'Completed', 'Incomplete', 'Removed'],
       default: 'Enrolled'
+    },
+    // Per-subject grade submission status — allows different professors
+    // teaching different subjects in the same enrollment to submit independently.
+    submissionStatus: {
+      type: String,
+      enum: ['Draft', 'Submitted', 'Verified', 'Published', 'Returned'],
+      default: 'Draft'
     },
     remarks: {
       type: String,
@@ -188,16 +202,23 @@ const enrollmentSchema = new Schema({
   },
 
   // Grade Submission Workflow
-  // Tracks the lifecycle of grades for this enrollment: draft → submitted → approved/rejected
+  // Tracks the lifecycle of grades for this enrollment:
+  // Draft → Submitted → Verified → Published
+  // Returned (registrar sends back to professor for correction)
+  // Rejected (change request rejected)
   gradeSubmission: {
     status: {
       type: String,
-      enum: ['Draft', 'Submitted', 'Approved', 'Rejected'],
+      enum: ['Draft', 'Submitted', 'Verified', 'Published', 'Returned', 'Rejected'],
       default: 'Draft',
       index: true
     },
     submittedAt: { type: Date, default: null },
     submittedBy: { type: Schema.Types.ObjectId, ref: 'Admin', default: null },
+    verifiedAt: { type: Date, default: null },
+    verifiedBy: { type: Schema.Types.ObjectId, ref: 'Admin', default: null },
+    publishedAt: { type: Date, default: null },
+    publishedBy: { type: Schema.Types.ObjectId, ref: 'Admin', default: null },
     reviewedAt: { type: Date, default: null },
     reviewedBy: { type: Schema.Types.ObjectId, ref: 'Admin', default: null },
     reviewRemarks: { type: String, trim: true, default: '' }
@@ -278,6 +299,31 @@ enrollmentSchema.index({ schoolYear: 1, semester: 1, course: 1, yearLevel: 1, st
 enrollmentSchema.index({ 'subjects.subjectId': 1, schoolYear: 1, semester: 1, status: 1 });
 enrollmentSchema.index({ 'subjects.instructor': 1, schoolYear: 1, semester: 1, status: 1 });
 enrollmentSchema.index({ studentId: 1, status: 1, isCurrent: 1, createdAt: -1 });
+enrollmentSchema.index({ 'subjects.submissionStatus': 1 });
+
+// Compute aggregate enrollment-level grade submission status from per-subject statuses.
+// Priority: Returned > Submitted > Verified > Published > Draft
+// - If any subject is Returned → 'Returned'
+// - If any subject is Submitted → 'Submitted'
+// - If all non-draft subjects are Verified (no Submitted/Returned) → 'Verified'
+// - If all non-draft subjects are Published → 'Published'
+// - Otherwise → 'Draft'
+enrollmentSchema.statics.computeAggregateSubmissionStatus = function(subjects) {
+  const active = (subjects || []).filter(s => s.status !== 'Dropped' && s.status !== 'Removed');
+  if (active.length === 0) return 'Draft';
+
+  const statuses = active.map(s => s.submissionStatus || 'Draft');
+  if (statuses.includes('Returned')) return 'Returned';
+  if (statuses.includes('Submitted')) return 'Submitted';
+
+  const nonDraft = statuses.filter(s => s !== 'Draft');
+  if (nonDraft.length === 0) return 'Draft';
+  if (nonDraft.every(s => s === 'Verified')) return 'Verified';
+  if (nonDraft.every(s => s === 'Published')) return 'Published';
+
+  // Mixed verified/published without submitted/returned
+  return 'Verified';
+};
 
 // Virtual for total units
 enrollmentSchema.virtual('totalUnits').get(function() {

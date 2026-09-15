@@ -289,6 +289,70 @@
   font-size: 0.8rem;
 }
 
+/* Per-day time inputs */
+.registrar-course-per-day-times {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.registrar-course-per-day-times > span {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.per-day-time-row {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr);
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.per-day-time-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--color-text);
+  text-align: center;
+  padding: 0.3rem 0.4rem;
+  border-radius: 0.3rem;
+  background: var(--color-bg-soft);
+  border: 1px solid var(--color-border);
+}
+
+.per-day-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.per-day-room-input {
+  width: 100%;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.35rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.8rem;
+}
+
+.per-day-room-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.per-day-room-input:disabled {
+  opacity: 0.6;
+  background: var(--color-bg-soft);
+}
+
+.per-day-time-row .time-box-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: center;
+}
+
 .registrar-course-workspace-page .registrar-course-workspace-footer {
   align-items: flex-start;
   margin-top: 0.8rem;

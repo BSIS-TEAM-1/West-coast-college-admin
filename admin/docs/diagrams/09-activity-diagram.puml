@@ -1,0 +1,193 @@
+@startuml WCC Activity Diagram
+' ================================================================
+' WCC Student Information System — Activity Diagram
+' Shows the end-to-end workflow across all actors
+' ================================================================
+
+skinparam style strictuml
+skinparam ActivityFontSize 13
+skinparam ActivityBackgroundColor #F5F5F5
+skinparam ActivityBorderColor #333333
+skinparam ActivityDiamondBackgroundColor #FFF2CC
+skinparam ActivityDiamondBorderColor #D6B656
+skinparam ArrowColor #333333
+skinparam NoteBackgroundColor #FFFFCC
+skinparam NoteBorderColor #D6B656
+
+title WCC Student Information System — Activity Diagram
+
+|#D5E8D4|Registrar-Admin|
+|#E1D5E7|Professor|
+|#F8CECC|Student|
+|#FFE6CC|Applicant|
+|#FFFFFF|System|
+
+|Applicant|
+start
+:Fill Application Form;
+:Select Course;
+:Submit Application;
+note right: Status: "Submitted"
+
+|System|
+:Validate Application Data;
+if (Valid?) then (yes)
+  :Save to Database;
+  :Send Confirmation Email;
+else (no)
+  :Return Validation Errors;
+  |Applicant|
+  :Fix Errors;
+  :Resubmit;
+  |System|
+  :Re-validate;
+endif
+
+|Registrar-Admin|
+:View Applicant Queue;
+:Review Application;
+note right: Status: "For Evaluation"
+
+if (Requirements Complete?) then (no)
+  :Mark Incomplete;
+  note right: Status: "Incomplete Requirements"
+  |System|
+  :Send Incomplete Email;
+  |Applicant|
+  :Submit Missing Requirements;
+  |Registrar-Admin|
+  :Re-review;
+else (yes)
+  if (Qualifications Met?) then (no)
+    :Reject Applicant;
+    note right: Status: "Rejected"
+    |System|
+    :Send Rejection Email;
+    stop
+  else (yes)
+    :Approve Applicant;
+    note right: Status: "Approved for Enrollment"
+    |System|
+    :Send Approval Email;
+  endif
+endif
+
+|Registrar-Admin|
+:Enroll Student;
+note right: Status: "Enrolled"
+
+|System|
+:Create Student Record;
+:Create Enrollment Record;
+:Assign to Block;
+:Send Enrollment Email;
+note right: Applicant "becomes" Student
+
+|Student|
+:Log In;
+:View Student Dashboard;
+
+' ================================================================
+' GRADE SUBMISSION LIFECYCLE
+' ================================================================
+
+|Professor|
+:Log In;
+:View My Courses;
+:Open Subject;
+:View Class Roster;
+:Enter Grades;
+:Set Grade Marks;
+
+if (All Grades Entered?) then (no)
+  :Continue Entering;
+else (yes)
+  :Submit for Review;
+  note right: Grade Status: "Submitted"
+endif
+
+|System|
+:Notify Registrar;
+:Lock Grade Edits;
+
+|Registrar-Admin|
+:View Grade Submissions;
+:Verify Grades;
+
+if (Grades Correct?) then (no)
+  :Return Grades;
+  note right: Grade Status: "Returned"
+  |System|
+  :Notify Professor;
+  |Professor|
+  :Fix Grades;
+  :Resubmit for Review;
+  |Registrar-Admin|
+  :Re-verify;
+else (yes)
+  :Publish Grades;
+  note right: Grade Status: "Published"
+  |System|
+  :Release Grades to Students;
+  :Update GWA;
+endif
+
+|Student|
+:View Grades;
+:View GWA;
+
+' ================================================================
+' GRADE CHANGE REQUEST (post-publish)
+' ================================================================
+
+|Professor|
+if (Grade Change Needed?) then (yes)
+  :Request Grade Change;
+  note right: Change Status: "Requested"
+  |System|
+  :Notify Registrar;
+  |Registrar-Admin|
+  :Review Change Request;
+  if (Approve Change?) then (yes)
+    :Approve Change;
+    |System|
+    :Update Grade;
+    :Recalculate GWA;
+    |Student|
+    :View Updated Grades;
+  else (no)
+    :Deny Change;
+    |Professor|
+    :Notified of Denial;
+  endif
+else (no)
+endif
+
+' ================================================================
+' COR GENERATION
+' ================================================================
+
+|Registrar-Admin|
+:Generate COR;
+|System|
+:Compile Enrollment Data;
+:Generate PDF;
+:Store Document;
+
+|Student|
+:Download COR;
+
+' ================================================================
+' ANNOUNCEMENTS
+' ================================================================
+
+|Registrar-Admin|
+:Post Announcement;
+|System|
+:Broadcast to Students;
+|Student|
+:Read Announcements;
+
+stop
+
+@enduml

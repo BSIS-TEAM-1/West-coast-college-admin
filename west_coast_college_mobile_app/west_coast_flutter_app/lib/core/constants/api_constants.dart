@@ -3,7 +3,7 @@ class ApiConstants {
   // network can reach the dev server. For Android emulator, use 10.0.2.2.
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://192.168.0.240:3001/api',
+    defaultValue: 'http://192.168.5.157:3001/api',
   );
   
   // Endpoints - Authentication

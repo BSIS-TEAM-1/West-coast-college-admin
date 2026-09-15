@@ -1,0 +1,31 @@
+@startuml
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Segoe UI"
+
+title Registrar Daily Workflow
+
+actor Registrar
+participant "Applicant Queue" as AQ
+participant "Student Management" as SM
+participant "Block Overview" as BO
+participant "Grade Submissions" as GS
+participant "COR Generation" as COR
+
+Registrar -> AQ : Review new applicants
+AQ --> Registrar : Show submitted applications
+Registrar -> AQ : Approve / Reject / Mark incomplete
+Registrar -> SM : View enrolled students
+SM --> Registrar : Show student records & history
+
+Registrar -> BO : Check block sections
+BO --> Registrar : Show blocks & enrollment counts
+Registrar -> BO : Assign subjects to blocks
+
+Registrar -> GS : Review submitted grades
+GS --> Registrar : Show per-professor submissions
+Registrar -> GS : Verify / Return / Publish
+
+Registrar -> COR : Generate Certificate of Registration
+COR --> Registrar : PDF for enrolled students
+
+@enduml

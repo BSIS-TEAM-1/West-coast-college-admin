@@ -104,9 +104,41 @@ class AnnouncementTeaser {
   });
 }
 
+class EnrolledSubject {
+  final String? subjectId;
+  final String subjectCode;
+  final String subjectTitle;
+  final num units;
+  final String schedule;
+  final String room;
+  final String instructor;
+  final String subjectStatus;
+  final num? grade;
+  final String remarks;
+  final bool gradePublished;
+
+  const EnrolledSubject({
+    this.subjectId,
+    required this.subjectCode,
+    required this.subjectTitle,
+    required this.units,
+    required this.schedule,
+    required this.room,
+    required this.instructor,
+    required this.subjectStatus,
+    this.grade,
+    required this.remarks,
+    required this.gradePublished,
+  });
+
+  bool get hasGrade => grade != null && gradePublished;
+  bool get isPassed => hasGrade && grade! <= 3.0;
+}
+
 class DashboardSummary {
   final ProfileSummary profile;
   final AcademicSummary academicSummary;
+  final List<EnrolledSubject> enrolledSubjects;
   final List<ScheduleItemSummary> todaySchedule;
   final UpcomingSchedule? upcomingSchedule;
   final List<GradeSummary> latestGrades;
@@ -115,6 +147,7 @@ class DashboardSummary {
   const DashboardSummary({
     required this.profile,
     required this.academicSummary,
+    required this.enrolledSubjects,
     required this.todaySchedule,
     this.upcomingSchedule,
     required this.latestGrades,

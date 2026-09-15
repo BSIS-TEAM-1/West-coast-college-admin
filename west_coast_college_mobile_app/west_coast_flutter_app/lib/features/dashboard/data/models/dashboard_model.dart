@@ -140,10 +140,43 @@ class AnnouncementTeaserModel extends AnnouncementTeaser {
   }
 }
 
+class EnrolledSubjectModel extends EnrolledSubject {
+  const EnrolledSubjectModel({
+    super.subjectId,
+    required super.subjectCode,
+    required super.subjectTitle,
+    required super.units,
+    required super.schedule,
+    required super.room,
+    required super.instructor,
+    required super.subjectStatus,
+    super.grade,
+    required super.remarks,
+    required super.gradePublished,
+  });
+
+  factory EnrolledSubjectModel.fromJson(Map<String, dynamic> json) {
+    return EnrolledSubjectModel(
+      subjectId: json['subjectId']?.toString(),
+      subjectCode: (json['subjectCode'] ?? '').toString(),
+      subjectTitle: (json['subjectTitle'] ?? '').toString(),
+      units: (json['units'] as num?) ?? 0,
+      schedule: (json['schedule'] ?? 'TBA').toString(),
+      room: (json['room'] ?? 'TBA').toString(),
+      instructor: (json['instructor'] ?? 'TBA').toString(),
+      subjectStatus: (json['subjectStatus'] ?? 'Enrolled').toString(),
+      grade: json['grade'] != null ? (json['grade'] as num) : null,
+      remarks: (json['remarks'] ?? '').toString(),
+      gradePublished: json['gradePublished'] == true,
+    );
+  }
+}
+
 class DashboardSummaryModel extends DashboardSummary {
   const DashboardSummaryModel({
     required super.profile,
     required super.academicSummary,
+    required super.enrolledSubjects,
     required super.todaySchedule,
     super.upcomingSchedule,
     required super.latestGrades,
@@ -154,6 +187,9 @@ class DashboardSummaryModel extends DashboardSummary {
     return DashboardSummaryModel(
       profile: ProfileSummaryModel.fromJson((json['profile'] as Map?)?.cast<String, dynamic>() ?? {}),
       academicSummary: AcademicSummaryModel.fromJson((json['academicSummary'] as Map?)?.cast<String, dynamic>() ?? {}),
+      enrolledSubjects: ((json['enrolledSubjects'] as List?) ?? [])
+          .map((item) => EnrolledSubjectModel.fromJson((item as Map).cast<String, dynamic>()))
+          .toList(),
       todaySchedule: ((json['todaySchedule'] as List?) ?? [])
           .map((item) => ScheduleItemModel.fromJson((item as Map).cast<String, dynamic>()))
           .toList(),

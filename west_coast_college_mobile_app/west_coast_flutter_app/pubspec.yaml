@@ -68,6 +68,14 @@ dependencies:
   # Biometric Authentication
   local_auth: ^2.1.8
 
+dependency_overrides:
+  # path_provider_android 2.3.x ships a JNI-generated path_provider.g.dart
+  # whose dart:ffi references (Pointer, Void, NativeFunction, VarArgs,
+  # ProtectedJniExtensions, etc.) don't resolve against package:jni 1.0.x
+  # on Dart 3.10+. Pin to 2.2.23 (last stable pre-JNI/Pigeon version).
+  # See flutter/packages PR #11453.
+  path_provider_android: 2.2.23
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

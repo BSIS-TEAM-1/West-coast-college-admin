@@ -9,7 +9,7 @@ import {
   parseBlockSlot
 } from '../../lib/blockAssignmentShared'
 import { getAcademicTerm } from '../../lib/settingsApi'
-import './BlockManagement.css'
+import '../BlockManagement.css'
 
 type BlockManagementProps = {
   onOpenBlocksPage: () => void

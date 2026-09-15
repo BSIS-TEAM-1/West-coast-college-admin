@@ -192,11 +192,14 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
 
       const payload = await response.json().catch(() => ({}))
       const courses = Array.isArray(payload?.data?.courses) ? payload.data.courses : []
+      // Keep blocks that have a valid sectionId, OR blocks flagged as needsBlockAssignment
+      // (students without a block assignment still need grading access).
       const isVisibleProfessorBlock = (block: ProfessorAssignedBlock) => {
         const normalizedSectionCode = String(block?.sectionCode || '').trim().toLowerCase()
+        if (normalizedSectionCode.includes('unknown')) return false
+        if (block?.needsBlockAssignment) return true
         return Boolean(block?.sectionId)
           && !normalizedSectionCode.includes('unassigned')
-          && !normalizedSectionCode.includes('unknown')
       }
       const visibleCourses = courses
         .map((course: ProfessorAssignedCourse) => ({
@@ -359,35 +362,6 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
           ))}
         </nav>
 
-        <div className="professor-sidebar-footer">
-          <div className="profile-section">
-            <div className="profile-avatar">
-              {profile?.avatar ? (
-                <img 
-                  src={profile.avatar.startsWith('data:') ? profile.avatar : `data:image/jpeg;base64,${profile.avatar}`} 
-                  alt="Profile" 
-                  className="profile-avatar-img"
-                  onError={(e) => {
-                    // Fallback if image fails to load
-                    const target = e.target as HTMLImageElement;
-                    target.style.display = 'none';
-                    target.nextElementSibling?.classList.remove('hidden');
-                  }}
-                />
-              ) : (
-                <div className="profile-avatar-placeholder">
-                  <User size={16} />
-                </div>
-              )}
-            </div>
-            <div className="profile-info">
-              <div className="profile-name">
-                {profile?.displayName || profile?.username || 'Professor User'}
-              </div>
-              <div className="profile-role">Professor</div>
-            </div>
-          </div>
-        </div>
       </aside>
       <button
         type="button"
@@ -405,6 +379,15 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
           onMenuToggle={() => setIsSidebarOpen((prev) => !prev)}
           onProfileClick={() => setView('profile')}
           onSettingsClick={() => setView('settings')}
+          profileName={profile?.displayName || profile?.username || username}
+          profileRole="Professor"
+          profileAvatar={
+            profile?.avatar
+              ? profile.avatar.startsWith('data:')
+                ? profile.avatar
+                : `data:image/jpeg;base64,${profile.avatar}`
+              : null
+          }
         />
         <main className="professor-dashboard-main">
           {isOffline ? (
@@ -419,5 +402,3 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
     </div>
   )
 }
-
-// Placeholder Components

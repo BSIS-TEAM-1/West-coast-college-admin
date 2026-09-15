@@ -1,0 +1,34 @@
+@startuml
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Segoe UI"
+
+title Block Section Management
+
+start
+
+:Open **Block Overview**;
+:View all block sections by course/semester;
+
+if (Need to assign students?) then (Yes)
+  :Open **Block Assignment**;
+  :Select course & year level;
+  :Assign students to blocks;
+endif
+
+if (Need to view block details?) then (Yes)
+  :Open **View Blocks**;
+  :Select a block section;
+  :Open **Block Workspace**;
+  :View enrolled students;
+  :View assigned subjects;
+endif
+
+if (New school year?) then (Yes)
+  :Run **School Year Rollover**;
+  :Promote students to next year;
+  :Create new block sections;
+endif
+
+stop
+
+@enduml

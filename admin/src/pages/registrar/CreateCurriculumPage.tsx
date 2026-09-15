@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, BookOpen, CheckCircle, GraduationCap, Plus, Sear
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import { StudentWorkspaceOverlay, isStudentWorkspaceBackdropTarget } from '../../components/shared/StudentWorkspaceOverlay'
 import type { Semester, SubjectItem } from './registrarBlockTypes'
+import '../CurriculumManagement.css'
 
 type CreateCurriculumPageProps = {
   onBack: () => void

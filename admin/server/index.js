@@ -483,13 +483,66 @@ app.use('/api/registrar', authMiddleware, registrarRoutes)
 app.use('/api/registrar/grade-submissions', authMiddleware, gradeSubmissionRoutes)
 app.use('/registrar/grade-submissions', apiLimiter, authMiddleware, gradeSubmissionRoutes)
 
-// Professor grade submission route (professor-only)
-app.post('/api/professor/grade-submissions/:enrollmentId/submit', authMiddleware, (req, res, next) => {
+// Professor grade submission route (professor-only, with ownership verification)
+app.post('/api/professor/grade-submissions/:enrollmentId/submit', authMiddleware, async (req, res, next) => {
   if (String(req.accountType || '').toLowerCase() !== 'professor') {
     return res.status(403).json({ error: 'Forbidden. Professor access required.' })
   }
-  next()
+
+  // Verify the professor owns at least one subject in this enrollment.
+  // Collect the professor's subject IDs so submitGrades only validates those.
+  try {
+    if (!dbReady) {
+      return res.status(503).json({ error: 'Database unavailable.' })
+    }
+    const enrollment = await Enrollment.findById(req.params.enrollmentId).lean().select('subjects')
+    if (!enrollment) {
+      return res.status(404).json({ error: 'Enrollment not found.' })
+    }
+    const access = await getProfessorRouteAccess(req.adminId)
+    const professorSubjectIds = enrollment.subjects
+      .filter((s) => s.status !== 'Dropped' && s.status !== 'Removed' && access.instructorMatchesProfessor(s.instructor))
+      .map((s) => String(s.subjectId))
+    if (professorSubjectIds.length === 0) {
+      return res.status(403).json({ error: 'You are not assigned to any subject in this enrollment.' })
+    }
+    req.professorSubjectIds = professorSubjectIds
+    next()
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ error: error.message || 'Ownership verification failed.' })
+  }
 }, gradeSubmissionController.submitGrades)
+
+// Professor grade change request route (professor-only, with ownership verification)
+app.post('/api/professor/grade-change-requests', authMiddleware, async (req, res, next) => {
+  if (String(req.accountType || '').toLowerCase() !== 'professor') {
+    return res.status(403).json({ error: 'Forbidden. Professor access required.' })
+  }
+
+  try {
+    if (!dbReady) {
+      return res.status(503).json({ error: 'Database unavailable.' })
+    }
+    const { enrollmentId, subjectId } = req.body || {}
+    if (!enrollmentId || !subjectId) {
+      return res.status(400).json({ error: 'enrollmentId and subjectId are required.' })
+    }
+    const enrollment = await Enrollment.findById(enrollmentId).lean().select('subjects')
+    if (!enrollment) {
+      return res.status(404).json({ error: 'Enrollment not found.' })
+    }
+    const access = await getProfessorRouteAccess(req.adminId)
+    const subjectEntry = enrollment.subjects.find(
+      (s) => String(s.subjectId) === String(subjectId) && s.status !== 'Dropped' && s.status !== 'Removed'
+    )
+    if (!subjectEntry || !access.instructorMatchesProfessor(subjectEntry.instructor)) {
+      return res.status(403).json({ error: 'You are not assigned to this subject in this enrollment.' })
+    }
+    next()
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ error: error.message || 'Ownership verification failed.' })
+  }
+}, gradeSubmissionController.createGradeChangeRequest)
 
 // Student grade audit trail (admin/registrar)
 app.get('/api/registrar/students/:studentId/grade-audit', authMiddleware, requireAnyRole('admin', 'registrar'), gradeSubmissionController.getStudentGradeAudit)
@@ -720,7 +773,16 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
       const assignment = findAssignmentForEnrollment(studentId, enrollment.semester, enrollment.schoolYear)
       const sectionId = assignment ? normalizeText(assignment.sectionId) : ''
       const sectionCode = sectionCodeById.get(sectionId)
-      if (!sectionId || !sectionCode || isInvalidProfessorSectionCode(sectionCode)) return
+
+      // If the student has a valid block assignment, use it.
+      // If not, group the student's subjects under an "Unassigned" block so the
+      // professor can still see and grade them — but flag it so the UI can warn
+      // that the student needs a block assignment.
+      const hasValidBlock = sectionId && sectionCode && !isInvalidProfessorSectionCode(sectionCode)
+      const effectiveSectionId = hasValidBlock ? sectionId : ''
+      const effectiveSectionCode = hasValidBlock ? sectionCode : 'Unassigned'
+      const needsBlockAssignment = !hasValidBlock
+
       const courseCode = studentCourseCodeById.get(studentId) || normalizeText(enrollment.course) || 'Unspecified'
       const semester = normalizeText(enrollment.semester) || 'N/A'
       const schoolYear = normalizeText(enrollment.schoolYear) || 'N/A'
@@ -735,15 +797,16 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
         courseMap.set(courseCode, courseEntry)
       }
 
-      const blockKey = `${sectionId || sectionCode}::${semester}::${schoolYear}`
+      const blockKey = `${effectiveSectionId || effectiveSectionCode}::${semester}::${schoolYear}`
       let blockEntry = courseEntry.blocks.get(blockKey)
       if (!blockEntry) {
         blockEntry = {
-          sectionId: sectionId || null,
-          sectionCode,
+          sectionId: effectiveSectionId || null,
+          sectionCode: effectiveSectionCode,
           semester,
           schoolYear,
           yearLevel,
+          needsBlockAssignment,
           subjects: new Map()
         }
         courseEntry.blocks.set(blockKey, blockEntry)
@@ -792,6 +855,7 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
               semester: blockEntry.semester,
               schoolYear: blockEntry.schoolYear,
               yearLevel: blockEntry.yearLevel,
+              needsBlockAssignment: blockEntry.needsBlockAssignment || false,
               subjects
             }
           })
@@ -1019,11 +1083,13 @@ app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authM
           contactNumber: normalizeProfessorRouteText(student.contactNumber),
           corStatus: normalizeProfessorRouteText(student.corStatus) || 'Pending',
           currentGrade: matchedEntry.grade ?? null,
+          currentGradeMark: matchedEntry.gradeMark || null,
           remarks: normalizeProfessorRouteText(matchedEntry.remarks),
           subjectStatus: normalizeProfessorRouteText(matchedEntry.status) || 'Enrolled',
           classSubjectCode: normalizeProfessorRouteText(matchedEntry.code),
           classSubjectTitle: normalizeProfessorRouteText(matchedEntry.title),
-          gradeUpdatedAt: matchedEntry.dateModified || enrollment.updatedAt || enrollment.createdAt || null
+          gradeUpdatedAt: matchedEntry.dateModified || enrollment.updatedAt || enrollment.createdAt || null,
+          gradeSubmissionStatus: matchedEntry.submissionStatus || 'Draft'
         }
       })
       .filter(Boolean)
@@ -1085,6 +1151,10 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
   const remarks = normalizeProfessorRouteText(req.body?.remarks)
   const hasGradeField = Object.prototype.hasOwnProperty.call(req.body || {}, 'grade')
   const rawGrade = hasGradeField ? req.body.grade : null
+  const rawGradeMark = normalizeProfessorRouteText(req.body?.gradeMark)
+  const normalizedGradeMark = rawGradeMark && ['INC', 'DRP', 'W', 'FA', 'NG'].includes(rawGradeMark.toUpperCase())
+    ? rawGradeMark.toUpperCase()
+    : null
 
   let normalizedGrade = rawGrade === null || rawGrade === undefined || String(rawGrade).trim() === ''
     ? null
@@ -1102,19 +1172,42 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
     return res.status(400).json({ error: 'Grade must be a number from 1.0 to 5.0, or blank.' })
   }
 
-  // Block grade changes if submission is approved or submitted
+  // A grade mark (INC/DRP/W/FA/NG) and a numerical grade are mutually exclusive.
+  // If a gradeMark is provided, clear the numerical grade.
+  if (normalizedGradeMark) {
+    normalizedGrade = null
+  }
+
+  // Block grade changes if THIS SUBJECT's submissionStatus is Submitted, Verified, or Published.
+  // Per-subject status allows different professors (teaching different subjects in the same
+  // enrollment) to submit independently without locking each other out.
   const submissionBlockQuery = {
     studentId: new mongoose.Types.ObjectId(studentId),
     status: { $nin: ['Dropped', 'Cancelled'] },
-    'gradeSubmission.status': { $in: ['Submitted', 'Approved'] },
-    subjects: { $elemMatch: { subjectId: new mongoose.Types.ObjectId(subjectId), status: { $ne: 'Dropped' } } }
+    subjects: {
+      $elemMatch: {
+        subjectId: new mongoose.Types.ObjectId(subjectId),
+        status: { $ne: 'Dropped' },
+        submissionStatus: { $in: ['Submitted', 'Verified', 'Published'] }
+      }
+    }
   }
   if (semester) submissionBlockQuery.semester = semester
   if (schoolYear) submissionBlockQuery.schoolYear = schoolYear
-  const blockedEnrollment = await Enrollment.findOne(submissionBlockQuery).lean().select('gradeSubmission.status')
+  const blockedEnrollment = await Enrollment.findOne(submissionBlockQuery).lean().select('subjects')
   if (blockedEnrollment) {
+    const blockedSubject = blockedEnrollment.subjects.find(s =>
+      String(s.subjectId) === String(subjectId)
+      && s.status !== 'Dropped'
+    )
+    const blockStatus = blockedSubject?.submissionStatus || 'Submitted'
+    const hint = blockStatus === 'Submitted'
+      ? 'Wait for registrar verification or for the grade sheet to be returned.'
+      : blockStatus === 'Verified'
+        ? 'Grades are verified and awaiting publication. Wait for publication or return.'
+        : 'Grades are already published. Submit a grade change request to make corrections.'
     return res.status(400).json({
-      error: `Grades cannot be edited while submission status is "${blockedEnrollment.gradeSubmission?.status}". ${blockedEnrollment.gradeSubmission?.status === 'Submitted' ? 'Wait for registrar approval or revert to draft.' : 'Grades are already approved.'}`
+      error: `Grades cannot be edited while submission status is "${blockStatus}". ${hint}`
     })
   }
 
@@ -1194,11 +1287,23 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
     }
 
     const oldGrade = matchedEntry.grade ?? null
+    const oldGradeMark = matchedEntry.gradeMark || null
     const oldRemarks = matchedEntry.remarks || ''
 
     matchedEntry.grade = normalizedGrade
+    matchedEntry.gradeMark = normalizedGradeMark
     matchedEntry.remarks = remarks
     matchedEntry.dateModified = new Date()
+
+    // Sanitize any corrupted submissionStatus values so enrollment.save()
+    // doesn't fail on pre-existing bad data from the broken migration.
+    const validStatuses = ['Draft', 'Submitted', 'Verified', 'Published', 'Returned']
+    enrollment.subjects.forEach(subject => {
+      if (!validStatuses.includes(subject.submissionStatus)) {
+        subject.submissionStatus = 'Draft'
+      }
+    })
+
     enrollment.updatedBy = req.adminId
     enrollment.markModified('subjects')
     await enrollment.save()
@@ -1244,12 +1349,13 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
         contactNumber: normalizeProfessorRouteText(student?.contactNumber),
         corStatus: normalizeProfessorRouteText(student?.corStatus) || 'Pending',
         currentGrade: matchedEntry.grade ?? null,
+        currentGradeMark: matchedEntry.gradeMark || null,
         remarks: normalizeProfessorRouteText(matchedEntry.remarks),
         subjectStatus: normalizeProfessorRouteText(matchedEntry.status) || 'Enrolled',
         classSubjectCode: normalizeProfessorRouteText(matchedEntry.code),
         classSubjectTitle: normalizeProfessorRouteText(matchedEntry.title),
         gradeUpdatedAt: matchedEntry.dateModified || enrollment.updatedAt || new Date(),
-        gradeSubmissionStatus: enrollment.gradeSubmission?.status || 'Draft'
+        gradeSubmissionStatus: matchedEntry.submissionStatus || 'Draft'
       }
     })
   } catch (error) {
@@ -1517,6 +1623,144 @@ mongoose.connect(uri)
     
     // Migration: Update existing admin accounts with new fields
     migrateExistingAccounts()
+
+    // Migration: Update existing 'Approved' grade submissions to 'Published'
+    // The grade workflow changed from Approved → Published (with Verified as an intermediate step).
+    // Uses aggregation pipeline form to copy reviewedAt/reviewedBy → publishedAt/publishedBy.
+    void Enrollment.updateMany(
+      { 'gradeSubmission.status': 'Approved' },
+      [{
+        $set: {
+          'gradeSubmission.status': 'Published',
+          'gradeSubmission.publishedAt': '$gradeSubmission.reviewedAt',
+          'gradeSubmission.publishedBy': '$gradeSubmission.reviewedBy'
+        }
+      }]
+    ).then((result) => {
+      if (result.modifiedCount > 0) {
+        console.log(`Migration: ${result.modifiedCount} enrollment(s) migrated from Approved → Published`)
+      }
+    }).catch((error) => {
+      console.error('Approved→Published migration error:', error)
+    })
+
+    // Migration: Sync per-subject submissionStatus from enrollment-level gradeSubmission.status.
+    // This is needed because the grade submission workflow moved from enrollment-level to
+    // per-subject status. Existing enrollments have submissionStatus unset (defaults to Draft).
+    void (async () => {
+      try {
+        const enrollmentsToMigrate = await Enrollment.find({
+          'gradeSubmission.status': { $in: ['Submitted', 'Verified', 'Published', 'Returned'] },
+          'subjects.submissionStatus': { $exists: false }
+        }).select('_id gradeSubmission subjects').lean()
+
+        if (enrollmentsToMigrate.length === 0) {
+          // Also check for subjects with null submissionStatus
+          const countWithNull = await Enrollment.countDocuments({
+            'gradeSubmission.status': { $in: ['Submitted', 'Verified', 'Published', 'Returned'] },
+            'subjects.submissionStatus': null
+          })
+          if (countWithNull === 0) return
+        }
+
+        const enrollmentStatus = enrollmentsToMigrate.length > 0
+          ? enrollmentsToMigrate[0].gradeSubmission?.status
+          : 'Draft'
+
+        // For existing data, set all active subjects' submissionStatus to match the enrollment-level status.
+        // Uses aggregation pipeline so we can reference $gradeSubmission.status as a field value
+        // (standard $set with arrayFilters cannot reference other document fields).
+        await Enrollment.updateMany(
+          { 'gradeSubmission.status': { $in: ['Submitted', 'Verified', 'Published', 'Returned'] } },
+          [{
+            $set: {
+              subjects: {
+                $map: {
+                  input: '$subjects',
+                  as: 'subj',
+                  in: {
+                    $mergeObjects: [
+                      '$$subj',
+                      {
+                        submissionStatus: {
+                          $cond: [
+                            { $in: ['$$subj.status', ['Dropped', 'Removed']] },
+                            '$$subj.submissionStatus',
+                            {
+                              $ifNull: ['$$subj.submissionStatus', '$gradeSubmission.status']
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }]
+        )
+
+        // Fix any subjects whose submissionStatus was corrupted to the literal
+        // string "$gradeSubmission.status" by the previous broken updateMany.
+        await Enrollment.updateMany(
+          { 'subjects.submissionStatus': '$gradeSubmission.status' },
+          [{
+            $set: {
+              subjects: {
+                $map: {
+                  input: '$subjects',
+                  as: 'subj',
+                  in: {
+                    $mergeObjects: [
+                      '$$subj',
+                      {
+                        submissionStatus: {
+                          $cond: [
+                            { $eq: ['$$subj.submissionStatus', '$gradeSubmission.status'] },
+                            { $ifNull: ['$gradeSubmission.status', 'Draft'] },
+                            '$$subj.submissionStatus'
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }]
+        ).catch(() => null)
+
+        // Fix corrupted submissionStatus values using raw MongoDB driver
+        // (bypasses Mongoose validation that would reject the bad enum value).
+        // The broken migration wrote literal "$gradeSubmission.status" strings.
+        const rawCollection = mongoose.connection.db.collection('enrollments')
+        const corruptDocs = await rawCollection.find({
+          'subjects.submissionStatus': '$gradeSubmission.status'
+        }).toArray()
+
+        for (const doc of corruptDocs) {
+          const enrollmentStatus = doc.gradeSubmission?.status || 'Draft'
+          const validStatus = ['Draft', 'Submitted', 'Verified', 'Published', 'Returned'].includes(enrollmentStatus)
+            ? enrollmentStatus
+            : 'Draft'
+          const updatedSubjects = (doc.subjects || []).map(s => ({
+            ...s,
+            submissionStatus: s.submissionStatus === '$gradeSubmission.status' ? validStatus : (s.submissionStatus || 'Draft')
+          }))
+          await rawCollection.updateOne(
+            { _id: doc._id },
+            { $set: { subjects: updatedSubjects } }
+          )
+        }
+        if (corruptDocs.length > 0) {
+          console.log(`Migration: Fixed ${corruptDocs.length} enrollment(s) with corrupted submissionStatus`)
+        }
+
+        console.log(`Migration: Synced per-subject submissionStatus from enrollment-level status`)
+      } catch (error) {
+        console.error('Per-subject submissionStatus migration error:', error)
+      }
+    })()
     
     // Run initial backup after connection
     initialBackupTimeout = setTimeout(async () => {
@@ -3212,6 +3456,39 @@ function parseScheduleString(schedule) {
   }
 }
 
+// Parse schedule into per-day entries. Handles both classic ("MW 07:30-09:00")
+// and per-day ("M 07:30-09:00 @ Room 205 / W 13:00-14:30 @ Lab 3") formats.
+// Returns array of { day, startTime, endTime, room } or null if unparseable.
+function parseScheduleEntries(schedule) {
+  const trimmed = String(schedule || '').trim()
+  if (!trimmed || /^TBA$/i.test(trimmed)) return null
+
+  // Per-day format: "M 07:30-09:00 @ Room 205 / W 13:00-14:30 @ Lab 3"
+  if (trimmed.includes('/')) {
+    const segments = trimmed.split('/').map((s) => s.trim()).filter(Boolean)
+    const entries = []
+    for (const segment of segments) {
+      // Extract optional @ room suffix
+      const roomMatch = segment.match(/^(.+?)\s*@\s*(.+)$/)
+      const segmentBody = roomMatch ? roomMatch[1].trim() : segment
+      const segmentRoom = roomMatch ? roomMatch[2].trim() : ''
+
+      const match = segmentBody.match(/^([A-Z]+)\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})$/i)
+      if (!match) continue
+      const days = parseScheduleDayCodes(match[1])
+      for (const day of days) {
+        entries.push({ day, startTime: match[2], endTime: match[3], room: segmentRoom })
+      }
+    }
+    return entries.length > 0 ? entries : null
+  }
+
+  // Classic format: "MW 07:30-09:00"
+  const parsed = parseScheduleString(trimmed)
+  if (!parsed) return null
+  return parsed.days.map((day) => ({ day, startTime: parsed.startTime, endTime: parsed.endTime, room: '' }))
+}
+
 // GET /api/student/dashboard — aggregated payload for the mobile app's home
 // screen: profile summary, current academic context, today's schedule,
 // latest grades, and the most recent student-facing announcements.
@@ -3235,6 +3512,7 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
     }
     let todaySchedule = []
     let latestGrades = []
+    let enrolledSubjects = []
     let nextDayClasses = []
     let nextDayLabel = null
 
@@ -3255,48 +3533,73 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
         yearLevel: enrollment.yearLevel
       }
 
+      // Build the enrolled subjects list — visible to the student immediately
+      // upon enrollment, regardless of whether grades have been submitted/published.
+      // Grade is only included if the subject's submissionStatus is 'Published'.
+      enrolledSubjects = activeSubjects.map((subject) => {
+        const isPublished = (subject.submissionStatus || 'Draft') === 'Published'
+        return {
+          subjectId: subject.subjectId ? String(subject.subjectId) : null,
+          subjectCode: subject.code,
+          subjectTitle: subject.title,
+          units: subject.units,
+          schedule: subject.schedule || 'TBA',
+          room: subject.room || 'TBA',
+          instructor: subject.instructor || 'TBA',
+          subjectStatus: subject.status || 'Enrolled',
+          grade: isPublished ? (subject.grade ?? null) : null,
+          remarks: isPublished ? (subject.remarks || '') : '',
+          gradePublished: isPublished
+        }
+      })
+
       const todayCode = WEEKDAY_INDEX_TO_CODE[new Date().getDay()]
-      const subjectsWithSchedule = activeSubjects.filter(
-        (subject) => parseScheduleString(subject.schedule)
-      )
 
       todaySchedule = activeSubjects
-        .map((subject) => {
-          const parsed = parseScheduleString(subject.schedule)
-          if (!parsed || !parsed.days.includes(todayCode)) return null
-          return {
-            subjectCode: subject.code,
-            subjectTitle: subject.title,
-            room: subject.room || 'TBA',
-            instructor: subject.instructor || 'TBA',
-            startTime: parsed.startTime,
-            endTime: parsed.endTime
-          }
+        .flatMap((subject) => {
+          const entries = parseScheduleEntries(subject.schedule)
+          if (!entries) return []
+          return entries
+            .filter((entry) => entry.day === todayCode)
+            .map((entry) => ({
+              subjectCode: subject.code,
+              subjectTitle: subject.title,
+              room: entry.room || subject.room || 'TBA',
+              instructor: subject.instructor || 'TBA',
+              startTime: entry.startTime,
+              endTime: entry.endTime
+            }))
         })
-        .filter(Boolean)
         .sort((a, b) => a.startTime.localeCompare(b.startTime))
 
       // Build the weekly schedule so the dashboard can show a preview
       // when today has no classes (avoids the "enrolled but no schedule" confusion).
       const weeklyByDay = { M: [], T: [], W: [], TH: [], F: [], S: [], SU: [] }
       for (const subject of activeSubjects) {
-        const parsed = parseScheduleString(subject.schedule)
-        if (!parsed) continue
-        for (const dayCode of parsed.days) {
-          if (!weeklyByDay[dayCode]) continue
-          weeklyByDay[dayCode].push({
+        const entries = parseScheduleEntries(subject.schedule)
+        if (!entries) continue
+        for (const entry of entries) {
+          if (!weeklyByDay[entry.day]) continue
+          weeklyByDay[entry.day].push({
             subjectCode: subject.code,
             subjectTitle: subject.title,
-            room: subject.room || 'TBA',
+            room: entry.room || subject.room || 'TBA',
             instructor: subject.instructor || 'TBA',
-            startTime: parsed.startTime,
-            endTime: parsed.endTime
+            startTime: entry.startTime,
+            endTime: entry.endTime
           })
         }
       }
       for (const dayCode of Object.keys(weeklyByDay)) {
         weeklyByDay[dayCode].sort((a, b) => a.startTime.localeCompare(b.startTime))
       }
+
+      // Subjects that have at least one parseable schedule entry — used to
+      // distinguish "no schedule set at all" from "no classes today".
+      const subjectsWithSchedule = activeSubjects.filter((subject) => {
+        const entries = parseScheduleEntries(subject.schedule)
+        return entries && entries.length > 0
+      })
 
       // Find the next day (from today forward) that has classes, for the
       // "no classes today" preview.
@@ -3317,8 +3620,14 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
           ? 'today'
           : 'none_today'
 
+      // Only show grades to the student if the SPECIFIC SUBJECT's submissionStatus is Published.
+      // Per-subject publishing means some subjects may be published while others are still in draft.
       latestGrades = activeSubjects
-        .filter((subject) => subject.grade !== null && subject.grade !== undefined)
+        .filter((subject) =>
+          (subject.submissionStatus || 'Draft') === 'Published'
+          && subject.grade !== null
+          && subject.grade !== undefined
+        )
         .sort((a, b) => new Date(b.dateModified || 0) - new Date(a.dateModified || 0))
         .slice(0, 5)
         .map((subject) => ({
@@ -3361,6 +3670,7 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
             : null
         },
         academicSummary,
+        enrolledSubjects,
         todaySchedule,
         upcomingSchedule: nextDayClasses.length > 0 ? {
           dayLabel: nextDayLabel,
@@ -3391,6 +3701,9 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
   try {
     const student = req.student
 
+    // Fetch all non-dropped enrollments — we filter per-subject by submissionStatus below
+    // so that subjects published by one professor are visible even if another professor's
+    // subjects in the same enrollment are still in draft.
     const enrollments = await Enrollment.find({
       studentId: student._id,
       status: { $ne: 'Dropped' }
@@ -3398,22 +3711,40 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
 
     const periods = enrollments
       .map((enrollment) => {
-        const graded = (enrollment.subjects || [])
-          .filter((subject) => subject.grade !== null && subject.grade !== undefined)
-          .map((subject) => ({
-            subjectCode: subject.code,
-            subjectTitle: subject.title,
-            units: subject.units,
-            grade: subject.grade,
-            remarks: subject.remarks || (Number(subject.grade) <= 3.0 ? 'PASSED' : 'FAILED'),
-            status: subject.status
-          }))
+        // For the current term, show ALL active subjects so students can see
+        // what they're enrolled in even before grades are published. For
+        // historical terms, only show subjects with published grades.
+        const isCurrent = !!enrollment.isCurrent
+        const subjects = (enrollment.subjects || [])
+          .filter((subject) => {
+            if (isCurrent) {
+              return ['Enrolled', 'Incomplete'].includes(subject.status)
+            }
+            return (subject.submissionStatus || 'Draft') === 'Published'
+              && subject.grade !== null
+              && subject.grade !== undefined
+          })
+          .map((subject) => {
+            const isPublished = (subject.submissionStatus || 'Draft') === 'Published'
+            return {
+              subjectCode: subject.code,
+              subjectTitle: subject.title,
+              units: subject.units,
+              grade: isPublished && subject.grade != null ? subject.grade : 0,
+              gradeMark: isPublished ? (subject.gradeMark || null) : null,
+              remarks: isPublished ? (subject.remarks || (subject.gradeMark ? subject.gradeMark : (subject.grade != null && Number(subject.grade) <= 3.0 ? 'PASSED' : 'FAILED'))) : '',
+              status: subject.status || 'Enrolled'
+            }
+          })
 
-        if (graded.length === 0) return null
+        if (subjects.length === 0) return null
 
-        const totalUnits = graded.reduce((sum, g) => sum + (Number(g.units) || 0), 0)
+        // Only count published+graded subjects toward GPA/units
+        const graded = subjects.filter((s) => s.grade > 0)
+        const totalUnits = subjects.reduce((sum, g) => sum + (Number(g.units) || 0), 0)
+        const gradedUnits = graded.reduce((sum, g) => sum + (Number(g.units) || 0), 0)
         const weightedSum = graded.reduce((sum, g) => sum + (Number(g.grade) || 0) * (Number(g.units) || 0), 0)
-        const termGpa = totalUnits > 0 ? weightedSum / totalUnits : null
+        const termGpa = gradedUnits > 0 ? weightedSum / gradedUnits : null
 
         return {
           isCurrent: !!enrollment.isCurrent,
@@ -3422,12 +3753,15 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
           yearLevel: enrollment.yearLevel,
           termGpa: termGpa ? Number(termGpa.toFixed(2)) : null,
           totalUnits,
-          subjects: graded
+          subjects
         }
       })
       .filter(Boolean)
 
-    const allGradedSubjects = periods.flatMap((p) => p.subjects)
+    // Cumulative GPA/units only count subjects with actual grades
+    const allGradedSubjects = periods
+      .flatMap((p) => p.subjects)
+      .filter((s) => s.grade > 0)
     const cumulativeUnits = allGradedSubjects.reduce((sum, g) => sum + (Number(g.units) || 0), 0)
     const cumulativeWeighted = allGradedSubjects.reduce(
       (sum, g) => sum + (Number(g.grade) || 0) * (Number(g.units) || 0),
@@ -3462,6 +3796,7 @@ app.get('/api/student/announcements', studentAuthMiddleware, async (req, res) =>
 
     const filter = {
       isActive: true,
+      isArchived: { $ne: true },
       targetAudience: { $in: ['all', 'students'] }
     }
 
@@ -3547,17 +3882,17 @@ app.get('/api/student/schedule/weekly', studentAuthMiddleware, async (req, res) 
 
     const byDay = { M: [], T: [], W: [], TH: [], F: [], S: [], SU: [] }
     for (const subject of activeSubjects) {
-      const parsed = parseScheduleString(subject.schedule)
-      if (!parsed) continue
-      for (const dayCode of parsed.days) {
-        if (!byDay[dayCode]) continue
-        byDay[dayCode].push({
+      const entries = parseScheduleEntries(subject.schedule)
+      if (!entries) continue
+      for (const entry of entries) {
+        if (!byDay[entry.day]) continue
+        byDay[entry.day].push({
           subjectCode: subject.code,
           subjectTitle: subject.title,
-          room: subject.room || 'TBA',
+          room: entry.room || subject.room || 'TBA',
           instructor: subject.instructor || 'TBA',
-          startTime: parsed.startTime,
-          endTime: parsed.endTime
+          startTime: entry.startTime,
+          endTime: entry.endTime
         })
       }
     }
@@ -4890,7 +5225,7 @@ app.get('/api/announcements', publicReadLimiter, async (req, res) => {
   }
   try {
     const { targetAudience } = req.query
-    const filter = { isActive: true }
+    const filter = { isActive: true, isArchived: { $ne: true } }
     
     if (targetAudience && targetAudience !== 'all') {
       const audienceQueryValues = getAnnouncementAudienceQueryValues(targetAudience)
@@ -4968,15 +5303,19 @@ app.get('/api/admin/announcements', authMiddleware, requireAdminOrRegistrarRole,
         ? { $in: audienceQueryValues }
         : targetAudience
     }
-    if (status) filter.isActive = status === 'active'
+    if (status === 'active') filter.isActive = true
+    if (status === 'inactive') filter.isActive = false
+    if (status === 'archived') filter.isArchived = true
 
+    // Admin needs to see ALL announcements including expired ones
     const announcements = await Announcement.find(filter)
       .populate('createdBy', 'username displayName')
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit)
+      .setOptions({ skipExpiryFilter: true })
     
-    const total = await Announcement.countDocuments(filter)
+    const total = await Announcement.countDocuments(filter).setOptions({ skipExpiryFilter: true })
     
     res.json({
       announcements,
@@ -5081,6 +5420,7 @@ app.put('/api/admin/announcements/:id', authMiddleware, requireAdminOrRegistrarR
     if (expiresAt !== undefined) announcement.expiresAt = new Date(expiresAt)
     if (isPinned !== undefined) announcement.isPinned = isPinned
     if (isActive !== undefined) announcement.isActive = isActive
+    if (isArchived !== undefined) announcement.isArchived = isArchived
     if (isArchived === true) announcement.isActive = false
 
     if (Array.isArray(media)) {

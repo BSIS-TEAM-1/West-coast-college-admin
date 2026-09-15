@@ -1,0 +1,39 @@
+@startuml
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Segoe UI"
+
+title Curriculum & Subject Structure
+
+package "Subject Catalog" as SubjectCatalog #F3F4F6 {
+  rectangle "Subject A\n(e.g. Math 101)" as SubA
+  rectangle "Subject B\n(e.g. English 101)" as SubB
+  rectangle "Subject C\n(e.g. Science 101)" as SubC
+}
+
+package "Curriculum: BEED" #DBEAFE {
+  rectangle "Year 1 - 1st Sem" as Y1S1
+  rectangle "Year 1 - 2nd Sem" as Y1S2
+  rectangle "Year 2 - 1st Sem" as Y2S1
+}
+
+package "Block Section: BEED-1A" #D1FAE5 {
+  rectangle "Enrolled Students" as BlockStudents
+  rectangle "Assigned Subjects" as BlockSubjects
+}
+
+SubA --> Y1S1 : placed in
+SubB --> Y1S1 : placed in
+SubC --> Y1S2 : placed in
+
+Y1S1 --> BlockSubjects : subjects drawn from
+BlockSubjects --> BlockStudents : students take
+
+note bottom of SubjectCatalog
+  Subjects are the master list.
+  Curriculums organize them by
+  year level and semester.
+  Block sections inherit subjects
+  from the curriculum.
+end note
+
+@enduml

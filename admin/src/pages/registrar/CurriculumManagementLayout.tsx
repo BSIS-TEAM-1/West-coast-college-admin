@@ -4,6 +4,7 @@ import CurriculumManagementPage from './CurriculumManagementPage'
 import CreateCurriculumPage from './CreateCurriculumPage'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import type { Curriculum, CurriculumStatus } from './registrarBlockTypes'
+import '../CurriculumManagement.css'
 
 type CurriculumManagementView = 'overview' | 'curriculums' | 'create' | 'archived'
 

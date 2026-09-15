@@ -1,0 +1,35 @@
+@startuml
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Segoe UI"
+
+title Records Management Overview
+
+rectangle "Documents" as Docs #EDE9FE
+rectangle "Announcements" as Ann #FEF3C7
+rectangle "Reports" as Reps #D1FAE5
+
+file "Student Records" as SR
+file "Grade Reports" as GR
+file "Enrollment Reports" as ER
+file "Audit Trail" as AT
+
+Docs --> SR : store & retrieve
+Docs --> GR : archive grades
+Docs --> ER : track enrollment
+
+Reps --> SR : pull data
+Reps --> GR : generate summaries
+Reps --> AT : view change history
+
+Ann --> Students : broadcast notices
+Ann --> Professors : broadcast notices
+
+note right of AT
+  Audit trail tracks:
+  - Grade changes
+  - Status transitions
+  - Who made the change
+  - Timestamp
+end note
+
+@enduml
