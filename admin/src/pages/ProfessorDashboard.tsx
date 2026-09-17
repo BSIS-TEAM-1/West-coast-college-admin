@@ -36,6 +36,7 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
   const [view, setView] = useState<ProfessorView>('courses')
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [profile, setProfile] = useState<ProfileResponse | null>(initialProfile)
+  const [currentTime, setCurrentTime] = useState(new Date())
   const [assignedCourses, setAssignedCourses] = useState<ProfessorAssignedCourse[]>([])
   const [coursesLoading, setCoursesLoading] = useState(false)
   const [coursesError, setCoursesError] = useState('')
@@ -73,6 +74,14 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
     }
     void loadProfile()
   }, [initialProfile])
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 1000)
+
+    return () => clearInterval(timer)
+  }, [])
 
   // Animation effects
   useEffect(() => {
@@ -361,6 +370,12 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
             </button>
           ))}
         </nav>
+
+        <div className="professor-sidebar-time">
+          <div className="professor-sidebar-time-label">Current Time</div>
+          <div className="professor-sidebar-time-value">{currentTime.toLocaleTimeString()}</div>
+          <div className="professor-sidebar-date-value">{currentTime.toLocaleDateString()}</div>
+        </div>
 
       </aside>
       <button

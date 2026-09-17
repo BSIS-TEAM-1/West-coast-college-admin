@@ -55,11 +55,16 @@ const adminSchema = new mongoose.Schema({
   phoneVerified: { type: Boolean, default: false },
   phoneVerificationCodeHash: { type: String, default: '', select: false },
   phoneVerificationExpiresAt: { type: Date, default: null, select: false },
-  avatar: { 
-    type: String, 
-    default: '' 
+  avatar: {
+    type: String,
+    default: ''
   },
   avatarMimeType: { type: String, default: '' },
+  accentColor: {
+    type: String,
+    default: '#775a19',
+    trim: true
+  },
   additionalInfo: {
     type: additionalInfoSchema,
     default: () => ({})

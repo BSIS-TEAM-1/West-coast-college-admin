@@ -24,7 +24,7 @@ const legacyAudienceAliases: Record<string, AnnouncementAudience> = {
   staff: 'professor',
 }
 
-export const DEFAULT_ANNOUNCEMENT_AUDIENCE: AnnouncementAudienceSelection = ['all']
+export const DEFAULT_ANNOUNCEMENT_AUDIENCE: AnnouncementAudienceSelection = audienceOrder.filter((option) => option !== 'all') as AnnouncementAudienceSelection
 
 function normalizeAudienceValue(value: unknown): AnnouncementAudience | '' {
   const normalized = String(value || '').trim().toLowerCase()
@@ -46,32 +46,61 @@ export function normalizeAnnouncementAudience(value: unknown): AnnouncementAudie
     .filter((item): item is AnnouncementAudience => Boolean(item))
 
   const unique = [...new Set(normalized)]
+  
+  // If "all" is selected, expand to all individual roles for display purposes
   if (unique.includes('all')) {
-    return [...DEFAULT_ANNOUNCEMENT_AUDIENCE]
+    return audienceOrder.filter((option): option is AnnouncementAudience => option !== 'all')
   }
 
+  // Allow empty selection - don't default to all individual roles
   if (unique.length === 0) {
-    return [...DEFAULT_ANNOUNCEMENT_AUDIENCE]
+    return []
   }
 
-  return audienceOrder.filter((option) => unique.includes(option))
+  return audienceOrder.filter((option): option is AnnouncementAudience => unique.includes(option))
 }
 
 export function toggleAnnouncementAudience(
   currentValue: unknown,
   nextValue: AnnouncementAudience
 ): AnnouncementAudienceSelection {
+  const current = normalizeAnnouncementAudience(currentValue)
+  const individualRoles = audienceOrder.filter((option): option is AnnouncementAudience => option !== 'all')
+  const isAllSelected = current.length === individualRoles.length && 
+                       current.every(role => individualRoles.includes(role))
+
+  // Toggle "All Users"
   if (nextValue === 'all') {
-    return [...DEFAULT_ANNOUNCEMENT_AUDIENCE]
+    if (isAllSelected) {
+      // Deselecting "All Users" - clear all selections
+      return []
+    }
+    // Selecting "All Users" - return all individual roles
+    return [...individualRoles]
   }
 
-  const current = normalizeAnnouncementAudience(currentValue).filter((item) => item !== 'all')
+  // Toggle individual role when "All Users" is currently selected
+  if (isAllSelected) {
+    // Deselecting a specific role from "All Users" - keep the other roles
+    const remaining = individualRoles.filter((role) => role !== nextValue)
+    return remaining
+  }
+
+  // Toggle individual role normally
   if (current.includes(nextValue)) {
+    // Deselecting a role
     const remaining = current.filter((item) => item !== nextValue)
-    return remaining.length > 0 ? remaining : [...DEFAULT_ANNOUNCEMENT_AUDIENCE]
+    // Allow empty selection - don't default to "All Users"
+    return remaining
+  } else {
+    // Selecting a role
+    const newSelection = [...current, nextValue]
+    // If all individual roles are now selected, switch to "All Users"
+    if (newSelection.length === individualRoles.length) {
+      return [...individualRoles]
+    }
+    return newSelection
   }
-
-  return audienceOrder.filter((option) => option !== 'all' && [...current, nextValue].includes(option))
 }
 
 export function getAnnouncementAudienceLabels(value: unknown): string[] {
@@ -82,5 +111,19 @@ export function serializeAnnouncementAudienceForApi(
   value: unknown
 ): AnnouncementAudience | AnnouncementAudienceSelection {
   const normalized = normalizeAnnouncementAudience(value)
-  return normalized.length === 1 ? normalized[0] : normalized
+  const individualRoles = audienceOrder.filter((option): option is AnnouncementAudience => option !== 'all')
+  
+  // If all individual roles are selected, serialize as 'all'
+  if (normalized.length === individualRoles.length && 
+      normalized.every(role => individualRoles.includes(role))) {
+    return 'all'
+  }
+  
+  // Always serialize as array when multiple roles selected
+  if (normalized.length > 1) {
+    return normalized
+  }
+  
+  // Single role or empty (default to 'all' if empty)
+  return normalized[0] || 'all'
 }

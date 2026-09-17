@@ -69,7 +69,7 @@ const createDefaultAnnouncementDraft = (): Partial<Announcement> => ({
   title: '',
   message: '',
   type: 'info',
-  targetAudience: [...DEFAULT_ANNOUNCEMENT_AUDIENCE],
+  targetAudience: normalizeAnnouncementAudience([...DEFAULT_ANNOUNCEMENT_AUDIENCE]),
   isActive: true,
   isPinned: false,
   media: []
@@ -501,31 +501,37 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
   const renderAudienceSelector = (
     value: AnnouncementAudienceSelection,
     onChange: (nextValue: AnnouncementAudienceSelection) => void
-  ) => (
-    <>
-      <div className="audience-selector" role="group" aria-label="Target audience">
-        {audienceOptions.map((option) => {
-          const isSelected = value.includes(option.value)
-          return (
-            <label
-              key={option.value}
-              className="audience-selector-option"
-            >
-              <input
-                type="checkbox"
-                checked={isSelected}
-                onChange={() => onChange(toggleAnnouncementAudience(value, option.value as AnnouncementAudience))}
-              />
-              <span>{option.label}</span>
-            </label>
-          )
-        })}
-      </div>
-      <p className="audience-selector-hint">
-        Choose one or more audiences. Selecting All users clears the specific groups.
-      </p>
-    </>
-  )
+  ) => {
+    const individualRoles: AnnouncementAudience[] = ['students', 'registrar', 'professor', 'admin']
+    const isAllSelected = value.length === individualRoles.length && 
+                          value.every(role => individualRoles.includes(role))
+    
+    return (
+      <>
+        <div className="audience-selector" role="group" aria-label="Target audience">
+          {audienceOptions.map((option) => {
+            const isSelected = option.value === 'all' 
+              ? isAllSelected 
+              : value.includes(option.value)
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className={`audience-selector-option ${isSelected ? 'active' : ''}`}
+                onClick={() => onChange(toggleAnnouncementAudience(value, option.value as AnnouncementAudience))}
+                aria-pressed={isSelected}
+              >
+                <span>{option.label}</span>
+              </button>
+            )
+          })}
+        </div>
+        <p className="audience-selector-hint">
+          Choose one or more audiences. Selecting All users includes all roles. Deselecting a role from All users keeps the other roles selected.
+        </p>
+      </>
+    )
+  }
 
   const filteredAnnouncements = announcements.filter(announcement => {
     const matchesSearch = announcement.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -965,36 +971,32 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                 )}
               </div>
               
-              <div className="form-group horizontal-checkboxes">
-                <ul className="checkbox-list">
-                  <li>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={editingAnnouncement.isActive}
-                        onChange={(e) => setEditingAnnouncement({
-                          ...editingAnnouncement,
-                          isActive: e.target.checked
-                        })}
-                      />
-                      Active
-                    </label>
-                  </li>
-
-                  <li>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={editingAnnouncement.isPinned}
-                        onChange={(e) => setEditingAnnouncement({
-                          ...editingAnnouncement,
-                          isPinned: e.target.checked
-                        })}
-                      />
-                      Pinned
-                    </label>
-                  </li>
-                </ul>
+              <div className="form-group">
+                <label>Status</label>
+                <div className="toggle-button-group">
+                  <button
+                    type="button"
+                    className={`toggle-button ${editingAnnouncement.isActive ? 'active' : ''}`}
+                    onClick={() => setEditingAnnouncement({
+                      ...editingAnnouncement,
+                      isActive: !editingAnnouncement.isActive
+                    })}
+                    aria-pressed={editingAnnouncement.isActive}
+                  >
+                    <span>Active</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`toggle-button ${editingAnnouncement.isPinned ? 'active' : ''}`}
+                    onClick={() => setEditingAnnouncement({
+                      ...editingAnnouncement,
+                      isPinned: !editingAnnouncement.isPinned
+                    })}
+                    aria-pressed={editingAnnouncement.isPinned}
+                  >
+                    <span>Pinned</span>
+                  </button>
+                </div>
               </div>
             </div>
             
@@ -1098,7 +1100,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
               <div className="form-group">
                 <label>Target Audience</label>
                 {renderAudienceSelector(
-                  normalizeAnnouncementAudience(newAnnouncement.targetAudience),
+                  newAnnouncement.targetAudience || DEFAULT_ANNOUNCEMENT_AUDIENCE,
                   (targetAudience) => setNewAnnouncement({
                     ...newAnnouncement,
                     targetAudience,
@@ -1106,36 +1108,32 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                 )}
               </div>
               
-              <div className="form-group horizontal-checkboxes">
-                <ul className="checkbox-list">
-                  <li>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={newAnnouncement.isActive}
-                        onChange={(e) => setNewAnnouncement({
-                          ...newAnnouncement,
-                          isActive: e.target.checked
-                        })}
-                      />
-                      Active
-                    </label>
-                  </li>
-
-                  <li>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={newAnnouncement.isPinned}
-                        onChange={(e) => setNewAnnouncement({
-                          ...newAnnouncement,
-                          isPinned: e.target.checked
-                        })}
-                      />
-                      Pinned
-                    </label>
-                  </li>
-                </ul>
+              <div className="form-group">
+                <label>Status</label>
+                <div className="toggle-button-group">
+                  <button
+                    type="button"
+                    className={`toggle-button ${newAnnouncement.isActive ? 'active' : ''}`}
+                    onClick={() => setNewAnnouncement({
+                      ...newAnnouncement,
+                      isActive: !newAnnouncement.isActive
+                    })}
+                    aria-pressed={newAnnouncement.isActive}
+                  >
+                    <span>Active</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`toggle-button ${newAnnouncement.isPinned ? 'active' : ''}`}
+                    onClick={() => setNewAnnouncement({
+                      ...newAnnouncement,
+                      isPinned: !newAnnouncement.isPinned
+                    })}
+                    aria-pressed={newAnnouncement.isPinned}
+                  >
+                    <span>Pinned</span>
+                  </button>
+                </div>
               </div>
               
               <div className="form-group">

@@ -799,26 +799,27 @@ function CourseManagement({
           </div>
         </section>
       ) : (
-        <div className="professor-course-grid professor-course-layout-grid">
+        <div className="professor-course-list-compact professor-course-layout-grid">
           {filteredCourses.map((course) => {
             const courseSubjectCount = course.blocks.reduce((sum, block) => sum + block.subjects.length, 0)
             const courseLabel = toCourseDisplayLabel(course.courseCode)
             const courseTitle = toCourseFullLabel(course.courseCode, course.courseName)
 
             return (
-              <article key={course.courseCode} className="placeholder-card professor-course-card">
-                <div className="professor-course-header">
-                  <div className="professor-course-header-main">
+              <div key={course.courseCode} className="professor-course-accordion">
+                <div className="teaching-load-course-header professor-course-accordion-header">
+                  <div className="professor-course-accordion-info">
                     <span className="professor-course-label">{courseLabel}</span>
                     <h3>{courseTitle}</h3>
                   </div>
-                  <div className="professor-course-summary">
-                    <span>{course.blocks.length} block(s)</span>
-                    <span>{courseSubjectCount} subject(s)</span>
+                  <div className="professor-course-accordion-stats">
+                    <span>{course.blocks.length} block{course.blocks.length !== 1 ? 's' : ''}</span>
+                    <span>•</span>
+                    <span>{courseSubjectCount} subject{courseSubjectCount !== 1 ? 's' : ''}</span>
                   </div>
                 </div>
 
-                <div className="professor-block-list">
+                <div className="professor-block-accordion-list">
                   {course.blocks.map((block) => {
                     const blockCode = formatBlockCode(course.courseCode, block.sectionCode)
                     const blockKey = getBlockKey(course.courseCode, block)
@@ -827,17 +828,18 @@ function CourseManagement({
                     const blockStudentLabel = formatStudentCountLabel(blockStudentCount)
 
                     return (
-                      <section
+                      <div
                         key={`${course.courseCode}-${block.sectionCode}-${block.semester}-${block.schoolYear}`}
-                        className={`professor-block-item ${isExpanded ? 'is-expanded' : ''}`}
+                        className="professor-block-accordion"
                       >
                         <button
                           type="button"
-                          className="professor-block-toggle"
+                          className="professor-block-accordion-toggle"
                           onClick={() => toggleBlock(blockKey)}
                           aria-expanded={isExpanded}
                         >
-                          <div className="professor-block-toggle-main">
+                          <ChevronRight size={16} className={`professor-block-accordion-chevron ${isExpanded ? 'is-expanded' : ''}`} />
+                          <div className="professor-block-accordion-content">
                             <span className="professor-block-label">Block</span>
                             <strong>{blockCode}</strong>
                             <span className="professor-block-meta">
@@ -845,17 +847,15 @@ function CourseManagement({
                               {block.yearLevel ? ` • Year ${block.yearLevel}` : ''}
                             </span>
                           </div>
-                          <div className="professor-block-toggle-side">
-                            <div className="professor-block-metrics">
-                              <span>{blockStudentLabel}</span>
-                              <span>{block.subjects.length} subjects</span>
-                            </div>
-                            <ChevronRight size={16} className={`professor-block-chevron ${isExpanded ? 'is-expanded' : ''}`} />
+                          <div className="professor-block-accordion-metrics">
+                            <span>{blockStudentLabel}</span>
+                            <span>•</span>
+                            <span>{block.subjects.length} subject{block.subjects.length !== 1 ? 's' : ''}</span>
                           </div>
                         </button>
 
                         {isExpanded && (
-                          <div className="professor-subject-list">
+                          <div className="professor-subject-compact-list">
                             {block.subjects.map((subject) => {
                               const scheduleText = subject.schedule?.trim() ? subject.schedule : 'TBA'
                               const roomText = subject.room?.trim() ? subject.room : 'TBA'
@@ -864,29 +864,44 @@ function CourseManagement({
                               const subjectMenuId = [course.courseCode, block.sectionId || block.sectionCode, subject.subjectId].join('|')
 
                               return (
-                                <article key={`${block.sectionCode}-${subject.subjectId}`} className="professor-subject-item">
-                                  <div className="professor-subject-card-head">
-                                    <div className="professor-subject-code-row">
-                                      <span className="professor-subject-code">
-                                        <BookOpen size={15} />
-                                        {subject.code || 'N/A'}
+                                <div
+                                  key={`${block.sectionCode}-${subject.subjectId}`}
+                                  className="professor-subject-compact-row"
+                                >
+                                  <button
+                                    type="button"
+                                    className="professor-subject-compact-link"
+                                    onClick={() => {
+                                      onOpenSubjectDetail({
+                                        courseCode: course.courseCode,
+                                        blockCode,
+                                        sectionId: block.sectionId,
+                                        sectionCode: block.sectionCode,
+                                        semester: block.semester,
+                                        schoolYear: block.schoolYear,
+                                        subject
+                                      })
+                                    }}
+                                  >
+                                    <div className="professor-subject-compact-main">
+                                      <div className="professor-subject-compact-code">
+                                        <BookOpen size={14} />
+                                        <span>{subject.code || 'N/A'}</span>
+                                      </div>
+                                      <div className="professor-subject-compact-title">{subject.title}</div>
+                                    </div>
+                                    <div className="professor-subject-compact-details">
+                                      <span className="professor-subject-compact-detail">
+                                        <Clock size={13} />
+                                        {scheduleText}
+                                      </span>
+                                      <span className="professor-subject-compact-detail">
+                                        <MapPin size={13} />
+                                        Room {roomText}
                                       </span>
                                     </div>
-                                    <div className="professor-subject-title">{subject.title}</div>
-                                  </div>
-
-                                  <div className="professor-subject-facts">
-                                    <span className="professor-subject-fact">
-                                      <Clock size={14} />
-                                      {scheduleText}
-                                    </span>
-                                    <span className="professor-subject-fact">
-                                      <MapPin size={14} />
-                                      Room {roomText}
-                                    </span>
-                                  </div>
-
-                                  <div className="professor-subject-actions">
+                                  </button>
+                                  <div className="professor-subject-compact-actions">
                                     {renderSubjectActionMenu(subjectMenuId, {
                                       courseCode: course.courseCode,
                                       blockCode,
@@ -895,20 +910,20 @@ function CourseManagement({
                                       classKey,
                                       canOpenRoster
                                     }, {
-                                      menuClassName: 'professor-subject-action-menu-grid',
+                                      menuClassName: 'professor-subject-action-menu-compact',
                                       align: 'end'
                                     })}
                                   </div>
-                                </article>
+                                </div>
                               )
                             })}
                           </div>
                         )}
-                      </section>
+                      </div>
                     )
                   })}
                 </div>
-              </article>
+              </div>
             )
           })}
         </div>

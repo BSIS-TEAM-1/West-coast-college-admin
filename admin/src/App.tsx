@@ -11,7 +11,7 @@ import {
   logout
 } from './lib/authApi'
 import { isNetworkRequestError, sleep, waitForOnline } from './lib/network'
-import { applyThemePreference, getStoredTheme, moveThemePreferencesToScope, setActiveThemeScope } from './lib/theme'
+import { applyAccentColorPreference, applyThemePreference, DEFAULT_THEME_ACCENT_COLOR, getStoredAccentColor, getStoredTheme, moveThemePreferencesToScope, setActiveThemeScope } from './lib/theme'
 import Login from './pages/Login'
 import SignUp from './pages/SignUp'
 import LandingPage from './pages/LandingPage'
@@ -62,6 +62,12 @@ function App() {
 
     setActiveThemeScope(profile.username)
     applyThemePreference(getStoredTheme(profile.username), { persist: false, scope: profile.username })
+    
+    // Load and apply user's accent color from profile
+    if (profile.accentColor) {
+      applyAccentColorPreference(profile.accentColor, { persist: true, scope: profile.username })
+    }
+    
     setCachedProfile(profile)
     setProfile(profile)
     setUser({ username, accountType: profile.accountType })
@@ -88,6 +94,12 @@ function App() {
           setSessionReconnectMessage('')
           setActiveThemeScope(profile.username)
           applyThemePreference(getStoredTheme(profile.username), { persist: false, scope: profile.username })
+          
+          // Load and apply user's accent color from profile
+          if (profile.accentColor) {
+            applyAccentColorPreference(profile.accentColor, { persist: true, scope: profile.username })
+          }
+          
           setCachedProfile(profile)
           setProfile(profile)
           setUser({ username: profile.username, accountType: profile.accountType })
@@ -203,6 +215,7 @@ function App() {
     } finally {
       setActiveThemeScope(null)
       applyThemePreference(getStoredTheme(null), { persist: false, scope: null })
+      applyAccentColorPreference(DEFAULT_THEME_ACCENT_COLOR, { persist: false, scope: null })
       setUser(null)
       setProfile(null)
       setShowSignIn(false)
@@ -228,6 +241,11 @@ function App() {
     setProfile(profile)
     setActiveThemeScope(profile.username)
     applyThemePreference(getStoredTheme(profile.username), { persist: false, scope: profile.username })
+    
+    // Apply updated accent color from profile
+    if (profile.accentColor) {
+      applyAccentColorPreference(profile.accentColor, { persist: true, scope: profile.username })
+    }
   }, [user])
 
   if (user) {
