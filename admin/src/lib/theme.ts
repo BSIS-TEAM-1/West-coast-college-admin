@@ -294,6 +294,17 @@ export const getStoredAccentColor = (scope?: string | null): ThemeAccentColor =>
   return DEFAULT_THEME_ACCENT_COLOR
 }
 
+export const setAccentColorForUser = (username: string, accentColor: ThemeAccentColor): void => {
+  const userScope = `user:${username}`
+  const normalizedAccentColor = normalizeAccentColor(accentColor) ?? DEFAULT_THEME_ACCENT_COLOR
+  localStorage.setItem(getAccentStorageKey(userScope), normalizedAccentColor)
+}
+
+export const getAccentColorForUser = (username: string): ThemeAccentColor => {
+  const userScope = `user:${username}`
+  return getStoredAccentColor(userScope)
+}
+
 export const resolveTheme = (theme: ThemePreference): ResolvedTheme =>
   theme === 'auto'
     ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
@@ -408,5 +419,18 @@ export const moveThemePreferencesToScope = (
   if (previousScope !== GUEST_THEME_SCOPE) {
     localStorage.removeItem(getThemeStorageKey(previousScope))
     localStorage.removeItem(getAccentStorageKey(previousScope))
+  }
+}
+
+export const loadUserAccentColor = async (username: string): Promise<ThemeAccentColor> => {
+  try {
+    const userAccent = getAccentColorForUser(username)
+    if (userAccent && userAccent !== DEFAULT_THEME_ACCENT_COLOR) {
+      return userAccent
+    }
+    return DEFAULT_THEME_ACCENT_COLOR
+  } catch (error) {
+    console.warn('Failed to load user accent color:', error)
+    return DEFAULT_THEME_ACCENT_COLOR
   }
 }

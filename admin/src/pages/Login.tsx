@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 
 import './Login.css'
 import type { LoginEmailVerificationChallengeResponse, LoginFlowResponse, LoginResponse } from '../lib/authApi'
-import { applyThemePreference, getStoredTheme, setActiveThemeScope, type ThemePreference } from '../lib/theme'
+import { applyAccentColorPreference, applyThemePreference, DEFAULT_THEME_ACCENT_COLOR, getStoredAccentColor, getStoredTheme, setActiveThemeScope, setAccentColorForUser, type ThemeAccentColor, type ThemePreference } from '../lib/theme'
 import { ensureRecaptchaLoaded, executeRecaptchaAction, getRecaptchaSiteKey } from '../lib/recaptcha'
 import { formatVerificationCountdown, getVerificationSecondsRemaining } from '../lib/verificationTimer'
 

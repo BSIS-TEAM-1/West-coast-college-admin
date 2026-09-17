@@ -4203,7 +4203,8 @@ const buildAdminProfileResponse = (adminRecord) => ({
   phoneVerified: Boolean(adminRecord.phoneVerified),
   avatar: adminRecord.avatar || '',
   accountType: adminRecord.accountType,
-  additionalInfo: normalizeAdminAdditionalInfo(adminRecord.additionalInfo)
+  additionalInfo: normalizeAdminAdditionalInfo(adminRecord.additionalInfo),
+  accentColor: adminRecord.accentColor || null
 })
 
 // GET /api/admin/profile – requires Bearer token
@@ -4214,10 +4215,10 @@ app.get('/api/admin/profile', authMiddleware, securityMiddleware.inputValidation
   }
   try {
     const admin = await Admin.findById(req.adminId)
-      .select('username displayName email emailVerified primaryLoginMethod loginEmailVerificationEnabled phone phoneVerified avatar accountType additionalInfo')
+      .select('username displayName email emailVerified primaryLoginMethod loginEmailVerificationEnabled phone phoneVerified avatar accountType additionalInfo accentColor')
       .lean()
     if (!admin) return res.status(404).json({ error: 'Admin not found.' })
-    
+
     const profileData = buildAdminProfileResponse(admin)
     res.json(profileData)
   } catch (err) {
@@ -4245,7 +4246,8 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
       newUsername,
       currentPassword,
       newPassword,
-      additionalInfo
+      additionalInfo,
+      accentColor
     } = req.body
 
     if (typeof displayName === 'string') admin.displayName = displayName.trim()
@@ -4343,6 +4345,10 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
         ...(admin.additionalInfo || {}),
         ...additionalInfo
       })
+    }
+
+    if (typeof accentColor === 'string' && accentColor.trim()) {
+      admin.accentColor = accentColor.trim()
     }
 
     await admin.save()

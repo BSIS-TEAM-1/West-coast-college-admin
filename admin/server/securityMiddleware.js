@@ -365,7 +365,8 @@ const schemas = {
           allergies: Joi.string().trim().max(500).allow('').optional(),
           medicalConditions: Joi.string().trim().max(1000).allow('').optional(),
           skills: Joi.string().trim().max(1000).allow('').optional()
-        }).optional()
+        }).optional(),
+        accentColor: Joi.string().trim().max(254).allow('').optional()
       })
     },
     sendEmailVerificationCode: {

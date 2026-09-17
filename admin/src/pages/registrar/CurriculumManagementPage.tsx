@@ -116,6 +116,10 @@ function CurriculumManagementPage({
   }
 
   const handleActivate = async (curriculum: Curriculum) => {
+    if (curriculum.status === 'Archived') {
+      alert('Archived curriculums cannot be activated. Please unarchive the curriculum first.')
+      return
+    }
     if (!window.confirm(`Activate "${curriculum.name || curriculum.programName + ' ' + curriculum.version}"? This will set any other active curriculum for this program to Legacy.`)) return
     setError('')
     setSuccess('')

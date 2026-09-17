@@ -154,6 +154,7 @@ export type ProfileResponse = {
   avatar: string
   accountType: 'admin' | 'registrar' | 'professor'
   additionalInfo?: AdditionalInfo
+  accentColor?: string
 }
 export type UpdateProfileRequest = {
   displayName?: string
@@ -165,6 +166,7 @@ export type UpdateProfileRequest = {
   currentPassword?: string
   newPassword?: string
   additionalInfo?: Partial<AdditionalInfo>
+  accentColor?: string
 }
 
 export type AccountLog = {

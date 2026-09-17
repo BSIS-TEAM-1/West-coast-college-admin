@@ -36,7 +36,7 @@ function buildContentSecurityPolicyValue() {
     "form-action 'self'",
     "object-src 'none'",
     `script-src ${scriptSrc.join(' ')}`,
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com",
     "img-src 'self' data: blob: https://accounts.google.com https://www.google.com https://www.gstatic.com",
     "font-src 'self' data: https://fonts.gstatic.com",
     `connect-src ${connectSrc.join(' ')}`,

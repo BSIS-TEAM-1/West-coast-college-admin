@@ -4,8 +4,10 @@ import type { ProfileResponse, UpdateProfileRequest } from '../lib/authApi';
 import {
   applyAccentColorPreference,
   applyThemePreference,
+  getAccentColorForUser,
   getStoredAccentColor,
   getStoredTheme,
+  setAccentColorForUser,
   THEME_ACCENT_PRESETS,
   type ThemeAccentColor,
   type ThemePreference,
@@ -30,6 +32,7 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
 
   // Accent color state
   const [accentColor, setAccentColor] = useState<ThemeAccentColor>(() => getStoredAccentColor());
+  const [initialAccentColor, setInitialAccentColor] = useState<ThemeAccentColor>(() => getStoredAccentColor());
 
   const handleAccentChange = (color: ThemeAccentColor) => {
     setAccentColor(color);
@@ -105,7 +108,6 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
     const initialTheme = getStoredTheme();
     setTheme(initialTheme);
     applyThemePreference(initialTheme, { persist: false });
-    applyAccentColorPreference(getStoredAccentColor(), { persist: false });
 
     getProfile()
       .then((loadedProfile) => {
@@ -114,6 +116,13 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
           ...prev,
           loginEmailVerificationEnabled: Boolean(loadedProfile.loginEmailVerificationEnabled),
         }));
+
+        // Load accent color from user profile or fallback to stored
+        const userAccentColor = loadedProfile.accentColor || getStoredAccentColor();
+        setAccentColor(userAccentColor);
+        setInitialAccentColor(userAccentColor);
+        applyAccentColorPreference(userAccentColor, { persist: false });
+        setAccentColorForUser(loadedProfile.username, userAccentColor);
       })
       .catch((err) => {
         setStatus({
@@ -150,9 +159,10 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
     return (
       formData.newUsername.trim().length > 0 ||
       formData.newPassword.length >= 6 ||
-      Boolean(profile) && formData.loginEmailVerificationEnabled !== Boolean(profile?.loginEmailVerificationEnabled)
+      Boolean(profile) && formData.loginEmailVerificationEnabled !== Boolean(profile?.loginEmailVerificationEnabled) ||
+      accentColor !== initialAccentColor
     );
-  }, [formData, profile]);
+  }, [formData, profile, accentColor, initialAccentColor]);
 
   const canEnableLoginEmailVerification = Boolean(profile?.emailVerified && profile?.email);
 
@@ -179,7 +189,7 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
       });
       return;
     }
-    
+
     // Password Validation Logic
     if (formData.newPassword && !formData.currentPassword) {
       setStatus({ type: 'error', message: 'Current password is required to set a new one.' });
@@ -201,9 +211,13 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
         updates.newPassword = formData.newPassword;
       }
 
+      if (accentColor !== initialAccentColor) {
+        updates.accentColor = accentColor;
+      }
+
       const updated = await updateProfile(updates);
       setProfile(updated);
-      
+
       setFormData(prev => ({
         ...prev,
         newUsername: '',
@@ -211,12 +225,14 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
         newPassword: '',
         loginEmailVerificationEnabled: Boolean(updated.loginEmailVerificationEnabled),
       }));
-      setStatus({ type: 'success', message: 'Security settings updated successfully.' });
+      setInitialAccentColor(accentColor);
+      setAccentColorForUser(updated.username, accentColor);
+      setStatus({ type: 'success', message: 'Settings updated successfully.' });
       onProfileUpdated?.(updated);
     } catch (err) {
-      setStatus({ 
-        type: 'error', 
-        message: err instanceof Error ? err.message : 'Failed to update security settings.' 
+      setStatus({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Failed to update settings.'
       });
     } finally {
       setSaving(false);

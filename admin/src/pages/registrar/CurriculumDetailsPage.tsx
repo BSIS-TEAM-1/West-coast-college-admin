@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, BookOpen, ChevronDown, ChevronRight, Copy, Plus, Search, Trash2, GraduationCap, BookPlus, Info, X } from 'lucide-react'
+import { ArrowLeft, BookOpen, ChevronDown, ChevronRight, Copy, Plus, Search, Trash2, GraduationCap, BookPlus, Info, X, CheckCircle } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import type { CurriculumStructure, Semester, SubjectItem } from './registrarBlockTypes'
 import '../CurriculumManagement.css'
@@ -295,6 +295,28 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
     }
   }
 
+  const handleActivate = async () => {
+    if (!structure?.curriculum) return
+    if (structure.curriculum.status === 'Archived') {
+      alert('Archived curriculums cannot be activated. Please unarchive the curriculum first.')
+      return
+    }
+    if (!window.confirm(`Activate "${structure.curriculum.name || structure.curriculum.programName + ' ' + structure.curriculum.version}"? This will set any other active curriculum for this program to Legacy.`)) return
+    setError('')
+    setSuccess('')
+    try {
+      const data = await authorizedFetch(`/api/registrar/curriculums/${curriculumId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'Active' }),
+      })
+      setSuccess(data?.message || 'Curriculum activated')
+      await fetchStructure()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to activate curriculum')
+    }
+  }
+
   const openAddModal = (yearLevel: number, semester: Semester) => {
     setAddYearLevel(yearLevel)
     setAddSemester(semester)
@@ -357,6 +379,12 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
               <Copy size={16} />
               Duplicate
             </button>
+            {!isActive && (
+              <button className="registrar-btn registrar-btn-primary" type="button" onClick={handleActivate}>
+                <CheckCircle size={16} />
+                Activate
+              </button>
+            )}
           </div>
         )}
       </div>
