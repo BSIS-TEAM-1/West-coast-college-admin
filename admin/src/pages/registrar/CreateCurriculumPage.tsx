@@ -258,7 +258,7 @@ export default function CreateCurriculumPage({ onBack, onCreated }: CreateCurric
       const data = await authorizedFetch(`/api/registrar/subjects?q=${subjectId}&isActive=true&limit=50`)
       const results = Array.isArray(data?.data) ? data.data : []
       cacheSubjects(results)
-      return results.find((s) => s._id === subjectId) || subjectCacheRef.current.get(subjectId)
+      return results.find((s: any) => s._id === subjectId) || subjectCacheRef.current.get(subjectId)
     } catch {
       return subjectCacheRef.current.get(subjectId)
     }
@@ -975,7 +975,6 @@ export default function CreateCurriculumPage({ onBack, onCreated }: CreateCurric
           onClose={() => setEditingLocalId(null)}
           authorizedFetch={authorizedFetch}
           cacheSubjects={cacheSubjects}
-          placedSubjectIds={placedSubjectIds}
         />
       )}
 
@@ -1010,12 +1009,11 @@ type PlacementEditorModalProps = {
   onClose: () => void
   authorizedFetch: (path: string, init?: RequestInit) => Promise<unknown>
   cacheSubjects: (subjects: SubjectItem[]) => void
-  placedSubjectIds: Set<string>
 }
 
 function PlacementEditorModal({
   placement, subject, getSubject, getDefaultPrereqIds, getEffectivePrereqIds,
-  onUpdate, onTogglePrereq, onSetPrereqMode, onClose, authorizedFetch, cacheSubjects, placedSubjectIds,
+  onUpdate, onTogglePrereq, onSetPrereqMode, onClose, authorizedFetch, cacheSubjects,
 }: PlacementEditorModalProps) {
   const [prereqSearch, setPrereqSearch] = useState('')
   const [prereqResults, setPrereqResults] = useState<SubjectItem[]>([])

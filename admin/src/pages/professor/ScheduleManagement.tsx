@@ -356,16 +356,16 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
   }
 
   const classItems = useMemo<ScheduleItem[]>(() =>
-    courses.flatMap((course) =>
-      course.blocks
-        .flatMap((block) =>
-          block.subjects.map((subject) => {
+  courses.flatMap((course) =>
+    course.blocks.flatMap((block) =>
+      block.subjects.flatMap((subject): ScheduleItem[] => {
             const courseCode = normalizeCourseCode(course.courseCode)
             const room = getRoomParts(subject.room || 'TBA')
             const sectionCode = String(block.sectionCode || 'UNASSIGNED')
             const sectionId = block.sectionId || `unassigned-${sectionCode}`
             const scheduleText = String(subject.schedule || '')
-            const baseItem = {
+            const baseItem: ScheduleItem = {
+              id: `${course.courseCode}-${sectionId}-${subject.subjectId}`,
               courseCode: String(course.courseCode || ''),
               courseDisplayCode: courseCode,
               sectionCode,
@@ -379,13 +379,18 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
               semester: String(block.semester || 'N/A'),
               schoolYear: String(block.schoolYear || 'N/A'),
               yearLevel: block.yearLevel ?? null,
-              enrolledStudents: Number.isFinite(subject.enrolledStudents) ? subject.enrolledStudents : 0
+              enrolledStudents: Number.isFinite(subject.enrolledStudents) ? subject.enrolledStudents : 0,
+              days: [],
+              startMinutes: null,
+              endMinutes: null,
+              startTime: '',
+              endTime: ''
             }
 
             // Check for per-day schedule format first
             const perDay = parsePerDaySchedule(scheduleText)
             if (perDay) {
-              return perDay.map((entry) => {
+              return perDay.map((entry): ScheduleItem => {
                 const entryRoom = entry.room ? getRoomParts(entry.room) : room
                 return {
                   ...baseItem,
@@ -404,15 +409,17 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
             // Classic format: single time for all days
             const days = parseDays(scheduleText)
             const parsedTime = parseTimeRange(scheduleText)
-            return {
-              ...baseItem,
-              id: `${course.courseCode}-${sectionId}-${subject.subjectId}`,
-              days,
-              startMinutes: parsedTime.startMinutes,
-              endMinutes: parsedTime.endMinutes,
-              startTime: parsedTime.startTime,
-              endTime: parsedTime.endTime
-            }
+            return days.map((day): ScheduleItem => {
+              return {
+                ...baseItem,
+                id: `${course.courseCode}-${sectionId}-${subject.subjectId}-${day}`,
+                days: [day],
+                startMinutes: parsedTime.startMinutes,
+                endMinutes: parsedTime.endMinutes,
+                startTime: parsedTime.startTime,
+                endTime: parsedTime.endTime
+              }
+            })
           })
         )
     )

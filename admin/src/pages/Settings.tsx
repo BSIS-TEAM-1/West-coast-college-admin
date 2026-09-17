@@ -4,7 +4,6 @@ import type { ProfileResponse, UpdateProfileRequest } from '../lib/authApi';
 import {
   applyAccentColorPreference,
   applyThemePreference,
-  getAccentColorForUser,
   getStoredAccentColor,
   getStoredTheme,
   setAccentColorForUser,

@@ -210,7 +210,10 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
       }> }>(`/api/registrar/curriculums?programCode=${meta.course}`)
         .then((data) => {
           const curriculums = Array.isArray(data?.data) ? data.data : []
-          setAvailableCurriculums(curriculums.filter((c) => c.status !== 'Archived'))
+          setAvailableCurriculums(curriculums.filter((c) => c.status !== 'Archived').map((c) => ({
+            ...c,
+            programName: c.name || ''
+          })))
         })
         .catch(() => setAvailableCurriculums([]))
     } else {

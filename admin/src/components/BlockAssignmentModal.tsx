@@ -806,7 +806,7 @@ export default function BlockAssignmentModal({
                 </div>
               </div>
               <div className="student-workspace__student-list student-workspace__student-list--compact">
-                {students.map((student, index) => {
+                {students.map((student) => {
                   const bulkItem = bulkEligibility?.eligible.find((e) => e.studentId === student._id)
                   const isIneligible = bulkEligibility?.ineligible.find((e) => e.studentId === student._id)
                   const slotsAvailable = bulkEligibility?.summary.slotsAvailable ?? 0

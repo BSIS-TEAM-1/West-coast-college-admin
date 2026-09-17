@@ -5,7 +5,6 @@ import {
   updateProfile,
   uploadAvatar,
   sendEmailVerificationCode,
-  sendPhoneVerificationCode,
   verifyEmailAddress,
   verifyPhoneNumber,
   requestEmailChangeVerification,
@@ -46,7 +45,7 @@ const normalizePhoneNumber = (rawPhone: string): string => {
 
 const normalizeEmailAddress = (rawEmail: string): string => String(rawEmail || '').trim().toLowerCase();
 const isValidEmailAddress = (email: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-const isCompletePhoneNumber = (normalizedPhone: string): boolean => /^09\d{9}$/.test(normalizedPhone);
+//const isCompletePhoneNumber = (normalizedPhone: string): boolean => /^09\d{9}$/.test(normalizedPhone);
 const VERIFICATION_CODE_LENGTH = 6;
 
 export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) {
@@ -56,7 +55,7 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
   const [updatingPrimaryLogin, setUpdatingPrimaryLogin] = useState(false);
   const [pendingEmailPrimaryActivation, setPendingEmailPrimaryActivation] = useState(false);
   const [sendingEmailCode, setSendingEmailCode] = useState(false);
-  const [sendingPhoneCode, setSendingPhoneCode] = useState(false);
+ // const [sendingPhoneCode, setSendingPhoneCode] = useState(false);//
   const [confirmingVerificationCode, setConfirmingVerificationCode] = useState(false);
   const [showEmailChangeModal, setShowEmailChangeModal] = useState(false);
   const [emailChangeDraft, setEmailChangeDraft] = useState('');
@@ -68,7 +67,9 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
   const [emailChangeDestination, setEmailChangeDestination] = useState('');
   const [emailChangeExpiresAt, setEmailChangeExpiresAt] = useState('');
   const [emailChangeSecondsRemaining, setEmailChangeSecondsRemaining] = useState<number | null>(null);
-  const [phoneEditMode, setPhoneEditMode] = useState(false);
+  /*const [phoneEditMode, setPhoneEditMode] = useState(false);
+  const [showPhoneCodeInput, setShowPhoneCodeInput] = useState(false);
+  const [phoneCodeDigits, setPhoneCodeDigits] = useState(Array(6).fill(''));*/
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [verificationTarget, setVerificationTarget] = useState<VerificationTarget>('phone');
   const [verificationDigits, setVerificationDigits] = useState<string[]>(() => Array(VERIFICATION_CODE_LENGTH).fill(''));
@@ -107,7 +108,7 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
           phone: p.phone || '',
           username: p.username,
         });
-        setPhoneEditMode(false);
+        //setPhoneEditMode(false);
         setAvatarLoadError(false);
       })
       .catch((err) =>
@@ -215,23 +216,13 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
         : 'Add an email address to enable Google sign-in.';
   const usernameLoginHint = 'Username remains available for manual sign-in.';
 
-  const normalizedPhoneInput = useMemo(() => normalizePhoneNumber(formData.phone), [formData.phone]);
-  const normalizedProfilePhone = useMemo(() => normalizePhoneNumber(profile?.phone || ''), [profile?.phone]);
-  const hasPhoneInput = Boolean(formData.phone.trim());
-  const isPhoneComplete = isCompletePhoneNumber(normalizedPhoneInput);
-  const isStoredPhoneVerified = Boolean(profile?.phoneVerified) && Boolean(normalizedProfilePhone);
-  const isCurrentPhoneStored = Boolean(normalizedPhoneInput) && normalizedPhoneInput === normalizedProfilePhone;
-  const activePhoneIsVerified = isStoredPhoneVerified && isCurrentPhoneStored;
-  const phoneInputLocked = activePhoneIsVerified && !phoneEditMode;
-  const showVerifyButton = !activePhoneIsVerified && isPhoneComplete;
-  const showPhoneActionButton = activePhoneIsVerified || showVerifyButton;
-  const phoneVerificationHint = activePhoneIsVerified
-    ? 'Phone number is verified.'
-    : showVerifyButton
-      ? 'Click Verify to confirm this number through SMS.'
-      : hasPhoneInput
-        ? 'Enter a complete 11-digit mobile number to enable verification.'
-        : 'Add a mobile number, then verify it through SMS.';
+  //const normalizedPhoneInput = useMemo(() => normalizePhoneNumber(formData.phone), [formData.phone]);
+  //const normalizedProfilePhone = useMemo(() => normalizePhoneNumber(profile?.phone || ''), [profile?.phone]);
+  //const isPhoneComplete = isCompletePhoneNumber(normalizedPhoneInput);
+  //const isStoredPhoneVerified = Boolean(profile?.phoneVerified) && Boolean(normalizedProfilePhone);
+ // const isCurrentPhoneStored = Boolean(normalizedPhoneInput) && normalizedPhoneInput === normalizedProfilePhone;
+  //const activePhoneIsVerified = isStoredPhoneVerified && isCurrentPhoneStored;
+ // const showVerifyButton = !activePhoneIsVerified && isPhoneComplete;
 
   const handleSetPrimaryLoginMethod = async (nextMethod: 'username' | 'email') => {
     if (!profile) return;
@@ -278,10 +269,10 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
       const sanitizedPhone = value.replace(/[^\d+\-\s()]/g, '');
       setFormData((prev) => ({ ...prev, [name]: sanitizedPhone }));
       if (profile?.phoneVerified) {
-        const normalizedIncomingPhone = normalizePhoneNumber(sanitizedPhone);
+       /* const normalizedIncomingPhone = normalizePhoneNumber(sanitizedPhone);
         if (normalizedIncomingPhone !== normalizedProfilePhone) {
           setPhoneEditMode(true);
-        }
+        }*/
       }
       return;
     }
@@ -416,50 +407,6 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
     }
   };
 
-  const handlePhoneAction = async () => {
-    if (!profile) return;
-
-    if (activePhoneIsVerified) {
-      setPhoneEditMode(true);
-      phoneInputRef.current?.focus();
-      phoneInputRef.current?.select();
-      return;
-    }
-
-    if (!showVerifyButton) {
-      showToastNotification('error', 'Enter a complete 11-digit mobile number before verifying.');
-      return;
-    }
-
-    setSendingPhoneCode(true);
-    setStatus(null);
-
-    try {
-      const sendResult = await sendPhoneVerificationCode(normalizedPhoneInput);
-      setVerificationTarget('phone');
-      setVerificationChannel(sendResult.channel || 'sms');
-      setVerificationEmailProvider(sendResult.emailProvider || '');
-      setVerificationDestination(sendResult.destination || sendResult.phone || normalizedPhoneInput);
-      setVerificationDeliveryStatus(sendResult.deliveryStatus || 'accepted');
-      setVerificationMessageId(sendResult.messageId || '');
-      setVerificationProviderMessage(String(sendResult.providerMessage || '').trim());
-      setVerificationFallbackReason(sendResult.fallbackUsed ? String(sendResult.fallbackReason || '').trim() : '');
-      setVerificationExpiresAt(sendResult.expiresAt || '');
-      setVerificationDigits(Array(VERIFICATION_CODE_LENGTH).fill(''));
-      setShowVerificationModal(true);
-      if (sendResult.channel === 'email') {
-        const providerText = sendResult.emailProvider ? ` via ${sendResult.emailProvider}` : '';
-        showToastNotification('success', `SMS failed. Verification code sent to your email${providerText}.`);
-      } else {
-        showToastNotification('success', 'Verification code sent. Enter the code in the popup.');
-      }
-    } catch (err) {
-      showToastNotification('error', err instanceof Error ? err.message : 'Failed to verify phone number.');
-    } finally {
-      setSendingPhoneCode(false);
-    }
-  };
-
   const closeVerificationModal = () => {
     if (confirmingVerificationCode) return;
     setShowVerificationModal(false);
@@ -585,7 +532,7 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
             email: verifiedProfile.email,
             phone: verifiedProfile.phone || '',
           }));
-          setPhoneEditMode(false);
+          //setPhoneEditMode(false);
           setShowVerificationModal(false);
           setVerificationDigits(Array(VERIFICATION_CODE_LENGTH).fill(''));
           setPendingEmailPrimaryActivation(false);
@@ -608,7 +555,7 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
         email: nextProfile.email,
         phone: nextProfile.phone || '',
       }));
-      setPhoneEditMode(false);
+      //setPhoneEditMode(false);
       setShowVerificationModal(false);
       setVerificationDigits(Array(VERIFICATION_CODE_LENGTH).fill(''));
       setVerificationExpiresAt('');
@@ -680,7 +627,7 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
       const updated = await updateProfile(updates);
       setProfile(updated);
       setFormData((prev) => ({ ...prev, displayName: updated.displayName, email: updated.email, phone: updated.phone || '' }));
-      setPhoneEditMode(false);
+      //setPhoneEditMode(false);
       showToastNotification('success', 'Profile updated successfully.');
       onProfileUpdated?.(updated);
     } catch (err) {
@@ -804,7 +751,7 @@ export default function Profile({ onProfileUpdated, onNavigate }: ProfileProps) 
                     type="button"
                     className="profile-input-action-btn profile-input-action-btn-wide"
                     onClick={showChangeEmailButton ? openEmailChangeModal : handleEmailPrimaryAction}
-                    disabled={saving || updatingPrimaryLogin || sendingEmailCode || sendingPhoneCode || confirmingVerificationCode || requestingEmailChange || confirmingEmailChange}
+                    disabled={saving || updatingPrimaryLogin || sendingEmailCode || confirmingVerificationCode || requestingEmailChange || confirmingEmailChange}
                   >
                     {showChangeEmailButton
                       ? 'Change Email'
