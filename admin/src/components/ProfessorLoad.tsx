@@ -144,7 +144,7 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
       if (courseFilter) params.set('course', courseFilter)
 
       const data = await authorizedFetch<LoadsPayload>(`/api/registrar/professor-course-loads?${params.toString()}`)
-      const payload = data?.data || (data as any)
+      const payload = (data as any)?.data || data
       setProfessorLoads(Array.isArray(payload.professors) ? payload.professors : [])
       setStats(payload.stats || null)
       setUnassignedSubjects(Array.isArray(payload.unassignedSubjects) ? payload.unassignedSubjects : [])

@@ -1,12 +1,9 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
-import { CheckCircle, ChevronLeft, ChevronRight, LayoutList, Pencil, Plus, RotateCcw, AlertCircle, Save, Clock, X } from 'lucide-react'
+import { CheckCircle, ChevronLeft, ChevronRight, LayoutList, Plus, RotateCcw, AlertCircle, Save, Clock, X } from 'lucide-react'
 import type { BlockGroup, Semester, BlockDraft } from './registrarBlockTypes'
 import {
   authorizedFetch,
-  COURSE_OPTIONS as blockCourseOptions,
-  formatBlockLabel,
-  getBlockGroupCompatibilityMeta,
-  parseBlockSlot
+  COURSE_OPTIONS as blockCourseOptions
 } from '../../lib/blockAssignmentShared'
 import { getAcademicTerm } from '../../lib/settingsApi'
 import '../BlockManagement.css'
@@ -57,16 +54,6 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [lastAutoSaveTime, setLastAutoSaveTime] = useState<Date | null>(null)
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
-  const [editGroupId, setEditGroupId] = useState<string | null>(null)
-  const [editGroupForm, setEditGroupForm] = useState<{
-    courseId: string
-    yearLevel: string
-    section: string
-    semester: Semester
-    year: string
-    studentClassification: string
-  } | null>(null)
-  const [savingEditGroup, setSavingEditGroup] = useState(false)
 
   // Estimated completion time based on wizard step
   const getEstimatedTime = useCallback(() => {
@@ -201,67 +188,6 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
       setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch block groups')
-    }
-  }
-
-  const handleStartEditExistingGroup = (group: BlockGroup) => {
-    const meta = getBlockGroupCompatibilityMeta(group)
-    const slot = parseBlockSlot(group.name)
-    setEditGroupId(group._id)
-    setEditGroupForm({
-      courseId: meta.course || '',
-      yearLevel: String(meta.yearLevel || slot?.yearLevel || ''),
-      section: group.section || slot?.letter || '',
-      semester: group.semester,
-      year: String(group.year),
-      studentClassification: group.studentClassification || 'All'
-    })
-    setError('')
-    setSuccess('')
-  }
-
-  const handleCancelEditExistingGroup = () => {
-    setEditGroupId(null)
-    setEditGroupForm(null)
-  }
-
-  const handleSaveEditExistingGroup = async () => {
-    if (!editGroupId || !editGroupForm) return
-
-    setSavingEditGroup(true)
-    setError('')
-    setSuccess('')
-    try {
-      const courseOption = blockCourseOptions.find((course) => String(course.value) === editGroupForm.courseId)
-      const yearLevelNum = Number(editGroupForm.yearLevel)
-      const yearNum = Number(editGroupForm.year)
-      const sectionLetter = editGroupForm.section.trim().toUpperCase()
-      const name = courseOption && yearLevelNum && sectionLetter
-        ? `${courseOption.value}-${yearLevelNum}-${sectionLetter}`
-        : undefined
-
-      await authorizedFetch(`/api/blocks/groups/${editGroupId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...(name ? { name } : {}),
-          courseId: courseOption?.value,
-          courseCode: courseOption?.label,
-          yearLevel: yearLevelNum || undefined,
-          section: sectionLetter || undefined,
-          semester: editGroupForm.semester,
-          year: yearNum,
-          studentClassification: editGroupForm.studentClassification || 'All'
-        })
-      })
-      setSuccess('Block group updated successfully')
-      setEditGroupId(null)
-      setEditGroupForm(null)
-      await fetchBlockGroups()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update block group')
-    } finally {
-      setSavingEditGroup(false)
     }
   }
 
@@ -482,7 +408,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
       })
       await fetchBlockGroups()
       const autoAssign = sectionResponse?.autoAssign
-      if (autoAssign && autoAssign.created > 0) {
+      if (autoAssign?.created && autoAssign.created > 0) {
         setSuccess(`Block created. ${autoAssign.created} subjects auto-assigned from curriculum.`)
       } else if (newGroupCurriculumId && autoAssign && autoAssign.curriculumSubjectsFound === 0) {
         setSuccess('The block group has been created and its initial section was generated automatically. No required subjects found in the curriculum for this year level and semester.')
@@ -638,7 +564,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                       <option value="">No curriculum linked</option>
                       {availableCurriculums.map((c) => (
                         <option key={c._id} value={c._id}>
-                          {c.name || `${c.programName} ${c.version}`} ({c.status})
+                          {c.name || `${c.code} ${c.version}`} ({c.status})
                         </option>
                       ))}
                     </select>

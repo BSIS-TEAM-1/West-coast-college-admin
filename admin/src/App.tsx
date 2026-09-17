@@ -11,7 +11,7 @@ import {
   logout
 } from './lib/authApi'
 import { isNetworkRequestError, sleep, waitForOnline } from './lib/network'
-import { applyAccentColorPreference, applyThemePreference, DEFAULT_THEME_ACCENT_COLOR, getStoredAccentColor, getStoredTheme, moveThemePreferencesToScope, setActiveThemeScope } from './lib/theme'
+import { applyAccentColorPreference, applyThemePreference, DEFAULT_THEME_ACCENT_COLOR, getStoredTheme, moveThemePreferencesToScope, setActiveThemeScope } from './lib/theme'
 import Login from './pages/Login'
 import SignUp from './pages/SignUp'
 import LandingPage from './pages/LandingPage'

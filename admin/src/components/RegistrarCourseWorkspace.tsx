@@ -88,7 +88,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   const [selectedSubjectId, setSelectedSubjectId] = useState('')
   const [subjectDaySelections, setSubjectDaySelections] = useState<string[]>([])
   const [subjectDaySchedules, setSubjectDaySchedules] = useState<Record<string, { start: string; end: string; room: string }>>({})
-  const [subjectRoom, setSubjectRoom] = useState('')
   const [professorLoads, setProfessorLoads] = useState<ProfessorCourseLoad[]>([])
   const [selectedProfessorId, setSelectedProfessorId] = useState('')
   const [selectedProfessorCourseLabel, setSelectedProfessorCourseLabel] = useState('')
@@ -141,7 +140,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     setSelectedSubjectId('')
     setSubjectDaySelections([])
     setSubjectDaySchedules({})
-    setSubjectRoom('')
   }
 
   const parseScheduleIntoFields = (schedule: string, room?: string) => {
@@ -432,8 +430,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     setEditingAssignmentId(assignment.subjectId)
     setSelectedSubjectId(assignment.subjectId)
     setSubjectDaySelections(parsedSchedule.days)
-    setSubjectDaySchedules(parsedSchedule.daySchedules)
-    setSubjectRoom(assignment.room === 'TBA' ? '' : assignment.room)
+    setSubjectDaySchedules(parsedSchedule.daySchedules) 
   }
 
   useEffect(() => {
