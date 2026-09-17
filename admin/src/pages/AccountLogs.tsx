@@ -1,8 +1,73 @@
-import { useState, useEffect } from 'react';
-import { Users, Calendar, Search, Download, Eye, Trash2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { Users, Calendar, Search, Download, Eye, Trash2, MoreVertical } from 'lucide-react';
 import { getAccountLogs, deleteAccount, getProfile } from '../lib/authApi';
 import type { AccountLog, ProfileResponse } from '../lib/authApi';
 import './AccountLogs.css';
+
+function ActionDropdown({
+  onView,
+  onDelete,
+  canDelete,
+}: {
+  onView: () => void
+  onDelete: () => void
+  canDelete: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const toggle = () => {
+    if (!open && ref.current) {
+      const rect = ref.current.getBoundingClientRect()
+      const menuHeight = 120
+      const spaceBelow = window.innerHeight - rect.bottom
+      const top = spaceBelow < menuHeight ? rect.top - menuHeight - 4 : rect.bottom + 4
+      const left = rect.right - 140
+      setMenuPos({ top, left })
+    }
+    setOpen(!open)
+  }
+
+  const handle = (fn: () => void) => {
+    setOpen(false)
+    fn()
+  }
+
+  return (
+    <div className="action-dropdown" ref={ref}>
+      <button
+        className="action-trigger"
+        onClick={toggle}
+        title="Actions"
+      >
+        <MoreVertical size={16} />
+      </button>
+      {open && menuPos && (
+        <div className="action-menu" role="menu" style={{ position: 'fixed', top: menuPos.top, left: menuPos.left }}>
+          <button role="menuitem" onClick={() => handle(onView)}>
+            <Eye size={15} /> View Details
+          </button>
+          {canDelete && (
+            <button role="menuitem" className="action-menu--delete" onClick={() => handle(onDelete)}>
+              <Trash2 size={15} /> Delete
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function AccountLogs() {
   const [logs, setLogs] = useState<AccountLog[]>([]);
@@ -15,6 +80,7 @@ export default function AccountLogs() {
   const [deleteConfirm, setDeleteConfirm] = useState<AccountLog | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [currentUser, setCurrentUser] = useState<ProfileResponse | null>(null);
+  const [avatarError, setAvatarError] = useState(false);
 
   // Load current user profile
   useEffect(() => {
@@ -121,6 +187,29 @@ export default function AccountLogs() {
       setDeleteLoading(false);
     }
   };
+
+  const handleAvatarError = () => {
+    setAvatarError(true);
+  };
+
+  // Reset avatar error when changing selected log
+  useEffect(() => {
+    if (selectedLog) {
+      setAvatarError(false);
+    }
+  }, [selectedLog]);
+
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (selectedLog || deleteConfirm) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [selectedLog, deleteConfirm]);
 
   if (loading) {
     return (
@@ -258,7 +347,7 @@ export default function AccountLogs() {
                       className="type-badge"
                       style={{ backgroundColor: getAccountTypeColor(log.accountType) }}
                     >
-                      {log.accountType.charAt(0).toUpperCase() + log.accountType.slice(1)}
+                      {log.accountType.toUpperCase()}
                     </span>
                   </td>
                   <td className="date-cell">
@@ -269,26 +358,12 @@ export default function AccountLogs() {
                   </td>
                   <td className="creator-cell">{log.createdBy}</td>
                   <td className="actions-cell">
-                    <button
-                      className="action-btn"
-                      onClick={() => setSelectedLog(log)}
-                      title="View details"
-                    >
-                      <Eye size={16} />
-                    </button>
-                    {/* Show delete button if:
-                        1. Not your own account
-                        2. Either you're super admin (can delete anyone) OR target is not an admin (registrar) */}
-                    {currentUser?.username !== log.username && 
-                     (currentUser?.accountType !== 'admin' || log.accountType !== 'admin') && (
-                      <button
-                        className="action-btn delete-btn"
-                        onClick={() => setDeleteConfirm(log)}
-                        title="Delete account"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    )}
+                    <ActionDropdown
+                      onView={() => setSelectedLog(log)}
+                      onDelete={() => setDeleteConfirm(log)}
+                      canDelete={currentUser?.username !== log.username && 
+                               (currentUser?.accountType !== 'admin' || log.accountType !== 'admin')}
+                    />
                   </td>
                 </tr>
               ))
@@ -298,56 +373,83 @@ export default function AccountLogs() {
       </div>
 
       {/* Detail Modal */}
-      {selectedLog && (
+      {selectedLog && createPortal(
         <div className="modal-overlay" onClick={() => setSelectedLog(null)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content account-details-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Account Details</h3>
-              <button
-                className="close-btn"
-                onClick={() => setSelectedLog(null)}
-              >
-                ×
-              </button>
+              <div className="modal-header-right">
+                <span className="account-type-badge">{selectedLog.accountType.toUpperCase()}</span>
+                <button
+                  className="close-btn"
+                  onClick={() => setSelectedLog(null)}
+                >
+                  ×
+                </button>
+              </div>
             </div>
             <div className="modal-body">
-              <div className="detail-grid">
-                <div className="detail-item">
-                  <label>Display Name:</label>
-                  <span>{selectedLog.displayName}</span>
+              {/* Staff Profile Section */}
+              <div className="staff-profile-section">
+                <div className="staff-avatar">
+                  {selectedLog.avatar && !avatarError ? (
+                    <img 
+                      src={selectedLog.avatar} 
+                      alt={selectedLog.displayName} 
+                      onError={handleAvatarError}
+                    />
+                  ) : (
+                    <div className="avatar-initials">
+                      {selectedLog.displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+                    </div>
+                  )}
                 </div>
-                <div className="detail-item">
-                  <label>Username:</label>
-                  <span>@{selectedLog.username}</span>
+                <div className="staff-info">
+                  <div className="staff-name">{selectedLog.displayName}</div>
+                  <div className="staff-username">@{selectedLog.username}</div>
+                  <div className="staff-status-row">
+                    <span className={`status-badge status-${selectedLog.status?.toLowerCase() || 'active'}`}>
+                      {selectedLog.status || 'Active'}
+                    </span>
+                    <span className="account-type-text">{selectedLog.accountType.toUpperCase()} account</span>
+                  </div>
                 </div>
-                <div className="detail-item">
-                  <label>UID:</label>
-                  <code>{selectedLog.uid}</code>
+              </div>
+
+              {/* Account Information Section */}
+              <div className="account-info-section">
+                <div className="section-title">ACCOUNT INFORMATION</div>
+                <div className="info-grid">
+                  <div className="info-row">
+                    <span className="info-label">User ID</span>
+                    <span className="info-value">{selectedLog.uid}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="info-label">Created by</span>
+                    <span className="info-value">{selectedLog.createdBy}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="info-label">Created at</span>
+                    <span className="info-value">{formatDate(selectedLog.createdAt)}</span>
+                  </div>
                 </div>
-                <div className="detail-item">
-                  <label>Account Type:</label>
-                  <span>{selectedLog.accountType}</span>
-                </div>
-                <div className="detail-item">
-                  <label>Status:</label>
-                  <span>{selectedLog.status}</span>
-                </div>
-                <div className="detail-item">
-                  <label>Created At:</label>
-                  <span>{formatDate(selectedLog.createdAt)}</span>
-                </div>
-                <div className="detail-item">
-                  <label>Created By:</label>
-                  <span>{selectedLog.createdBy}</span>
-                </div>
+              </div>
+
+              {/* Account Status */}
+              <div className="account-status-section">
+                <span className="status-label">Account status</span>
+                <span className={`status-badge status-${selectedLog.status?.toLowerCase() || 'active'}`}>
+                  {selectedLog.status || 'Active'}
+                </span>
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Delete Confirmation Modal */}
-      {deleteConfirm && (
+      {deleteConfirm && createPortal(
         <div className="modal-overlay" onClick={() => !deleteLoading && setDeleteConfirm(null)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
@@ -392,7 +494,8 @@ export default function AccountLogs() {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
