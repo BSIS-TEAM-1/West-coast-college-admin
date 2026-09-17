@@ -145,11 +145,12 @@
   background: #20304a;
   border: 1px solid #30425f;
   border-radius: 12px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .logs-table {
   overflow-x: auto;
+  overflow-y: visible;
 }
 
 .table-header {
@@ -257,42 +258,77 @@
   min-height: 34px;
 }
 
+.action-dropdown {
+  position: relative;
+}
+
+.action-trigger {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid #2f4361;
+  background: #334964;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s;
+  padding: 0;
+}
+
+.action-trigger:hover {
+  background: #435a7a;
+}
+
+.action-menu {
+  background: #1d2b42;
+  border: 1px solid #30425f;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  min-width: 140px;
+  z-index: 9999;
+  padding: 0.35rem 0;
+}
+
+.action-menu button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.9rem;
+  border: none;
+  background: transparent;
+  color: #f8fafc;
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.action-menu button:hover {
+  background: #2f4361;
+}
+
+.action-menu button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action-menu--delete {
+  color: #ff7d7d;
+}
+
+.action-menu--delete:hover {
+  background: #3d1a1a;
+}
+
 .staff-registration-logs .col-actions {
   white-space: nowrap !important;
 }
 
 .table-header .col-actions {
   justify-content: center;
-}
-
-.action-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  border: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: #ffffff;
-}
-
-.staff-registration-logs .col-actions > .action-btn {
-  display: inline-flex !important;
-  flex: 0 0 auto !important;
-}
-
-.action-btn svg {
-  width: 16px;
-  height: 16px;
-}
-
-.view-btn {
-  background: #334964;
-}
-
-.delete-btn {
-  background: #e52525;
 }
 
 .loading-state,
@@ -769,16 +805,35 @@
   border-top-color: var(--color-primary);
 }
 
-[data-theme="dark"] .staff-registration-logs .view-btn {
+[data-theme="dark"] .staff-registration-logs .action-trigger {
   background: var(--color-bg-soft);
   border: 1px solid color-mix(in srgb, var(--color-primary) 26%, var(--color-border));
   color: var(--color-text-bold);
 }
 
-[data-theme="dark"] .staff-registration-logs .delete-btn {
-  background: color-mix(in srgb, var(--color-error) 10%, var(--color-surface));
-  border: 1px solid color-mix(in srgb, var(--color-error) 64%, var(--color-border));
+[data-theme="dark"] .staff-registration-logs .action-trigger:hover {
+  background: var(--color-surface-hover);
+}
+
+[data-theme="dark"] .staff-registration-logs .action-menu {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+[data-theme="dark"] .staff-registration-logs .action-menu button {
+  color: var(--color-text);
+}
+
+[data-theme="dark"] .staff-registration-logs .action-menu button:hover {
+  background: var(--color-bg-soft);
+}
+
+[data-theme="dark"] .staff-registration-logs .action-menu--delete {
   color: var(--color-error);
+}
+
+[data-theme="dark"] .staff-registration-logs .action-menu--delete:hover {
+  background: color-mix(in srgb, var(--color-error) 10%, var(--color-surface));
 }
 
 @media (max-width: 768px) {

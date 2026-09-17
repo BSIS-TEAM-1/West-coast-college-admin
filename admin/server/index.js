@@ -4880,7 +4880,18 @@ app.get('/api/admin/accounts', authMiddleware, requireAdminRole, securityMiddlew
       .sort({ createdAt: -1 })
       .lean()
     
-    res.json(accounts)
+    // Format avatar data for each account
+    const formattedAccounts = accounts.map(account => {
+      const formatted = { ...account }
+      if (formatted.avatar && formatted.avatarMimeType) {
+        formatted.avatar = `data:${formatted.avatarMimeType};base64,${formatted.avatar}`
+      } else {
+        formatted.avatar = ''
+      }
+      return formatted
+    })
+    
+    res.json(formattedAccounts)
   } catch (err) {
     console.error('Get accounts error:', err.message)
     res.status(500).json({ error: 'Failed to load accounts.' })

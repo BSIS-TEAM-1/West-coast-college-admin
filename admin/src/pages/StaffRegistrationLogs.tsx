@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Users, Search, Download, Trash2, Eye, Clock, UserCheck,
-  CheckCircle, AlertCircle, RefreshCw, X, Calendar
+  CheckCircle, AlertCircle, RefreshCw, X, Calendar, MoreVertical
 } from 'lucide-react'
 import { getStoredToken, API_URL, getProfile, type ProfileResponse } from '../lib/authApi'
 import './StaffRegistrationLogs.css'
@@ -19,6 +19,70 @@ interface RegistrationLog {
 }
 
 const ITEMS_PER_PAGE = 10
+
+function ActionDropdown({
+  onView,
+  onDelete,
+  canDelete,
+}: {
+  onView: () => void
+  onDelete: () => void
+  canDelete: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const toggle = () => {
+    if (!open && ref.current) {
+      const rect = ref.current.getBoundingClientRect()
+      const menuHeight = 120
+      const spaceBelow = window.innerHeight - rect.bottom
+      const top = spaceBelow < menuHeight ? rect.top - menuHeight - 4 : rect.bottom + 4
+      const left = rect.right - 140
+      setMenuPos({ top, left })
+    }
+    setOpen(!open)
+  }
+
+  const handle = (fn: () => void) => {
+    setOpen(false)
+    fn()
+  }
+
+  return (
+    <div className="action-dropdown" ref={ref}>
+      <button
+        className="action-trigger"
+        onClick={toggle}
+        title="Actions"
+      >
+        <MoreVertical size={16} />
+      </button>
+      {open && menuPos && (
+        <div className="action-menu" role="menu" style={{ position: 'fixed', top: menuPos.top, left: menuPos.left }}>
+          <button role="menuitem" onClick={() => handle(onView)}>
+            <Eye size={15} /> View Details
+          </button>
+          {canDelete && (
+            <button role="menuitem" className="action-menu--delete" onClick={() => handle(onDelete)}>
+              <Trash2 size={15} /> Delete
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function StaffRegistrationLogs() {
   const [logs, setLogs] = useState<RegistrationLog[]>([])
@@ -324,24 +388,11 @@ export default function StaffRegistrationLogs() {
                     </div>
 
                     <div className="col-actions" data-label="Actions">
-                      <button
-                        className="action-btn view-btn"
-                        onClick={() => setSelectedLog(log)}
-                        title="View details"
-                        aria-label="View details"
-                      >
-                        <Eye size={14} />
-                      </button>
-                      {canDelete && (
-                        <button
-                          className="action-btn delete-btn"
-                          onClick={() => setDeleteConfirm(log._id)}
-                          title="Delete account"
-                          aria-label="Delete account"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
+                      <ActionDropdown
+                        onView={() => setSelectedLog(log)}
+                        onDelete={() => setDeleteConfirm(log._id)}
+                        canDelete={canDelete}
+                      />
                     </div>
                   </div>
                 ))}
