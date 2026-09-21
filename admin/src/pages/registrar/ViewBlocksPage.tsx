@@ -210,7 +210,13 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
       }> }>(`/api/registrar/curriculums?programCode=${meta.course}`)
         .then((data) => {
           const curriculums = Array.isArray(data?.data) ? data.data : []
-          setAvailableCurriculums(curriculums.filter((c) => c.status !== 'Archived').map((c) => ({
+          // Show every version including Archived (each option carries its
+          // status) — archived blueprints remain linkable, only uneditable.
+          const ordered = [...curriculums].sort((a, b) => {
+            const rank = (status: string) => (status === 'Active' ? 0 : status === 'Draft' ? 1 : status === 'Legacy' ? 2 : 3)
+            return rank(a.status) - rank(b.status)
+          })
+          setAvailableCurriculums(ordered.map((c) => ({
             ...c,
             programName: c.name || ''
           })))
