@@ -1,9 +1,12 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { Users, Calendar, Search, Download, Eye, Trash2, MoreVertical } from 'lucide-react';
-import { getAccountLogs, deleteAccount, getProfile } from '../lib/authApi';
+import { Users, Calendar, Search, Download, Eye, EyeOff, Trash2, MoreVertical, Shield } from 'lucide-react';
+import { getAccountLogs, deleteAccount, getProfile, changeStaffPassword } from '../lib/authApi';
 import type { AccountLog, ProfileResponse } from '../lib/authApi';
 import './AccountLogs.css';
+
+const STAFF_PASSWORD_MIN_LENGTH = 8;
+const STAFF_PASSWORD_MAX_LENGTH = 128;
 
 function ActionDropdown({
   onView,
@@ -81,6 +84,15 @@ export default function AccountLogs() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [currentUser, setCurrentUser] = useState<ProfileResponse | null>(null);
   const [avatarError, setAvatarError] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [passwordFormError, setPasswordFormError] = useState<string | null>(null);
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
 
   // Load current user profile
   useEffect(() => {
@@ -192,10 +204,93 @@ export default function AccountLogs() {
     setAvatarError(true);
   };
 
+  const showToast = (type: 'success' | 'error', message: string) => {
+    setToast({ type, message });
+    if (toastTimerRef.current) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = window.setTimeout(() => {
+      setToast(null);
+      toastTimerRef.current = null;
+    }, 4000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, []);
+
+  const resetPasswordForm = () => {
+    setNewPassword('');
+    setConfirmPassword('');
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
+    setPasswordFormError(null);
+    setPasswordLoading(false);
+  };
+
+  const closeChangePasswordModal = () => {
+    if (passwordLoading) return;
+    setChangePasswordOpen(false);
+    resetPasswordForm();
+  };
+
+  const closeAccountDetails = () => {
+    setSelectedLog(null);
+    setChangePasswordOpen(false);
+    resetPasswordForm();
+  };
+
+  const getPasswordValidationError = () => {
+    if (!newPassword) {
+      return 'New password is required.';
+    }
+    if (!confirmPassword) {
+      return 'Confirm password is required.';
+    }
+    if (newPassword.length < STAFF_PASSWORD_MIN_LENGTH || newPassword.length > STAFF_PASSWORD_MAX_LENGTH) {
+      return `Password must be between ${STAFF_PASSWORD_MIN_LENGTH} and ${STAFF_PASSWORD_MAX_LENGTH} characters.`;
+    }
+    if (newPassword !== confirmPassword) {
+      return 'Passwords do not match.';
+    }
+    return null;
+  };
+
+  const handleChangePassword = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!selectedLog || passwordLoading) return;
+
+    const validationError = getPasswordValidationError();
+    if (validationError) {
+      setPasswordFormError(validationError);
+      return;
+    }
+
+    setPasswordFormError(null);
+    setPasswordLoading(true);
+    try {
+      const result = await changeStaffPassword(selectedLog._id, newPassword, confirmPassword);
+      showToast('success', result.message || 'Staff password updated successfully.');
+      setChangePasswordOpen(false);
+      resetPasswordForm();
+    } catch (err) {
+      setPasswordFormError(err instanceof Error ? err.message : 'Failed to update staff password.');
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+
   // Reset avatar error when changing selected log
   useEffect(() => {
     if (selectedLog) {
       setAvatarError(false);
+    } else {
+      setChangePasswordOpen(false);
+      resetPasswordForm();
     }
   }, [selectedLog]);
 
@@ -374,7 +469,7 @@ export default function AccountLogs() {
 
       {/* Detail Modal */}
       {selectedLog && createPortal(
-        <div className="modal-overlay" onClick={() => setSelectedLog(null)}>
+        <div className="modal-overlay" onClick={closeAccountDetails}>
           <div className="modal-content account-details-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Account Details</h3>
@@ -382,7 +477,7 @@ export default function AccountLogs() {
                 <span className="account-type-badge">{selectedLog.accountType.toUpperCase()}</span>
                 <button
                   className="close-btn"
-                  onClick={() => setSelectedLog(null)}
+                  onClick={closeAccountDetails}
                 >
                   ×
                 </button>
@@ -435,6 +530,31 @@ export default function AccountLogs() {
                 </div>
               </div>
 
+              <div className="account-security-section">
+                <div className="section-title">SECURITY</div>
+                <div className="security-card">
+                  <div className="security-card-copy">
+                    <div className="security-icon" aria-hidden="true">
+                      <Shield size={20} />
+                    </div>
+                    <div>
+                      <div className="security-title">Change Password</div>
+                      <p className="security-description">Update this staff member's login password.</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="modal-primary-btn"
+                    onClick={() => {
+                      resetPasswordForm();
+                      setChangePasswordOpen(true);
+                    }}
+                  >
+                    Change Password
+                  </button>
+                </div>
+              </div>
+
               {/* Account Status */}
               <div className="account-status-section">
                 <span className="status-label">Account status</span>
@@ -444,6 +564,144 @@ export default function AccountLogs() {
               </div>
             </div>
           </div>
+        </div>,
+        document.body
+      )}
+
+      {selectedLog && changePasswordOpen && createPortal(
+        <div className="modal-overlay change-password-overlay" onClick={closeChangePasswordModal}>
+          <div
+            className="modal-content change-password-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="change-staff-password-title"
+            aria-modal="true"
+          >
+            <div className="modal-header">
+              <h3 id="change-staff-password-title">Change Staff Password</h3>
+              <button
+                className="close-btn"
+                onClick={closeChangePasswordModal}
+                disabled={passwordLoading}
+              >
+                ×
+              </button>
+            </div>
+            <form className="modal-body" onSubmit={handleChangePassword}>
+              <div className="staff-profile-section change-password-staff">
+                <div className="staff-avatar">
+                  {selectedLog.avatar && !avatarError ? (
+                    <img
+                      src={selectedLog.avatar}
+                      alt={selectedLog.displayName}
+                      onError={handleAvatarError}
+                    />
+                  ) : (
+                    <div className="avatar-initials">
+                      {selectedLog.displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+                    </div>
+                  )}
+                </div>
+                <div className="staff-info">
+                  <div className="staff-name">{selectedLog.displayName}</div>
+                  <div className="staff-username">@{selectedLog.username}</div>
+                </div>
+              </div>
+
+              <div className="password-field">
+                <label htmlFor="staff-new-password">New Password</label>
+                <div className="password-input-wrap">
+                  <input
+                    id="staff-new-password"
+                    type={showNewPassword ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={(e) => {
+                      setNewPassword(e.target.value);
+                      setPasswordFormError(null);
+                    }}
+                    autoComplete="new-password"
+                    disabled={passwordLoading}
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="password-toggle-btn"
+                    onClick={() => setShowNewPassword((prev) => !prev)}
+                    aria-label={showNewPassword ? 'Hide password' : 'Show password'}
+                    aria-pressed={showNewPassword}
+                    disabled={passwordLoading}
+                  >
+                    {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <ul className="password-requirements" aria-live="polite">
+                  <li className={newPassword.length >= STAFF_PASSWORD_MIN_LENGTH && newPassword.length <= STAFF_PASSWORD_MAX_LENGTH ? 'is-met' : ''}>
+                    {STAFF_PASSWORD_MIN_LENGTH}–{STAFF_PASSWORD_MAX_LENGTH} characters
+                  </li>
+                  <li className={newPassword && confirmPassword && newPassword === confirmPassword ? 'is-met' : ''}>
+                    Passwords must match
+                  </li>
+                </ul>
+              </div>
+
+              <div className="password-field">
+                <label htmlFor="staff-confirm-password">Confirm New Password</label>
+                <div className="password-input-wrap">
+                  <input
+                    id="staff-confirm-password"
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value);
+                      setPasswordFormError(null);
+                    }}
+                    autoComplete="new-password"
+                    disabled={passwordLoading}
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="password-toggle-btn"
+                    onClick={() => setShowConfirmPassword((prev) => !prev)}
+                    aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                    aria-pressed={showConfirmPassword}
+                    disabled={passwordLoading}
+                  >
+                    {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              {passwordFormError && (
+                <p className="password-form-error" role="alert">{passwordFormError}</p>
+              )}
+
+              <div className="change-password-actions">
+                <button
+                  type="button"
+                  className="modal-secondary-btn"
+                  onClick={closeChangePasswordModal}
+                  disabled={passwordLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="modal-primary-btn"
+                  disabled={passwordLoading}
+                >
+                  {passwordLoading ? 'Updating...' : 'Update Password'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {toast && createPortal(
+        <div className={`logs-toast ${toast.type}`} role="status" aria-live="polite">
+          {toast.message}
         </div>,
         document.body
       )}

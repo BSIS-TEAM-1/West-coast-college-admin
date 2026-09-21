@@ -34,18 +34,27 @@ class AnnouncementsController extends StateNotifier<AnnouncementsState> {
   final GetAnnouncementsUseCase _getAnnouncements;
   int _offset = 0;
   static const int _pageSize = 20;
+  bool _disposed = false;
 
   AnnouncementsController(this._getAnnouncements) : super(const AnnouncementsLoading()) {
     load();
   }
 
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
   Future<void> load() async {
+    if (_disposed) return;
     state = const AnnouncementsLoading();
     _offset = 0;
     await _fetch(reset: true);
   }
 
   Future<void> refresh() async {
+    if (_disposed) return;
     final current = state;
     if (current is AnnouncementsLoaded) {
       state = AnnouncementsLoaded(
@@ -59,6 +68,7 @@ class AnnouncementsController extends StateNotifier<AnnouncementsState> {
   }
 
   Future<void> loadMore() async {
+    if (_disposed) return;
     final current = state;
     if (current is! AnnouncementsLoaded || current.isLoadingMore || !current.hasMore) return;
 
@@ -71,23 +81,36 @@ class AnnouncementsController extends StateNotifier<AnnouncementsState> {
     try {
       final result = await _getAnnouncements(limit: _pageSize, offset: _offset);
       _offset += result.items.length;
-      state = AnnouncementsLoaded(
-        items: [...current.items, ...result.items],
-        hasMore: result.hasMore,
-      );
+      if (!_disposed) {
+        state = AnnouncementsLoaded(
+          items: [...current.items, ...result.items],
+          hasMore: result.hasMore,
+        );
+      }
     } catch (error) {
       // Revert to previous state on pagination failure.
-      state = AnnouncementsLoaded(items: current.items, hasMore: current.hasMore);
+      if (!_disposed) {
+        state = AnnouncementsLoaded(items: current.items, hasMore: current.hasMore);
+      }
     }
   }
 
   Future<void> _fetch({required bool reset}) async {
+    if (_disposed) return;
     try {
-      final result = await _getAnnouncements(limit: _pageSize, offset: 0);
-      _offset = result.items.length;
-      state = AnnouncementsLoaded(items: result.items, hasMore: result.hasMore);
+      final result = await _getAnnouncements(limit: _pageSize, offset: reset ? 0 : _offset);
+      if (reset) {
+        _offset = result.items.length;
+      } else {
+        _offset += result.items.length;
+      }
+      if (!_disposed) {
+        state = AnnouncementsLoaded(items: result.items, hasMore: result.hasMore);
+      }
     } catch (error) {
-      state = AnnouncementsFailed(mapExceptionToFailure(error).message);
+      if (!_disposed) {
+        state = AnnouncementsFailed(mapExceptionToFailure(error).message);
+      }
     }
   }
 }

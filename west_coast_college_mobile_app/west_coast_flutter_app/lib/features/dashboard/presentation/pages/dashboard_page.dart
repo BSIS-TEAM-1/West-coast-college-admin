@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_dimensions.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../../../core/theme/theme_colors.dart';
 import '../../../../core/widgets/empty_state.dart';
 import '../../../../core/widgets/error_state.dart';
 import '../../../../core/widgets/loading_skeleton.dart';
@@ -20,13 +21,14 @@ class DashboardPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(dashboardControllerProvider);
+    final colors = ThemeColors.of(context);
 
     return Scaffold(
-      backgroundColor: AppColors.backgroundSoft,
+      backgroundColor: colors.backgroundSoft,
       appBar: AppBar(
-        title: Text('WCConnect', style: AppTextStyles.headlineMedium.copyWith(color: AppColors.onPrimary)),
-        backgroundColor: AppColors.primary,
-        foregroundColor: AppColors.onPrimary,
+        title: Text('WCConnect', style: AppTextStyles.headlineMedium.copyWith(color: colors.onPrimary)),
+        backgroundColor: colors.primary,
+        foregroundColor: colors.onPrimary,
         elevation: 0,
       ),
       body: SafeArea(child: _buildBody(context, ref, state)),
@@ -105,13 +107,14 @@ class _HeaderCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final hour = DateTime.now().hour;
     final greeting = hour < 12 ? 'Good morning' : (hour < 18 ? 'Good afternoon' : 'Good evening');
+    final colors = ThemeColors.of(context);
 
     return Container(
       padding: const EdgeInsets.all(AppDimensions.cardPadding),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
-        boxShadow: const [BoxShadow(color: AppColors.shadow, blurRadius: 8, offset: Offset(0, 2))],
+        boxShadow: [BoxShadow(color: AppColors.shadow, blurRadius: 8, offset: const Offset(0, 2))],
       ),
       child: Row(
         children: [
@@ -124,10 +127,10 @@ class _HeaderCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('$greeting,', style: AppTextStyles.bodySmall.copyWith(color: AppColors.textMuted)),
+                Text('$greeting,', style: AppTextStyles.bodySmall.copyWith(color: colors.textMuted)),
                 Text(
                   profile.firstName.isEmpty ? profile.fullName : profile.firstName,
-                  style: AppTextStyles.titleLarge.copyWith(color: AppColors.textBold, fontSize: 18),
+                  style: AppTextStyles.titleLarge.copyWith(color: colors.textBold, fontSize: 18),
                 ),
                 const SizedBox(height: AppDimensions.xs),
                 Wrap(
@@ -142,7 +145,7 @@ class _HeaderCard extends StatelessWidget {
                         'Year ${profile.yearLevel}',
                         if (profile.section != null) profile.section,
                       ].whereType<String>().join(' • '),
-                      style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary),
+                      style: AppTextStyles.bodySmall.copyWith(color: colors.textSecondary),
                     ),
                   ],
                 ),
@@ -170,25 +173,26 @@ class _AcademicContextRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = ThemeColors.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
           padding: const EdgeInsets.symmetric(horizontal: AppDimensions.md, vertical: AppDimensions.sm),
           decoration: BoxDecoration(
-            color: AppColors.surface,
+            color: colors.surface,
             borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
-            border: Border.all(color: AppColors.border),
+            border: Border.all(color: colors.border),
           ),
           child: Row(
             children: [
-              _metric('School Year', academicSummary.schoolYear ?? '—'),
-              _divider(),
-              _metric('Semester', academicSummary.semester ?? '—'),
-              _divider(),
-              _metric('Enrolled Subjects', '${academicSummary.enrolledSubjects}'),
-              _divider(),
-              _metric('Units', '${academicSummary.totalUnits}'),
+              _metric('School Year', academicSummary.schoolYear ?? '—', colors),
+              _divider(colors),
+              _metric('Semester', academicSummary.semester ?? '—', colors),
+              _divider(colors),
+              _metric('Enrolled Subjects', '${academicSummary.enrolledSubjects}', colors),
+              _divider(colors),
+              _metric('Units', '${academicSummary.totalUnits}', colors),
             ],
           ),
         ),
@@ -198,12 +202,12 @@ class _AcademicContextRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: AppDimensions.xs),
             child: Row(
               children: [
-                const Icon(Icons.info_outline, color: AppColors.warning, size: AppDimensions.iconSmall),
+                Icon(Icons.info_outline, color: colors.warning, size: AppDimensions.iconSmall),
                 const SizedBox(width: AppDimensions.xs),
                 Expanded(
                   child: Text(
                     'No active enrollment for this term. Contact the Registrar if this is unexpected.',
-                    style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
+                    style: AppTextStyles.caption.copyWith(color: colors.textSecondary),
                   ),
                 ),
               ],
@@ -214,13 +218,13 @@ class _AcademicContextRow extends StatelessWidget {
     );
   }
 
-  Widget _divider() => Container(width: 1, height: 28, color: AppColors.divider);
+  Widget _divider(ThemeColors colors) => Container(width: 1, height: 28, color: colors.divider);
 
-  Widget _metric(String label, String value) {
+  Widget _metric(String label, String value, ThemeColors colors) {
     return Expanded(
       child: Column(
         children: [
-          Text(value, style: AppTextStyles.titleLarge.copyWith(color: AppColors.textBold)),
+          Text(value, style: AppTextStyles.titleLarge.copyWith(color: colors.textBold)),
           const SizedBox(height: 2),
           Text(label, style: AppTextStyles.caption, textAlign: TextAlign.center),
         ],
@@ -241,6 +245,7 @@ class _TodayScheduleSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = ThemeColors.of(context);
     // Case 1: Schedules haven't been set by the registrar yet
     if (scheduleStatus == 'not_set') {
       return const EmptyState(
@@ -254,14 +259,14 @@ class _TodayScheduleSection extends StatelessWidget {
     if (items.isNotEmpty) {
       return Container(
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: colors.surface,
           borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
-          border: Border.all(color: AppColors.border),
+          border: Border.all(color: colors.border),
         ),
         child: Column(
           children: [
             for (var i = 0; i < items.length; i++) ...[
-              if (i > 0) const Divider(height: 1, color: AppColors.divider),
+              if (i > 0) Divider(height: 1, color: colors.divider),
               _ScheduleRow(item: items[i]),
             ],
           ],
@@ -280,26 +285,26 @@ class _TodayScheduleSection extends StatelessWidget {
               vertical: AppDimensions.sm,
             ),
             decoration: BoxDecoration(
-              color: AppColors.surface,
+              color: colors.surface,
               borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
-              border: Border.all(color: AppColors.border),
+              border: Border.all(color: colors.border),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.wb_sunny_outlined, size: AppDimensions.iconSmall, color: AppColors.textMuted),
+                    Icon(Icons.wb_sunny_outlined, size: AppDimensions.iconSmall, color: colors.textMuted),
                     const SizedBox(width: AppDimensions.xs),
                     Text(
                       'No classes today — next class on ${_dayLabel(upcomingSchedule!.dayLabel)}',
-                      style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary),
+                      style: AppTextStyles.bodySmall.copyWith(color: colors.textSecondary),
                     ),
                   ],
                 ),
                 const SizedBox(height: AppDimensions.sm),
                 for (var i = 0; i < upcomingSchedule!.classes.length; i++) ...[
-                  if (i > 0) const Divider(height: 1, color: AppColors.divider),
+                  if (i > 0) Divider(height: 1, color: colors.divider),
                   _ScheduleRow(item: upcomingSchedule!.classes[i]),
                 ],
               ],
@@ -368,6 +373,7 @@ class _LatestGradesSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = ThemeColors.of(context);
     if (grades.isEmpty) {
       return const EmptyState(
         icon: Icons.grade_outlined,
@@ -378,14 +384,14 @@ class _LatestGradesSection extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: colors.border),
       ),
       child: Column(
         children: [
           for (var i = 0; i < grades.length; i++) ...[
-            if (i > 0) const Divider(height: 1, color: AppColors.divider),
+            if (i > 0) Divider(height: 1, color: colors.divider),
             _GradeRow(grade: grades[i]),
           ],
         ],
@@ -400,6 +406,7 @@ class _GradeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = ThemeColors.of(context);
     return Padding(
       padding: const EdgeInsets.all(AppDimensions.md),
       child: Row(
@@ -417,7 +424,7 @@ class _GradeRow extends StatelessWidget {
           const SizedBox(width: AppDimensions.sm),
           Text(
             grade.grade.toStringAsFixed(2),
-            style: AppTextStyles.titleLarge.copyWith(color: AppColors.textBold),
+            style: AppTextStyles.titleLarge.copyWith(color: colors.textBold),
           ),
           const SizedBox(width: AppDimensions.sm),
           StatusBadge(
@@ -436,16 +443,17 @@ class _EnrolledSubjectsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = ThemeColors.of(context);
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: colors.border),
       ),
       child: Column(
         children: [
           for (var i = 0; i < subjects.length; i++) ...[
-            if (i > 0) const Divider(height: 1, color: AppColors.divider),
+            if (i > 0) Divider(height: 1, color: colors.divider),
             _EnrolledSubjectRow(subject: subjects[i]),
           ],
         ],
@@ -460,6 +468,7 @@ class _EnrolledSubjectRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = ThemeColors.of(context);
     return Padding(
       padding: const EdgeInsets.all(AppDimensions.md),
       child: Row(
@@ -476,33 +485,33 @@ class _EnrolledSubjectRow extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   '${subject.units} units • ${subject.instructor}',
-                  style: AppTextStyles.caption.copyWith(color: AppColors.textMuted),
+                  style: AppTextStyles.caption.copyWith(color: colors.textMuted),
                 ),
                 if (subject.schedule != 'TBA') ...[
                   const SizedBox(height: 2),
                   Text(
                     '${subject.schedule} • ${subject.room}',
-                    style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
+                    style: AppTextStyles.caption.copyWith(color: colors.textSecondary),
                   ),
                 ],
               ],
             ),
           ),
           const SizedBox(width: AppDimensions.sm),
-          _buildTrailing(),
+          _buildTrailing(colors),
         ],
       ),
     );
   }
 
-  Widget _buildTrailing() {
+  Widget _buildTrailing(ThemeColors colors) {
     if (subject.hasGrade && subject.grade != null) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Text(
             subject.grade!.toStringAsFixed(2),
-            style: AppTextStyles.titleLarge.copyWith(color: AppColors.textBold),
+            style: AppTextStyles.titleLarge.copyWith(color: colors.textBold),
           ),
           const SizedBox(height: 2),
           StatusBadge(
@@ -525,6 +534,7 @@ class _AnnouncementsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = ThemeColors.of(context);
     if (announcements.isEmpty) {
       return const EmptyState(
         icon: Icons.campaign_outlined,
@@ -535,14 +545,14 @@ class _AnnouncementsSection extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: colors.border),
       ),
       child: Column(
         children: [
           for (var i = 0; i < announcements.length; i++) ...[
-            if (i > 0) const Divider(height: 1, color: AppColors.divider),
+            if (i > 0) Divider(height: 1, color: colors.divider),
             _AnnouncementRow(announcement: announcements[i]),
           ],
         ],
@@ -557,12 +567,13 @@ class _AnnouncementRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = ThemeColors.of(context);
     return Padding(
       padding: const EdgeInsets.all(AppDimensions.md),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(_iconFor(announcement.type), size: AppDimensions.iconMedium, color: _colorFor(announcement.type)),
+          Icon(_iconFor(announcement.type), size: AppDimensions.iconMedium, color: _colorFor(announcement.type, colors)),
           const SizedBox(width: AppDimensions.sm),
           Expanded(
             child: Column(
@@ -571,7 +582,7 @@ class _AnnouncementRow extends StatelessWidget {
                 Row(
                   children: [
                     if (announcement.isPinned) ...[
-                      const Icon(Icons.push_pin, size: 12, color: AppColors.warning),
+                      Icon(Icons.push_pin, size: 12, color: colors.warning),
                       const SizedBox(width: 4),
                     ],
                     Expanded(
@@ -587,7 +598,7 @@ class _AnnouncementRow extends StatelessWidget {
                   announcement.message,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.bodySmall.copyWith(color: AppColors.textMuted),
+                  style: AppTextStyles.bodySmall.copyWith(color: colors.textMuted),
                 ),
               ],
             ),
@@ -604,10 +615,10 @@ class _AnnouncementRow extends StatelessWidget {
         _ => Icons.campaign_outlined,
       };
 
-  Color _colorFor(String type) => switch (type) {
-        'urgent' => AppColors.error,
-        'warning' => AppColors.warning,
-        'maintenance' => AppColors.maintenance,
-        _ => AppColors.primary,
+  Color _colorFor(String type, ThemeColors colors) => switch (type) {
+        'urgent' => colors.error,
+        'warning' => colors.warning,
+        'maintenance' => colors.maintenance,
+        _ => colors.primary,
       };
 }

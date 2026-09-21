@@ -18,8 +18,7 @@ class ProfileRemoteDataSource {
     return ProfileModel.fromJson(data);
   }
 
-  /// One-time profile picture upload. Returns the new profile picture data URL.
-  /// Server enforces the one-time-only rule and returns 409 if already set.
+  /// Profile picture upload/update. Returns the new profile picture data URL.
   Future<String> uploadProfilePicture({
     required String imageBase64,
     required String mimeType,

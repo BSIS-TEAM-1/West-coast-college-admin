@@ -55,29 +55,37 @@ class AnnouncementsPage extends ConsumerWidget {
                     ),
                   ],
                 )
-              : ListView.separated(
-                  padding: const EdgeInsets.all(AppDimensions.md),
-                  itemCount: items.length + (hasMore ? 1 : 0),
-                  separatorBuilder: (context, index) => const SizedBox(height: AppDimensions.sm),
-                  itemBuilder: (context, index) {
-                    if (index == items.length) {
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        ref.read(announcementsControllerProvider.notifier).loadMore();
-                      });
-                      return const Padding(
-                        padding: EdgeInsets.all(AppDimensions.md),
-                        child: Center(child: CircularProgressIndicator(color: _progressTint, strokeWidth: 2)),
-                      );
+              : NotificationListener<ScrollNotification>(
+                  onNotification: (notification) {
+                    if (notification is ScrollEndNotification && 
+                        notification.metrics.pixels >= notification.metrics.maxScrollExtent - 200 &&
+                        hasMore && 
+                        !isRefreshing) {
+                      ref.read(announcementsControllerProvider.notifier).loadMore();
                     }
-                    if (isRefreshing && index == 0) {
-                      return const LinearProgressIndicator(minHeight: 2, color: _progressTint);
-                    }
-                    return _AnnouncementTile(
-                      announcement: items[index],
-                      colors: colors,
-                      onTap: () => _openDetail(context, items[index], colors),
-                    );
+                    return false;
                   },
+                  child: ListView.separated(
+                    padding: const EdgeInsets.all(AppDimensions.md),
+                    itemCount: items.length + (isRefreshing && hasMore ? 1 : 0),
+                    separatorBuilder: (context, index) => const SizedBox(height: AppDimensions.sm),
+                    itemBuilder: (context, index) {
+                      if (index == items.length && isRefreshing && hasMore) {
+                        return const Padding(
+                          padding: EdgeInsets.all(AppDimensions.md),
+                          child: Center(child: CircularProgressIndicator(color: _progressTint, strokeWidth: 2)),
+                        );
+                      }
+                      if (isRefreshing && index == 0) {
+                        return const LinearProgressIndicator(minHeight: 2, color: _progressTint);
+                      }
+                      return _AnnouncementTile(
+                        announcement: items[index],
+                        colors: colors,
+                        onTap: () => _openDetail(context, items[index], colors),
+                      );
+                    },
+                  ),
                 ),
         ),
     };

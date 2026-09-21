@@ -118,9 +118,6 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
   const [error, setError] = useState<string | null>(null);
   const [memoryHistory, setMemoryHistory] = useState<number[]>([]);
   const [serverLoadHistory, setServerLoadHistory] = useState<number[]>([]);
-  const [atlasDiskHistory, setAtlasDiskHistory] = useState<number[]>([]);
-  const [atlasConnectionHistory, setAtlasConnectionHistory] = useState<number[]>([]);
-  const [atlasDetailedDiskHistory, setAtlasDetailedDiskHistory] = useState<number[]>([]);
   const [, setDocumentsHistory] = useState<number[]>([]);
   const [activeUsersHistory, setActiveUsersHistory] = useState<number[]>([]);
   const [showWarningModal, setShowWarningModal] = useState(false);
@@ -330,29 +327,6 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
         ) : newHistory;
       });
       
-      // Update Atlas metrics history if available
-      if (data.atlasMetrics && data.atlasMetrics.enabled) {
-        if (data.atlasMetrics.clusterInfo && data.atlasMetrics.clusterInfo.diskUsage !== null) {
-          setAtlasDiskHistory(prev => {
-            const newHistory = [...prev, data.atlasMetrics.clusterInfo.diskUsage].slice(-20);
-            return newHistory.length === 1 ? Array(20).fill(data.atlasMetrics.clusterInfo.diskUsage) : newHistory;
-          });
-        }
-        
-        if (data.atlasMetrics.measurements && data.atlasMetrics.measurements.diskUsed !== null) {
-          setAtlasDetailedDiskHistory(prev => {
-            const newHistory = [...prev, data.atlasMetrics.measurements.diskUsed].slice(-20);
-            return newHistory.length === 1 ? Array(20).fill(data.atlasMetrics.measurements.diskUsed) : newHistory;
-          });
-        }
-        
-        if (data.atlasMetrics.clusterInfo && data.atlasMetrics.clusterInfo.connections > 0) {
-          setAtlasConnectionHistory(prev => {
-            const newHistory = [...prev, data.atlasMetrics.clusterInfo.connections].slice(-20);
-            return newHistory.length === 1 ? Array(20).fill(data.atlasMetrics.clusterInfo.connections) : newHistory;
-          });
-        }
-      }
       
       // Update documents history
       setDocumentsHistory(prev => {
@@ -758,47 +732,6 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
           </div>
         </div>
       </div>
-
-      {metrics.atlasMetrics && metrics.atlasMetrics.enabled && (
-        <div className="atlas-graphs-section">
-          <h2>MongoDB Atlas Live Monitoring</h2>
-          <div className="graphs-grid">
-            {atlasDiskHistory.length > 0 && (
-              <div className="graph-container">
-                <LiveGraph
-                  title="Atlas Disk Usage (%)"
-                  data={atlasDiskHistory}
-                  maxValue={100}
-                  unit="%"
-                  color="var(--color-success)"
-                />
-              </div>
-            )}
-            {atlasDetailedDiskHistory.length > 0 && (
-              <div className="graph-container">
-                <LiveGraph
-                  title="Atlas Disk Used (GB)"
-                  data={atlasDetailedDiskHistory}
-                  maxValue={Math.max(...atlasDetailedDiskHistory) * 1.2 || 5}
-                  unit="GB"
-                  color="var(--color-info)"
-                />
-              </div>
-            )}
-            {atlasConnectionHistory.length > 0 && (
-              <div className="graph-container">
-                <LiveGraph
-                  title="Atlas Connections"
-                  data={atlasConnectionHistory}
-                  maxValue={Math.max(...atlasConnectionHistory) * 1.2 || 25}
-                  unit=""
-                  color="var(--color-warning)"
-                />
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       <div className="logs-section">
         <div className="logs-section-header">

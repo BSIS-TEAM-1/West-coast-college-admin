@@ -20,9 +20,11 @@ class ThemeColors extends ThemeExtension<ThemeColors> {
   final Color primary;
   final Color primarySubtle;
   final Color onPrimary;
+  final Color gold;
   final Color success;
   final Color warning;
   final Color error;
+  final Color maintenance;
 
   const ThemeColors({
     required this.background,
@@ -38,9 +40,11 @@ class ThemeColors extends ThemeExtension<ThemeColors> {
     required this.primary,
     required this.primarySubtle,
     required this.onPrimary,
+    required this.gold,
     required this.success,
     required this.warning,
     required this.error,
+    required this.maintenance,
   });
 
   static const light = ThemeColors(
@@ -57,9 +61,11 @@ class ThemeColors extends ThemeExtension<ThemeColors> {
     primary: AppColors.primary,
     primarySubtle: AppColors.primarySubtle,
     onPrimary: AppColors.onPrimary,
+    gold: AppColors.gold,
     success: AppColors.success,
     warning: AppColors.warning,
     error: AppColors.error,
+    maintenance: AppColors.maintenance,
   );
 
   static const dark = ThemeColors(
@@ -76,9 +82,11 @@ class ThemeColors extends ThemeExtension<ThemeColors> {
     primary: AppColors.primary,
     primarySubtle: Color(0x2E4F46E5),
     onPrimary: AppColors.onPrimary,
+    gold: AppColors.goldLight,
     success: AppColors.success,
     warning: AppColors.warning,
     error: AppColors.darkError,
+    maintenance: AppColors.maintenance,
   );
 
   static ThemeColors of(BuildContext context) {
@@ -102,9 +110,11 @@ class ThemeColors extends ThemeExtension<ThemeColors> {
     Color? primary,
     Color? primarySubtle,
     Color? onPrimary,
+    Color? gold,
     Color? success,
     Color? warning,
     Color? error,
+    Color? maintenance,
   }) {
     return ThemeColors(
       background: background ?? this.background,
@@ -120,9 +130,11 @@ class ThemeColors extends ThemeExtension<ThemeColors> {
       primary: primary ?? this.primary,
       primarySubtle: primarySubtle ?? this.primarySubtle,
       onPrimary: onPrimary ?? this.onPrimary,
+      gold: gold ?? this.gold,
       success: success ?? this.success,
       warning: warning ?? this.warning,
       error: error ?? this.error,
+      maintenance: maintenance ?? this.maintenance,
     );
   }
 
@@ -143,9 +155,11 @@ class ThemeColors extends ThemeExtension<ThemeColors> {
       primary: Color.lerp(primary, other.primary, t)!,
       primarySubtle: Color.lerp(primarySubtle, other.primarySubtle, t)!,
       onPrimary: Color.lerp(onPrimary, other.onPrimary, t)!,
+      gold: Color.lerp(gold, other.gold, t)!,
       success: Color.lerp(success, other.success, t)!,
       warning: Color.lerp(warning, other.warning, t)!,
       error: Color.lerp(error, other.error, t)!,
+      maintenance: Color.lerp(maintenance, other.maintenance, t)!,
     );
   }
 }

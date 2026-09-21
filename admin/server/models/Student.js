@@ -129,7 +129,9 @@ const studentSchema = new Schema({
   enrollmentStatus: {
     type: String,
     enum: ['Enrolled', 'Not Enrolled', 'On Leave', 'Dropped'],
-    default: 'Not Enrolled'
+    default: 'Not Enrolled',
+    deprecated: true,
+    description: 'DEPRECATED: Use Enrollment.status instead. This field is kept for backward compatibility and will be removed in a future migration.'
   },
   corStatus: {
     type: String,
@@ -292,11 +294,11 @@ const studentSchema = new Schema({
     type: Date
   },
 
-  // Profile Picture (one-time upload by student; not editable after set)
+  // Profile Picture (uploadable by student; can be updated)
   profilePicture: {
     type: String,
     default: null,
-    description: 'Base64-encoded profile picture uploaded once by the student.'
+    description: 'Base64-encoded profile picture uploaded by the student.'
   },
   profilePictureMimeType: {
     type: String,
@@ -350,10 +352,10 @@ studentSchema.virtual('currentEnrollment', {
 // Indexes
 studentSchema.index({ lastName: 1, firstName: 1 });
 studentSchema.index({ course: 1, yearLevel: 1, section: 1 });
-studentSchema.index({ lifecycleStatus: 1, studentStatus: 1, enrollmentStatus: 1 });
+studentSchema.index({ lifecycleStatus: 1, studentStatus: 1 });
 studentSchema.index({ course: 1, yearLevel: 1, semester: 1, schoolYear: 1, lifecycleStatus: 1 });
 studentSchema.index({ schoolYear: 1, semester: 1, course: 1, yearLevel: 1, section: 1 });
-studentSchema.index({ schoolYear: 1, semester: 1, enrollmentStatus: 1, lifecycleStatus: 1 });
+studentSchema.index({ schoolYear: 1, semester: 1, lifecycleStatus: 1 });
 studentSchema.index({ corStatus: 1, lifecycleStatus: 1, createdAt: -1 });
 studentSchema.index({ createdAt: -1 });
 studentSchema.index({ classification: 1, course: 1, yearLevel: 1, schoolYear: 1 });

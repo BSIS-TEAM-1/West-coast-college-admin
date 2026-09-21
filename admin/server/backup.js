@@ -18,6 +18,18 @@ function formatBytesLocal(bytes) {
   return (bytes / 1024 ** 3).toFixed(1) + ' GB';
 }
 
+/**
+ * Strip any supported backup extension chain from a file name.
+ * Supported legacy + current forms: .json, .json.gz, .json.gz.enc
+ */
+function stripBackupExtensions(value) {
+  return String(value || '').replace(/\.json(?:\.gz(?:\.enc)?)?$/i, '');
+}
+
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 const APP_VERSION = process.env.APP_VERSION || require('../package.json').version || 'unknown';
 const SCHEMA_VERSION = process.env.DB_SCHEMA_VERSION || '1';
 const ENGINE_VERSION = '2.1.0';
@@ -25,6 +37,22 @@ const FORMAT_VERSION = '1.0';
 
 const AUTOMATIC_TYPES = new Set(['scheduled', 'initial']);
 const SUPPORTED_TYPES = new Set(['manual', 'scheduled', 'initial', 'emergency', 'legacy']);
+
+/**
+ * Conceptual verification states surfaced to the UI. These map onto the
+ * existing `verificationStatus` enum rather than adding a parallel field.
+ *
+ *   verified             -> Verified            (restorable)
+ *   pending              -> Verification Required
+ *   failed               -> Verification Failed
+ *   missing              -> Storage Missing
+ */
+const VERIFICATION_STATE = {
+  verified: { state: 'verified', label: 'Verified', restorable: true },
+  pending: { state: 'verification_required', label: 'Verification Required', restorable: false },
+  failed: { state: 'verification_failed', label: 'Verification Failed', restorable: false },
+  missing: { state: 'storage_missing', label: 'Storage Missing', restorable: false }
+};
 
 class BackupBusyError extends Error {
   constructor(operation) {
@@ -84,6 +112,114 @@ class BackupSystem {
     const type = String(value || 'manual').trim().toLowerCase();
     return SUPPORTED_TYPES.has(type) ? type : 'manual';
   }
+
+  /* ------------------------------------------------------------------ */
+  /* Record + physical file resolution                                   */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Find a backup record tolerantly. A caller may pass the archive name,
+   * the legacy .json name, or the bare base name. All resolve to the same
+   * record so the UI never 404s just because the stored name uses a
+   * different extension than the one the caller happens to hold.
+   */
+  async findBackupRecord(fileName, { lean = false } = {}) {
+    if (mongoose.connection.readyState !== 1) return null;
+    const safeName = path.basename(String(fileName || ''));
+    if (!safeName) return null;
+
+    const query = lean
+      ? (filter) => Backup.findOne(filter).lean()
+      : (filter) => Backup.findOne(filter);
+
+    let record = await query({ fileName: safeName });
+    if (record) return record;
+
+    record = await query({ originalFileName: safeName });
+    if (record) return record;
+
+    const base = stripBackupExtensions(safeName);
+    if (!base) return null;
+    const pattern = new RegExp(`^${escapeRegExp(base)}\\.json(?:\\.gz(?:\\.enc)?)?$`, 'i');
+    return query({ fileName: { $regex: pattern } });
+  }
+
+  /**
+   * Resolve the archive that actually exists in configured storage for a
+   * record, regardless of which extension the database happens to hold.
+   *
+   * The database value is always tried first so we never silently bind a
+   * record to an unrelated file; only then do we fall back to the canonical
+   * derivations for the same base name.
+   *
+   * Returns:
+   *   base          - file name with all backup extensions stripped
+   *   archiveName   - the archive that exists, or null
+   *   jsonName      - the optional plaintext JSON sidecar, or null
+   *   isEncrypted   - derived from the resolved archive, not from metadata
+   *   exists        - whether a usable archive was found
+   *   candidates    - everything that was probed (used in error messages)
+   */
+  resolveBackupFiles(record) {
+    const declared = record?.fileName ? path.basename(String(record.fileName)) : null;
+    const compressed = record?.compressedPath ? path.basename(String(record.compressedPath)) : null;
+    const original = record?.originalFileName ? path.basename(String(record.originalFileName)) : null;
+    const base = stripBackupExtensions(declared || compressed || original || '');
+
+    const candidates = [];
+    const push = (name) => {
+      if (name && !candidates.includes(name)) candidates.push(name);
+    };
+
+    // Metadata-declared archives first.
+    if (declared && /\.(gz|enc)$/i.test(declared)) push(declared);
+    if (compressed && /\.(gz|enc)$/i.test(compressed)) push(compressed);
+    // Canonical derivations for legacy records whose fileName is still ".json".
+    if (base) {
+      push(`${base}.json.gz.enc`);
+      push(`${base}.json.gz`);
+    }
+
+    const archiveName = candidates.find((name) => this.storage.exists(name)) || null;
+
+    // Trust the file on disk over the metadata flag: a record created before
+    // the scheduled-backup fix may claim isEncrypted:false while the archive
+    // on disk is .json.gz.enc (and vice versa).
+    const isEncrypted = archiveName ? /\.enc$/i.test(archiveName) : Boolean(record?.isEncrypted);
+
+    // The plaintext sidecar is optional. Encrypted backups never keep one.
+    const jsonCandidate = base ? `${base}.json` : null;
+    const jsonName = !isEncrypted && jsonCandidate && this.storage.exists(jsonCandidate) ? jsonCandidate : null;
+
+    return { base, archiveName, jsonName, isEncrypted, exists: Boolean(archiveName), candidates };
+  }
+
+  /**
+   * Translate a record into the conceptual state the UI renders.
+   * Storage presence is evaluated separately from verification outcome so a
+   * missing verification report can never masquerade as a missing file.
+   */
+  describeVerificationState(record, resolved) {
+    if (!resolved || !resolved.exists) {
+      return { ...VERIFICATION_STATE.missing, detail: 'The backup archive is not present in configured storage.' };
+    }
+    const status = record?.verificationStatus;
+    if (status === 'verified') {
+      return { ...VERIFICATION_STATE.verified, detail: 'Archive, checksum, and schema validated.' };
+    }
+    if (status === 'failed') {
+      return { ...VERIFICATION_STATE.failed, detail: record?.error || 'Integrity verification failed.' };
+    }
+    if (status === 'missing') {
+      // The file is present, so a stale "missing" flag is only a stale flag.
+      return { ...VERIFICATION_STATE.pending, detail: 'Archive found in storage but not yet verified.' };
+    }
+    return { ...VERIFICATION_STATE.pending, detail: 'This backup has not been verified yet.' };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Primitives                                                          */
+  /* ------------------------------------------------------------------ */
 
   async hashFile(fileName) {
     const hash = crypto.createHash('sha256');
@@ -184,16 +320,33 @@ class BackupSystem {
     };
   }
 
+  /**
+   * Validate an archive end to end.
+   *
+   * The archive is the source of truth. The plaintext JSON sidecar is an
+   * optional convenience: when present it is cross-checked, when absent the
+   * archive is still fully validated (read, decrypt, decompress, parse,
+   * schema-check, checksum-check). Requiring the sidecar was wrong — it is
+   * deliberately deleted for encrypted backups and may be rotated away for
+   * older plaintext ones.
+   */
   async verifyFiles(jsonName, archiveName, expected = {}) {
+    if (!archiveName) throw Object.assign(new Error('Backup archive could not be resolved'), { code: 'STORAGE_MISSING' });
+    if (!this.storage.exists(archiveName)) {
+      throw Object.assign(new Error(`Backup archive is missing: ${archiveName}`), { code: 'STORAGE_MISSING' });
+    }
     const hasJson = Boolean(jsonName && this.storage.exists(jsonName));
-    if (!hasJson && !expected.isEncrypted) throw new Error('Backup JSON file is missing');
-    if (!this.storage.exists(archiveName)) throw new Error('Backup archive is missing');
 
     const checksum = await this.hashFile(archiveName);
     if (expected.checksum && expected.checksum !== checksum) throw new Error('Archive checksum mismatch');
 
+    const isEncrypted = expected.isEncrypted ?? /\.enc$/i.test(archiveName);
+    if (isEncrypted && !this.encryption.enabled) {
+      throw new Error('Backup is encrypted but no encryption key is configured');
+    }
+
     const storedArchive = this.storage.readFile(archiveName);
-    const compressed = expected.isEncrypted ? this.encryption.decryptBuffer(storedArchive) : storedArchive;
+    const compressed = isEncrypted ? this.encryption.decryptBuffer(storedArchive) : storedArchive;
     const decompressed = await new Promise((resolve, reject) => zlib.gunzip(compressed, (error, data) => error ? reject(error) : resolve(data)));
     const jsonChecksum = crypto.createHash('sha256').update(decompressed).digest('hex');
     if (hasJson) {
@@ -212,6 +365,7 @@ class BackupSystem {
     const maxAgeMs = Number.parseInt(process.env.BACKUP_MAX_AGE_HOURS || '24', 10) * 60 * 60 * 1000;
     const detailedValidation = {
       fileExists: true,
+      jsonSidecarPresent: hasJson,
       jsonValid: true,
       gzipIntegrity: true,
       checksumValid: true,
@@ -224,6 +378,10 @@ class BackupSystem {
     };
     return { checksum, jsonChecksum, jsonSize: decompressed.length, validation, detailedValidation, backupData };
   }
+
+  /* ------------------------------------------------------------------ */
+  /* Create                                                              */
+  /* ------------------------------------------------------------------ */
 
   async createBackup(backupType = 'manual', triggeredBy = 'system', options = {}) {
     const type = this.normalizeType(backupType);
@@ -240,9 +398,7 @@ class BackupSystem {
   async createBackupUnlocked(type, triggeredBy, options = {}) {
     const startedAt = Date.now();
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const fileName = `backup-${timestamp}.json`;
     const isEncrypted = this.encryption.enabled;
-    const archiveName = `${fileName}.gz${isEncrypted ? '.enc' : ''}`;
     const token = crypto.randomUUID();
     const tempJsonName = `.pending-${token}.json`;
     const tempGzipName = `.pending-${token}.json.gz`;
@@ -252,13 +408,20 @@ class BackupSystem {
     let promotedJson = false;
     let promotedArchive = false;
 
+    // Final filename is decided from the encryption state BEFORE the database
+    // record is created, so metadata can never disagree with storage.
+    const finalFileName = isEncrypted
+      ? `backup-${timestamp}.json.gz.enc`
+      : `backup-${timestamp}.json.gz`;
+    const jsonFileName = `backup-${timestamp}.json`;
+
     try {
       if (mongoose.connection.readyState !== 1 || !mongoose.connection.db) throw new Error('Database is not connected');
       record = await Backup.create({
-        fileName,
-        originalFileName: fileName,
-        filePath: this.storage.resolve(fileName),
-        compressedPath: this.storage.resolve(archiveName),
+        fileName: finalFileName,
+        originalFileName: jsonFileName,
+        filePath: isEncrypted ? this.storage.resolve(finalFileName) : this.storage.resolve(jsonFileName),
+        compressedPath: this.storage.resolve(finalFileName),
         backupType: type,
         triggeredBy,
         status: 'in_progress',
@@ -291,15 +454,20 @@ class BackupSystem {
       const verification = await this.verifyFiles(tempJsonName, tempArchiveName, { collections: collectionStats, isEncrypted });
       const verificationDurationMs = Date.now() - verificationStartedAt;
 
-      if (isEncrypted) this.storage.remove(tempJsonName);
-      else {
-        this.storage.rename(tempJsonName, fileName);
+      if (isEncrypted) {
+        this.storage.remove(tempJsonName);
+      } else {
+        this.storage.rename(tempJsonName, jsonFileName);
         promotedJson = true;
       }
-      this.storage.rename(tempArchiveName, archiveName);
+      this.storage.rename(tempArchiveName, finalFileName);
       promotedArchive = true;
 
-      const compressedSize = this.storage.stat(archiveName).size;
+      if (!this.storage.exists(finalFileName)) {
+        throw new Error(`Final backup file was not created: ${finalFileName}`);
+      }
+
+      const compressedSize = this.storage.stat(finalFileName).size;
       const durationMs = Date.now() - startedAt;
       Object.assign(record, {
         status: 'completed',
@@ -327,16 +495,16 @@ class BackupSystem {
       this.invalidateCaches();
 
       await BackupVerificationReport.create({
-        backupId: record._id, fileName, type: 'integrity', status: 'passed', startedAt: new Date(verificationStartedAt),
+        backupId: record._id, fileName: finalFileName, type: 'integrity', status: 'passed', startedAt: new Date(verificationStartedAt),
         completedAt: new Date(), durationMs: verificationDurationMs, validationResults: verification.detailedValidation,
         collectionCounts: verification.validation.counts
       });
 
       await this.cleanupOldBackups();
-      await this.notifications.notify('backup.completed', { backupId: String(record._id), fileName, backupType: type, durationMs, isEncrypted });
+      await this.notifications.notify('backup.completed', { backupId: String(record._id), fileName: finalFileName, backupType: type, durationMs, isEncrypted });
       return {
         success: true,
-        fileName,
+        fileName: finalFileName,
         size,
         compressedSize,
         documentCount,
@@ -353,9 +521,8 @@ class BackupSystem {
       for (const name of [tempJsonName, tempGzipName, tempArchiveName]) {
         try { this.storage.remove(name); } catch (_) { /* best effort */ }
       }
-      // Final names belong only to this failed operation, so removing them never affects prior backups.
-      if (promotedJson) { try { this.storage.remove(fileName); } catch (_) { /* best effort */ } }
-      if (promotedArchive) { try { this.storage.remove(archiveName); } catch (_) { /* best effort */ } }
+      if (promotedJson) { try { this.storage.remove(jsonFileName); } catch (_) { /* best effort */ } }
+      if (promotedArchive) { try { this.storage.remove(finalFileName); } catch (_) { /* best effort */ } }
       if (record) {
         record.status = 'failed';
         record.verificationStatus = 'failed';
@@ -365,19 +532,34 @@ class BackupSystem {
         try { await record.save(); } catch (metadataError) { console.error('Failed to record backup failure:', metadataError); }
       }
       console.error('Backup failed:', error);
-      await this.notifications.notify('backup.failed', { backupId: record?._id ? String(record._id) : null, fileName, backupType: type, error: error.message });
+      await this.notifications.notify('backup.failed', { backupId: record?._id ? String(record._id) : null, fileName: finalFileName, backupType: type, error: error.message });
       return { success: false, error: error.message, code: error.code || 'BACKUP_FAILED' };
     }
   }
 
-  // Kept for backward compatibility. It is intentionally non-destructive and uses the verified path.
   async createBackupFileOnly(backupType = 'manual', triggeredBy = 'system') {
     return this.createBackup(backupType, triggeredBy);
   }
 
+  /* ------------------------------------------------------------------ */
+  /* Retention / reconciliation                                          */
+  /* ------------------------------------------------------------------ */
+
   async removeBackupFiles(record) {
     const failures = [];
-    for (const name of [record.fileName, path.basename(record.compressedPath || `${record.fileName}.gz`)]) {
+    const resolved = this.resolveBackupFiles(record);
+    const filesToRemove = new Set();
+
+    if (resolved.archiveName) filesToRemove.add(resolved.archiveName);
+    if (resolved.jsonName) filesToRemove.add(resolved.jsonName);
+
+    // Also sweep any declared names that still exist but were not resolved.
+    for (const name of [record.fileName, record.compressedPath && path.basename(record.compressedPath), record.originalFileName]) {
+      const safe = name ? path.basename(String(name)) : null;
+      if (safe && this.storage.exists(safe)) filesToRemove.add(safe);
+    }
+
+    for (const name of filesToRemove) {
       try { this.storage.remove(name); } catch (error) { failures.push(`${name}: ${error.message}`); }
     }
     if (failures.length) throw new Error(`Backup file deletion incomplete: ${failures.join('; ')}`);
@@ -449,64 +631,127 @@ class BackupSystem {
   }
 
   async reconcileMetadataUnlocked() {
-    if (mongoose.connection.readyState !== 1) return { missing: 0, imported: 0 };
+    if (mongoose.connection.readyState !== 1) return { missing: 0, imported: 0, healed: 0 };
     const storedNames = this.storage.list().filter(name => !name.startsWith('.pending-'));
-    const files = storedNames.filter(name => name.endsWith('.json'));
-    const encryptedArchives = storedNames.filter(name => name.endsWith('.json.gz.enc'));
+    const plainJson = storedNames.filter(name => /\.json$/i.test(name));
+    const compressedArchives = storedNames.filter(name => /\.json\.gz$/i.test(name));
+    const encryptedArchives = storedNames.filter(name => /\.json\.gz\.enc$/i.test(name));
     const records = await Backup.find();
     let missing = 0;
     let imported = 0;
+    let healed = 0;
 
     for (const record of records) {
-      const archiveName = path.basename(record.compressedPath || `${record.fileName}.gz${record.isEncrypted ? '.enc' : ''}`);
-      const primaryExists = record.isEncrypted ? this.storage.exists(archiveName) : this.storage.exists(record.fileName) && this.storage.exists(archiveName);
-      if (record.status === 'completed' && !primaryExists) {
+      const resolved = this.resolveBackupFiles(record);
+
+      if (record.status === 'completed' && !resolved.exists) {
+        // Genuinely absent from storage. This is Storage Missing, and it is
+        // the only condition that may set verificationStatus to 'missing'.
         await Backup.updateOne(
           { _id: record._id },
-          { $set: { verificationStatus: 'missing', error: 'Backup file missing from configured storage' } }
+          {
+            $set: {
+              verificationStatus: 'missing',
+              error: `Backup archive missing from ${this.storage.provider} storage (looked for ${resolved.candidates.join(', ')})`
+            }
+          }
         ).catch(() => {});
         missing += 1;
+        continue;
+      }
+
+      // Self-heal metadata that points at the wrong extension. This is the
+      // "database -> .json / storage -> .json.gz.enc" drift left behind by
+      // the pre-fix scheduled-backup pipeline.
+      if (resolved.exists && path.basename(String(record.fileName)) !== resolved.archiveName) {
+        const update = {
+          fileName: resolved.archiveName,
+          compressedPath: this.storage.resolve(resolved.archiveName),
+          isEncrypted: resolved.isEncrypted
+        };
+        if (!record.originalFileName) update.originalFileName = path.basename(String(record.fileName));
+        if (record.verificationStatus === 'missing') {
+          // The file was there all along; downgrade to "needs verification"
+          // rather than leaving a false Storage Missing.
+          update.verificationStatus = 'pending';
+          update.error = null;
+        }
+        await Backup.updateOne({ _id: record._id }, { $set: update }).catch(() => {});
+        healed += 1;
+      } else if (resolved.exists && record.verificationStatus === 'missing') {
+        await Backup.updateOne(
+          { _id: record._id },
+          { $set: { verificationStatus: 'pending', error: null } }
+        ).catch(() => {});
+        healed += 1;
       }
     }
 
-    const known = new Set(records.map(record => record.fileName));
+    // Import orphan archives that have no database record.
+    const known = new Set();
+    for (const record of await Backup.find().select('fileName originalFileName compressedPath').lean()) {
+      if (record.fileName) known.add(path.basename(record.fileName));
+      if (record.originalFileName) known.add(path.basename(record.originalFileName));
+      if (record.compressedPath) known.add(path.basename(record.compressedPath));
+    }
+
     const orphanCandidates = [
-      ...files.map(fileName => ({ fileName, archiveName: `${fileName}.gz`, isEncrypted: false })),
-      ...encryptedArchives.map(archiveName => ({ fileName: archiveName.replace(/\.gz\.enc$/, ''), archiveName, isEncrypted: true }))
-    ].filter(candidate => !known.has(candidate.fileName));
-    for (const { fileName, archiveName, isEncrypted } of orphanCandidates) {
-      if (known.has(fileName)) continue;
-      const stat = this.storage.stat(isEncrypted ? archiveName : fileName);
-      let verificationStatus = 'failed';
+      ...encryptedArchives.map(archiveName => ({ base: stripBackupExtensions(archiveName), finalFileName: archiveName, isEncrypted: true })),
+      ...compressedArchives.map(archiveName => ({ base: stripBackupExtensions(archiveName), finalFileName: archiveName, isEncrypted: false })),
+      // A bare .json with no archive alongside it is a legacy, uncompressed leftover.
+      ...plainJson
+        .filter(name => !compressedArchives.includes(`${name}.gz`) && !encryptedArchives.includes(`${name}.gz.enc`))
+        .map(name => ({ base: stripBackupExtensions(name), finalFileName: name, isEncrypted: false }))
+    ].filter(candidate => !known.has(candidate.finalFileName) && !known.has(`${candidate.base}.json`));
+
+    for (const { base, finalFileName, isEncrypted } of orphanCandidates) {
+      if (known.has(finalFileName)) continue;
+      const stat = this.storage.stat(finalFileName);
+      const jsonSidecar = !isEncrypted && this.storage.exists(`${base}.json`) && finalFileName !== `${base}.json`
+        ? `${base}.json`
+        : null;
+
+      let verificationStatus = 'pending';
       let checksum = null;
       let jsonChecksum = null;
       let documentCount = 0;
       let collections = [];
       let verifiedJsonSize = 0;
-      let error = 'Compressed archive missing';
-      if (this.storage.exists(archiveName) && (!isEncrypted || this.encryption.enabled)) {
+      let error = null;
+
+      // Only .gz/.gz.enc archives can be validated by verifyFiles.
+      if (/\.gz(\.enc)?$/i.test(finalFileName) && (!isEncrypted || this.encryption.enabled)) {
         try {
-          const verified = await this.verifyFiles(isEncrypted ? null : fileName, archiveName, { isEncrypted });
+          const verified = await this.verifyFiles(jsonSidecar, finalFileName, { isEncrypted });
           verificationStatus = 'verified';
           checksum = verified.checksum;
           jsonChecksum = verified.jsonChecksum;
           verifiedJsonSize = verified.jsonSize;
           collections = Object.entries(verified.validation.counts).map(([name, count]) => ({ name, count }));
           documentCount = collections.reduce((sum, item) => sum + item.count, 0);
-          error = null;
-        } catch (verifyError) { error = verifyError.message; }
+        } catch (verifyError) {
+          verificationStatus = 'failed';
+          error = verifyError.message;
+        }
+      } else if (isEncrypted && !this.encryption.enabled) {
+        verificationStatus = 'pending';
+        error = 'Encrypted archive cannot be verified: no encryption key configured';
+      } else {
+        verificationStatus = 'pending';
+        error = 'Legacy uncompressed backup; verification requires a .json.gz archive';
       }
+
       try {
         await Backup.create({
-          fileName,
-          originalFileName: fileName,
-          filePath: this.storage.resolve(fileName),
-          compressedPath: this.storage.resolve(archiveName),
-          size: isEncrypted && verificationStatus === 'verified' ? verifiedJsonSize : stat.size,
-          compressedSize: this.storage.exists(archiveName) ? this.storage.stat(archiveName).size : 0,
+          fileName: finalFileName,
+          originalFileName: `${base}.json`,
+          filePath: this.storage.resolve(jsonSidecar || finalFileName),
+          compressedPath: this.storage.resolve(finalFileName),
+          size: verificationStatus === 'verified' && isEncrypted ? verifiedJsonSize : stat.size,
+          compressedSize: this.storage.stat(finalFileName).size,
           documentCount,
           collections,
-          status: verificationStatus === 'verified' ? 'completed' : 'failed',
+          status: verificationStatus === 'failed' ? 'failed' : 'completed',
           backupType: 'legacy',
           triggeredBy: 'reconciliation',
           verificationStatus,
@@ -527,27 +772,78 @@ class BackupSystem {
         console.error('reconcileMetadata: failed to create backup record:', createErr.message);
       }
     }
-    return { missing, imported };
+
+    if (healed || missing || imported) this.invalidateCaches();
+    return { missing, imported, healed };
   }
 
   async getBackupHistory() {
     if (mongoose.connection.readyState !== 1) return [];
-    return Backup.find().sort({ createdAt: -1 }).limit(100).lean();
+    const records = await Backup.find().sort({ createdAt: -1 }).limit(100).lean();
+    return records.map((record) => {
+      const resolved = this.resolveBackupFiles(record);
+      const state = this.describeVerificationState(record, resolved);
+      return {
+        ...record,
+        physicalFileName: resolved.archiveName,
+        storagePresent: resolved.exists,
+        verificationState: state.state,
+        verificationLabel: state.label,
+        restorable: state.restorable
+      };
+    });
   }
 
+  /* ------------------------------------------------------------------ */
+  /* Verify                                                              */
+  /* ------------------------------------------------------------------ */
+
   async verifyBackup(fileName, options = {}) {
-    const safeName = path.basename(fileName);
-    const record = await Backup.findOne({ fileName: safeName });
-    if (!record) return { success: false, error: 'Backup metadata not found' };
+    const record = await this.findBackupRecord(fileName);
+    if (!record) return { success: false, code: 'BACKUP_NOT_FOUND', error: 'Backup metadata not found' };
+
+    const verificationStartedAt = Date.now();
+    const resolved = this.resolveBackupFiles(record);
+
+    // Storage Missing is evaluated first and reported as its own condition.
+    if (!resolved.exists) {
+      record.verificationStatus = 'missing';
+      record.error = `Backup archive missing from ${this.storage.provider} storage (looked for ${resolved.candidates.join(', ')})`;
+      await record.save();
+      await BackupVerificationReport.create({
+        backupId: record._id, fileName: record.fileName, type: 'integrity', status: 'failed',
+        startedAt: new Date(verificationStartedAt), completedAt: new Date(), durationMs: Date.now() - verificationStartedAt,
+        error: record.error
+      }).catch(() => {});
+      this.invalidateCaches();
+      return {
+        success: false,
+        code: 'STORAGE_MISSING',
+        error: record.error,
+        verificationStatus: 'missing',
+        verificationState: 'storage_missing',
+        verificationLabel: 'Storage Missing'
+      };
+    }
+
     try {
-      const verificationStartedAt = Date.now();
-      const archiveName = path.basename(record.compressedPath || `${record.fileName}.gz${record.isEncrypted ? '.enc' : ''}`);
-      const result = await this.verifyFiles(record.isEncrypted ? null : record.fileName, archiveName, {
+      // Heal metadata drift before verifying so the checksum comparison and
+      // every later operation address the file that actually exists.
+      if (path.basename(String(record.fileName)) !== resolved.archiveName) {
+        if (!record.originalFileName) record.originalFileName = path.basename(String(record.fileName));
+        record.fileName = resolved.archiveName;
+        record.compressedPath = this.storage.resolve(resolved.archiveName);
+      }
+      record.isEncrypted = resolved.isEncrypted;
+      if (resolved.isEncrypted && !record.encryptionProvider) record.encryptionProvider = this.encryption.name;
+
+      const result = await this.verifyFiles(resolved.jsonName, resolved.archiveName, {
         checksum: record.checksum,
         jsonChecksum: record.jsonChecksum,
         collections: record.collections,
-        isEncrypted: record.isEncrypted
+        isEncrypted: resolved.isEncrypted
       });
+
       record.checksum = result.checksum;
       record.jsonChecksum = result.jsonChecksum;
       record.verificationStatus = 'verified';
@@ -555,31 +851,62 @@ class BackupSystem {
       record.validationResults = result.detailedValidation;
       record.performance = record.performance || {};
       record.performance.verificationDurationMs = Date.now() - verificationStartedAt;
-      const archiveSize = this.storage.stat(archiveName).size;
+      const archiveSize = this.storage.stat(resolved.archiveName).size;
       record.performance.storageReadBytesPerSecond = record.performance.verificationDurationMs
         ? Math.round(archiveSize / (record.performance.verificationDurationMs / 1000)) : null;
+      if (!record.compressedSize) record.compressedSize = archiveSize;
       record.error = null;
       await record.save();
       this.invalidateCaches();
+
       await BackupVerificationReport.create({
         backupId: record._id, fileName: record.fileName, type: 'integrity', status: 'passed',
         startedAt: new Date(verificationStartedAt), completedAt: new Date(), durationMs: Date.now() - verificationStartedAt,
         validationResults: result.detailedValidation, collectionCounts: result.validation.counts
       });
-      return { success: true, fileName: record.fileName, checksum: result.checksum, verificationStatus: 'verified', validationResults: result.detailedValidation, ...(options.includeData ? { _backupData: result.backupData } : {}) };
+
+      return {
+        success: true,
+        fileName: record.fileName,
+        physicalFileName: resolved.archiveName,
+        checksum: result.checksum,
+        verificationStatus: 'verified',
+        verificationState: 'verified',
+        verificationLabel: 'Verified',
+        validationResults: result.detailedValidation,
+        ...(options.includeData ? { _backupData: result.backupData } : {})
+      };
     } catch (error) {
-      const archiveName = path.basename(record.compressedPath || `${record.fileName}.gz${record.isEncrypted ? '.enc' : ''}`);
-      record.verificationStatus = this.storage.exists(archiveName) ? 'failed' : 'missing';
+      // The archive was present, so this is a genuine integrity failure and
+      // must never be reported as Storage Missing.
+      const stillPresent = this.storage.exists(resolved.archiveName);
+      record.verificationStatus = stillPresent ? 'failed' : 'missing';
       record.error = error.message;
       await record.save();
-      await BackupVerificationReport.create({ backupId: record._id, fileName: record.fileName, type: 'integrity', status: 'failed', startedAt: new Date(), completedAt: new Date(), durationMs: 0, error: error.message });
+      await BackupVerificationReport.create({
+        backupId: record._id, fileName: record.fileName, type: 'integrity', status: 'failed',
+        startedAt: new Date(verificationStartedAt), completedAt: new Date(), durationMs: Date.now() - verificationStartedAt,
+        error: error.message
+      }).catch(() => {});
+      this.invalidateCaches();
       await this.notifications.notify('backup.verification_failed', { backupId: String(record._id), fileName: record.fileName, error: error.message });
-      return { success: false, error: error.message, verificationStatus: record.verificationStatus };
+      return {
+        success: false,
+        code: stillPresent ? 'VERIFICATION_FAILED' : 'STORAGE_MISSING',
+        error: error.message,
+        verificationStatus: record.verificationStatus,
+        verificationState: stillPresent ? 'verification_failed' : 'storage_missing',
+        verificationLabel: stillPresent ? 'Verification Failed' : 'Storage Missing'
+      };
     }
   }
 
+  /* ------------------------------------------------------------------ */
+  /* Mutations                                                           */
+  /* ------------------------------------------------------------------ */
+
   async deleteBackup(fileName, { force = false, confirmationToken = '' } = {}) {
-    const record = await Backup.findOne({ fileName: path.basename(fileName) });
+    const record = await this.findBackupRecord(fileName);
     if (!record) return { success: false, error: 'Backup not found' };
     if (record.status === 'in_progress') return { success: false, error: 'Running backups cannot be deleted' };
     if (record.isProtected && !force) return { success: false, error: 'Protected backup requires elevated administrator confirmation', confirmationRequired: true, protectedConfirmationRequired: true };
@@ -590,46 +917,54 @@ class BackupSystem {
   }
 
   async setProtection(fileName, isProtected) {
-    const record = await Backup.findOneAndUpdate(
-      { fileName: path.basename(fileName) },
-      { $set: { isProtected: Boolean(isProtected) } },
-      { new: true }
-    ).lean();
-    if (record) this.invalidateCaches();
-    return record ? { success: true, backup: record } : { success: false, error: 'Backup not found' };
+    const record = await this.findBackupRecord(fileName);
+    if (!record) return { success: false, error: 'Backup not found' };
+    record.isProtected = Boolean(isProtected);
+    await record.save();
+    this.invalidateCaches();
+    return { success: true, backup: record.toObject() };
   }
 
   async renameBackup(fileName, requestedName) {
-    const currentName = path.basename(String(fileName || ''));
-    const base = path.basename(String(requestedName || '')).replace(/\.json(?:\.gz)?$/i, '').replace(/[^a-zA-Z0-9._-]/g, '-');
-    if (!currentName || !base) return { success: false, error: 'Current and new backup names are required' };
-    const newName = `${base}.json`;
-    if (this.storage.exists(newName) || this.storage.exists(`${newName}.gz`) || this.storage.exists(`${newName}.gz.enc`)) return { success: false, error: 'A backup with that name already exists' };
-    const record = await Backup.findOne({ fileName: currentName });
+    const base = path.basename(String(requestedName || ''))
+      .replace(/\.json(?:\.gz(?:\.enc)?)?$/i, '')
+      .replace(/[^a-zA-Z0-9._-]/g, '-');
+    if (!fileName || !base) return { success: false, error: 'Current and new backup names are required' };
+
+    const record = await this.findBackupRecord(fileName);
     if (!record) return { success: false, error: 'Backup not found' };
     if (record.status === 'in_progress') return { success: false, error: 'Running backups cannot be renamed' };
 
-    const oldArchive = path.basename(record.compressedPath || `${currentName}.gz${record.isEncrypted ? '.enc' : ''}`);
-    const newArchive = `${newName}.gz${record.isEncrypted ? '.enc' : ''}`;
+    const resolved = this.resolveBackupFiles(record);
+    if (!resolved.exists) return { success: false, code: 'STORAGE_MISSING', error: 'Current backup file not found in storage' };
+
+    const newArchiveName = resolved.isEncrypted ? `${base}.json.gz.enc` : `${base}.json.gz`;
+    const newJsonName = `${base}.json`;
+    if (this.storage.exists(newArchiveName)) return { success: false, error: 'A backup with that name already exists' };
+    if (resolved.jsonName && this.storage.exists(newJsonName)) return { success: false, error: 'A backup with that name already exists' };
+
+    const previousArchiveName = resolved.archiveName;
     let jsonRenamed = false;
     let archiveRenamed = false;
     try {
-      if (!record.isEncrypted) {
-        this.storage.rename(currentName, newName);
+      if (resolved.jsonName) {
+        this.storage.rename(resolved.jsonName, newJsonName);
         jsonRenamed = true;
       }
-      this.storage.rename(oldArchive, newArchive);
+      this.storage.rename(resolved.archiveName, newArchiveName);
       archiveRenamed = true;
-      record.fileName = newName;
-      record.originalFileName = record.originalFileName || currentName;
-      record.filePath = this.storage.resolve(newName);
-      record.compressedPath = this.storage.resolve(newArchive);
+
+      record.fileName = newArchiveName;
+      record.originalFileName = newJsonName;
+      record.filePath = this.storage.resolve(resolved.jsonName ? newJsonName : newArchiveName);
+      record.compressedPath = this.storage.resolve(newArchiveName);
       await record.save();
       this.invalidateCaches();
-      return { success: true, oldFileName: currentName, fileName: newName };
+
+      return { success: true, oldFileName: previousArchiveName, fileName: newArchiveName };
     } catch (error) {
-      if (archiveRenamed) { try { this.storage.rename(newArchive, oldArchive); } catch (_) { /* best effort */ } }
-      if (jsonRenamed) { try { this.storage.rename(newName, currentName); } catch (_) { /* best effort */ } }
+      if (archiveRenamed) { try { this.storage.rename(newArchiveName, previousArchiveName); } catch (_) { /* best effort */ } }
+      if (jsonRenamed) { try { this.storage.rename(newJsonName, resolved.jsonName); } catch (_) { /* best effort */ } }
       return { success: false, error: error.message };
     }
   }
@@ -643,18 +978,63 @@ class BackupSystem {
     return { compatible: !impossible, requiresConfirmation: warnings.length > 0 && !impossible, warnings, current: { appVersion: APP_VERSION, schemaVersion: SCHEMA_VERSION, backupEngineVersion: ENGINE_VERSION, backupFormatVersion: FORMAT_VERSION }, backup: { appVersion: record.appVersion, schemaVersion: record.schemaVersion, backupEngineVersion: record.backupEngineVersion, backupFormatVersion: record.backupFormatVersion } };
   }
 
-  async getRestorePreview(backupFileName) {
-    const record = await Backup.findOne({ fileName: path.basename(backupFileName) }).lean();
-    if (!record) return { success: false, error: 'Backup not found' };
+  /* ------------------------------------------------------------------ */
+  /* Restore preview + restore                                           */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Restore preview no longer reports whatever stale value happens to sit in
+   * `verificationStatus`. If the archive exists but has not been verified,
+   * verification is performed on demand, because a missing verification
+   * report is not evidence that the backup is bad.
+   *
+   * Pass { verify: false } to get a cheap metadata-only preview.
+   */
+  async getRestorePreview(backupFileName, { verify = true } = {}) {
+    let record = await this.findBackupRecord(backupFileName);
+    if (!record) return { success: false, code: 'BACKUP_NOT_FOUND', error: 'Backup not found' };
+
+    let resolved = this.resolveBackupFiles(record);
+    let verificationResult = null;
+
+    if (verify && resolved.exists && record.verificationStatus !== 'verified') {
+      verificationResult = await this.verifyBackup(record.fileName);
+      const reloaded = await this.findBackupRecord(record.fileName);
+      if (reloaded) record = reloaded;
+      resolved = this.resolveBackupFiles(record);
+    }
+
+    const state = this.describeVerificationState(record, resolved);
+
     return {
       success: true,
       backup: {
-        fileName: record.fileName, createdAt: record.createdAt, appVersion: record.appVersion, schemaVersion: record.schemaVersion,
-        backupEngineVersion: record.backupEngineVersion, backupFormatVersion: record.backupFormatVersion,
-        collections: record.collections || [], documentCount: record.documentCount, size: record.size,
-        compressedSize: record.compressedSize, verificationStatus: record.verificationStatus, checksum: record.checksum,
-        triggeredBy: record.triggeredBy, isProtected: record.isProtected, isEncrypted: record.isEncrypted, storageProvider: record.storageProvider
+        fileName: record.fileName,
+        physicalFileName: resolved.archiveName,
+        storagePresent: resolved.exists,
+        createdAt: record.createdAt,
+        appVersion: record.appVersion,
+        schemaVersion: record.schemaVersion,
+        backupEngineVersion: record.backupEngineVersion,
+        backupFormatVersion: record.backupFormatVersion,
+        collections: record.collections || [],
+        documentCount: record.documentCount,
+        size: record.size,
+        compressedSize: record.compressedSize,
+        verificationStatus: record.verificationStatus,
+        verificationState: state.state,
+        verificationLabel: state.label,
+        verificationDetail: state.detail,
+        verificationError: record.verificationStatus === 'verified' ? null : (record.error || null),
+        verifiedAt: record.verifiedAt || null,
+        restorable: state.restorable,
+        checksum: record.checksum,
+        triggeredBy: record.triggeredBy,
+        isProtected: record.isProtected,
+        isEncrypted: resolved.isEncrypted,
+        storageProvider: record.storageProvider
       },
+      verification: verificationResult,
       compatibility: this.getCompatibility(record)
     };
   }
@@ -669,18 +1049,22 @@ class BackupSystem {
 
   async restoreBackupUnlocked(backupFileName, options = {}) {
     const startedAt = Date.now();
-    const safeName = path.basename(backupFileName);
-    const record = await Backup.findOne({ fileName: safeName });
-    if (!record) return { success: false, error: 'Backup metadata not found' };
+    const record = await this.findBackupRecord(backupFileName);
+    if (!record) return { success: false, code: 'BACKUP_NOT_FOUND', error: 'Backup metadata not found' };
+    const safeName = record.fileName;
 
     const compatibility = this.getCompatibility(record);
     if (!compatibility.compatible) return { success: false, error: 'Backup format is incompatible', compatibility };
     if (compatibility.requiresConfirmation && options.confirmCompatibility !== true) {
-      return { success: false, code: 'COMPATIBILITY_CONFIRMATION_REQUIRED', error: 'Version compatibility confirmation required', compatibility, preview: (await this.getRestorePreview(safeName)).backup };
+      return { success: false, code: 'COMPATIBILITY_CONFIRMATION_REQUIRED', error: 'Version compatibility confirmation required', compatibility, preview: (await this.getRestorePreview(safeName, { verify: false })).backup };
     }
 
+    // Full preflight verification still runs on every restore. Nothing here
+    // is relaxed: a corrupt or absent archive is rejected exactly as before.
     const preflight = await this.verifyBackup(safeName, { includeData: true });
-    if (!preflight.success) return { success: false, error: `Restore preflight failed: ${preflight.error}` };
+    if (!preflight.success) {
+      return { success: false, code: preflight.code || 'RESTORE_PREFLIGHT_FAILED', error: `Restore preflight failed: ${preflight.error}` };
+    }
 
     const emergency = await this.createBackupUnlocked('emergency', 'restore-operation', { isProtected: true, skipLock: true });
     if (!emergency.success) return { success: false, error: `Emergency backup failed; restore aborted: ${emergency.error}` };
@@ -777,11 +1161,9 @@ class BackupSystem {
   }
 
   async compareBackups(firstFileName, secondFileName) {
-    const records = await Backup.find({ fileName: { $in: [path.basename(firstFileName), path.basename(secondFileName)] } }).lean();
-    if (records.length !== 2) return { success: false, error: 'Both backups must exist' };
-    const byName = new Map(records.map(item => [item.fileName, item]));
-    const first = byName.get(path.basename(firstFileName));
-    const second = byName.get(path.basename(secondFileName));
+    const first = await this.findBackupRecord(firstFileName, { lean: true });
+    const second = await this.findBackupRecord(secondFileName, { lean: true });
+    if (!first || !second) return { success: false, error: 'Both backups must exist' };
     const firstCounts = new Map((first.collections || []).map(item => [item.name, item.count]));
     const secondCounts = new Map((second.collections || []).map(item => [item.name, item.count]));
     const collectionNames = Array.from(new Set([...firstCounts.keys(), ...secondCounts.keys()])).sort();
@@ -889,7 +1271,10 @@ class BackupSystem {
     try {
       const records = await Backup.find().sort({ createdAt: -1 }).lean();
       const completed = records.filter(item => item.status === 'completed' && item.verificationStatus === 'verified');
+      // 'pending' is Verification Required, not a failure. Only genuine
+      // failures and genuinely absent files count against reliability.
       const failed = records.filter(item => item.status === 'failed' || ['failed', 'missing'].includes(item.verificationStatus));
+      const unverified = records.filter(item => item.status === 'completed' && item.verificationStatus === 'pending');
       const latestBackup = completed[0] || null;
       const scheduledMs = 6 * 60 * 60 * 1000;
       const automatic = completed.find(item => AUTOMATIC_TYPES.has(item.backupType));
@@ -909,14 +1294,8 @@ class BackupSystem {
       const rtoMinutes = Number.parseFloat(process.env.BACKUP_RTO_MINUTES || '60');
       const storageRedundancy = process.env.BACKUP_STORAGE_REDUNDANCY || (this.storage.provider === 'local' ? 'single-copy' : 'provider-managed');
 
-      // --- Disaster Recovery Readiness (weighted, evidence-based) ---
-      // Each category contributes a weighted score from 0 to maxPoints.
-      // Partial credit is awarded where appropriate (e.g., 70% storage = partial).
       const readinessCategories = [];
 
-      // 1. Recovery Point Objective (RPO) — 25 pts
-      //    Full credit if latest verified backup is within RPO window.
-      //    Partial credit if backup exists but exceeds RPO.
       let rpoScore = 0;
       if (latestBackup && health.ageHours != null) {
         if (health.ageHours <= rpoHours) rpoScore = 25;
@@ -932,9 +1311,6 @@ class BackupSystem {
           : 'No verified backup exists'
       });
 
-      // 2. Backup Integrity & Verification — 20 pts
-      //    Full credit if verification rate >= 95% and latest is verified.
-      //    Scaled by verification rate otherwise.
       let integrityScore = 0;
       if (latestBackup?.verificationStatus === 'verified') integrityScore += 10;
       integrityScore += Math.round((verificationRate / 100) * 10);
@@ -943,11 +1319,9 @@ class BackupSystem {
         id: 'integrity', label: 'Backup Integrity', score: integrityScore, maxScore: 20,
         status: integrityScore >= 18 ? 'pass' : integrityScore >= 10 ? 'warning' : 'critical',
         detail: `${verificationRate}% verification rate, latest: ${latestBackup?.verificationStatus || 'none'}`
+          + (unverified.length ? `, ${unverified.length} awaiting verification` : '')
       });
 
-      // 3. Restore Testing (RTO) — 20 pts
-      //    Full credit if a restore test was performed within 30 days.
-      //    Partial credit if older. Zero if never tested.
       let rtoScore = 0;
       if (lastRestoreVerification) {
         const restoreAgeDays = (Date.now() - new Date(lastRestoreVerification.completedAt || lastRestoreVerification.createdAt).getTime()) / 86400000;
@@ -964,8 +1338,6 @@ class BackupSystem {
           : 'Restore has never been tested'
       });
 
-      // 4. Storage Redundancy — 15 pts
-      //    Full credit if not single-copy. Zero if single-copy.
       const redundancyScore = storageRedundancy !== 'single-copy' ? 15 : 0;
       readinessCategories.push({
         id: 'redundancy', label: 'Storage Redundancy', score: redundancyScore, maxScore: 15,
@@ -975,8 +1347,6 @@ class BackupSystem {
           : `Redundancy: ${storageRedundancy}`
       });
 
-      // 5. Storage Capacity — 10 pts
-      //    Full credit if <70% used. Scaled down as capacity fills.
       let storageScore = 10;
       if (storage.usedPercentage != null) {
         if (storage.usedPercentage >= 95) storageScore = 0;
@@ -991,7 +1361,6 @@ class BackupSystem {
           : 'Capacity monitoring unavailable'
       });
 
-      // 6. Encryption — 5 pts
       const encryptionScore = this.encryption.enabled ? 5 : 0;
       readinessCategories.push({
         id: 'encryption', label: 'Encryption', score: encryptionScore, maxScore: 5,
@@ -999,8 +1368,6 @@ class BackupSystem {
         detail: this.encryption.enabled ? 'AES-256-GCM encryption enabled' : 'Backups are stored without application-level encryption'
       });
 
-      // 7. Failed Backup Ratio — 5 pts
-      //    Full credit if no failures. Scaled by failure ratio.
       const failureRatio = records.length ? failed.length / records.length : 0;
       const failureScore = failed.length === 0 ? 5 : Math.max(0, Math.round(5 * (1 - failureRatio * 2)));
       readinessCategories.push({
@@ -1017,6 +1384,7 @@ class BackupSystem {
         totalBackups: records.length,
         successfulBackups: completed.length,
         failedBackups: failed.length,
+        unverifiedBackups: unverified.length,
         latestBackup: latestBackup ? {
           fileName: latestBackup.fileName,
           createdAt: latestBackup.createdAt,
@@ -1067,4 +1435,6 @@ class BackupSystem {
 }
 
 BackupSystem.BackupBusyError = BackupBusyError;
+BackupSystem.stripBackupExtensions = stripBackupExtensions;
+BackupSystem.VERIFICATION_STATE = VERIFICATION_STATE;
 module.exports = BackupSystem;

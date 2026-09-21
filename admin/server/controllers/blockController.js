@@ -14,6 +14,7 @@ const AcademicPeriod = require('../models/AcademicPeriod');
 const Subject = require('../models/Subject');
 const CurriculumSubject = require('../models/CurriculumSubject');
 const { autoAssignSubjectsFromCurriculum } = require('../services/blockSubjectAutoAssignService');
+const { convertToSchoolYear } = require('../services/dateUtils');
 
 class BlockController {
   extractBlockSlotFromName(value) {
@@ -191,8 +192,8 @@ class BlockController {
   }
 
   getSchoolYearFromStartYear(value) {
-    const startYear = Number(value);
-    return Number.isFinite(startYear) && startYear > 0 ? `${startYear}-${startYear + 1}` : '';
+    // Deprecated: Use convertToSchoolYear from dateUtils instead
+    return convertToSchoolYear(value);
   }
 
   // GET /api/blocks/assignable-students?semester=1st&year=2026&q=juan
@@ -206,7 +207,7 @@ class BlockController {
 
       const assignedIds = await StudentBlockAssignment.find({
         semester,
-        year: Number(year),
+        year: convertToSchoolYear(year),
         status: { $in: ['ASSIGNED', 'WAITLISTED'] }
       }).distinct('studentId');
       logger.debug('assignedIds length:', assignedIds.length);
@@ -299,17 +300,14 @@ class BlockController {
       const validatedClassification = validClassifications.includes(studentClassification) ? studentClassification : 'All';
 
       const normalizedSemester = String(semester).trim();
-      const normalizedYear = Number(year);
-      if (!Number.isFinite(normalizedYear)) {
-        return res.status(400).json({ error: 'year must be a valid number' });
-      }
+      const normalizedYear = convertToSchoolYear(year);
 
       const canonicalName = this.buildCanonicalBlockCode(name);
       const incomingSlot = this.extractBlockSlotFromName(canonicalName);
       const structuredCourseId = this.normalizeCourseCode(courseId) || this.normalizeCourseCode(courseCode) || this.extractCourseFromGroupName(canonicalName);
       const structuredYearLevel = Number(yearLevel) || incomingSlot?.yearLevel || null;
       const structuredSection = String(section || incomingSlot?.letter || '').trim().toUpperCase();
-      const structuredSchoolYear = String(schoolYear || this.getSchoolYearFromStartYear(normalizedYear)).trim();
+      const structuredSchoolYear = String(schoolYear || normalizedYear).trim();
 
       const sameTermGroups = await BlockGroup.find({
         semester: normalizedSemester,
@@ -385,13 +383,10 @@ class BlockController {
       const nextYearLevel = yearLevel !== undefined ? Number(yearLevel) : this.getGroupYearLevel(group);
       const nextSection = section !== undefined ? String(section).trim().toUpperCase() : this.getGroupSection(group);
       const nextSemester = semester !== undefined ? String(semester).trim() : group.semester;
-      const nextYear = year !== undefined ? Number(year) : group.year;
-      if (!Number.isFinite(nextYear)) {
-        return res.status(400).json({ error: 'year must be a valid number' });
-      }
+      const nextYear = year !== undefined ? convertToSchoolYear(year) : group.year;
       const nextSchoolYear = schoolYear !== undefined
         ? String(schoolYear).trim()
-        : (year !== undefined ? this.getSchoolYearFromStartYear(nextYear) : group.schoolYear);
+        : (year !== undefined ? nextYear : group.schoolYear);
 
       const sameTermGroups = await BlockGroup.find({
         _id: { $ne: group._id },
@@ -442,7 +437,7 @@ class BlockController {
 
           if (assignmentCount > 0) {
             const activePeriod = await AcademicPeriod.findOne({ status: 'Active' }).lean();
-            const groupSchoolYear = group.schoolYear || this.getSchoolYearFromStartYear(group.year);
+            const groupSchoolYear = group.schoolYear || group.year;
             const isArchived = activePeriod && groupSchoolYear && activePeriod.schoolYear !== groupSchoolYear;
 
             if (isArchived) {
@@ -481,7 +476,7 @@ class BlockController {
 
           if (assignmentCount > 0) {
             const activePeriod = await AcademicPeriod.findOne({ status: 'Active' }).lean();
-            const groupSchoolYear = group.schoolYear || this.getSchoolYearFromStartYear(group.year);
+            const groupSchoolYear = group.schoolYear || group.year;
             const isArchived = activePeriod && groupSchoolYear && activePeriod.schoolYear !== groupSchoolYear;
 
             if (isArchived) {
@@ -1022,7 +1017,7 @@ class BlockController {
       // Find the active enrollment for this student.
       // Use the block group's academic context (schoolYear, semester) as the primary lookup
       // since the student is being assigned to this specific block's term.
-      const blockSchoolYear = group.schoolYear || this.getSchoolYearFromStartYear(group.year);
+      const blockSchoolYear = group.schoolYear || group.year;
       const blockSemester = semester || group.semester;
 
       let enrollment = await blockEligibilityService.findActiveEnrollment(
@@ -1031,28 +1026,15 @@ class BlockController {
         blockSemester || student.semester
       );
 
-      // Auto-create a minimal enrollment if none exists.
-      // This is the correct flow: assigning a student to a block IS the enrollment step.
-      // The enrollment is created with curriculum subjects auto-populated from the block's curriculum.
+      // Validate that enrollment exists before block assignment
+      // According to single source of truth design, enrollment must exist before section assignment
       if (!enrollment) {
-        try {
-          enrollment = await this.createEnrollmentForBlockAssignment({
-            student,
-            group,
-            section,
-            schoolYear: blockSchoolYear,
-            semester: blockSemester,
-            createdBy: req.adminId,
-            session
-          });
-        } catch (createErr) {
-          await session.abortTransaction();
-          return res.status(400).json({
-            error: 'No active enrollment found and could not create one automatically.',
-            reasons: [createErr.message || 'Failed to auto-create enrollment. Please enroll the student first.'],
-            checks: { enrollmentStatus: false }
-          });
-        }
+        await session.abortTransaction();
+        return res.status(400).json({
+          error: 'Student must be enrolled before being assigned to a section',
+          reasons: ['No active enrollment found for this student. Please enroll the student first.'],
+          checks: { enrollmentStatus: false }
+        });
       }
 
       // Determine schoolYear for the assignment
@@ -1378,7 +1360,7 @@ class BlockController {
     // Create audit entries for BOTH the removal from the original section
     // and the assignment to the target section. Both preserve the historical
     // block/section identity captured before any deletion occurred.
-    const schoolYear = year ? `${year}-${Number(year) + 1}` : undefined;
+    const schoolYear = year ? convertToSchoolYear(year) : undefined;
     await BlockActionLog.create([{
       actionType: 'UNASSIGN',
       sectionId: originalSectionId,
@@ -1642,7 +1624,7 @@ class BlockController {
 
       const normalizedStudentId = String(studentId).trim();
       const normalizedSemester = String(req.body?.semester || group?.semester || '').trim();
-      const normalizedYear = Number(req.body?.year ?? group?.year);
+      const normalizedYear = convertToSchoolYear(req.body?.year ?? group?.year);
 
       const assignmentQuery = {
         sectionId: section._id,
@@ -1650,7 +1632,7 @@ class BlockController {
         status: 'ASSIGNED'
       };
       if (normalizedSemester) assignmentQuery.semester = normalizedSemester;
-      if (Number.isFinite(normalizedYear)) assignmentQuery.year = normalizedYear;
+      if (normalizedYear) assignmentQuery.year = normalizedYear;
 
       let assignment = await StudentBlockAssignment.findOne(assignmentQuery).session(session);
       if (!assignment && (assignmentQuery.semester || assignmentQuery.year !== undefined)) {
