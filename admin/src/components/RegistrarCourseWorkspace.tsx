@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, PencilLine } from 'lucide-react'
 import { API_URL, getStoredToken } from '../lib/authApi'
-import { formatBlockColumnLabel, formatBlockLabel, parseBlockSlot } from '../lib/blockAssignmentShared'
+import { courseShortLabel, formatBlockColumnLabel, formatBlockLabel, parseBlockSlot } from '../lib/blockAssignmentShared'
 import './ProfessorLoad.css'
 import './RegistrarCourseWorkspace.css'
 
 type Semester = '1st' | '2nd' | 'Summer'
 
-type BlockGroup = { _id: string; name: string; semester: Semester; year: number; curriculumId?: string }
+type BlockGroup = { _id: string; name: string; semester: Semester; year: number; schoolYear?: string; curriculumId?: string; yearLevel?: number; courseId?: number; courseCode?: string }
 type BlockSection = { _id: string; sectionCode: string; capacity: number; currentPopulation: number }
 type SectionStudent = { _id: string; studentNumber: string; firstName: string; lastName: string; studentStatus?: string }
 type SubjectItem = { _id: string; code: string; title: string }
@@ -79,6 +79,8 @@ type Props = {
 
 export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   const refreshSignalTimerRef = useRef<number | null>(null)
+  // Monotonic id for section-student fetches — stale responses are dropped.
+  const sectionStudentsRequestRef = useRef(0)
   const [blockGroups, setBlockGroups] = useState<BlockGroup[]>([])
   const [selectedGroupId, setSelectedGroupId] = useState('')
   const [sections, setSections] = useState<BlockSection[]>([])
@@ -263,10 +265,15 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
       let nextSubjects: SubjectItem[] = []
 
       if (group?.curriculumId) {
-        // Fetch subjects from the curriculum linked to this block group
+        // Fetch subjects from the curriculum linked to this block group.
+        // Prefer the group's structured yearLevel — parsing it from the
+        // group name only works for numeric names (e.g. 101-1A) and silently
+        // drops the filter for names like BEED-1A, returning every year
+        // level's subjects (out of sync with the curriculum placement).
         const params = new URLSearchParams()
         const meta = extractGroupMeta(group.name)
-        if (meta.yearLevel) params.set('yearLevel', String(meta.yearLevel))
+        const yearLevel = Number(group.yearLevel) || meta.yearLevel
+        if (yearLevel) params.set('yearLevel', String(yearLevel))
         if (group.semester) params.set('semester', group.semester)
         const query = params.toString()
         const data = await authorizedFetch(`/api/registrar/curriculums/${group.curriculumId}/subjects${query ? `?${query}` : ''}`)
@@ -279,12 +286,16 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
             title: String(cs.subjectId.title || '')
           }))
       } else {
-        // Fallback: fetch from global subject list filtered by course/year/semester
+        // Fallback: fetch from global subject list filtered by course/year/semester.
+        // Same rule as above — structured group fields first, name parsing
+        // only as a last resort, so the list stays in sync with the block.
         const params = new URLSearchParams()
         if (group) {
           const meta = extractGroupMeta(group.name)
-          if (meta.course) params.set('course', String(meta.course))
-          if (meta.yearLevel) params.set('yearLevel', String(meta.yearLevel))
+          const course = group.courseId ?? group.courseCode ?? meta.course
+          const yearLevel = Number(group.yearLevel) || meta.yearLevel
+          if (course !== undefined && course !== null && String(course) !== '') params.set('course', String(course))
+          if (yearLevel) params.set('yearLevel', String(yearLevel))
           if (group.semester) params.set('semester', group.semester)
         }
         const query = params.toString()
@@ -303,11 +314,15 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   }
 
   const fetchSectionStudents = async (sectionId: string) => {
+    const requestId = ++sectionStudentsRequestRef.current
     try {
       const data = await authorizedFetch(`/api/blocks/sections/${sectionId}/students`)
+      // Drop stale responses: only the latest section selection may write.
+      if (requestId !== sectionStudentsRequestRef.current) return
       setSectionStudents(Array.isArray(data?.students) ? data.students as SectionStudent[] : [])
       setError('')
     } catch (err) {
+      if (requestId !== sectionStudentsRequestRef.current) return
       setSectionStudents([])
       setError(err instanceof Error ? err.message : 'Failed to fetch section students')
     }
@@ -315,6 +330,24 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
 
   const selectedGroup = blockGroups.find((group) => group._id === selectedGroupId) || null
   const selectedSection = sections.find((section) => section._id === selectedSectionId) || null
+  const selectedGroupCourseLabel = (() => {
+    if (!selectedGroupId) return ''
+    const group = blockGroups.find((candidate) => candidate._id === selectedGroupId) || null
+    if (!group) return ''
+    const label = courseShortLabel(group.courseId ?? group.courseCode ?? '')
+    return label && label !== 'N/A' ? label : ''
+  })()
+  // Full identity label — course prefix keeps same-letter sections from
+  // different groups (e.g. two "Block-1A"s) distinguishable.
+  const describeSection = (section: BlockSection) =>
+    `${selectedGroupCourseLabel ? `${selectedGroupCourseLabel} · ` : ''}Block-${formatBlockColumnLabel(section.sectionCode).replace('-', '')}`
+  const selectedSectionTerm = (() => {
+    if (!selectedGroupId) return ''
+    const group = blockGroups.find((candidate) => candidate._id === selectedGroupId) || null
+    if (!group) return ''
+    const year = group.schoolYear || formatAcademicYear(group.year)
+    return `${group.semester} Semester, SY ${year}`
+  })()
   const selectedSubject = subjects.find((subject) => subject._id === selectedSubjectId) || null
   const sortedSections = [...sections].sort((a, b) => {
     const slotA = parseBlockSlot(a.sectionCode) || { yearLevel: 99, letter: 'Z' }
@@ -395,11 +428,12 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   }, [selectedGroupId, blockGroups])
 
   useEffect(() => {
+    // Invalidate everything tied to the previous section BEFORE fetching:
+    // student list/count, chosen subject, edit state, and day/room picks.
+    // Invariant: displayed students === students of selectedSectionId.
+    setSectionStudents([])
+    clearAssignmentForm()
     if (!selectedSectionId) {
-      setSectionStudents([])
-      if (!editingAssignmentId) {
-        setSelectedSubjectId('')
-      }
       return
     }
     void fetchSectionStudents(selectedSectionId)
@@ -468,6 +502,11 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     const assignmentTargetId = selectedSubjectId || editingAssignmentId
     if (!selectedProfessor) return setError('Please choose a professor workspace first.')
     if (!selectedSectionId) return setError('Please select a section first.')
+    if (sectionStudents.length === 0) {
+      const label = selectedSection ? describeSection(selectedSection) : 'the selected section'
+      const term = selectedSectionTerm ? ` for ${selectedSectionTerm}` : ''
+      return setError(`No students are currently assigned to ${label}${term}.`)
+    }
     if (!assignmentTargetId) return setError('Please select a subject.')
     const orderedDays = dayOptions.filter((day) => subjectDaySelections.includes(day))
     if (orderedDays.length === 0) return setError('Please select at least one class day.')
@@ -752,7 +791,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                 <option value="">Select section</option>
                 {sortedSections.map((section) => (
                   <option key={section._id} value={section._id}>
-                    Block-{formatBlockColumnLabel(section.sectionCode).replace('-', '')} ({section.currentPopulation}/{section.capacity})
+                    {describeSection(section)} ({section.currentPopulation}/{section.capacity})
                   </option>
                 ))}
               </select>

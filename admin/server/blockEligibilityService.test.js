@@ -290,7 +290,7 @@ describe('evaluateStudentEligibility', () => {
     const result = evaluateStudentEligibility(null, baseStudent, baseBlockGroup, baseBlockSection, null, null, activePeriod);
     expect(result.checks.enrollmentStatus).toBe(false);
     expect(result.eligible).toBe(false);
-    expect(result.reasons.some((r) => r.includes('No active enrollment'))).toBe(true);
+    expect(result.reasons.some((r) => r.includes('No enrollment record'))).toBe(true);
   });
 
   // === STUDENT STATUS ===

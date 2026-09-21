@@ -116,7 +116,7 @@ export default function Navbar({
         </button>
       )}
       <div className="navbar-center">
-        <div className="navbar-center-top">Welcome back, {username}</div>
+        <div className="navbar-center-top">Welcome back, {displayProfileName}</div>
       </div>
       <div className="navbar-spacer" />
       <div className="navbar-user">

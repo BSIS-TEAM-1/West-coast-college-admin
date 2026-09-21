@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Archive, CheckCircle, ChevronRight, Copy, Plus, Search } from 'lucide-react'
+import { Archive, CheckCircle, ChevronRight, Copy, Plus, Search, Trash2 } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import type { Curriculum, CurriculumStatus } from './registrarBlockTypes'
 import '../CurriculumManagement.css'
@@ -112,6 +112,21 @@ function CurriculumManagementPage({
       await fetchCurriculums()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to archive curriculum')
+    }
+  }
+
+  const handleDelete = async (curriculum: Curriculum) => {
+    if (!window.confirm(`Delete "${curriculum.name || curriculum.programName + ' ' + curriculum.version}"? This removes its subject placements and cannot be undone. Curriculums referenced by enrollment records cannot be deleted.`)) return
+    setError('')
+    setSuccess('')
+    try {
+      const data = await authorizedFetch(`/api/registrar/curriculums/${curriculum._id}`, {
+        method: 'DELETE',
+      })
+      setSuccess(data?.message || 'Curriculum deleted')
+      await fetchCurriculums()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete curriculum')
     }
   }
 
@@ -231,6 +246,12 @@ function CurriculumManagementPage({
                     <button className="subject-action-btn cancel" type="button" onClick={() => handleArchive(c)}>
                       <Archive size={16} />
                       Archive
+                    </button>
+                  )}
+                  {c.status === 'Archived' && (
+                    <button className="subject-action-btn cancel" type="button" onClick={() => handleDelete(c)}>
+                      <Trash2 size={16} />
+                      Delete
                     </button>
                   )}
                 </div>

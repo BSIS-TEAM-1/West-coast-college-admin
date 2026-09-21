@@ -31,6 +31,7 @@ const STUDENT_MUTABLE_FIELDS = [
   'semester',
   'schoolYear',
   'studentStatus',
+  'classification',
   'lifecycleStatus',
   'corStatus',
   'scholarship',
@@ -74,6 +75,7 @@ const TRIMMED_STUDENT_STRING_FIELDS = new Set([
   'semester',
   'schoolYear',
   'studentStatus',
+  'classification',
   'lifecycleStatus',
   'corStatus',
   'scholarship',
@@ -205,6 +207,19 @@ class StudentController {
     return convertToSchoolYear(value);
   }
 
+  /** Normalize any year representation to "YYYY-YYYY" without throwing.
+   * Assignment/group year fields mix start years ("2026") and school
+   * years ("2026-2027") across legacy and current records — joins must
+   * accept both instead of missing (orphaned loads) or crashing reads. */
+  static toSchoolYearSafe(value) {
+    const text = String(value ?? '').trim();
+    if (!text) return '';
+    if (/^\d{4}-\d{4}$/.test(text)) return text;
+    const startYear = Number(text);
+    if (Number.isFinite(startYear) && startYear > 0) return `${startYear}-${startYear + 1}`;
+    return text;
+  }
+
   static courseCodeFromValue(value) {
     const text = String(value ?? '').trim();
     if (!text) return '';
@@ -270,7 +285,8 @@ class StudentController {
   static async getProfessorCourseLoads(req, res) {
     try {
       const semesterFilter = String(req.query.semester || '').trim();
-      const yearFilter = convertToSchoolYear(req.query.year);
+      // year is optional — a missing value means "all years", not an error.
+      const yearFilter = req.query.year ? convertToSchoolYear(req.query.year) : '';
       const courseFilter = Number(req.query.course);
 
       const professorDocs = await Admin.find({
@@ -435,6 +451,28 @@ class StudentController {
         assignmentsByStudentId.set(studentId, list);
       });
 
+      // All assignments (unfiltered by section/group match) — used only to
+      // explain orphaned subjects: "no block at all" vs "block, wrong term".
+      const allAssignmentsByStudentId = new Map();
+      studentAssignments.forEach((assignment) => {
+        const studentId = String(assignment.studentId || '').trim();
+        if (!studentId) return;
+        const list = allAssignmentsByStudentId.get(studentId) || [];
+        list.push(assignment);
+        allAssignmentsByStudentId.set(studentId, list);
+      });
+      const describeAssignmentTerms = (list) => {
+        const terms = Array.from(
+          new Set(
+            list.map((assignment) => {
+              const term = `${String(assignment.semester || '').trim()} ${String(assignment.schoolYear || assignment.year || '').trim()}`.trim();
+              return term || 'unknown term';
+            })
+          )
+        );
+        return terms.join(', ');
+      };
+
       const findAssignmentForEnrollment = (studentIdValue, semesterValue, schoolYearValue) => {
         const studentId = String(studentIdValue || '').trim();
         if (!studentId) return null;
@@ -443,10 +481,15 @@ class StudentController {
         if (list.length === 0) return null;
 
         const semester = String(semesterValue || '').trim();
-        const schoolYear = convertToSchoolYear(schoolYearValue);
+        // schoolYearValue may be missing on legacy records — fall back to ''
+        // (handled by the !schoolYear branch below) instead of throwing.
+        const schoolYear = schoolYearValue ? convertToSchoolYear(schoolYearValue) : '';
         const strictMatch = list.find((entry) => {
           const semesterMatch = String(entry.semester || '').trim() === semester;
-          const yearMatch = String(entry.year || '').trim() === schoolYear;
+          const entryYear = String(entry.year || '').trim();
+          const yearMatch =
+            entryYear === schoolYear ||
+            StudentController.toSchoolYearSafe(entryYear) === schoolYear;
           return semesterMatch && yearMatch;
         });
         if (strictMatch) return strictMatch;
@@ -467,7 +510,12 @@ class StudentController {
       ).map((studentId) => new mongoose.Types.ObjectId(studentId));
 
       const enrollmentQuery = {
-        status: 'Enrolled' // Only show enrolled students to professors
+        // Enrolled AND Pending: since the lifecycle reform, every enrollment
+        // starts as Pending and override-path assignments never flip it, yet
+        // both represent real teaching work once students sit in sections.
+        // Students without a block assignment never reach a professor card —
+        // the join below (and the orphaned bucket) still requires one.
+        status: { $in: ['Enrolled', 'Pending'] }
       };
       if (targetEnrollmentPairs.length > 0) {
         enrollmentQuery.$or = targetEnrollmentPairs.map((pair) => {
@@ -543,7 +591,9 @@ class StudentController {
         const blockGroup = groupById.get(String(section.blockGroupId));
         if (!blockGroup) return;
 
-        const schoolYear = String(assignment.year || '').trim();
+        const schoolYear =
+          String(assignment.schoolYear || '').trim() ||
+          StudentController.toSchoolYearSafe(assignment.year);
         const semester = String(assignment.semester || '').trim();
         const enrollment = enrollmentByKey.get(`${studentId}|${schoolYear}|${semester}`);
         if (!enrollment || !Array.isArray(enrollment.subjects)) return;
@@ -637,6 +687,7 @@ class StudentController {
           const bucketKey = `${courseShortLabel}|${schoolYear}|${semester}|${subjectId}|${professorId}`;
           let bucket = orphanedBuckets.get(bucketKey);
           if (!bucket) {
+            const existingTerms = describeAssignmentTerms(allAssignmentsByStudentId.get(studentId) || []);
             bucket = {
               instructor: instructorRaw || 'Professor',
               subjectCode,
@@ -644,6 +695,9 @@ class StudentController {
               sectionLabel: 'No live block assignment',
               courseShortLabel,
               issueType: 'orphaned',
+              hint: existingTerms
+                ? `Student has block assignment(s) for ${existingTerms} — none matches ${semester} ${schoolYear}. Assign a block for the enrollment term.`
+                : `Student has no block assignment at all — assign one for ${semester} ${schoolYear}.`,
               studentIds: new Set()
             };
             orphanedBuckets.set(bucketKey, bucket);
@@ -748,6 +802,7 @@ class StudentController {
         subjectTitle: bucket.subjectTitle,
         sectionLabel: bucket.sectionLabel,
         courseShortLabel: bucket.courseShortLabel,
+        hint: bucket.hint || '',
         studentCount: bucket.studentIds.size,
         issueType: 'orphaned'
       }));
@@ -1022,7 +1077,9 @@ class StudentController {
       if (!studentAssignments.length) return null;
 
       const semester = normalizeText(studentSemester);
-      const schoolYear = convertToSchoolYear(studentSchoolYear);
+      // Legacy student records may lack schoolYear — match loosely instead
+      // of throwing and failing the entire registry read.
+      const schoolYear = studentSchoolYear ? convertToSchoolYear(studentSchoolYear) : '';
       const strictMatch = pickLatestAssignment(
         studentAssignments,
         (assignment) => normalizeText(assignment.semester) === semester && String(assignment.year || '').trim() === schoolYear
@@ -1049,7 +1106,8 @@ class StudentController {
       if (!studentEnrollments.length) return 'Not Enrolled';
 
       const targetSemester = normalizeText(semester);
-      const targetSchoolYear = convertToSchoolYear(schoolYear);
+      // Same legacy-record tolerance as findMatchingAssignment above.
+      const targetSchoolYear = schoolYear ? convertToSchoolYear(schoolYear) : '';
 
       // Look for matching enrollment
       const matchingEnrollment = studentEnrollments.find((enrollment) => {
@@ -1201,6 +1259,12 @@ class StudentController {
 
     if (!set.studentStatus) {
       delete set.studentStatus;
+    }
+    // Policy: a dropped student returns as Irregular (retaking lacking
+    // requirements), never straight to Regular. Align the block-eligibility
+    // classification when the registrar does not set it explicitly.
+    if (set.studentStatus === 'Irregular' && !set.classification) {
+      set.classification = 'Irregular';
     }
     if (!set.lifecycleStatus) {
       delete set.lifecycleStatus;
@@ -1875,11 +1939,26 @@ class StudentController {
       status: 'ASSIGNED'
     };
     if (resolvedSemester) assignmentQuery.semester = resolvedSemester;
+    // Year conventions vary across records (bare "2026" vs "2026-2027"),
+    // so match either form instead of finding zero students in sections
+    // whose assignments were stored with the other convention.
+    const yearVariants = new Set();
     if (resolvedSchoolYear) {
+      yearVariants.add(resolvedSchoolYear);
       const startYear = Number(String(resolvedSchoolYear).split('-')[0]);
-      if (Number.isFinite(startYear) && startYear > 0) assignmentQuery.year = startYear;
+      if (Number.isFinite(startYear) && startYear > 0) {
+        yearVariants.add(String(startYear));
+      }
     } else if (blockGroup?.year) {
-      assignmentQuery.year = blockGroup.year;
+      yearVariants.add(String(blockGroup.year).trim());
+      const startYear = Number(String(blockGroup.year).trim().split('-')[0]);
+      if (Number.isFinite(startYear) && startYear > 0) {
+        yearVariants.add(String(startYear));
+        yearVariants.add(`${startYear}-${startYear + 1}`);
+      }
+    }
+    if (yearVariants.size > 0) {
+      assignmentQuery.year = { $in: Array.from(yearVariants).filter(Boolean) };
     }
 
     const assignments = await StudentBlockAssignment.find(assignmentQuery).select('studentId semester year').lean();
@@ -2028,9 +2107,10 @@ class StudentController {
       }
 
       if (context.studentObjectIds.length === 0) {
+        const termLabel = `${context.resolvedSemester || '?'} ${context.resolvedSchoolYear || ''}`.trim();
         return res.status(400).json({
           success: false,
-          message: 'No assigned students found in this section'
+          message: `No assigned students found in this section${termLabel !== '?' ? ` for ${termLabel}` : ''}`
         });
       }
 

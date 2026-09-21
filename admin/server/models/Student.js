@@ -111,7 +111,7 @@ const studentSchema = new Schema({
   studentStatus: { 
     type: String, 
     required: true,
-    enum: ['Regular', 'Dropped', 'Returnee', 'Transferee'],
+    enum: ['Regular', 'Irregular', 'Dropped', 'Returnee', 'Transferee'],
     default: 'Regular'
   },
   classification: {

@@ -661,15 +661,16 @@
 }
 
 .curriculum-card-actions {
-  display: flex;
-  gap: 0.75rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.625rem;
   margin-top: auto;
   padding-top: 1rem;
   border-top: 1px solid var(--color-border);
 }
 
 .curriculum-card-actions .subject-action-btn {
-  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -683,6 +684,9 @@
   color: var(--color-text);
   transition: background 0.2s ease, border-color 0.2s ease;
   cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .curriculum-card-actions .subject-action-btn:hover {

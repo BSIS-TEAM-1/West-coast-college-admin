@@ -25,7 +25,6 @@ import {
   UserPlus,
   UserRound,
   Users,
-  Wallet,
   X
 } from 'lucide-react'
 import { API_URL, getStoredToken } from '../lib/authApi'
@@ -190,15 +189,6 @@ function formatPhoneNumber(value?: string | null) {
     return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`
   }
   return raw
-}
-
-function formatCurrency(value?: number) {
-  const amount = Number(value || 0)
-  return new Intl.NumberFormat('en-PH', {
-    style: 'currency',
-    currency: 'PHP',
-    maximumFractionDigits: 2
-  }).format(amount)
 }
 
 function lifecycleTone(status: LifecycleStatus): 'neutral' | 'info' | 'success' | 'warning' | 'danger' | 'accent' {
@@ -714,67 +704,50 @@ function StudentProfileDrawer({
             ) : null}
 
             {!loading && !error && activeTab === 'enrollment' ? (
-              <div className="sd-grid">
-                <section className="sd-card">
-                  <header className="sd-card-head">
-                    <span className="sd-card-icon"><CalendarDays size={16} /></span>
-                    <div>
-                      <h3>Current enrollment</h3>
-                      <p>{currentEnrollment ? `${currentEnrollment.semester} · ${currentEnrollment.schoolYear}` : 'Active term record'}</p>
-                    </div>
-                  </header>
+              <section className="sd-card">
+                <header className="sd-card-head">
+                  <span className="sd-card-icon"><CalendarDays size={16} /></span>
+                  <div>
+                    <h3>Enrollment record</h3>
+                    <p>{currentEnrollment ? `${currentEnrollment.semester} · ${currentEnrollment.schoolYear}` : 'No active enrollment for the current term'}</p>
+                  </div>
                   {currentEnrollment ? (
-                    <dl className="sd-dl">
-                      <div><dt>Status</dt><dd>{currentEnrollment.status}</dd></div>
-                      <div><dt>Year level</dt><dd>{currentEnrollment.yearLevel ? formatYearLevel(currentEnrollment.yearLevel) : formatYearLevel(activeStudent.yearLevel)}</dd></div>
-                      <div><dt>Subjects</dt><dd>{subjectCount} subjects · {totalUnits} units</dd></div>
-                      <div><dt>Remarks</dt><dd>{currentEnrollment.remarks || 'No remarks'}</dd></div>
-                      <div><dt>Updated</dt><dd>{formatDate(currentEnrollment.updatedAt)}</dd></div>
-                    </dl>
-                  ) : (
-                    <div className="sd-state sd-state--inline">No active enrollment record for the current term.</div>
-                  )}
-                </section>
-
-                <section className="sd-card">
-                  <header className="sd-card-head">
-                    <span className="sd-card-icon"><Wallet size={16} /></span>
-                    <div>
-                      <h3>Assessment</h3>
-                      <p>Tuition, fees, and balance</p>
-                    </div>
-                    {currentEnrollment?.assessment?.paymentStatus ? (
-                      <ToneBadge label={currentEnrollment.assessment.paymentStatus} tone="info" />
-                    ) : null}
-                  </header>
-                  {currentEnrollment?.assessment ? (
-                    <dl className="sd-dl">
-                      <div><dt>Tuition</dt><dd>{formatCurrency(currentEnrollment.assessment.tuitionFee)}</dd></div>
-                      <div><dt>Misc.</dt><dd>{formatCurrency(currentEnrollment.assessment.miscFee)}</dd></div>
-                      <div><dt>Other fees</dt><dd>{formatCurrency(currentEnrollment.assessment.otherFees)}</dd></div>
-                      <div className="sd-total"><dt>Total</dt><dd>{formatCurrency(currentEnrollment.assessment.totalAmount)}</dd></div>
-                      <div className="sd-total"><dt>Balance</dt><dd>{formatCurrency(currentEnrollment.assessment.balance)}</dd></div>
-                    </dl>
-                  ) : (
-                    <div className="sd-state sd-state--inline">No assessment has been posted for this term.</div>
-                  )}
-                </section>
-
-                <section className="sd-card sd-card--wide">
-                  <header className="sd-card-head">
-                    <span className="sd-card-icon"><IdCard size={16} /></span>
-                    <div>
-                      <h3>Registrar identifiers</h3>
-                      <p>System and audit references</p>
-                    </div>
-                  </header>
+                    <ToneBadge
+                      label={currentEnrollment.status}
+                      tone={
+                        currentEnrollment.status === 'Enrolled'
+                          ? 'success'
+                          : currentEnrollment.status === 'Pending'
+                            ? 'warning'
+                            : currentEnrollment.status === 'Dropped'
+                              ? 'danger'
+                              : 'neutral'
+                      }
+                    />
+                  ) : null}
+                </header>
+                {currentEnrollment ? (
                   <dl className="sd-dl sd-dl--3">
-                    <div><dt>Student no.</dt><dd className="sd-mono">{studentId}</dd></div>
-                    <div><dt>Course code</dt><dd>{courseShortLabel(activeStudent.course)}</dd></div>
-                    <div><dt>Created</dt><dd>{formatDate(activeStudent.createdAt)}</dd></div>
+                    <div><dt>Term</dt><dd>{currentEnrollment.semester} · {currentEnrollment.schoolYear}</dd></div>
+                    <div><dt>Year level</dt><dd>{currentEnrollment.yearLevel ? formatYearLevel(currentEnrollment.yearLevel) : formatYearLevel(activeStudent.yearLevel)}</dd></div>
+                    <div><dt>Block</dt><dd>{formatBlockDisplay(activeStudent.section) || 'Unassigned'}</dd></div>
+                    <div><dt>Subject load</dt><dd>{subjectCount} subjects · {totalUnits} units</dd></div>
+                    <div><dt>Remarks</dt><dd>{currentEnrollment.remarks || 'No remarks'}</dd></div>
+                    <div><dt>Last updated</dt><dd>{formatDate(currentEnrollment.updatedAt)}</dd></div>
                   </dl>
-                </section>
-              </div>
+                ) : (
+                  <div className="sd-state sd-state--inline">No active enrollment record for the current term. Enroll the student, then assign a block to finalize.</div>
+                )}
+                <div className="sd-subhead">
+                  <IdCard size={14} />
+                  Registrar references
+                </div>
+                <dl className="sd-dl sd-dl--3">
+                  <div><dt>Student no.</dt><dd className="sd-mono">{studentId}</dd></div>
+                  <div><dt>Course code</dt><dd>{courseShortLabel(activeStudent.course)}</dd></div>
+                  <div><dt>Record created</dt><dd>{formatDate(activeStudent.createdAt)}</dd></div>
+                </dl>
+              </section>
             ) : null}
 
             {!loading && !error && activeTab === 'subjects' ? (
@@ -1326,7 +1299,7 @@ function EnrollmentModal({
             <span className="student-workspace__eyebrow">Enrollment control</span>
             <h2>Enroll {students.length === 1 ? studentDisplayName(students[0]) : `${students.length} selected students`}</h2>
             <p className="student-workspace__modal-subcopy">
-              Select the term and subject set to create enrollment records for the current batch.
+              Select the term and subject set to create pending enrollment records. Assigning a block afterwards finalizes them to Enrolled.
             </p>
           </div>
           <button type="button" className="student-workspace__ghost-button" onClick={onClose} aria-label="Close">

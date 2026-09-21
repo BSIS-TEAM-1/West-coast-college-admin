@@ -1027,15 +1027,34 @@ class BlockController {
         blockSemester || student.semester
       );
 
-      // Validate that enrollment exists before block assignment
-      // According to single source of truth design, enrollment must exist before section assignment
-      if (!enrollment) {
-        await session.abortTransaction();
-        return res.status(400).json({
-          error: 'Student must be enrolled before being assigned to a section',
-          reasons: ['No active enrollment found for this student. Please enroll the student first.'],
-          checks: { enrollmentStatus: false }
-        });
+      // Ensure a usable enrollment record exists. A missing, Dropped,
+      // Cancelled, or locked (historical) enrollment cannot receive block
+      // assignments — in those cases auto-create a fresh Pending one from
+      // the block's curriculum inside the same transaction, so "add student
+      // to block" stays a single action: enroll (Pending) → assign →
+      // finalize (Enrolled), all-or-nothing. An active Pending/Enrolled
+      // record is reused, never duplicated.
+      const enrollmentUnusable =
+        !enrollment || enrollment.lockedAt || ['Dropped', 'Cancelled'].includes(enrollment.status);
+      if (enrollmentUnusable) {
+        try {
+          enrollment = await this.createEnrollmentForBlockAssignment({
+            student,
+            group,
+            section,
+            schoolYear: blockSchoolYear || student.schoolYear,
+            semester: blockSemester || student.semester,
+            createdBy: req.registrarId || req.adminId,
+            session
+          });
+        } catch (autoEnrollError) {
+          await session.abortTransaction();
+          return res.status(400).json({
+            error: 'Could not prepare an enrollment record for block assignment',
+            reasons: [autoEnrollError.message || 'Enrollment auto-creation failed. Create one via Bulk enroll first.'],
+            checks: { enrollmentStatus: false }
+          });
+        }
       }
 
       // Determine schoolYear for the assignment
@@ -1653,7 +1672,12 @@ class BlockController {
 
       const normalizedStudentId = String(studentId).trim();
       const normalizedSemester = String(req.body?.semester || group?.semester || '').trim();
-      const normalizedYear = convertToSchoolYear(req.body?.year ?? group?.year);
+      // year is optional (see the guards below) — convert only when present
+      // instead of throwing on legacy groups without a year.
+      const rawYear = req.body?.year ?? group?.year;
+      const normalizedYear = rawYear === undefined || rawYear === null || rawYear === ''
+        ? undefined
+        : convertToSchoolYear(rawYear);
 
       const assignmentQuery = {
         sectionId: section._id,

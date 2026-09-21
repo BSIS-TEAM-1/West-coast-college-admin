@@ -1993,6 +1993,13 @@
   text-overflow: ellipsis;
 }
 
+.professor-load-attention-card-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--color-text-secondary, var(--color-text-muted));
+}
+
 .professor-load-attention-badge {
   padding: 0.2rem 0.5rem;
   border-radius: 0.3rem;

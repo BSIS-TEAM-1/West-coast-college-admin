@@ -108,6 +108,40 @@ class BackupSystem {
     }
   }
 
+  /**
+   * Start a backup without awaiting it. The withLock guard inside
+   * createBackup is acquired synchronously (no await precedes it), so
+   * probing activeOperation first and then calling createBackup in the same
+   * tick is race-free: either this call owns the lock or it gets 409.
+   * Completion (audit/logging) is the caller's onSettled callback; any
+   * throw from it is contained so a logging failure can never wedge the lock
+   * (withLock's finally already released it by then).
+   */
+  startBackupAsync(type, triggeredBy, onSettled) {
+    const invokeSettled = (error, result) => {
+      if (typeof onSettled !== 'function') {
+        if (error) console.error('Background backup failed:', error);
+        return;
+      }
+      // onSettled may be async: always adapt to a promise so a logging
+      // failure can never surface as an unhandled rejection.
+      Promise.resolve()
+        .then(() => onSettled(error, result))
+        .catch((callbackError) => console.error('Backup completion callback error:', callbackError));
+    };
+    if (this.activeOperation) {
+      const busy = new BackupBusyError(this.activeOperation.type);
+      invokeSettled(busy);
+      return { accepted: false, status: 'running', operation: this.getOperationStatus(), error: busy.message, code: busy.code };
+    }
+    const promise = this.createBackup(type, triggeredBy);
+    promise.then(
+      (result) => invokeSettled(null, result),
+      (error) => invokeSettled(error)
+    );
+    return { accepted: true, status: 'running', operation: this.getOperationStatus() };
+  }
+
   normalizeType(value) {
     const type = String(value || 'manual').trim().toLowerCase();
     return SUPPORTED_TYPES.has(type) ? type : 'manual';
@@ -379,6 +413,102 @@ class BackupSystem {
     return { checksum, jsonChecksum, jsonSize: decompressed.length, validation, detailedValidation, backupData };
   }
 
+  /**
+   * Same contract as verifyFiles, minus the parsed `backupData`, executed in
+   * a worker thread so full-DB gunzip + JSON.parse + hashing never blocks
+   * the API event loop. Falls back to in-thread verification when worker
+   * threads are unavailable. A timeout terminates a hung worker and surfaces
+   * as a normal verification failure (record marked failed, lock released).
+   */
+  async verifyFilesThreaded(jsonName, archiveName, expected = {}) {
+    let WorkerCtor = null;
+    try {
+      ({ Worker: WorkerCtor } = require('worker_threads'));
+    } catch (requireError) {
+      console.error('worker_threads unavailable, verifying in-process:', requireError.message);
+    }
+    if (!WorkerCtor) {
+      const full = await this.verifyFiles(jsonName, archiveName, expected);
+      const { backupData, ...rest } = full;
+      return rest;
+    }
+
+    const timeoutMs = Math.max(
+      60000,
+      Number.parseInt(process.env.BACKUP_VERIFY_TIMEOUT_MS || '1800000', 10) || 1800000
+    );
+    // Pass encryption material explicitly: ambient env is inherited by
+    // workers in production, but some hosts/sandboxes do not propagate
+    // parent env mutations to worker threads.
+    const encryptionDescriptor = {
+      enabled: Boolean(this.encryption && this.encryption.enabled)
+    };
+    if (encryptionDescriptor.enabled && this.encryption.key && Buffer.isBuffer(this.encryption.key)) {
+      encryptionDescriptor.keyB64 = this.encryption.key.toString('base64');
+    }
+    const safeExpected = {
+      checksum: typeof expected.checksum === 'string' ? expected.checksum : undefined,
+      jsonChecksum: typeof expected.jsonChecksum === 'string' ? expected.jsonChecksum : undefined,
+      collections: Array.isArray(expected.collections)
+        ? expected.collections.map((entry) => ({ name: String(entry?.name || ''), count: Number(entry?.count) || 0 }))
+        : undefined,
+      isEncrypted: expected.isEncrypted
+    };
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let worker = null;
+      const finish = (error, message) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (worker) {
+          worker.removeAllListeners();
+          worker.terminate().catch(() => {});
+        }
+        if (error) reject(error);
+        else resolve(message);
+      };
+      const timer = setTimeout(() => {
+        finish(new Error(`Backup verification timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      if (timer.unref) timer.unref();
+
+      try {
+        worker = new WorkerCtor(require('path').join(__dirname, 'backupVerifyWorker.js'), {
+          workerData: {
+            storageRoot: this.storage.rootDir,
+            archiveName,
+            jsonName: jsonName || null,
+            expected: safeExpected,
+            encryption: encryptionDescriptor
+          }
+        });
+      } catch (spawnError) {
+        finish(spawnError);
+        return;
+      }
+      if (worker.unref) worker.unref();
+      worker.on('message', (message) => {
+        if (!message || typeof message !== 'object') {
+          finish(new Error('Verify worker returned an invalid message'));
+          return;
+        }
+        if (message.ok) {
+          finish(null, message.result);
+          return;
+        }
+        const failure = new Error(message.error || 'Backup verification failed in worker thread');
+        if (message.code) failure.code = message.code;
+        finish(failure);
+      });
+      worker.on('error', (workerError) => finish(workerError));
+      worker.on('exit', (code) => {
+        if (!settled) finish(new Error(`Verify worker exited unexpectedly with code ${code}`));
+      });
+    });
+  }
+
   /* ------------------------------------------------------------------ */
   /* Create                                                              */
   /* ------------------------------------------------------------------ */
@@ -451,7 +581,7 @@ class BackupSystem {
         this.storage.remove(tempGzipName);
       }
       const verificationStartedAt = Date.now();
-      const verification = await this.verifyFiles(tempJsonName, tempArchiveName, { collections: collectionStats, isEncrypted });
+      const verification = await this.verifyFilesThreaded(tempJsonName, tempArchiveName, { collections: collectionStats, isEncrypted });
       const verificationDurationMs = Date.now() - verificationStartedAt;
 
       if (isEncrypted) {
@@ -722,7 +852,7 @@ class BackupSystem {
       // Only .gz/.gz.enc archives can be validated by verifyFiles.
       if (/\.gz(\.enc)?$/i.test(finalFileName) && (!isEncrypted || this.encryption.enabled)) {
         try {
-          const verified = await this.verifyFiles(jsonSidecar, finalFileName, { isEncrypted });
+          const verified = await this.verifyFilesThreaded(jsonSidecar, finalFileName, { isEncrypted });
           verificationStatus = 'verified';
           checksum = verified.checksum;
           jsonChecksum = verified.jsonChecksum;
