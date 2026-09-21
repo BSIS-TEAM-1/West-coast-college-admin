@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, BarChart3, CheckCircle2, Cloud, Database, Download, HardDrive, Lock, MoreVertical, Play, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2, Unlock } from 'lucide-react'
+import { AlertTriangle, BarChart3, CheckCircle2, Cloud, Database, Download, HardDrive, Lock, MoreVertical, Play, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2 } from 'lucide-react'
 import { API_URL, getStoredToken } from '../lib/authApi'
 import './BackupDashboard.css'
 
