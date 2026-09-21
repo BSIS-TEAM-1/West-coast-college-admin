@@ -13,11 +13,14 @@
  *   5. Enrollment has invalid/missing curriculumId
  *   6. Enrollment has invalid/missing program
  *   7. Duplicate current enrollments (multiple isCurrent=true for same student)
+ *   8. Student says "Enrolled" but no valid block assignment exists for the
+ *      same school year, semester, course, and year level
  *
  * Usage:
  *   node diagnostics/checkEnrollmentConsistency.js
  *
- * This diagnostic is READ-ONLY. It never modifies data.
+ * This diagnostic is READ-ONLY. It never modifies data. Use
+ * migrations/revertEnrolledWithoutBlock.js to remediate finding #8.
  */
 
 require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
@@ -26,6 +29,7 @@ const Student = require('../models/Student');
 const Enrollment = require('../models/Enrollment');
 const Curriculum = require('../models/Curriculum');
 const { normalizeCourseCode } = require('../lib/programMapping');
+const enrollmentGuard = require('../services/enrollmentGuard');
 
 async function run() {
   const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
@@ -54,6 +58,7 @@ async function run() {
     invalidCurriculum: [],
     invalidProgram: [],
     duplicateCurrentEnrollments: [],
+    noValidBlockAssignment: [],
   };
 
   for (const student of allStudents) {
@@ -133,6 +138,28 @@ async function run() {
           });
         }
       }
+
+      // Check 8: official ENROLLED requires a valid block assignment for the
+      // same academic period and academic context (no fake assignments here —
+      // this diagnostic is read-only; see migrations/revertEnrolledWithoutBlock.js).
+      try {
+        const match = await enrollmentGuard.findValidBlockAssignment(student);
+        if (!match.assignment) {
+          findings.noValidBlockAssignment.push({
+            tag,
+            schoolYear: expectedSchoolYear,
+            semester: expectedSemester,
+            reason: match.reasons[0] || 'No valid block assignment',
+          });
+        }
+      } catch (blockCheckError) {
+        findings.noValidBlockAssignment.push({
+          tag,
+          schoolYear: expectedSchoolYear,
+          semester: expectedSemester,
+          reason: `Block check failed: ${blockCheckError.message}`,
+        });
+      }
     }
   }
 
@@ -149,6 +176,7 @@ async function run() {
     { label: '5. Enrollment has invalid/missing curriculum', data: findings.invalidCurriculum },
     { label: '6. Enrollment has invalid/missing program', data: findings.invalidProgram },
     { label: '7. Duplicate current enrollments (multiple isCurrent=true)', data: findings.duplicateCurrentEnrollments },
+    { label: '8. Student says "Enrolled" but NO valid block assignment exists', data: findings.noValidBlockAssignment },
   ];
 
   for (const section of sections) {

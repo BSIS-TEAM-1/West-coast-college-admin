@@ -85,8 +85,11 @@ class StudentService {
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.message || 'Failed to update student');
+      const errorData = await response.json().catch(() => ({}));
+      const errorMessage = errorData.details && errorData.details.length > 0
+        ? `${errorData.message || 'Failed to update student'}: ${errorData.details.join('; ')}`
+        : (errorData.message || errorData.error || 'Failed to update student');
+      throw new Error(errorMessage);
     }
 
     return response.json();

@@ -276,8 +276,11 @@ class CurriculumController {
         return res.status(403).json({ success: false, message: 'Archived curricula are read-only' });
       }
 
-      if (name !== undefined) curriculum.name = String(name).trim();
-      if (code !== undefined) curriculum.code = String(code).trim().toUpperCase();
+      // Name is the display identity — never allow blanking it. An empty
+      // string keeps the existing name instead of producing "undefined"
+      // labels in block/curriculum selectors.
+      if (name !== undefined && String(name).trim()) curriculum.name = String(name).trim();
+      if (code !== undefined) curriculum.code = String(code).trim().toUpperCase() || undefined;
       if (version !== undefined) {
         const duplicate = await Curriculum.findOne({
           programCode: curriculum.programCode,

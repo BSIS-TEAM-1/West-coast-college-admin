@@ -1,6 +1,65 @@
 const SendGridEmailService = require('./sendGridEmailService')
 const SemaphoreEmailService = require('./semaphoreEmailService')
 const GmailApiEmailService = require('./gmailApiEmailService')
+const fs = require('fs')
+const path = require('path')
+
+const LOGO_CONTENT_ID = 'wcc-logo'
+
+let cachedLogoBase64 = null
+let logoLoadAttempted = false
+
+function getLogoBase64() {
+  if (logoLoadAttempted) return cachedLogoBase64
+  logoLoadAttempted = true
+
+  // Prefer the email-optimized seal; fall back to the full-size artwork.
+  // __dirname covers the source layout (server/services → admin/public);
+  // cwd entries cover launched-from-root, bundled, or deployed layouts.
+  const candidateFiles = ['wcc-logo-email.png', 'logo-bg-removed.png']
+  const candidatePaths = []
+  for (const file of candidateFiles) {
+    candidatePaths.push(
+      path.join(__dirname, '..', '..', 'public', file),
+      path.join(__dirname, '..', 'public', file),
+      path.join(__dirname, 'public', file),
+      path.join(process.cwd(), 'public', file),
+      path.join(process.cwd(), 'admin', 'public', file)
+    )
+  }
+
+  for (const logoPath of candidatePaths) {
+    try {
+      if (fs.existsSync(logoPath)) {
+        const buffer = fs.readFileSync(logoPath)
+        cachedLogoBase64 = buffer.toString('base64')
+        console.info('Verification email logo loaded from:', logoPath)
+        break
+      }
+    } catch (err) {
+      console.warn('Failed to load logo from:', logoPath, err?.message)
+    }
+  }
+
+  if (!cachedLogoBase64) {
+    console.warn('No logo file found for verification emails — falling back to text badge.')
+  }
+
+  return cachedLogoBase64
+}
+
+function getLogoAttachment() {
+  const base64 = getLogoBase64()
+  if (!base64) return null
+
+  return {
+    filename: 'wcc-logo-email.png',
+    contentType: 'image/png',
+    disposition: 'inline',
+    contentId: LOGO_CONTENT_ID,
+    content: base64
+  }
+}
 
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim())
@@ -19,7 +78,11 @@ function escapeHtmlAttribute(value) {
   return escapeHtml(value).replace(/`/g, '&#96;')
 }
 
-function getVerificationBrandMarkup() {
+function getVerificationBrandMarkup({ withLogo = false } = {}) {
+  if (withLogo && getLogoBase64()) {
+    return `<img src="cid:${LOGO_CONTENT_ID}" alt="West Coast College" width="72" height="72" style="display:inline-block;width:72px;height:72px;border:2px solid #fde68a;border-radius:50%;background:#ffffff;" />`
+  }
+
   const candidateUrls = [
     process.env.WCC_WEBSITE_URL,
     process.env.PUBLIC_URL,
@@ -176,7 +239,15 @@ class VerificationEmailService {
       }
 
       try {
-        const logoMarkup = getVerificationBrandMarkup()
+        // Only gmail-api and sendgrid accept inline attachments; semaphore
+        // gets the text badge so it never references a missing CID image.
+        const supportsInlineAttachments = providerKey !== 'semaphore'
+        const logoAttachment = supportsInlineAttachments ? getLogoAttachment() : null
+        console.info(
+          'Verification email brand:',
+          logoAttachment ? `school logo via ${providerKey}` : `text badge via ${providerKey}`
+        )
+        const logoMarkup = getVerificationBrandMarkup({ withLogo: Boolean(logoAttachment) })
         const html = buildVerificationEmailHtml({
           logoMarkup,
           safeDisplayName,
@@ -188,7 +259,8 @@ class VerificationEmailService {
           to: recipientEmail,
           subject,
           text,
-          html
+          html,
+          ...(logoAttachment ? { attachments: [logoAttachment] } : {})
         })
 
         return {

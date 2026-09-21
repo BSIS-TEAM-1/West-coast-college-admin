@@ -48,6 +48,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
     version: string
     status: string
     programCode: number
+    programName: string
     subjectCount?: number
   }>>([])
   const [draft, setDraft] = useState<BlockDraft | null>(null)
@@ -564,7 +565,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                       <option value="">No curriculum linked</option>
                       {availableCurriculums.map((c) => (
                         <option key={c._id} value={c._id}>
-                          {c.name || `${c.code} ${c.version}`} ({c.status})
+                          {c.name || `${c.programName || c.code || 'Curriculum'} ${c.version}`} ({c.status})
                         </option>
                       ))}
                     </select>
@@ -820,8 +821,10 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                   <strong>
                     {newGroupCurriculumId
                       ? (availableCurriculums.find((c) => c._id === newGroupCurriculumId)?.name ||
-                         availableCurriculums.find((c) => c._id === newGroupCurriculumId)?.code ||
-                         'Selected curriculum')
+                        (() => {
+                          const match = availableCurriculums.find((c) => c._id === newGroupCurriculumId)
+                          return match ? `${match.programName || match.code || 'Curriculum'} ${match.version}` : 'Selected curriculum'
+                        })())
                       : 'None — subjects will be assigned manually'}
                   </strong>
                 </div>

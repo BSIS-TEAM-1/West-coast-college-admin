@@ -18,6 +18,7 @@ const Curriculum = require('../models/Curriculum');
 const CurriculumSubject = require('../models/CurriculumSubject');
 const CorPdfService = require('../services/corPdfService');
 const { convertToSchoolYear, extractStartYear } = require('../services/dateUtils');
+const enrollmentGuard = require('../services/enrollmentGuard');
 
 const STUDENT_MUTABLE_FIELDS = [
   'firstName',
@@ -152,10 +153,13 @@ class StudentController {
     if (student?.isActive === false) return 'Inactive';
 
     const studentStatus = String(student?.studentStatus || '').trim();
-    const corStatus = String(student?.corStatus || '').trim();
 
     if (studentStatus === 'Dropped') return 'Dropped';
-    if (corStatus === 'Verified') return 'Enrolled';
+    // NOTE: a Verified COR alone never implies ENROLLED here. The official
+    // ENROLLED state requires a valid block assignment (see
+    // services/enrollmentGuard.js) and is granted only by block-assignment
+    // finalization, which also persists lifecycleStatus='Enrolled' — so the
+    // explicit branch above is the source of truth for enrolled students.
 
     return 'Pending';
   }
@@ -842,6 +846,16 @@ class StudentController {
 
   static async createStudentRecord(studentData) {
     const { set } = this.normalizeStudentMutationData(studentData);
+
+    // A brand-new record can never satisfy the ENROLLED requirements yet
+    // (no enrollment record, no block assignment), so reject it up front.
+    if (String(set.lifecycleStatus || '').trim() === 'Enrolled') {
+      const err = new Error(
+        'A new student record cannot be created as Enrolled. Create it as Pending, enroll for the term, assign a block, then finalize enrollment.'
+      );
+      err.statusCode = 409;
+      throw err;
+    }
 
     // Enhanced course validation - convert string courses to numbers before Student creation
     const VALID_COURSES = [101, 102, 103, 201];
@@ -1533,6 +1547,28 @@ class StudentController {
         (req.body?.yearLevel !== undefined && Number(req.body.yearLevel) !== Number(previous.yearLevel)) ||
         (req.body?.studentStatus !== undefined && String(req.body.studentStatus) !== String(previous.studentStatus));
 
+      // ─── Enrollment guard: the backend is the sole authority for ENROLLED. ───
+      // A direct transition to lifecycleStatus='Enrolled' (including the
+      // corStatus=Verified auto-promotion) is only allowed when a valid block
+      // assignment already exists for the student's academic period/context.
+      const previousObject = previous.toObject ? previous.toObject() : { ...previous };
+      const preCheck = StudentController.normalizeStudentMutationData(req.body, { forUpdate: true });
+      const explicitlyRequestsEnrolled =
+        String(preCheck.set.lifecycleStatus || '').trim() === 'Enrolled' &&
+        String(previousObject.lifecycleStatus || '').trim() !== 'Enrolled';
+      if (explicitlyRequestsEnrolled) {
+        try {
+          await enrollmentGuard.assertEnrolledRequirements({ ...previousObject, ...preCheck.set });
+        } catch (guardError) {
+          return res.status(guardError.statusCode || 409).json({
+            success: false,
+            message:
+              'Cannot mark student as Enrolled: a valid block assignment for the same school year, semester, course, and year level is required. Assign a block first.',
+            details: guardError.details || [guardError.message]
+          });
+        }
+      }
+
       const student = await StudentController.updateStudentRecord(id, {
         ...req.body,
         updatedBy: req.adminId
@@ -1545,8 +1581,26 @@ class StudentController {
         });
       }
 
+      let blockMembershipCleared = false;
       if (hasAcademicChange) {
         await StudentController.cleanupBlockMembershipForStudent(id);
+        blockMembershipCleared = true;
+      }
+
+      // Post-mutation re-verification: academic changes wipe block membership,
+      // so a student that still claims ENROLLED afterwards is demoted back to
+      // the non-final Pending state instead of keeping an invalid status.
+      let enrollmentDemoted = false;
+      const finalCheck = await StudentController.getStudentByIdRecord(id);
+      if (finalCheck && String(finalCheck.lifecycleStatus || '').trim() === 'Enrolled') {
+        try {
+          await enrollmentGuard.assertEnrolledRequirements(
+            finalCheck.toObject ? finalCheck.toObject() : { ...finalCheck }
+          );
+        } catch (guardError) {
+          await Student.findByIdAndUpdate(id, { $set: { lifecycleStatus: 'Pending' } });
+          enrollmentDemoted = true;
+        }
       }
 
       const gradeChanged = req.body?.latestGrade !== undefined && Number(req.body.latestGrade) !== Number(previous.latestGrade);
@@ -1555,8 +1609,11 @@ class StudentController {
       if (gradeChanged) {
         description += ` — Grade updated from ${previous.latestGrade ?? 'none'} to ${student.latestGrade}`;
       }
-      if (hasAcademicChange) {
+      if (blockMembershipCleared) {
         description += ' (academic change — block membership cleared)';
+      }
+      if (enrollmentDemoted) {
+        description += ' (lifecycle reverted Enrolled → Pending: no valid block assignment remains for the current academic period)';
       }
 
       const performedByRole = String(req.accountType || 'registrar').toLowerCase() === 'admin' ? 'admin' : 'registrar';
@@ -1594,10 +1651,12 @@ class StudentController {
 
       res.json({
         success: true,
-        data: student,
-        message: hasAcademicChange
-          ? 'Student information updated successfully. Existing block assignment was cleared due to academic changes.'
-          : 'Student information updated successfully'
+        data: enrollmentDemoted ? { ...student.toObject(), lifecycleStatus: 'Pending' } : student,
+        message: enrollmentDemoted
+          ? 'Student information updated successfully. Lifecycle reverted to Pending because no valid block assignment remains — assign a block to finalize enrollment.'
+          : blockMembershipCleared
+            ? 'Student information updated successfully. Existing block assignment was cleared due to academic changes.'
+            : 'Student information updated successfully'
       });
     } catch (error) {
       console.error('Error updating student:', error);
