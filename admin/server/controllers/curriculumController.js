@@ -362,7 +362,13 @@ class CurriculumController {
       }
 
       if (curriculum.status === 'Archived' && status !== 'Archived') {
-        return res.status(403).json({ success: false, message: 'Archived curricula cannot be reactivated' });
+        // Archived records are read-only history, but they can be brought
+        // back as Draft for editing. Direct re-activation is routed through
+        // Draft so the Activate path (subject check + demotion of the
+        // current Active version) still runs explicitly.
+        if (status !== 'Draft') {
+          return res.status(403).json({ success: false, message: 'Archived curricula must be unarchived to Draft first, then activated normally.' });
+        }
       }
 
       curriculum.status = status;

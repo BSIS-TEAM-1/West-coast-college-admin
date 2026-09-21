@@ -130,6 +130,23 @@ function CurriculumManagementPage({
     }
   }
 
+  const handleUnarchive = async (curriculum: Curriculum) => {
+    if (!window.confirm(`Unarchive "${curriculum.name || curriculum.programName + ' ' + curriculum.version}"? It will return to Draft for editing.`)) return
+    setError('')
+    setSuccess('')
+    try {
+      const data = await authorizedFetch(`/api/registrar/curriculums/${curriculum._id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'Draft' }),
+      })
+      setSuccess(data?.message || 'Curriculum unarchived to Draft')
+      await fetchCurriculums()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to unarchive curriculum')
+    }
+  }
+
   const handleActivate = async (curriculum: Curriculum) => {
     if (curriculum.status === 'Archived') {
       alert('Archived curriculums cannot be activated. Please unarchive the curriculum first.')
@@ -246,6 +263,12 @@ function CurriculumManagementPage({
                     <button className="subject-action-btn cancel" type="button" onClick={() => handleArchive(c)}>
                       <Archive size={16} />
                       Archive
+                    </button>
+                  )}
+                  {c.status === 'Archived' && (
+                    <button className="subject-action-btn save" type="button" onClick={() => handleUnarchive(c)}>
+                      <CheckCircle size={16} />
+                      Unarchive
                     </button>
                   )}
                   {c.status === 'Archived' && (

@@ -143,8 +143,13 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
           subjectCount?: number
         }> }>(`/api/registrar/curriculums?programCode=${newGroupCourse}`)
         const curriculums = Array.isArray(data?.data) ? data.data : []
-        // Exclude Archived curriculums from the selector
-        const usable = curriculums.filter((c) => c.status !== 'Archived')
+        // Show every version including Archived (status is shown in each
+        // option label) — an archived blueprint is still linkable; only its
+        // own editing is locked. Active versions sort first.
+        const usable = [...curriculums].sort((a, b) => {
+          const rank = (status: string) => (status === 'Active' ? 0 : status === 'Draft' ? 1 : status === 'Legacy' ? 2 : 3)
+          return rank(a.status) - rank(b.status)
+        })
         setAvailableCurriculums(usable)
         // Auto-select the Active curriculum if there is exactly one
         const active = usable.filter((c) => c.status === 'Active')
