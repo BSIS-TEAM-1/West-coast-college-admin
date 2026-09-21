@@ -28,6 +28,7 @@ import { validateStep } from './AddStudent/validation'
 import { buildStudentPayloadFromWizardForm, buildWizardFormData } from './AddStudent/formLogic'
 import StudentWizard from './AddStudent/StudentWizard'
 import BlockAssignmentModal from './BlockAssignmentModal'
+import NotificationToast from './NotificationToast'
 import { StudentWorkspaceOverlay, isStudentWorkspaceBackdropTarget } from './shared/StudentWorkspaceOverlay'
 import {
   COURSE_OPTIONS,
@@ -225,6 +226,7 @@ function normalizeLifecycleStatus(student: Partial<ManagedStudent>): LifecycleSt
 
   if (student.isActive === false) return 'Inactive'
   if (String(student.studentStatus || '').trim().toLowerCase() === 'dropped') return 'Dropped'
+  // enrollmentStatus now comes from Enrollment.status (single source of truth)
   if (String(student.enrollmentStatus || '').trim().toLowerCase() === 'enrolled') return 'Enrolled'
   if (String(student.corStatus || '').trim().toLowerCase() === 'verified') return 'Enrolled'
   return 'Pending'
@@ -1364,16 +1366,9 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
   const [formModal, setFormModal] = useState<{ mode: 'create' | 'edit'; student?: ManagedStudent } | null>(null)
   const [enrollmentStudents, setEnrollmentStudents] = useState<ManagedStudent[] | null>(null)
   const [blockAssignmentStudents, setBlockAssignmentStudents] = useState<ManagedStudent[] | null>(null)
-  const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
+  const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'warning'; title: string; message: string } | null>(null)
   const [busyStudentIds, setBusyStudentIds] = useState<string[]>([])
   const deferredSearch = useDeferredValue(searchTerm)
-
-  // Auto-dismiss success messages after 5 seconds; keep errors until dismissed
-  useEffect(() => {
-    if (!message || message.tone !== 'success') return
-    const timer = setTimeout(() => setMessage(null), 5000)
-    return () => clearTimeout(timer)
-  }, [message])
 
   const loadStudents = async (mode: 'initial' | 'refresh' = 'initial') => {
     if (mode === 'initial') {
@@ -1395,9 +1390,10 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
       setStudents(records)
       setSelectedStudentIds((current) => current.filter((id) => records.some((student) => student._id === id)))
     } catch (loadError) {
-      setMessage({
-        tone: 'error',
-        text: loadError instanceof Error ? loadError.message : 'Failed to load students'
+      setNotification({
+        type: 'error',
+        title: 'Error',
+        message: loadError instanceof Error ? loadError.message : 'Failed to load students'
       })
     } finally {
       setLoading(false)
@@ -1558,16 +1554,13 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
 
   const openEnrollmentWorkflow = (targets: ManagedStudent[]) => {
     if (!targets.length) {
-      setMessage({ tone: 'error', text: 'Select at least one student before opening enrollment controls.' })
+      setNotification({ type: 'error', title: 'Selection Required', message: 'Select at least one student before opening enrollment controls.' })
       return
     }
 
     const context = getSharedAcademicContext(targets)
     if (targets.length > 1 && (!context.isSingleCourse || !context.isSingleYearLevel)) {
-      setMessage({
-        tone: 'error',
-        text: 'Bulk enrollment requires students from the same course and year level.'
-      })
+      setNotification({ type: 'error', title: 'Bulk Enrollment Error', message: 'Bulk enrollment requires students from the same course and year level.' })
       return
     }
 
@@ -1576,16 +1569,13 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
 
   const openBlockAssignmentWorkflow = (targets: ManagedStudent[]) => {
     if (!targets.length) {
-      setMessage({ tone: 'error', text: 'Select at least one student before opening block assignment.' })
+      setNotification({ type: 'error', title: 'Selection Required', message: 'Select at least one student before opening block assignment.' })
       return
     }
 
     const context = getSharedAcademicContext(targets)
     if (targets.length > 1 && (!context.isSingleCourse || !context.isSingleYearLevel)) {
-      setMessage({
-        tone: 'error',
-        text: 'Bulk block assignment requires students from the same course and year level.'
-      })
+      setNotification({ type: 'error', title: 'Bulk Assignment Error', message: 'Bulk block assignment requires students from the same course and year level.' })
       return
     }
 
@@ -1599,11 +1589,12 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
         if (!token) throw new Error('No authentication token found')
         await StudentService.updateStudent(token, student._id, { lifecycleStatus })
         await loadStudents('refresh')
-        setMessage({ tone: 'success', text: `${studentNumberDisplay(student)} moved to ${lifecycleStatus}.` })
+        setNotification({ type: 'success', title: 'Status Updated', message: `${studentNumberDisplay(student)} moved to ${lifecycleStatus}.` })
       } catch (updateError) {
-        setMessage({
-          tone: 'error',
-          text: updateError instanceof Error ? updateError.message : 'Failed to update lifecycle status'
+        setNotification({
+          type: 'error',
+          title: 'Update Failed',
+          message: updateError instanceof Error ? updateError.message : 'Failed to update lifecycle status'
         })
       }
     })
@@ -1630,11 +1621,12 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
         const url = window.URL.createObjectURL(blob)
         window.open(url, '_blank', 'noopener')
         window.setTimeout(() => window.URL.revokeObjectURL(url), 30000)
-        setMessage({ tone: 'success', text: `COR generated for ${studentNumberDisplay(student)}.` })
+        setNotification({ type: 'success', title: 'COR Generated', message: `COR generated for ${studentNumberDisplay(student)}.` })
       } catch (viewError) {
-        setMessage({
-          tone: 'error',
-          text: viewError instanceof Error ? viewError.message : 'Failed to generate COR'
+        setNotification({
+          type: 'error',
+          title: 'COR Generation Failed',
+          message: viewError instanceof Error ? viewError.message : 'Failed to generate COR'
         })
       }
     })
@@ -1659,11 +1651,12 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
         const url = window.URL.createObjectURL(blob)
         window.open(url, '_blank', 'noopener')
         window.setTimeout(() => window.URL.revokeObjectURL(url), 30000)
-        setMessage({ tone: 'success', text: `Report card generated for ${studentNumberDisplay(student)}.` })
+        setNotification({ type: 'success', title: 'Report Card Generated', message: `Report card generated for ${studentNumberDisplay(student)}.` })
       } catch (viewError) {
-        setMessage({
-          tone: 'error',
-          text: viewError instanceof Error ? viewError.message : 'Failed to generate report card'
+        setNotification({
+          type: 'error',
+          title: 'Report Card Failed',
+          message: viewError instanceof Error ? viewError.message : 'Failed to generate report card'
         })
       }
     })
@@ -1688,11 +1681,12 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
         const url = window.URL.createObjectURL(blob)
         window.open(url, '_blank', 'noopener')
         window.setTimeout(() => window.URL.revokeObjectURL(url), 30000)
-        setMessage({ tone: 'success', text: `Transcript generated for ${studentNumberDisplay(student)}.` })
+        setNotification({ type: 'success', title: 'Transcript Generated', message: `Transcript generated for ${studentNumberDisplay(student)}.` })
       } catch (viewError) {
-        setMessage({
-          tone: 'error',
-          text: viewError instanceof Error ? viewError.message : 'Failed to generate transcript'
+        setNotification({
+          type: 'error',
+          title: 'Transcript Failed',
+          message: viewError instanceof Error ? viewError.message : 'Failed to generate transcript'
         })
       }
     })
@@ -1708,11 +1702,12 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
         await StudentService.updateStudent(token, student._id, { lifecycleStatus: 'Inactive' })
         await loadStudents('refresh')
         setProfileState(null)
-        setMessage({ tone: 'success', text: `${studentNumberDisplay(student)} archived successfully.` })
+        setNotification({ type: 'success', title: 'Student Archived', message: `${studentNumberDisplay(student)} archived successfully.` })
       } catch (archiveError) {
-        setMessage({
-          tone: 'error',
-          text: archiveError instanceof Error ? archiveError.message : 'Failed to archive student'
+        setNotification({
+          type: 'error',
+          title: 'Archive Failed',
+          message: archiveError instanceof Error ? archiveError.message : 'Failed to archive student'
         })
       }
     })
@@ -1728,11 +1723,12 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
         await StudentService.deleteStudent(token, student._id)
         await loadStudents('refresh')
         setProfileState(null)
-        setMessage({ tone: 'success', text: `${studentNumberDisplay(student)} removed from the registry.` })
+        setNotification({ type: 'success', title: 'Student Deleted', message: `${studentNumberDisplay(student)} removed from the registry.` })
       } catch (deleteError) {
-        setMessage({
-          tone: 'error',
-          text: deleteError instanceof Error ? deleteError.message : 'Failed to delete student'
+        setNotification({
+          type: 'error',
+          title: 'Delete Failed',
+          message: deleteError instanceof Error ? deleteError.message : 'Failed to delete student'
         })
       }
     })
@@ -1740,7 +1736,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
 
   const handleExportSelected = () => {
     if (!selectedStudents.length) {
-      setMessage({ tone: 'error', text: 'Select students before exporting.' })
+      setNotification({ type: 'error', title: 'Selection Required', message: 'Select students before exporting.' })
       return
     }
 
@@ -1760,13 +1756,13 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
     ]
 
     downloadCsv(`student-management-${new Date().toISOString().slice(0, 10)}.csv`, rows)
-    setMessage({ tone: 'success', text: `Exported ${selectedStudents.length} selected student(s).` })
+    setNotification({ type: 'success', title: 'Export Complete', message: `Exported ${selectedStudents.length} selected student(s).` })
   }
 
   const handleExportRoster = () => {
     const source = selectedStudents.length ? selectedStudents : filteredStudents
     if (!source.length) {
-      setMessage({ tone: 'error', text: 'No student records available to export.' })
+      setNotification({ type: 'error', title: 'Export Failed', message: 'No student records available to export.' })
       return
     }
 
@@ -1786,7 +1782,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
     ]
 
     downloadCsv(`student-registry-${new Date().toISOString().slice(0, 10)}.csv`, rows)
-    setMessage({ tone: 'success', text: `Exported ${source.length} student record(s).` })
+    setNotification({ type: 'success', title: 'Export Complete', message: `Exported ${source.length} student record(s).` })
   }
 
   return (
@@ -1841,19 +1837,14 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
           </div>
         ) : null}
 
-        {message ? (
-          <div className={`student-workspace__message student-workspace__message--${message.tone}`}>
-            <span>{message.text}</span>
-            <button
-              type="button"
-              className="student-workspace__message-close"
-              onClick={() => setMessage(null)}
-              aria-label="Dismiss notification"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        ) : null}
+        {notification && (
+          <NotificationToast
+            type={notification.type}
+            title={notification.title}
+            message={notification.message}
+            onClose={() => setNotification(null)}
+          />
+        )}
 
         <section className="student-workspace__controls-card">
           <div className="student-workspace__filters">
@@ -1963,7 +1954,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
                 <button
                   type="button"
                   className="student-workspace__secondary-button"
-                  onClick={() => setMessage({ tone: 'error', text: 'Import workflow is not connected yet.' })}
+                  onClick={() => setNotification({ type: 'error', title: 'Not Available', message: 'Import workflow is not connected yet.' })}
                 >
                   <Upload size={16} />
                   Import
@@ -2230,7 +2221,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
                 onClose={() => setFormModal(null)}
                 onSuccess={async () => {
                   await loadStudents('refresh')
-                  setMessage({ tone: 'success', text: 'Student record updated successfully.' })
+                  setNotification({ type: 'success', title: 'Success', message: 'Student record updated successfully.' })
                   setFormModal(null)
                 }}
               />
@@ -2244,7 +2235,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
           onClose={() => setFormModal(null)}
           onSaved={async (text) => {
             await loadStudents('refresh')
-            setMessage({ tone: 'success', text })
+            setNotification({ type: 'success', title: 'Success', message: text || 'Operation completed successfully.' })
           }}
         />
       ) : null}
@@ -2256,7 +2247,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
           onSaved={async (text) => {
             await loadStudents('refresh')
             setSelectedStudentIds([])
-            setMessage({ tone: 'success', text })
+            setNotification({ type: 'success', title: 'Success', message: text || 'Enrollment completed successfully.' })
           }}
         />
       ) : null}
@@ -2268,7 +2259,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
           onSaved={async (text) => {
             await loadStudents('refresh')
             setSelectedStudentIds([])
-            setMessage({ tone: 'success', text })
+            setNotification({ type: 'success', title: 'Success', message: text || 'Block assignment completed successfully.' })
           }}
         />
       ) : null}

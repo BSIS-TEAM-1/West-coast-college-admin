@@ -16,6 +16,8 @@ const StudentPasswordService = require('../services/studentPasswordService');
 const AuditLog = require('../models/AuditLog');
 const Curriculum = require('../models/Curriculum');
 const CurriculumSubject = require('../models/CurriculumSubject');
+const CorPdfService = require('../services/corPdfService');
+const { convertToSchoolYear, extractStartYear } = require('../services/dateUtils');
 
 const STUDENT_MUTABLE_FIELDS = [
   'firstName',
@@ -29,7 +31,6 @@ const STUDENT_MUTABLE_FIELDS = [
   'schoolYear',
   'studentStatus',
   'lifecycleStatus',
-  'enrollmentStatus',
   'corStatus',
   'scholarship',
   'email',
@@ -73,7 +74,6 @@ const TRIMMED_STUDENT_STRING_FIELDS = new Set([
   'schoolYear',
   'studentStatus',
   'lifecycleStatus',
-  'enrollmentStatus',
   'corStatus',
   'scholarship',
   'email',
@@ -152,14 +152,10 @@ class StudentController {
     if (student?.isActive === false) return 'Inactive';
 
     const studentStatus = String(student?.studentStatus || '').trim();
-    const enrollmentStatus = String(student?.enrollmentStatus || '').trim();
     const corStatus = String(student?.corStatus || '').trim();
 
-    if (studentStatus === 'Dropped' || enrollmentStatus === 'Dropped') return 'Dropped';
-    if (enrollmentStatus === 'Enrolled' || corStatus === 'Verified') return 'Enrolled';
-    if (enrollmentStatus === 'Not Enrolled') {
-      return corStatus === 'Pending' ? 'Pending' : 'Not Enrolled';
-    }
+    if (studentStatus === 'Dropped') return 'Dropped';
+    if (corStatus === 'Verified') return 'Enrolled';
 
     return 'Pending';
   }
@@ -201,9 +197,8 @@ class StudentController {
   }
 
   static schoolYearFromStartYear(value) {
-    const year = Number(value);
-    if (!Number.isFinite(year) || year < 1000) return '';
-    return `${year}-${year + 1}`;
+    // Deprecated: Use convertToSchoolYear from dateUtils instead
+    return convertToSchoolYear(value);
   }
 
   static courseCodeFromValue(value) {
@@ -271,7 +266,7 @@ class StudentController {
   static async getProfessorCourseLoads(req, res) {
     try {
       const semesterFilter = String(req.query.semester || '').trim();
-      const yearFilter = Number(req.query.year);
+      const yearFilter = convertToSchoolYear(req.query.year);
       const courseFilter = Number(req.query.course);
 
       const professorDocs = await Admin.find({
@@ -335,7 +330,7 @@ class StudentController {
 
       const blockGroupQuery = {};
       if (semesterFilter) blockGroupQuery.semester = semesterFilter;
-      if (Number.isFinite(yearFilter) && yearFilter > 0) blockGroupQuery.year = yearFilter;
+      if (yearFilter) blockGroupQuery.year = yearFilter;
 
       const rawGroups = await BlockGroup.find(blockGroupQuery)
         .select('_id name semester year')
@@ -344,7 +339,7 @@ class StudentController {
 
       const filterOptions = {
         semesters: Array.from(new Set(rawGroups.map((group) => String(group.semester || '').trim()).filter(Boolean))),
-        years: Array.from(new Set(rawGroups.map((group) => Number(group.year)).filter((value) => Number.isFinite(value)))).sort((a, b) => b - a),
+        years: Array.from(new Set(rawGroups.map((group) => String(group.year || '').trim()).filter(Boolean))).sort((a, b) => b.localeCompare(a)),
         courses: Array.from(
           new Map(
             rawGroups
@@ -390,7 +385,7 @@ class StudentController {
         new Set(
           blockGroups
             .map((group) => {
-              const schoolYear = StudentController.schoolYearFromStartYear(group.year);
+              const schoolYear = String(group.year || '').trim();
               const semester = String(group.semester || '').trim();
               return schoolYear && semester ? `${schoolYear}|${semester}` : '';
             })
@@ -424,13 +419,8 @@ class StudentController {
         const group = groupById.get(String(section.blockGroupId));
         if (!group) return false;
         return String(assignment.semester || '').trim() === String(group.semester || '').trim()
-          && Number(assignment.year) === Number(group.year);
+          && String(assignment.year || '').trim() === String(group.year || '').trim();
       });
-
-      const parseSchoolYearStart = (schoolYearValue) => {
-        const match = String(schoolYearValue || '').trim().match(/^(\d{4})/);
-        return match ? Number(match[1]) : NaN;
-      };
 
       const assignmentsByStudentId = new Map();
       relevantAssignments.forEach((assignment) => {
@@ -449,15 +439,15 @@ class StudentController {
         if (list.length === 0) return null;
 
         const semester = String(semesterValue || '').trim();
-        const yearStart = parseSchoolYearStart(schoolYearValue);
+        const schoolYear = convertToSchoolYear(schoolYearValue);
         const strictMatch = list.find((entry) => {
           const semesterMatch = String(entry.semester || '').trim() === semester;
-          const yearMatch = Number(entry.year || 0) === Number(yearStart || 0);
+          const yearMatch = String(entry.year || '').trim() === schoolYear;
           return semesterMatch && yearMatch;
         });
         if (strictMatch) return strictMatch;
 
-        if (!Number.isFinite(yearStart)) {
+        if (!schoolYear) {
           return list.find((entry) => String(entry.semester || '').trim() === semester) || null;
         }
 
@@ -473,7 +463,7 @@ class StudentController {
       ).map((studentId) => new mongoose.Types.ObjectId(studentId));
 
       const enrollmentQuery = {
-        status: { $ne: 'Dropped' }
+        status: 'Enrolled' // Only show enrolled students to professors
       };
       if (targetEnrollmentPairs.length > 0) {
         enrollmentQuery.$or = targetEnrollmentPairs.map((pair) => {
@@ -549,7 +539,7 @@ class StudentController {
         const blockGroup = groupById.get(String(section.blockGroupId));
         if (!blockGroup) return;
 
-        const schoolYear = StudentController.schoolYearFromStartYear(assignment.year);
+        const schoolYear = String(assignment.year || '').trim();
         const semester = String(assignment.semester || '').trim();
         const enrollment = enrollmentByKey.get(`${studentId}|${schoolYear}|${semester}`);
         if (!enrollment || !Array.isArray(enrollment.subjects)) return;
@@ -576,7 +566,7 @@ class StudentController {
             blockGroupId: String(blockGroup._id),
             blockGroupName: String(blockGroup.name || '').trim(),
             semester: String(blockGroup.semester || '').trim(),
-            schoolYear: StudentController.schoolYearFromStartYear(blockGroup.year),
+            schoolYear: String(blockGroup.year || '').trim(),
             courseCode: blockGroup.meta.courseCode || null,
             courseShortLabel: blockGroup.meta.courseShortLabel || 'N/A',
             courseLabel: blockGroup.meta.courseLabel || 'N/A',
@@ -921,7 +911,7 @@ class StudentController {
     if (params.semester) query.semester = params.semester;
     if (params.schoolYear) query.schoolYear = params.schoolYear;
     if (params.studentStatus) query.studentStatus = params.studentStatus;
-    if (params.enrollmentStatus) query.enrollmentStatus = params.enrollmentStatus;
+    // enrollmentStatus is deprecated - use Enrollment.status instead
 
     const students = await Student.find(query).sort({ createdAt: -1 }).lean();
     if (!students.length) return [];
@@ -929,6 +919,15 @@ class StudentController {
     const studentIds = students
       .map((student) => String(student._id || '').trim())
       .filter(Boolean);
+
+    // Get enrollment records for students to determine actual enrollment status
+    const enrollmentQuery = { studentId: { $in: studentIds } };
+    if (params.semester) enrollmentQuery.semester = params.semester;
+    if (params.schoolYear) enrollmentQuery.schoolYear = params.schoolYear;
+    
+    const enrollments = await Enrollment.find(enrollmentQuery)
+      .select('studentId status semester schoolYear isCurrent')
+      .lean();
 
     const assignments = await StudentBlockAssignment.find({ studentId: { $in: studentIds } })
       .select('studentId sectionId semester year assignedAt')
@@ -948,6 +947,15 @@ class StudentController {
 
     assignmentsByStudentId.forEach((list) => {
       list.sort((left, right) => new Date(right.assignedAt).getTime() - new Date(left.assignedAt).getTime());
+    });
+
+    const enrollmentsByStudentId = new Map();
+    enrollments.forEach((enrollment) => {
+      const studentId = String(enrollment.studentId || '').trim();
+      if (!studentId) return;
+      const list = enrollmentsByStudentId.get(studentId) || [];
+      list.push(enrollment);
+      enrollmentsByStudentId.set(studentId, list);
     });
 
     const waitlistByStudentId = new Map();
@@ -979,11 +987,6 @@ class StudentController {
       sections.map((section) => [String(section._id), String(section.sectionCode || '').trim()])
     );
 
-    const parseSchoolYearStart = (schoolYearValue) => {
-      const match = String(schoolYearValue || '').trim().match(/^(\d{4})\s*-\s*\d{4}$/);
-      return match ? Number(match[1]) : 0;
-    };
-
     const normalizeText = (value) => String(value || '').trim().toLowerCase();
     const normalizeAssignmentStatus = (value) => String(value || 'ASSIGNED').trim().toUpperCase();
     const isAssignedStatus = (value) => normalizeAssignmentStatus(value) === 'ASSIGNED';
@@ -1005,10 +1008,10 @@ class StudentController {
       if (!studentAssignments.length) return null;
 
       const semester = normalizeText(studentSemester);
-      const year = parseSchoolYearStart(studentSchoolYear);
+      const schoolYear = convertToSchoolYear(studentSchoolYear);
       const strictMatch = pickLatestAssignment(
         studentAssignments,
-        (assignment) => normalizeText(assignment.semester) === semester && Number(assignment.year || 0) === year
+        (assignment) => normalizeText(assignment.semester) === semester && String(assignment.year || '').trim() === schoolYear
       );
       if (strictMatch) return strictMatch;
 
@@ -1020,11 +1023,40 @@ class StudentController {
 
       const yearMatch = pickLatestAssignment(
         studentAssignments,
-        (assignment) => Number(assignment.year || 0) === year
+        (assignment) => String(assignment.year || '').trim() === schoolYear
       );
       if (yearMatch) return yearMatch;
 
       return pickLatestAssignment(studentAssignments, () => true);
+    };
+
+    const getEnrollmentStatus = (studentId, semester, schoolYear) => {
+      const studentEnrollments = enrollmentsByStudentId.get(studentId) || [];
+      if (!studentEnrollments.length) return 'Not Enrolled';
+
+      const targetSemester = normalizeText(semester);
+      const targetSchoolYear = convertToSchoolYear(schoolYear);
+
+      // Look for matching enrollment
+      const matchingEnrollment = studentEnrollments.find((enrollment) => {
+        const semesterMatch = normalizeText(enrollment.semester) === targetSemester;
+        const yearMatch = String(enrollment.schoolYear || '').trim() === targetSchoolYear;
+        return semesterMatch && yearMatch;
+      });
+
+      if (matchingEnrollment) {
+        return matchingEnrollment.status || 'Not Enrolled';
+      }
+
+      // Fallback to any current enrollment
+      const currentEnrollment = studentEnrollments.find((enrollment) => enrollment.isCurrent);
+      if (currentEnrollment) {
+        return currentEnrollment.status || 'Not Enrolled';
+      }
+
+      // Fallback to latest enrollment
+      const latestEnrollment = studentEnrollments[studentEnrollments.length - 1];
+      return latestEnrollment?.status || 'Not Enrolled';
     };
 
     return students.map((student) => {
@@ -1038,6 +1070,7 @@ class StudentController {
         return {
           ...student,
           section: '',
+          enrollmentStatus: getEnrollmentStatus(String(student._id), student.semester, student.schoolYear),
           lifecycleStatus: StudentController.deriveLifecycleStatus(student)
         };
       }
@@ -1047,6 +1080,7 @@ class StudentController {
         return {
           ...student,
           section: '',
+          enrollmentStatus: getEnrollmentStatus(String(student._id), student.semester, student.schoolYear),
           lifecycleStatus: StudentController.deriveLifecycleStatus(student)
         };
       }
@@ -1054,6 +1088,7 @@ class StudentController {
       return {
         ...student,
         section: sectionCode,
+        enrollmentStatus: getEnrollmentStatus(String(student._id), student.semester, student.schoolYear),
         lifecycleStatus: StudentController.deriveLifecycleStatus({
           ...student,
           section: sectionCode
@@ -1172,27 +1207,27 @@ class StudentController {
       if (!set.corStatus) set.corStatus = 'Pending';
       if (set.isActive === undefined) set.isActive = true;
     } else if (requestedLifecycleStatus === 'Enrolled') {
-      set.enrollmentStatus = 'Enrolled';
+      // enrollmentStatus is deprecated - managed via Enrollment records
       if (set.isActive === undefined) set.isActive = true;
     } else if (requestedLifecycleStatus === 'Not Enrolled') {
-      set.enrollmentStatus = 'Not Enrolled';
+      // enrollmentStatus is deprecated - managed via Enrollment records
       if (set.isActive === undefined) set.isActive = true;
     } else if (requestedLifecycleStatus === 'Dropped') {
       set.studentStatus = 'Dropped';
-      set.enrollmentStatus = 'Dropped';
+      // enrollmentStatus is deprecated - managed via Enrollment records
       if (set.isActive === undefined) set.isActive = true;
     } else if (requestedLifecycleStatus === 'Inactive') {
       set.isActive = false;
-      if (!set.enrollmentStatus) set.enrollmentStatus = 'Not Enrolled';
+      // enrollmentStatus is deprecated - managed via Enrollment records
     } else if (requestedLifecycleStatus === 'Graduated') {
       set.isActive = false;
-      if (!set.enrollmentStatus) set.enrollmentStatus = 'Not Enrolled';
+      // enrollmentStatus is deprecated - managed via Enrollment records
       if (!set.corStatus) set.corStatus = 'Verified';
     }
 
     if (String(set.corStatus || '').trim() === 'Verified') {
       if (requestedLifecycleStatus !== 'Dropped' && requestedLifecycleStatus !== 'Inactive' && requestedLifecycleStatus !== 'Graduated') {
-        set.enrollmentStatus = 'Enrolled';
+        // enrollmentStatus is deprecated - managed via Enrollment records
       }
       if (!requestedLifecycleStatus) {
         set.lifecycleStatus = 'Enrolled';
@@ -1376,7 +1411,7 @@ class StudentController {
         description: `Created student record: ${student.studentNumber} (${student.course})`,
         performedBy: req.adminId,
         performedByRole: String(req.accountType || 'registrar').toLowerCase() === 'admin' ? 'admin' : 'registrar',
-        newValue: { studentNumber: student.studentNumber, course: student.course, yearLevel: student.yearLevel, enrollmentStatus: student.enrollmentStatus },
+        newValue: { studentNumber: student.studentNumber, course: student.course, yearLevel: student.yearLevel },
         status: 'SUCCESS',
         severity: 'MEDIUM',
       });
@@ -1535,8 +1570,8 @@ class StudentController {
         description,
         performedBy: req.adminId,
         performedByRole,
-        oldValue: { course: previous.course, yearLevel: previous.yearLevel, studentStatus: previous.studentStatus, enrollmentStatus: previous.enrollmentStatus, latestGrade: previous.latestGrade, corStatus: previousCorStatus || 'Pending' },
-        newValue: { course: student.course, yearLevel: student.yearLevel, studentStatus: student.studentStatus, enrollmentStatus: student.enrollmentStatus, latestGrade: student.latestGrade, corStatus: student.corStatus || 'Pending' },
+        oldValue: { course: previous.course, yearLevel: previous.yearLevel, studentStatus: previous.studentStatus, latestGrade: previous.latestGrade, corStatus: previousCorStatus || 'Pending' },
+        newValue: { course: student.course, yearLevel: student.yearLevel, studentStatus: student.studentStatus, latestGrade: student.latestGrade, corStatus: student.corStatus || 'Pending' },
         status: 'SUCCESS',
         severity: hasAcademicChange ? 'HIGH' : 'MEDIUM',
       });
@@ -1773,7 +1808,7 @@ class StudentController {
 
     const resolvedSemester = String(options.semester || blockGroup?.semester || '').trim();
     const resolvedSchoolYear = String(
-      options.schoolYear || StudentController.schoolYearFromStartYear(blockGroup?.year) || ''
+      options.schoolYear || String(blockGroup?.year || '').trim() || ''
     ).trim();
 
     const assignmentQuery = {
@@ -1785,7 +1820,7 @@ class StudentController {
       const startYear = Number(String(resolvedSchoolYear).split('-')[0]);
       if (Number.isFinite(startYear) && startYear > 0) assignmentQuery.year = startYear;
     } else if (blockGroup?.year) {
-      assignmentQuery.year = Number(blockGroup.year);
+      assignmentQuery.year = blockGroup.year;
     }
 
     const assignments = await StudentBlockAssignment.find(assignmentQuery).select('studentId semester year').lean();
@@ -2078,608 +2113,206 @@ class StudentController {
     }
   }
 
+  static async resolveCorEnrollment(student) {
+    const base = { studentId: student._id, status: { $ne: 'Dropped' } };
+    const schoolYear = String(student.schoolYear || '').trim();
+    const semester = String(student.semester || '').trim();
+
+    // 1) enrollment matching the student's current term, 2) any current enrollment, 3) latest one
+    const filters = [];
+    if (schoolYear && semester) filters.push({ ...base, schoolYear, semester });
+    filters.push({ ...base, isCurrent: true });
+    filters.push(base);
+
+    for (const filter of filters) {
+      const enrollment = await Enrollment.findOne(filter)
+        .sort({ isCurrent: -1, createdAt: -1 })
+        .populate('curriculumId', 'name code version programName totalUnits');
+      if (enrollment) return enrollment;
+    }
+    return null;
+  }
+
+  static async resolveCurriculumLabel(enrollment, student, courseCode) {
+    const populated = enrollment?.curriculumId;
+    if (populated && typeof populated === 'object') {
+      const label = populated.name || populated.code || populated.programName;
+      const text = [label, populated.version ? `v${populated.version}` : null].filter(Boolean).join(' ');
+      return text || populated.programName || 'N/A';
+    }
+
+    if (student.curriculumVersion) return student.curriculumVersion;
+
+    const active = await Curriculum.findActiveByProgram(Number(courseCode));
+    if (active) {
+      const label = active.name || active.code || active.programName;
+      return `${label || 'Curriculum'} v${active.version}`;
+    }
+    return 'N/A';
+  }
+
+  /**
+   * If a professor account was deleted but the enrollment still carries the old
+   * instructor text, reset it to TBA so the COR never prints a stale name.
+   */
+  static async clearStaleInstructors(enrollment) {
+    if (!enrollment || !Array.isArray(enrollment.subjects)) return;
+
+    const normalize = (value) => String(value || '').trim().toLowerCase();
+    const professors = await Admin.find({ accountType: 'professor', status: { $ne: 'inactive' } })
+      .select('username displayName uid')
+      .lean();
+    const known = new Set(
+      professors
+        .flatMap((professor) => [professor.username, professor.displayName, professor.uid])
+        .map(normalize)
+        .filter(Boolean)
+    );
+
+    let changed = false;
+    enrollment.subjects.forEach((subject) => {
+      const instructor = String(subject?.instructor || '').trim();
+      if (!instructor || /^TBA$/i.test(instructor)) return;
+      if (!known.has(normalize(instructor))) {
+        subject.instructor = 'TBA';
+        subject.dateModified = new Date();
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      enrollment.markModified('subjects');
+      await enrollment.save();
+    }
+  }
+
+  static async resolveClassBlockLabel(student, courseAbbreviation) {
+    const assignment = await StudentBlockAssignment.findOne({
+      studentId: String(student._id),
+      status: 'ASSIGNED'
+    })
+      .sort({ createdAt: -1 })
+      .select('sectionId')
+      .lean();
+    if (!assignment?.sectionId) return 'N/A';
+
+    const section = await BlockSection.findById(assignment.sectionId)
+      .select('sectionCode blockCode name')
+      .lean();
+
+    return (
+      CorPdfService.helpers.formatClassBlockLabel(section?.sectionCode, courseAbbreviation) ||
+      section?.blockCode ||
+      section?.name ||
+      'N/A'
+    );
+  }
+
+  static async ensureRegistrationNumber(student) {
+    if (student.registrationNumber) return student.registrationNumber;
+    const generated = `${new Date().getFullYear()}${Math.floor(100000 + Math.random() * 900000)}`;
+    student.registrationNumber = generated;
+    await student.save({ validateBeforeSave: false });
+    return generated;
+  }
+
+  static async buildCorViewModel(student, { adminId, username } = {}) {
+    const h = CorPdfService.helpers;
+
+    // --- program / course ---
+    const courseCode = StudentController.courseCodeFromValue(student.course) || '000';
+    const courseAbbreviation =
+      StudentController.courseCodeMap[Number(courseCode)] ||
+      StudentController.courseCodeMap[student.course] ||
+      String(student.course || '').trim();
+    const courseLabel =
+      StudentController.courseLabelMap[Number(courseCode)] ||
+      StudentController.courseLabelMap[student.course] ||
+      student.course ||
+      'N/A';
+
+    // --- enrollment + subjects ---
+    const enrollment = await StudentController.resolveCorEnrollment(student);
+    await StudentController.clearStaleInstructors(enrollment);
+
+    const activeSubjects = (Array.isArray(enrollment?.subjects) ? enrollment.subjects : []).filter(
+      (subject) => String(subject?.status || '').toLowerCase() !== 'dropped'
+    );
+    const classBlockLabel = await StudentController.resolveClassBlockLabel(student, courseAbbreviation);
+    const unitBreakdown = h.computeUnitBreakdown(activeSubjects);
+    const totalUnits = activeSubjects.reduce((sum, subject) => sum + (Number(subject?.units) || 0), 0);
+
+    // --- registrar ---
+    const registrar = adminId ? await Admin.findById(adminId).select('displayName') : null;
+    const registrarName = registrar?.displayName || username || "Registrar's Office";
+
+    // --- QR target ---
+    const appBaseUrl = String(
+      process.env.APP_DOWNLOAD_URL || 'https://west-coast-college-admin-production.up.railway.app'
+    ).replace(/\/+$/, '');
+
+    return {
+      registrationNumber: await StudentController.ensureRegistrationNumber(student),
+      issuedDate: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+      registrarName,
+      qrUrl: `${appBaseUrl}/download-apk`,
+      student: {
+        number: h.formatStudentNumber(student.studentNumber, courseCode),
+        name: [student.firstName, student.middleName, student.lastName, student.suffix]
+          .map((part) => h.cleanText(part))
+          .filter(Boolean)
+          .join(' '),
+        program: h.extractProgram(courseLabel),
+        major: h.extractMajor(student.major) || h.extractMajor(courseLabel) || 'N/A',
+        yearLevel: String(enrollment?.yearLevel || student.yearLevel || 'N/A'),
+        semester: String(enrollment?.semester || student.semester || 'N/A'),
+        schoolYear: String(enrollment?.schoolYear || student.schoolYear || 'N/A'),
+        sex: h.cleanText(student.gender, 'N/A'),
+        age: h.calculateAge(student.birthDate),
+        college: 'Pio Duran',
+        curriculum: await StudentController.resolveCurriculumLabel(enrollment, student, courseCode)
+      },
+      subjects:
+        activeSubjects.length === 0
+          ? [{ code: '-', title: 'No enrolled subjects found', units: '-', block: '-', days: '-', time: '-', room: '-', faculty: '-' }]
+          : activeSubjects.map((subject) => h.buildSubjectRow(subject, classBlockLabel)),
+      totals: {
+        subjects: activeSubjects.length,
+        units: totalUnits,
+        lecture: unitBreakdown.lectureUnits,
+        lab: unitBreakdown.labUnits
+      }
+    };
+  }
+
   /**
    * Generate Certificate of Registration (COR) as PDF
    */
   static async generateCorPdf(req, res) {
-    let doc;
     try {
-      const { id } = req.params;
-      const student = await Student.findById(id);
-
+      const student = await Student.findById(req.params.id);
       if (!student) {
         return res.status(404).json({ success: false, message: 'Student not found' });
       }
 
-      const courseCodeFromValue = (value) => {
-        const text = String(value ?? '').trim();
-        if (!text) return '';
-        if (/^\d+$/.test(text)) return text;
+      const corData = await StudentController.buildCorViewModel(student, {
+        adminId: req.adminId,
+        username: req.username
+      });
 
-        const normalized = text.toUpperCase().replace(/\s+/g, '').replace(/_/g, '-');
-        if (normalized.includes('BEED')) return '101';
-        if (normalized.includes('BSED-ENGLISH') || normalized === 'ENGLISH') return '102';
-        if (normalized.includes('BSED-MATH') || normalized === 'MATH' || normalized === 'MATHEMATICS') return '103';
-        if (normalized.includes('BSBA-HRM') || normalized === 'HRM') return '201';
-        return '';
-      };
-
-      const courseCode = courseCodeFromValue(student.course) || '000';
-      const courseAbbreviation =
-        StudentController.courseCodeMap[Number(courseCode)] ||
-        StudentController.courseCodeMap[student.course] ||
-        String(student.course || '').trim();
-      const courseLabel =
-        StudentController.courseLabelMap[Number(courseCode)] ||
-        StudentController.courseLabelMap[student.course] ||
-        student.course ||
-        'N/A';
-      const extractProgram = (value) => {
-        const text = String(value || '').trim();
-        if (!text) return 'N/A';
-        const normalized = text.replace(/\u2013/g, '-');
-        return normalized.replace(/\s*-\s*major in\s+.+$/i, '').trim() || text;
-      };
-      const extractMajor = (value) => {
-        const text = String(value || '').trim();
-        if (!text) return '';
-        const normalized = text.replace(/\u2013/g, '-');
-        const match = normalized.match(/major in\s+(.+)$/i);
-        return match ? match[1].trim() : '';
-      };
-      const programLabel = extractProgram(courseLabel);
-      const majorLabel = extractMajor(student.major) || extractMajor(courseLabel) || 'N/A';
-      const parts = String(student.studentNumber || '')
-        .split('-')
-        .map((part) => part.trim())
-        .filter(Boolean);
-      
-      let yearPart, seqPart;
-      
-      if (parts.length === 1 && /^\d{12}$/.test(parts[0])) {
-        // New format: YYYYCourseCodeSequence (12 digits)
-        const fullNumber = parts[0];
-        yearPart = fullNumber.substring(0, 4);
-        seqPart = fullNumber.substring(7);
-      } else {
-        // Old format: YYYY-CourseCode-Sequence
-        yearPart = /^\d{4}$/.test(parts[0] || '') ? parts[0] : '0000';
-        const seqRaw = [...parts].reverse().find((part) => /^\d+$/.test(part)) || '00000';
-        seqPart = seqRaw.slice(-5).padStart(5, '0');
-      }
-      
-      const studentNumber = `${yearPart}${courseCode}${seqPart}`;
-      const studentName = `${student.firstName} ${student.middleName ?? ''} ${student.lastName} ${student.suffix ?? ''}`.trim();
-      const registrationNumber = student.registrationNumber || `${new Date().getFullYear()}${Math.floor(100000 + Math.random() * 900000)}`;
-      if (!student.registrationNumber) {
-        student.registrationNumber = registrationNumber;
-        await student.save({ validateBeforeSave: false });
-      }
-
-      const age = student.birthDate ? (new Date().getFullYear() - new Date(student.birthDate).getFullYear()) : 'N/A';
-      const preferredSchoolYear = String(student.schoolYear || '').trim();
-      const preferredSemester = String(student.semester || '').trim();
-
-      let enrollment = null;
-      if (preferredSchoolYear && preferredSemester) {
-        enrollment = await Enrollment.findOne({
-          studentId: student._id,
-          schoolYear: preferredSchoolYear,
-          semester: preferredSemester,
-          status: { $ne: 'Dropped' }
-        }).sort({ isCurrent: -1, createdAt: -1 }).populate('curriculumId', 'name code version programName totalUnits');
-      }
-      if (!enrollment) {
-        enrollment = await Enrollment.findOne({
-          studentId: student._id,
-          status: { $ne: 'Dropped' },
-          isCurrent: true
-        }).sort({ createdAt: -1 }).populate('curriculumId', 'name code version programName totalUnits');
-      }
-      if (!enrollment) {
-        enrollment = await Enrollment.findOne({
-          studentId: student._id,
-          status: { $ne: 'Dropped' }
-        }).sort({ createdAt: -1 }).populate('curriculumId', 'name code version programName totalUnits');
-      }
-
-      // Resolve the curriculum label: prefer the enrollment's populated
-      // curriculum (name + version), fall back to student.curriculumVersion,
-      // then to an active curriculum lookup by program code.
-      let curriculumLabel = 'N/A';
-      const populatedCurriculum = enrollment?.curriculumId;
-      if (populatedCurriculum && typeof populatedCurriculum === 'object') {
-        const labelPart = populatedCurriculum.name || populatedCurriculum.code || populatedCurriculum.programName;
-        const parts = [
-          labelPart,
-          populatedCurriculum.version ? `v${populatedCurriculum.version}` : null,
-        ].filter(Boolean);
-        curriculumLabel = parts.join(' ') || populatedCurriculum.programName || 'N/A';
-      } else if (student.curriculumVersion) {
-        curriculumLabel = student.curriculumVersion;
-      } else {
-        const activeCurriculum = await Curriculum.findActiveByProgram(Number(courseCode));
-        if (activeCurriculum) {
-          const labelPart = activeCurriculum.name || activeCurriculum.code || activeCurriculum.programName;
-          curriculumLabel = `${labelPart || 'Curriculum'} v${activeCurriculum.version}`;
-        }
-      }
-
-      const normalizeIdentifier = (value) => String(value || '').trim().toLowerCase();
-      const activeProfessors = await Admin.find({
-        accountType: 'professor',
-        status: { $ne: 'inactive' }
-      })
-        .select('username displayName uid')
-        .lean();
-      const professorIdentifierSet = new Set(
-        activeProfessors
-          .flatMap((professor) => [professor.username, professor.displayName, professor.uid])
-          .map((value) => normalizeIdentifier(value))
-          .filter(Boolean)
-      );
-
-      // Safety cleanup: if a professor account was deleted but old subject instructor
-      // text remains in enrollment, force it back to TBA so COR doesn't show stale names.
-      if (enrollment && Array.isArray(enrollment.subjects)) {
-        let normalized = false;
-        enrollment.subjects.forEach((subject) => {
-          const currentInstructor = String(subject?.instructor || '').trim();
-          if (!currentInstructor || /^TBA$/i.test(currentInstructor)) return;
-          if (!professorIdentifierSet.has(normalizeIdentifier(currentInstructor))) {
-            subject.instructor = 'TBA';
-            subject.dateModified = new Date();
-            normalized = true;
-          }
-        });
-        if (normalized) {
-          enrollment.markModified('subjects');
-          await enrollment.save();
-        }
-      }
-
-      const enrolledSubjects = Array.isArray(enrollment?.subjects)
-        ? enrollment.subjects.filter((subject) => String(subject?.status || '').toLowerCase() !== 'dropped')
-        : [];
-      const corSemester = enrollment?.semester || student.semester || 'N/A';
-      const corSchoolYear = enrollment?.schoolYear || student.schoolYear || 'N/A';
-      const corYearLevel = enrollment?.yearLevel || student.yearLevel || 'N/A';
-      const formatClassBlockLabel = (rawSectionCode, courseAbbreviation) => {
-        const sectionCode = String(rawSectionCode || '').trim().replace(/\u2013/g, '-').toUpperCase();
-        const course = String(courseAbbreviation || '').trim().toUpperCase();
-        if (!sectionCode) return '';
-        if (!course) return sectionCode;
-
-        const blockSlotMatch = sectionCode.match(/(?:^|[-\s])(\d+)-?([A-Z])$/);
-        if (blockSlotMatch) {
-          return `${course}-${blockSlotMatch[1]}${blockSlotMatch[2]}`;
-        }
-
-        const parts = sectionCode.split('-').filter(Boolean);
-        const firstPart = parts[0] || '';
-
-        if (/^\d/.test(firstPart) || parts.length <= 1) {
-          const suffix = parts.length > 1 ? parts.slice(1).join('-') : sectionCode;
-          return suffix ? `${course}-${suffix}` : sectionCode;
-        }
-
-        return sectionCode;
-      };
-      let classBlockLabel = 'N/A';
-      const latestBlockAssignment = await StudentBlockAssignment.findOne({
-        studentId: String(student._id),
-        status: 'ASSIGNED'
-      })
-        .sort({ createdAt: -1 })
-        .select('sectionId')
-        .lean();
-      if (latestBlockAssignment?.sectionId) {
-        const assignedSection = await BlockSection.findById(latestBlockAssignment.sectionId)
-          .select('sectionCode blockCode name')
-          .lean();
-        classBlockLabel =
-          formatClassBlockLabel(assignedSection?.sectionCode, courseAbbreviation) ||
-          assignedSection?.blockCode ||
-          assignedSection?.name ||
-          'N/A';
-      }
-      const totalSubjects = enrolledSubjects.length;
-      const totalUnits = enrolledSubjects.reduce((sum, subject) => sum + (Number(subject?.units) || 0), 0);
-
-      /**
-       * Calculates the breakdown of lecture vs lab units across all enrolled subjects.
-       *
-       * This algorithm handles two scenarios for unit categorization:
-       *
-       * 1. EXPLICIT UNIT BREAKDOWN: When subjects have explicit lectureUnits/labUnits fields
-       *    - Uses the provided values directly if they exist and are valid (>= 0)
-       *    - Calculates missing values: lecture = total - lab (or total if lab unknown)
-       *    - Ensures no negative values through Math.max() guards
-       *
-       * 2. PATTERN-BASED DETECTION: When explicit breakdown is unavailable
-       *    - Searches subject code and title for lab-related keywords
-       *    - Keywords: 'LAB', 'LABORATORY', 'PRACTICUM' (case-insensitive)
-       *    - Lab subjects get all units as lab units
-       *    - Non-lab subjects get all units as lecture units
-       *
-       * Edge cases handled:
-       * - Invalid or missing unit values default to 0
-       * - Explicit units take precedence over pattern detection
-       * - Math.max() prevents negative unit assignments
-       * - Regex is case-insensitive for flexibility
-       *
-       * @param {Array} subjects - Array of enrolled subject objects
-       * @returns {Object} { lectureUnits: number, labUnits: number }
-       */
-      const unitBreakdown = enrolledSubjects.reduce((acc, subject) => {
-        const units = Number(subject?.units) || 0;
-        const explicitLecture = Number(subject?.lectureUnits);
-        const explicitLab = Number(subject?.labUnits);
-        const hasExplicitLecture = Number.isFinite(explicitLecture) && explicitLecture >= 0;
-        const hasExplicitLab = Number.isFinite(explicitLab) && explicitLab >= 0;
-
-        // Scenario 1: Use explicit unit breakdown if available
-        if (hasExplicitLecture || hasExplicitLab) {
-          // Calculate lecture units: use explicit value, or derive from total - lab
-          const lectureUnits = hasExplicitLecture
-            ? explicitLecture
-            : Math.max(units - (hasExplicitLab ? explicitLab : 0), 0);
-
-          // Calculate lab units: use explicit value, or derive from total - lecture
-          const labUnits = hasExplicitLab
-            ? explicitLab
-            : Math.max(units - lectureUnits, 0);
-
-          acc.lectureUnits += lectureUnits;
-          acc.labUnits += labUnits;
-          return acc;
-        }
-
-        // Scenario 2: Use pattern-based detection
-        const subjectText = `${String(subject?.code || '')} ${String(subject?.title || '')}`;
-        const isLabSubject = /(LAB|LABORATORY|PRACTICUM)/i.test(subjectText);
-
-        if (isLabSubject) {
-          acc.labUnits += units;
-        } else {
-          acc.lectureUnits += units;
-        }
-
-        return acc;
-      }, { lectureUnits: 0, labUnits: 0 });
-
-      // Fetch current registrar's display name. When this is reached via the
-      // student self-service COR route there is no req.adminId (students
-      // aren't Admin accounts), so fall back to a generic office label.
-      const currentRegistrar = req.adminId ? await Admin.findById(req.adminId).select('displayName') : null;
-      const registrarDisplayName = currentRegistrar?.displayName || req.username || "Registrar's Office";
-
-      doc = new PDFDocument({ size: 'LETTER', margin: 50 });
-      // EDIT COR PDF LAYOUT HERE: adjust fonts, add logos/images, and change positioning as needed.
+      const pdf = await CorPdfService.generate(corData);
+      const safeName = String(student.studentNumber || student._id).replace(/[^\w.-]+/g, '_');
 
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename=COR-${student.studentNumber}.pdf`);
-      doc.pipe(res);
-
-      // Header layout inspired by provided reference
-      const headerY = 40;
-      const logoX = 16;
-      const logoSize = 48;
-      const headerTextX = logoX + logoSize + 10;
-      const headerLineHeight = 10;
-      const headerLines = [
-        'Republic of the Philippines',
-        'West Coast College',
-        'Pio Duran, Albay'
-      ];
-      const headerTextHeight = headerLines.length * headerLineHeight;
-      const headerTextY = headerY + ((logoSize - headerTextHeight) / 2);
-
-      // Logo image
-      const logoPath = path.join(__dirname, '../../public/logo-header.jpg');
-      if (fs.existsSync(logoPath)) {
-        doc.image(logoPath, logoX, headerY, { width: logoSize, height: logoSize });
-      }
-      doc.fontSize(6);
-      headerLines.forEach((line, index) => {
-        doc.text(line, headerTextX, headerTextY + (index * headerLineHeight));
-      });
-
-      const titleY = Math.max(headerY + logoSize, headerTextY + headerTextHeight) + 6;
-      doc.font('Helvetica-Bold').fontSize(15).text('CERTIFICATE OF REGISTRATION', 0, titleY, {
-        width: doc.page.width,
-        align: 'center'
-      });
-      doc.font('Helvetica').fontSize(10).fillColor('red').text(`Registration No: ${registrationNumber}`, doc.page.width - 170, headerY + 4, { width: 120, align: 'right' });
-      doc.fillColor('black');
-      doc.y = titleY + 26;
-
-
-      // Student info boxed section in 4x3 grid format
-      const infoX = 40;
-      const infoW = doc.page.width - 80;
-      const infoY = doc.y + 6;
-      const infoCols = 4;
-      const infoRows = 3;
-      const infoRowH = 17;
-      const infoBoxH = infoRows * infoRowH;
-      const infoColW = infoW / infoCols;
-      const issuedDateValue = new Date().toLocaleDateString();
-      const infoCells = [
-        `Student No: ${studentNumber}`,
-        `Age: ${age}`,
-        `Program: ${programLabel}`,
-        `School Year: ${corSchoolYear}`,
-        `Name: ${studentName}`,
-        `Semester: ${corSemester}`,
-        `Major: ${majorLabel}`,
-        `Curriculum: ${curriculumLabel}`,
-        `Sex: ${student.gender || 'N/A'}`,
-        'College: Pio Duran',
-        `Year Level: ${corYearLevel}`,
-        `Issued Date: ${issuedDateValue}`
-      ];
-
-      doc.fontSize(7).font('Helvetica');
-      infoCells.forEach((cellText, index) => {
-        const row = Math.floor(index / infoCols);
-        const col = index % infoCols;
-        const cellX = infoX + (col * infoColW);
-        const cellY = infoY + (row * infoRowH) + 2;
-        doc.text(cellText, cellX, cellY, {
-          width: infoColW - 10,
-          height: infoRowH,
-          ellipsis: true
-        });
-      });
-
-      // Add border around the student info section
-      doc.rect(infoX, infoY - 2, infoW, infoBoxH + 4).stroke();
-
-      doc.y = infoY + infoBoxH + 12;
-      doc.moveDown(1);
-      // Registrar signature moved to bottom
-
-      // Schedule table column definitions aligned to info section width
-      const infoWidth = infoW;
-
-      /**
-       * Calculates responsive column widths for the PDF schedule table.
-       *
-       * This scaling algorithm ensures the table fits within the available width:
-       *
-       * 1. BASE WIDTHS: Defines ideal column widths in points for 8 columns:
-       *    [Code: 49, Subject: 138, Units: 32, Class: 40, Days: 40, Time: 89, Room: 49, Faculty: 73]
-       *
-       * 2. SCALING FACTOR: Calculates how much to scale base widths to fit container:
-       *    scale = tableWidth / sum(baseWidths)
-       *    Example: If base total = 510pt and container = 450pt, scale = 0.882
-       *
-       * 3. RESPONSIVE WIDTHS: Applies scaling to each column proportionally:
-       *    scaledWidths = baseWidths.map(width => width * scale)
-       *
-       * 4. LAYOUT BENEFITS:
-       *    - Maintains relative column proportions across different page sizes
-       *    - Prevents content overflow or excessive whitespace
-       *    - Keeps table readable and well-balanced
-       *
-       * @param {Array<number>} baseColWidths - Original column widths in points
-       * @param {number} containerWidth - Available width for the table
-       * @returns {Array<number>} Scaled column widths maintaining proportions
-       */
-      const baseColWidths = [49, 138, 32, 40, 40, 89, 49, 73];
-      const baseTableWidth = baseColWidths.reduce((a, b) => a + b, 0);
-      const widthScale = infoWidth / baseTableWidth;
-      const colWidths = baseColWidths.map((value) => value * widthScale);
-
-      /**
-       * Calculates the total width of the schedule table.
-       *
-       * @returns {number} Total width of the schedule table
-       */
-      const scheduleTableWidth = colWidths.reduce((a, b) => a + b, 0);
-
-      doc.font('Helvetica-Bold').fontSize(8).text('SCHEDULES', 40, doc.y + 5, { 
-        width: scheduleTableWidth,
-        align: 'center'
-      });
-      doc.moveDown(1);
-
-      // Schedule table rows from current/latest enrollment subjects
-      doc.moveDown(1);
-      const tableStartY = doc.y;
-      const headers = ['Code', 'Subject', 'Units', 'Class', 'Days', 'Time', 'Room', 'Faculty'];
-      const tableX = 40;
-      const totalTableWidth = colWidths.reduce((a, b) => a + b, 0);
-      const headerHeight = 16;
-      const cellPadX = 2;
-      const cellPadY = 2;
-      const baseRowHeight = 14;
-      const minimumRows = 6;
-
-      const parseScheduleForCor = (rawSchedule) => {
-        const scheduleText = String(rawSchedule || '').trim();
-        if (!scheduleText) return { days: 'TBA', time: 'TBA' };
-
-        // Per-day format: "M 07:30-09:00 @ Room 205 / W 13:00-14:30 @ Lab 3"
-        if (scheduleText.includes('/')) {
-          const segments = scheduleText.split('/').map((s) => s.trim()).filter(Boolean);
-          const parts = segments.map((segment) => {
-            // Extract optional @ room suffix
-            const roomMatch = segment.match(/^(.+?)\s*@\s*(.+)$/);
-            const body = roomMatch ? roomMatch[1].trim() : segment;
-            const room = roomMatch ? roomMatch[2].trim() : '';
-            const match = body.match(/^([A-Za-z]+)\s+(.+)$/);
-            if (!match) return { days: '', time: '', room };
-            return { days: match[1].toUpperCase(), time: match[2].trim(), room };
-          });
-          return {
-            days: parts.map((p) => p.days).filter(Boolean).join(', '),
-            time: parts.map((p) => p.time).filter(Boolean).join(' / ')
-          };
-        }
-
-        const compactMatch = scheduleText.match(/^([A-Za-z]{1,7})(\d{1,2}:\d{2}.*)$/);
-        if (compactMatch) {
-          return {
-            days: compactMatch[1].toUpperCase(),
-            time: compactMatch[2].trim() || 'TBA'
-          };
-        }
-
-        const spacedMatch = scheduleText.match(/^([A-Za-z]{1,7})\s+(.+)$/);
-        if (spacedMatch) {
-          return {
-            days: spacedMatch[1].toUpperCase(),
-            time: spacedMatch[2].trim() || 'TBA'
-          };
-        }
-
-        return { days: 'TBA', time: scheduleText };
-      };
-
-      const rows = totalSubjects === 0
-        ? [['-', 'No enrolled subjects found', '-', '-', '-', '-', '-', '-']]
-        : enrolledSubjects.map((subject) => {
-            const parsedSchedule = parseScheduleForCor(subject?.schedule);
-            return [
-              subject?.code || '-',
-              subject?.title || '-',
-              Number(subject?.units) ? Number(subject.units).toFixed(1) : '-',
-              classBlockLabel,
-              parsedSchedule.days,
-              parsedSchedule.time,
-              subject?.room || 'TBA',
-              subject?.instructor || 'TBA'
-            ];
-          });
-
-      doc.fontSize(8).font('Helvetica-Bold');
-      let x = tableX;
-      headers.forEach((h, i) => {
-        doc.text(h, x + cellPadX, tableStartY + cellPadY, {
-          width: colWidths[i] - (cellPadX * 2),
-          align: 'left',
-          lineBreak: true
-        });
-        x += colWidths[i];
-      });
-
-      doc.font('Helvetica').fontSize(8);
-      /**
-       * Calculates dynamic row heights based on content to prevent text overflow.
-       *
-       * This algorithm ensures each table row has adequate height for its content:
-       *
-       * 1. CONTENT MEASUREMENT: For each cell in each row, measures the height needed
-       *    using PDFDocument's heightOfString() method with column width constraints
-       *
-       * 2. ROW HEIGHT DETERMINATION: Takes the maximum height needed across all cells
-       *    in the row to accommodate the tallest content
-       *
-       * 3. MINIMUM HEIGHT GUARD: Ensures rows meet a baseline height (baseRowHeight)
-       *    for visual consistency, even with minimal content
-       *
-       * 4. PADDING COMPENSATION: Adds vertical padding (cellPadY * 2) to ensure
-       *    text doesn't touch cell borders
-       *
-       * 5. BLANK ROW HANDLING: Adds minimum rows when data is sparse to maintain
-       *    table structure and prevent empty-looking documents
-       *
-       * Benefits:
-       * - Prevents text clipping and overflow
-       * - Maintains professional table appearance
-       * - Adapts to varying content lengths automatically
-       * - Ensures minimum table size for consistency
-       *
-       * @param {Array<Array<string>>} rows - Array of table rows, each containing cell values
-       * @param {Array<number>} colWidths - Width of each column in points
-       * @param {number} cellPadY - Vertical padding inside cells
-       * @param {number} baseRowHeight - Minimum row height
-       * @param {number} minimumRows - Minimum number of rows to display
-       * @returns {Array<number>} Array of calculated heights for each row
-       */
-      const rowHeights = rows.map((row) => {
-        const tallestCell = row.reduce((maxHeight, val, i) => {
-          const contentHeight = doc.heightOfString(String(val), {
-            width: colWidths[i] - (cellPadX * 2),
-            align: 'left'
-          });
-          return Math.max(maxHeight, contentHeight);
-        }, 0);
-        return Math.max(baseRowHeight, tallestCell + (cellPadY * 2));
-      });
-
-      const blankRows = Math.max(0, minimumRows - rows.length);
-      const dataHeight = rowHeights.reduce((sum, h) => sum + h, 0) + (blankRows * baseRowHeight);
-      const tableHeight = headerHeight + dataHeight;
-
-      let rowY = tableStartY + headerHeight;
-      rows.forEach((row, rowIndex) => {
-        const currentRowHeight = rowHeights[rowIndex];
-        let colX = tableX;
-        row.forEach((val, colIndex) => {
-          doc.text(String(val), colX + cellPadX, rowY + cellPadY, {
-            width: colWidths[colIndex] - (cellPadX * 2),
-            align: 'left',
-            lineBreak: true
-          });
-          colX += colWidths[colIndex];
-        });
-        rowY += currentRowHeight;
-      });
-
-      rowY += blankRows * baseRowHeight;
-      doc.rect(tableX, tableStartY - 2, totalTableWidth, tableHeight + 2).stroke();
-
-      // Totals line — bold, readable size, with total units prominent
-      const totalsY = tableStartY + tableHeight + 6;
-      doc.font('Helvetica-Bold').fontSize(8).text(
-        `Total Subjects: ${totalSubjects}    Total Units: ${totalUnits.toFixed(1)}    (Lecture: ${unitBreakdown.lectureUnits.toFixed(1)} | Lab: ${unitBreakdown.labUnits.toFixed(1)})`,
-        40,
-        totalsY
-      );
-
-      // Signature block
-      const signatureY = doc.page.height - doc.page.margins.bottom - 26;
-      const studentSigX = 50;
-      const studentSigW = 220;
-      const registrarSigX = doc.page.width - 270;
-      const registrarSigW = 220;
-      const registrarName = registrarDisplayName.toUpperCase();
-
-      doc.font('Helvetica').fontSize(7).text(studentName.toUpperCase(), studentSigX, signatureY, {
-        width: studentSigW,
-        align: 'center',
-        underline: true
-      });
-      doc.fontSize(6).text("Student's Signature", studentSigX, signatureY + 11, {
-        width: studentSigW,
-        align: 'center'
-      });
-
-      doc.font('Helvetica').fontSize(7).text(registrarName, registrarSigX, signatureY, {
-        width: registrarSigW,
-        align: 'center',
-        underline: true
-      });
-      doc.fontSize(6).text('College Registrar', registrarSigX, signatureY + 11, {
-        width: registrarSigW,
-        align: 'center'
-      });
-
-      doc.end();
+      res.setHeader('Content-Disposition', `attachment; filename="COR-${safeName}.pdf"`);
+      res.setHeader('Content-Length', pdf.length);
+      return res.end(pdf);
     } catch (error) {
       console.error('Error generating COR PDF:', error);
       if (!res.headersSent) {
         return res.status(500).json({ success: false, message: error.message || 'Failed to generate COR' });
       }
-
-      try {
-        if (doc && !doc.destroyed) doc.end();
-      } catch (endError) {
-        console.error('Error finalizing COR PDF stream:', endError);
-      }
+      res.end();
     }
   }
 }

@@ -1,4 +1,5 @@
 {
   "git.autoRepositoryDetection": "subFolders",
-  "cmake.sourceDirectory": "C:/Users/loren/OneDrive/Documents/xampp/WCC-Admin/west_coast_college_mobile_app/west_coast_flutter_app/linux"
+  "cmake.sourceDirectory": "C:/Users/loren/OneDrive/Documents/xampp/WCC-Admin/west_coast_college_mobile_app/west_coast_flutter_app/linux",
+  "java.configuration.updateBuildConfiguration": "interactive"
 }

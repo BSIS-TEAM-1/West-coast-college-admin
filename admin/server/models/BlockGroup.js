@@ -7,7 +7,7 @@ const BlockGroupSchema = new mongoose.Schema({
   yearLevel: { type: Number, min: 1, max: 5, index: true },
   semester: { type: String, required: true, enum: ['1st', '2nd', 'Summer'] },
   schoolYear: { type: String, trim: true, match: /^\d{4}-\d{4}$/ },
-  year: { type: Number, required: true },
+  year: { type: String, required: true, match: /^\d{4}-\d{4}$/ },
   section: { type: String, trim: true, uppercase: true },
   curriculumId: { type: mongoose.Schema.Types.ObjectId, ref: 'Curriculum', default: null, index: true },
   studentClassification: { type: String, enum: ['Regular', 'Irregular', 'Transferee', 'Returning', 'All'], default: 'All', index: true },

@@ -1,7 +1,6 @@
 import '../repositories/profile_repository.dart';
 
-/// One-time profile picture upload. The server enforces the one-time-only rule
-/// and returns a 409 (mapped to [AppException]) if a picture is already set.
+/// Profile picture upload/update.
 class UploadProfilePictureUseCase {
   final ProfileRepository _repository;
   const UploadProfilePictureUseCase(this._repository);

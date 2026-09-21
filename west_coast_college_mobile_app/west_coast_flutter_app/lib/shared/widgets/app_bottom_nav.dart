@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_dimensions.dart';
+import '../../../core/theme/theme_colors.dart';
 
 class AppBottomNav extends StatelessWidget {
   const AppBottomNav({
@@ -13,9 +13,10 @@ class AppBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = ThemeColors.of(context);
     return NavigationBar(
       elevation: AppDimensions.elevationMedium,
-      backgroundColor: AppColors.surface,
+      backgroundColor: colors.surface,
       destinations: const [
         NavigationDestination(
           icon: Icon(Icons.home_outlined),

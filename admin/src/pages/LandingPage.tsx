@@ -885,23 +885,30 @@ export default function LandingPage({
               <h2 className="landing-section-title mt-2">Confidence Starts With the Right Support</h2>
             </div>
             <div className="row g-4">
-              <div className="col-lg-4">
+              <div className="col-lg-3">
                 <article className="landing-testimonial-card h-100">
                   <p>"The enrollment process is easier to follow, and the staff guide us through every requirement."</p>
                   <strong>Incoming College Student</strong>
                 </article>
               </div>
-              <div className="col-lg-4">
+              <div className="col-lg-3">
                 <article className="landing-testimonial-card h-100">
                   <p>"West Coast College feels personal. You can ask for help and know where to go next."</p>
                   <strong>Education Student</strong>
                 </article>
               </div>
-              <div className="col-lg-4">
+              <div className="col-lg-3">
                 <article className="landing-news-card h-100">
                   <span className="landing-section-kicker">News &amp; Announcements</span>
                   <h3>Admissions and campus updates are posted through the student portal.</h3>
                   <a href="#footer-contact" onClick={handleFooterContactClick}>Contact Admissions</a>
+                </article>
+              </div>
+              <div className="col-lg-3">
+                <article className="landing-news-card h-100">
+                  <span className="landing-section-kicker">Mobile App</span>
+                  <h3>Download the WestConnect mobile app for students.</h3>
+                  <a href="/download-apk" className="landing-gold-btn" download>Download APK</a>
                 </article>
               </div>
             </div>

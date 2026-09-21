@@ -544,3 +544,20 @@ export async function deleteAccount(accountId: string): Promise<{ message: strin
   }
   return data as { message: string }
 }
+
+export async function changeStaffPassword(
+  accountId: string,
+  newPassword: string,
+  confirmPassword: string
+): Promise<{ message: string }> {
+  const res = await fetch(`${API_URL}/api/admin/accounts/${accountId}/password`, {
+    method: 'PATCH',
+    headers: await authHeaders(),
+    body: JSON.stringify({ newPassword, confirmPassword }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error((data?.error as string) || 'Failed to update staff password.')
+  }
+  return data as { message: string }
+}

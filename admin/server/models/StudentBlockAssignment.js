@@ -5,7 +5,7 @@ const StudentBlockAssignmentSchema = new mongoose.Schema({
   enrollmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Enrollment', default: null, index: true },
   sectionId: { type: mongoose.Schema.Types.ObjectId, ref: 'BlockSection', required: true },
   semester: { type: String, required: true, enum: ['1st', '2nd', 'Summer'] },
-  year: { type: Number, required: true },
+  year: { type: String, required: true, match: /^\d{4}-\d{4}$/ },
   schoolYear: { type: String, match: /^\d{4}-\d{4}$/ },
   status: { type: String, enum: ['ASSIGNED', 'WAITLISTED'], default: 'ASSIGNED' },
   assignedAt: { type: Date, default: Date.now },

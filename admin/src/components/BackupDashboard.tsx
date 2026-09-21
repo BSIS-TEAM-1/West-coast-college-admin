@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, BarChart3, CheckCircle2, Cloud, Database, Download, HardDrive, Lock, Play, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2, Unlock } from 'lucide-react'
+import { AlertTriangle, BarChart3, CheckCircle2, Cloud, Database, Download, HardDrive, Lock, MoreVertical, Play, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2, Unlock } from 'lucide-react'
 import { API_URL, getStoredToken } from '../lib/authApi'
 import './BackupDashboard.css'
 
@@ -47,6 +47,7 @@ export default function BackupDashboard({ refreshKey = 0 }: { refreshKey?: numbe
   const [showReadinessDetails, setShowReadinessDetails] = useState(false)
   const [recoveryBusy, setRecoveryBusy] = useState<string | null>(null)
   const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null)
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
 
   const request = async (route: string, init: RequestInit = {}) => {
     const token = await getStoredToken()
@@ -71,6 +72,16 @@ export default function BackupDashboard({ refreshKey = 0 }: { refreshKey?: numbe
   }
 
   useEffect(() => { void loadBackups() }, [refreshKey])
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!(event.target as HTMLElement).closest('.backup-actions-menu')) {
+        setOpenMenuId(null)
+      }
+    }
+    document.addEventListener('click', handleClickOutside)
+    return () => document.removeEventListener('click', handleClickOutside)
+  }, [])
 
   const filtered = useMemo(() => backups.filter(backup => {
     const matchesQuery = `${backup.fileName} ${backup.triggeredBy || ''}`.toLowerCase().includes(query.trim().toLowerCase())
@@ -305,29 +316,33 @@ export default function BackupDashboard({ refreshKey = 0 }: { refreshKey?: numbe
 
     <div className="backup-dashboard__toolbar"><label className="backup-dashboard__search"><Search size={16} aria-hidden="true" /><span className="sr-only">Search backups</span><input value={query} onChange={event => { setQuery(event.target.value); setPage(1) }} placeholder="Search backups" /></label><select aria-label="Filter backups" value={filter} onChange={event => { setFilter(event.target.value); setPage(1) }}><option value="all">All backups</option><option value="manual">Manual</option><option value="scheduled">Scheduled</option><option value="initial">Startup</option><option value="emergency">Emergency</option><option value="verified">Verified</option><option value="failed">Failed</option><option value="encrypted">Encrypted</option></select><button type="button" disabled={compareSelection.length !== 2} onClick={() => void compare()}><BarChart3 size={16} /> Compare ({compareSelection.length}/2)</button></div>
     {error && <div className="backup-dashboard__error" role="alert">{error}</div>}
-    {loading && backups.length === 0 ? <div className="backup-dashboard__skeleton" aria-label="Loading backups">{Array.from({ length: 4 }, (_, index) => <span key={index} />)}</div> : visible.length === 0 ? <div className="backup-dashboard__empty"><ShieldCheck size={30} /><strong>No backups found</strong><span>Create a backup or adjust the filters.</span></div> : <div className="backup-table-wrap" id="backup-history-table"><table className="backup-table"><colgroup><col style={{width:'2rem'}} /><col /><col style={{width:'6rem'}} /><col style={{width:'6rem'}} /><col style={{width:'7rem'}} /><col style={{width:'5rem'}} /><col style={{width:'5rem'}} /><col style={{width:'4.5rem'}} /><col style={{width:'6rem'}} /><col style={{width:'6.5rem'}} /></colgroup><thead><tr><th aria-label="Compare" /><th><button onClick={() => changeSort('fileName')}>Name</button></th><th>Type</th><th><button onClick={() => changeSort('status')}>Status</button></th><th><button onClick={() => changeSort('createdAt')}>Created</button></th><th><button onClick={() => changeSort('compressedSize')}>Size</button></th><th>Integrity</th><th><button onClick={() => changeSort('durationMs')}>Duration</button></th><th>Security</th><th>Actions</th></tr></thead><tbody>{visible.map(backup => {
+    {loading && backups.length === 0 ? <div className="backup-dashboard__skeleton" aria-label="Loading backups">{Array.from({ length: 4 }, (_, index) => <span key={index} />)}</div> : visible.length === 0 ? <div className="backup-dashboard__empty"><ShieldCheck size={30} /><strong>No backups found</strong><span>Create a backup or adjust the filters.</span></div> : <div className="backup-table-wrap" id="backup-history-table"><table className="backup-table"><colgroup><col style={{width:'2.5rem'}} /><col style={{width:'2fr'}} /><col style={{width:'7rem'}} /><col style={{width:'6.5rem'}} /><col style={{width:'8rem'}} /><col style={{width:'5.5rem'}} /><col style={{width:'6rem'}} /><col style={{width:'5rem'}} /><col style={{width:'7rem'}} /><col style={{width:'6rem'}} /></colgroup><thead><tr><th aria-label="Compare" /><th><button onClick={() => changeSort('fileName')}>Name</button></th><th><button onClick={() => changeSort('status')}>Type</button></th><th><button onClick={() => changeSort('status')}>Status</button></th><th><button onClick={() => changeSort('createdAt')}>Created</button></th><th><button onClick={() => changeSort('compressedSize')}>Size</button></th><th>Integrity</th><th><button onClick={() => changeSort('durationMs')}>Duration</button></th><th>Security</th><th>Actions</th></tr></thead><tbody>{visible.map(backup => {
       const busy = busyFile === backup.fileName; const selected = compareSelection.includes(backup.fileName)
       return <tr key={backup._id}>
         <td data-label="Compare"><input type="checkbox" checked={selected} aria-label={`Compare ${backup.fileName}`} onChange={() => setCompareSelection(values => selected ? values.filter(value => value !== backup.fileName) : values.length < 2 ? [...values, backup.fileName] : values)} /></td>
-        <td data-label="Name"><button className="backup-name-button" onClick={() => void openPreview(backup)}><strong title={backup.fileName}>{backup.fileName}</strong></button><small>{backup.triggeredBy || 'System'} / app {backup.appVersion || 'unknown'}</small></td>
-        <td data-label="Type"><span className="backup-badge">{backup.backupType}</span><span className="backup-badge">{backup.storageProvider || 'local'}</span></td>
-        <td data-label="Status"><span className={`backup-badge backup-badge--${backup.status}`}>{backup.status.replace('_', ' ')}</span>{backup.error && <small className="backup-failure-reason" title={backup.error}>{backup.error}</small>}</td>
-        <td data-label="Created">{new Date(backup.createdAt).toLocaleString()}</td>
-        <td data-label="Size">{formatBytes(backup.compressedSize || backup.size)}</td>
-        <td data-label="Integrity"><span className={`backup-badge backup-badge--${backup.verificationStatus || 'pending'}`} title={backup.checksum || ''}>{backup.verificationStatus || 'pending'}</span></td>
-        <td data-label="Duration">{formatDuration(backup.durationMs)}</td>
-        <td data-label="Security"><span className={`backup-badge ${backup.isEncrypted ? 'backup-badge--verified' : ''}`}>{backup.isEncrypted ? 'Encrypted' : 'Plain'}</span>{backup.isProtected ? <span className="backup-protected"><Lock size={14} /> Protected</span> : <span className="backup-muted"><Unlock size={14} /> Standard</span>}</td>
+        <td data-label="Name"><button className="backup-name-button" onClick={() => void openPreview(backup)}><strong>{backup.fileName}</strong></button><small>{backup.triggeredBy || 'System'} · app {backup.appVersion || 'unknown'}</small></td>
+        <td data-label="Type"><div className="backup-type-stack"><span className="backup-badge">{backup.backupType}</span><span className="backup-badge">{backup.storageProvider || 'local'}</span></div></td>
+        <td data-label="Status"><span className={`backup-badge backup-badge--${backup.status}`}>{backup.status.replace('_', ' ')}</span>{backup.error && <small className="backup-failure-reason">{backup.error}</small>}</td>
+        <td data-label="Created"><time>{new Date(backup.createdAt).toLocaleString()}</time></td>
+        <td data-label="Size"><span className="backup-size">{formatBytes(backup.compressedSize || backup.size)}</span></td>
+        <td data-label="Integrity"><span className={`backup-badge backup-badge--${backup.verificationStatus || 'pending'}`}>{backup.verificationStatus || 'pending'}</span></td>
+        <td data-label="Duration"><span className="backup-duration">{formatDuration(backup.durationMs)}</span></td>
+        <td data-label="Security"><div className="backup-security-stack"><span className={`backup-badge ${backup.isEncrypted ? 'backup-badge--verified' : ''}`}>{backup.isEncrypted ? 'Encrypted' : 'Plain'}</span><span className={backup.isProtected ? 'backup-protected' : 'backup-muted'}><Lock size={13} /> {backup.isProtected ? 'Protected' : 'Standard'}</span></div></td>
         <td data-label="Actions">
-          <select className="backup-action-select" aria-label={`Actions for ${backup.fileName}`} disabled={busy} value="" onChange={event => { const action = event.target.value; event.target.value = ''; void handleBackupAction(backup, action) }}>
-            <option value="" disabled>{busy ? 'Working...' : 'Actions'}</option>
-            <option value="details">View details</option>
-            <option value="verify">Verify integrity</option>
-            <option value="restore" disabled={backup.verificationStatus !== 'verified'}>Restore</option>
-            <option value="download" disabled={backup.status !== 'completed'}>Download</option>
-            <option value="rename">Rename</option>
-            <option value="protection">{backup.isProtected ? 'Unprotect' : 'Protect'}</option>
-            <option value="delete">Delete</option>
-          </select>
+          <div className="backup-actions-menu">
+            <button className="backup-actions-button" aria-label={`Actions for ${backup.fileName}`} disabled={busy} onClick={() => setOpenMenuId(openMenuId === backup._id ? null : backup._id)}>
+              <MoreVertical size={16} />
+            </button>
+            {openMenuId === backup._id && <div className="backup-actions-dropdown">
+              <button onClick={() => { void handleBackupAction(backup, 'details'); setOpenMenuId(null); }}>View details</button>
+              <button onClick={() => { void handleBackupAction(backup, 'verify'); setOpenMenuId(null); }}>Verify integrity</button>
+              <button disabled={backup.verificationStatus !== 'verified'} onClick={() => { void handleBackupAction(backup, 'restore'); setOpenMenuId(null); }}>Restore</button>
+              <button disabled={backup.status !== 'completed'} onClick={() => { void handleBackupAction(backup, 'download'); setOpenMenuId(null); }}>Download</button>
+              <button onClick={() => { void handleBackupAction(backup, 'rename'); setOpenMenuId(null); }}>Rename</button>
+              <button onClick={() => { void handleBackupAction(backup, 'protection'); setOpenMenuId(null); }}>{backup.isProtected ? 'Unprotect' : 'Protect'}</button>
+              <button className="backup-actions-delete" onClick={() => { void handleBackupAction(backup, 'delete'); setOpenMenuId(null); }}>Delete</button>
+            </div>}
+          </div>
         </td>
       </tr>
     })}</tbody></table></div>}

@@ -83,9 +83,7 @@ class ProfileController extends StateNotifier<ProfileState> {
     }
   }
 
-  /// One-time profile picture upload. Returns `true` on success.
-  /// If the picture is already set, the server returns 409 and this
-  /// returns `false` with [ProfileLoaded.saveError] populated.
+  /// Profile picture upload/update. Returns `true` on success.
   Future<bool> uploadProfilePicture({required String imageBase64, required String mimeType}) async {
     final current = state;
     if (current is! ProfileLoaded) return false;
@@ -129,7 +127,7 @@ class ProfileController extends StateNotifier<ProfileState> {
       );
       state = ProfileLoaded(
         updatedProfile,
-        saveSuccess: 'Profile picture uploaded successfully. This cannot be changed later.',
+        saveSuccess: 'Profile picture updated successfully.',
       );
       return true;
     } catch (error) {

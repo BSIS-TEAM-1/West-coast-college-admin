@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_dimensions.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../../../core/theme/theme_colors.dart';
 import '../providers/auth_controller.dart';
 
 class LoginPage extends ConsumerStatefulWidget {
@@ -39,6 +39,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authControllerProvider);
+    final colors = ThemeColors.of(context);
 
     return Scaffold(
       body: SafeArea(
@@ -53,11 +54,11 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       const Spacer(flex: 2),
-                      _buildBrandHeader(),
+                      _buildBrandHeader(colors),
                       const SizedBox(height: AppDimensions.xl),
-                      _buildForm(authState),
+                      _buildForm(authState, colors),
                       const Spacer(flex: 3),
-                      _buildFooter(),
+                      _buildFooter(colors),
                       const SizedBox(height: AppDimensions.md),
                     ],
                   ),
@@ -72,7 +73,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
   /// Hero-style header matching the landing page: dark navy gradient
   /// background with the WCC logo and gold-accented title.
-  Widget _buildBrandHeader() {
+  Widget _buildBrandHeader(ThemeColors colors) {
     return Column(
       children: [
         // Logo image
@@ -87,10 +88,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               width: 88,
               height: 88,
               decoration: BoxDecoration(
-                color: AppColors.primary,
+                color: colors.primary,
                 borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
               ),
-              child: const Icon(Icons.school, size: 44, color: AppColors.onPrimary),
+              child: Icon(Icons.school, size: 44, color: colors.onPrimary),
             ),
           ),
         ),
@@ -100,7 +101,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           'WEST COAST COLLEGE',
           textAlign: TextAlign.center,
           style: AppTextStyles.labelSmall.copyWith(
-            color: AppColors.gold,
+            color: colors.gold,
             fontWeight: FontWeight.w900,
             letterSpacing: 2.0,
           ),
@@ -109,23 +110,23 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         Text(
           'Official Student Portal',
           textAlign: TextAlign.center,
-          style: AppTextStyles.bodySmall.copyWith(color: AppColors.textMuted),
+          style: AppTextStyles.bodySmall.copyWith(color: colors.textMuted),
         ),
       ],
     );
   }
 
-  Widget _buildForm(AuthState authState) {
+  Widget _buildForm(AuthState authState, ThemeColors colors) {
     return Form(
       key: _formKey,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (authState.errorMessage != null) ...[
-            _buildErrorBanner(authState.errorMessage!),
+            _buildErrorBanner(authState.errorMessage!, colors),
             const SizedBox(height: AppDimensions.md),
           ],
-          Text('Student Number', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
+          Text('Student Number', style: AppTextStyles.labelLarge.copyWith(color: colors.textSecondary)),
           const SizedBox(height: AppDimensions.xs),
           TextFormField(
             controller: _studentNumberController,
@@ -144,7 +145,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             },
           ),
           const SizedBox(height: AppDimensions.md),
-          Text('Password', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
+          Text('Password', style: AppTextStyles.labelLarge.copyWith(color: colors.textSecondary)),
           const SizedBox(height: AppDimensions.xs),
           TextFormField(
             controller: _passwordController,
@@ -174,9 +175,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             child: FilledButton(
               onPressed: authState.isSubmitting ? null : _submit,
               style: FilledButton.styleFrom(
-                backgroundColor: AppColors.gold,
+                backgroundColor: colors.gold,
                 foregroundColor: Colors.white,
-                disabledBackgroundColor: AppColors.gold.withValues(alpha: 0.6),
+                disabledBackgroundColor: colors.gold.withValues(alpha: 0.6),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(2)),
               ),
               child: authState.isSubmitting
@@ -196,17 +197,17 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     );
   }
 
-  Widget _buildErrorBanner(String message) {
+  Widget _buildErrorBanner(String message, ThemeColors colors) {
     return Container(
       padding: const EdgeInsets.all(AppDimensions.sm),
       decoration: BoxDecoration(
-        color: AppColors.error.withValues(alpha: 0.08),
+        color: colors.error.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
-        border: Border.all(color: AppColors.error.withValues(alpha: 0.25)),
+        border: Border.all(color: colors.error.withValues(alpha: 0.25)),
       ),
       child: Row(
         children: [
-          const Icon(Icons.error_outline, color: AppColors.error, size: AppDimensions.iconMedium),
+          Icon(Icons.error_outline, color: colors.error, size: AppDimensions.iconMedium),
           const SizedBox(width: AppDimensions.sm),
           Expanded(child: Text(message, style: AppTextStyles.error)),
         ],
@@ -214,11 +215,11 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     );
   }
 
-  Widget _buildFooter() {
+  Widget _buildFooter(ThemeColors colors) {
     return Text(
       "Having trouble logging in? Contact the Registrar's Office.",
       textAlign: TextAlign.center,
-      style: AppTextStyles.caption,
+      style: AppTextStyles.caption.copyWith(color: colors.textMuted),
     );
   }
 }

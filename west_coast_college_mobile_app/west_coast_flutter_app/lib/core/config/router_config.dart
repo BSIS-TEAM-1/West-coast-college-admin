@@ -9,6 +9,7 @@ import '../../features/grades/presentation/pages/grades_page.dart';
 import '../../features/schedule/presentation/pages/schedule_page.dart';
 import '../../features/announcements/presentation/pages/announcements_page.dart';
 import '../../features/profile/presentation/pages/profile_page.dart';
+import '../../features/settings/presentation/pages/settings_page.dart';
 
 enum AppRoute {
   splash,
@@ -18,6 +19,7 @@ enum AppRoute {
   grades,
   announcements,
   profile,
+  settings,
 }
 
 const _authRoutes = {'/login', '/splash'};
@@ -54,29 +56,47 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const LoginPage(),
       ),
       GoRoute(
-        path: '/dashboard',
-        name: AppRoute.dashboard.name,
-        builder: (context, state) => const DashboardPage(),
-      ),
-      GoRoute(
-        path: '/schedule',
-        name: AppRoute.schedule.name,
-        builder: (context, state) => const SchedulePage(),
-      ),
-      GoRoute(
-        path: '/grades',
-        name: AppRoute.grades.name,
-        builder: (context, state) => const GradesPage(),
-      ),
-      GoRoute(
-        path: '/announcements',
-        name: AppRoute.announcements.name,
-        builder: (context, state) => const AnnouncementsPage(),
-      ),
-      GoRoute(
-        path: '/profile',
-        name: AppRoute.profile.name,
-        builder: (context, state) => const ProfilePage(),
+        path: '/',
+        name: 'home',
+        redirect: (context, state) {
+          final authState = ref.read(authControllerProvider);
+          if (authState.status == AuthStatus.authenticated) {
+            return '/dashboard';
+          }
+          return '/login';
+        },
+        routes: [
+          GoRoute(
+            path: 'dashboard',
+            name: AppRoute.dashboard.name,
+            builder: (context, state) => const DashboardPage(),
+          ),
+          GoRoute(
+            path: 'schedule',
+            name: AppRoute.schedule.name,
+            builder: (context, state) => const SchedulePage(),
+          ),
+          GoRoute(
+            path: 'grades',
+            name: AppRoute.grades.name,
+            builder: (context, state) => const GradesPage(),
+          ),
+          GoRoute(
+            path: 'announcements',
+            name: AppRoute.announcements.name,
+            builder: (context, state) => const AnnouncementsPage(),
+          ),
+          GoRoute(
+            path: 'profile',
+            name: AppRoute.profile.name,
+            builder: (context, state) => const ProfilePage(),
+          ),
+          GoRoute(
+            path: 'settings',
+            name: AppRoute.settings.name,
+            builder: (context, state) => const SettingsPage(),
+          ),
+        ],
       ),
     ],
     redirect: (context, state) {

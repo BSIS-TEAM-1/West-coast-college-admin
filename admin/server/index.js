@@ -1,6 +1,7 @@
 const path = require('path')
 const fs = require('fs')
 const dotenv = require('dotenv')
+const mobileAppPath = path.join(__dirname, '..', '..', 'west_coast_college_mobile_app', 'west_coast_flutter_app', 'build', 'app', 'outputs', 'flutter-apk')
 
 const envFileCandidates = [
   { filePath: path.join(__dirname, '..', '.env'), override: false },
@@ -3322,23 +3323,13 @@ app.put('/api/student/profile', studentAuthMiddleware, async (req, res) => {
   }
 })
 
-// POST /api/student/profile-picture — one-time profile picture upload.
-// Students can set their profile picture only once. Once set, the picture
-// cannot be changed or removed from the mobile app. Subsequent attempts
-// return 409 Conflict.
+// POST /api/student/profile-picture — profile picture upload/update.
+// Students can set or update their profile picture.
 app.post('/api/student/profile-picture', studentAuthMiddleware, async (req, res) => {
   try {
     const student = req.student
     if (!student) {
       return res.status(404).json({ error: 'Student not found.' })
-    }
-
-    // Enforce one-time-only upload
-    if (student.profilePicture && student.profilePictureMimeType) {
-      return res.status(409).json({
-        error: 'Profile picture has already been set and cannot be changed.',
-        errorCode: 'PROFILE_PICTURE_LOCKED'
-      })
     }
 
     const { imageBase64, mimeType } = req.body || {}
@@ -5083,6 +5074,94 @@ app.delete('/api/admin/accounts/:id', authMiddleware, requireAdminRole, security
     res.status(500).json({ error: 'Failed to delete account.' })
   }
 })
+
+const STAFF_ACCOUNT_TYPES = ['admin', 'registrar', 'professor']
+
+// PATCH /api/admin/accounts/:id/password - admin-controlled staff password reset
+app.patch(
+  '/api/admin/accounts/:id/password',
+  adminActionLimiter,
+  authMiddleware,
+  requireAdminRole,
+  securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.changeStaffPassword),
+  async (req, res) => {
+    if (!dbReady) {
+      return res.status(503).json({ error: 'Database unavailable.' })
+    }
+
+    try {
+      const currentAdmin = await Admin.findById(req.adminId)
+      if (!currentAdmin) {
+        return res.status(401).json({ error: 'Authentication required.' })
+      }
+
+      if (currentAdmin.accountType !== 'admin') {
+        return res.status(403).json({ error: 'Only authorized admins can change staff passwords.' })
+      }
+
+      const targetAccount = await Admin.findById(req.params.id)
+      if (!targetAccount) {
+        return res.status(404).json({ error: 'Account not found.' })
+      }
+
+      if (!STAFF_ACCOUNT_TYPES.includes(targetAccount.accountType)) {
+        return res.status(400).json({ error: 'Target account is not a staff account.' })
+      }
+
+      const { newPassword, confirmPassword } = req.body
+      if (!newPassword || typeof newPassword !== 'string') {
+        return res.status(400).json({ error: 'New password is required.' })
+      }
+      if (!confirmPassword || typeof confirmPassword !== 'string') {
+        return res.status(400).json({ error: 'Confirm password is required.' })
+      }
+      if (newPassword !== confirmPassword) {
+        return res.status(400).json({ error: 'Passwords do not match.' })
+      }
+      if (newPassword.length < 8 || newPassword.length > 128) {
+        return res.status(400).json({ error: 'Password must be between 8 and 128 characters.' })
+      }
+
+      targetAccount.password = newPassword
+      await targetAccount.save()
+
+      const sessionFilter = {
+        adminId: targetAccount._id,
+        isActive: true
+      }
+      if (String(req.adminId) === String(targetAccount._id) && req.tokenId) {
+        sessionFilter._id = { $ne: req.tokenId }
+      }
+
+      await AuthToken.updateMany(sessionFilter, {
+        $set: {
+          isActive: false,
+          invalidationReason: 'admin_revoke',
+          invalidatedAt: new Date()
+        }
+      })
+
+      await logAudit(
+        'UPDATE',
+        'ADMIN',
+        targetAccount._id.toString(),
+        targetAccount.username,
+        `Updated staff password for: ${targetAccount.username} (${targetAccount.accountType})`,
+        req.adminId,
+        req.accountType,
+        null,
+        { passwordUpdated: true },
+        'SUCCESS',
+        'HIGH'
+      )
+
+      res.json({ message: 'Staff password updated successfully.' })
+    } catch (err) {
+      console.error('Change staff password error:', err.message)
+      res.status(500).json({ error: 'Failed to update staff password.' })
+    }
+  }
+)
 
 // ==================== ANNOUNCEMENTS ====================
 
@@ -8199,6 +8278,29 @@ app.use((err, req, res, next) => {
   }
 
   res.status(500).send('Internal server error.')
+})
+
+// Mobile App APK Download
+app.get('/download-apk', (req, res) => {
+  try {
+    const apkPath = path.join(mobileAppPath, 'WestConnect-release.apk')
+    
+    if (!fs.existsSync(apkPath)) {
+      return res.status(404).json({ error: 'APK file not found. Please build the mobile app first.' })
+    }
+
+    res.download(apkPath, 'WestConnect.apk', (err) => {
+      if (err) {
+        logger.error('APK download error:', err.message)
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to download APK.' })
+        }
+      }
+    })
+  } catch (error) {
+    logger.error('APK download error:', error.message)
+    res.status(500).json({ error: 'Failed to download APK.' })
+  }
 })
 
 // Catch-all route for debugging

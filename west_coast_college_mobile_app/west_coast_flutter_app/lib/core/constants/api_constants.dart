@@ -1,9 +1,9 @@
 class ApiConstants {
-  // Base URL — use the host machine's LAN IP so physical devices on the same
-  // network can reach the dev server. For Android emulator, use 10.0.2.2.
+  // Base URL — Production URL for deployed app
+  // Use API_BASE_URL environment variable for local development
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://192.168.5.157:3001/api',
+    defaultValue: 'https://west-coast-college-admin-production.up.railway.app/api',
   );
   
   // Endpoints - Authentication

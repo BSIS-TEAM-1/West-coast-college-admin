@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -116,6 +117,8 @@ class ProfilePage extends ConsumerWidget {
               ],
               const SizedBox(height: AppDimensions.lg),
               _EditProfileButton(profile: profile, colors: colors),
+              const SizedBox(height: AppDimensions.md),
+              _SettingsButton(colors: colors),
               const SizedBox(height: AppDimensions.lg),
               _CorCard(profile: profile, colors: colors),
               const SizedBox(height: AppDimensions.md),
@@ -142,10 +145,7 @@ class ProfilePage extends ConsumerWidget {
       };
 }
 
-/// Profile picture card. Students can upload a profile picture exactly once.
-/// Once set, the picture is locked and cannot be changed or removed from the
-/// mobile app. A clear warning message is shown before upload and a locked
-/// indicator is shown after.
+/// Profile picture card. Students can upload or update their profile picture.
 class _ProfilePictureCard extends ConsumerStatefulWidget {
   const _ProfilePictureCard({required this.profile, required this.colors});
   final ProfileEntity profile;
@@ -162,7 +162,6 @@ class _ProfilePictureCardState extends ConsumerState<_ProfilePictureCard> {
       widget.profile.profilePictureUrl != null && widget.profile.profilePictureUrl!.isNotEmpty;
 
   Future<void> _pickAndUpload() async {
-    if (_hasPicture) return; // safety: UI also disables the action
 
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
@@ -281,94 +280,28 @@ class _ProfilePictureCardState extends ConsumerState<_ProfilePictureCard> {
           Center(
             child: Column(
               children: [
-                Stack(
-                  children: [
-                    StudentAvatar(
-                      name: widget.profile.fullName.isEmpty
-                          ? widget.profile.firstName
-                          : widget.profile.fullName,
-                      size: 96,
-                      photoUrl: widget.profile.profilePictureUrl,
-                    ),
-                    if (hasPicture)
-                      Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: colors.surface,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: colors.border, width: 1.5),
-                          ),
-                          child: Icon(Icons.lock, size: 14, color: colors.textMuted),
-                        ),
-                      ),
-                  ],
+                StudentAvatar(
+                  name: widget.profile.fullName.isEmpty
+                      ? widget.profile.firstName
+                      : widget.profile.fullName,
+                  size: 96,
+                  photoUrl: widget.profile.profilePictureUrl,
                 ),
                 const SizedBox(height: AppDimensions.md),
-                if (hasPicture) ...[
-                  Text(
-                    'Your profile picture is set.',
-                    style: AppTextStyles.bodyMedium.copyWith(color: colors.textPrimary),
-                    textAlign: TextAlign.center,
+                Text(
+                  hasPicture ? 'Tap to change your profile picture' : 'Tap to add a profile picture',
+                  style: AppTextStyles.bodyMedium.copyWith(color: colors.textPrimary),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: AppDimensions.md),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _pickAndUpload,
+                    icon: const Icon(Icons.add_a_photo_outlined, size: 18),
+                    label: Text(hasPicture ? 'Change Profile Picture' : 'Add Profile Picture'),
                   ),
-                  const SizedBox(height: AppDimensions.xs),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.lock_outline, size: 14, color: colors.textMuted),
-                      const SizedBox(width: 4),
-                      Text(
-                        'This cannot be changed or removed.',
-                        style: AppTextStyles.caption.copyWith(color: colors.textMuted),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ] else ...[
-                  Text(
-                    'No profile picture set.',
-                    style: AppTextStyles.bodyMedium.copyWith(color: colors.textPrimary),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: AppDimensions.xs),
-                  // Warning message — one-time only
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(AppDimensions.sm),
-                    decoration: BoxDecoration(
-                      color: Colors.amber.shade50,
-                      borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
-                      border: Border.all(color: Colors.amber.shade300, width: 1),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(Icons.warning_amber_rounded, size: 18, color: Colors.amber.shade800),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            'You can only upload a profile picture once. After uploading, it cannot be changed or removed. Please choose carefully.',
-                            style: AppTextStyles.caption.copyWith(
-                              color: Colors.amber.shade900,
-                              height: 1.3,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: AppDimensions.md),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: _pickAndUpload,
-                      icon: const Icon(Icons.add_a_photo_outlined, size: 18),
-                      label: const Text('Add Profile Picture'),
-                    ),
-                  ),
-                ],
+                ),
               ],
             ),
           ),
@@ -616,6 +549,35 @@ class _EditProfileButton extends StatelessWidget {
         icon: Icon(Icons.edit_outlined, size: 20, color: colors.primary),
         label: Text(
           'EDIT PROFILE',
+          style: TextStyle(
+            color: colors.primary,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.2,
+          ),
+        ),
+        style: OutlinedButton.styleFrom(
+          side: BorderSide(color: colors.primary),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppDimensions.radiusSmall)),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsButton extends StatelessWidget {
+  const _SettingsButton({required this.colors});
+  final ThemeColors colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: AppDimensions.buttonHeightLarge,
+      child: OutlinedButton.icon(
+        onPressed: () => context.go('/settings'),
+        icon: Icon(Icons.settings_outlined, size: 20, color: colors.primary),
+        label: Text(
+          'SETTINGS',
           style: TextStyle(
             color: colors.primary,
             fontWeight: FontWeight.w800,

@@ -419,6 +419,17 @@ const schemas = {
         uid: accountUidSchema.required()
       })
     },
+    changeStaffPassword: {
+      params: Joi.object({
+        id: subjectIdSchema.required()
+      }),
+      body: Joi.object({
+        newPassword: Joi.string().min(8).max(128).required(),
+        confirmPassword: Joi.string().valid(Joi.ref('newPassword')).required().messages({
+          'any.only': 'Passwords do not match.'
+        })
+      })
+    },
     updateAvatar: {
       body: Joi.object({
         avatarData: Joi.string().required(),

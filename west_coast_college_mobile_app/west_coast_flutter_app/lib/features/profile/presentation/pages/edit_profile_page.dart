@@ -5,6 +5,7 @@ import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/theme_colors.dart';
 import '../../domain/entities/profile_entity.dart';
 import '../providers/profile_controller.dart';
+import 'package:go_router/go_router.dart';
 
 class EditProfilePage extends ConsumerStatefulWidget {
   const EditProfilePage({super.key, required this.profile});
@@ -124,26 +125,36 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
     final state = ref.watch(profileControllerProvider);
     final isSaving = state is ProfileLoaded && state.isSaving;
 
-    return Scaffold(
-      backgroundColor: colors.backgroundSoft,
-      appBar: AppBar(
-        title: const Text('Edit Profile'),
-        backgroundColor: colors.primary,
-        foregroundColor: colors.onPrimary,
-        actions: [
-          TextButton(
-            onPressed: isSaving ? null : _save,
-            child: Text(
-              'SAVE',
-              style: TextStyle(
-                color: colors.onPrimary,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1.2,
+    return PopScope(
+      canPop: !isSaving,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && !isSaving) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: colors.backgroundSoft,
+        appBar: AppBar(
+          title: const Text('Edit Profile'),
+          backgroundColor: colors.primary,
+          foregroundColor: colors.onPrimary,
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: AppDimensions.sm),
+              child: TextButton(
+                onPressed: isSaving ? null : _save,
+                child: Text(
+                  'SAVE',
+                  style: TextStyle(
+                    color: colors.onPrimary,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.2,
+                  ),
+                ),
               ),
             ),
-          ),
-        ],
-      ),
+          ],
+        ),
       body: Form(
         key: _formKey,
         child: ListView(
@@ -264,6 +275,7 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
             const SizedBox(height: AppDimensions.xl),
           ],
         ),
+      ),
       ),
     );
   }
