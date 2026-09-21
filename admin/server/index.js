@@ -36,6 +36,7 @@ const Announcement = require('./models/Announcement')
 const AuditLog = require('./models/AuditLog')
 const ArchiveSnapshot = require('./models/ArchiveSnapshot')
 const AuthToken = require('./models/AuthToken')
+const SystemSetting = require('./models/SystemSetting')
 const Document = require('./models/Document')
 const DocumentFolder = require('./models/DocumentFolder')
 const Backup = require('./models/Backup')
@@ -1625,146 +1626,208 @@ mongoose.connect(uri)
     // Migration: Update existing admin accounts with new fields
     migrateExistingAccounts()
 
-    // Migration: Update existing 'Approved' grade submissions to 'Published'
-    // The grade workflow changed from Approved → Published (with Verified as an intermediate step).
-    // Uses aggregation pipeline form to copy reviewedAt/reviewedBy → publishedAt/publishedBy.
-    void Enrollment.updateMany(
-      { 'gradeSubmission.status': 'Approved' },
-      [{
-        $set: {
-          'gradeSubmission.status': 'Published',
-          'gradeSubmission.publishedAt': '$gradeSubmission.reviewedAt',
-          'gradeSubmission.publishedBy': '$gradeSubmission.reviewedBy'
-        }
-      }]
-    ).then((result) => {
-      if (result.modifiedCount > 0) {
-        console.log(`Migration: ${result.modifiedCount} enrollment(s) migrated from Approved → Published`)
-      }
-    }).catch((error) => {
-      console.error('Approved→Published migration error:', error)
+    // Historical one-time enrollment migrations are gated behind a
+    // persistent marker so restarts don't rescan the enrollments
+    // collection on every boot. Bump the marker key if these ever change.
+    void runOnceStartupMigrations().catch((error) => {
+      console.error('Startup migrations error:', error)
     })
 
-    // Migration: Sync per-subject submissionStatus from enrollment-level gradeSubmission.status.
-    // This is needed because the grade submission workflow moved from enrollment-level to
-    // per-subject status. Existing enrollments have submissionStatus unset (defaults to Draft).
+
+async function runOnceStartupMigrations() {
+  const MARKER_KEY = 'startupMigrations.enrollmentWorkflowV1'
+  try {
+    const marker = await SystemSetting.findOne({ key: MARKER_KEY }).lean()
+    if (marker && marker.value && marker.value.completedAt) {
+      return
+    }
+  } catch (markerError) {
+    console.error('Startup migration marker check failed, running migrations anyway:', markerError?.message || markerError)
+  }
+
+        // Migration: Update existing 'Approved' grade submissions to 'Published'
+        // The grade workflow changed from Approved → Published (with Verified as an intermediate step).
+        // Uses aggregation pipeline form to copy reviewedAt/reviewedBy → publishedAt/publishedBy.
+        void Enrollment.updateMany(
+          { 'gradeSubmission.status': 'Approved' },
+          [{
+            $set: {
+              'gradeSubmission.status': 'Published',
+              'gradeSubmission.publishedAt': '$gradeSubmission.reviewedAt',
+              'gradeSubmission.publishedBy': '$gradeSubmission.reviewedBy'
+            }
+          }]
+        ).then((result) => {
+          if (result.modifiedCount > 0) {
+            console.log(`Migration: ${result.modifiedCount} enrollment(s) migrated from Approved → Published`)
+          }
+        }).catch((error) => {
+          console.error('Approved→Published migration error:', error)
+        })
+
+        // Migration: Sync per-subject submissionStatus from enrollment-level gradeSubmission.status.
+        // This is needed because the grade submission workflow moved from enrollment-level to
+        // per-subject status. Existing enrollments have submissionStatus unset (defaults to Draft).
+        void (async () => {
+          try {
+            const enrollmentsToMigrate = await Enrollment.find({
+              'gradeSubmission.status': { $in: ['Submitted', 'Verified', 'Published', 'Returned'] },
+              'subjects.submissionStatus': { $exists: false }
+            }).select('_id gradeSubmission subjects').lean()
+
+            if (enrollmentsToMigrate.length === 0) {
+              // Also check for subjects with null submissionStatus
+              const countWithNull = await Enrollment.countDocuments({
+                'gradeSubmission.status': { $in: ['Submitted', 'Verified', 'Published', 'Returned'] },
+                'subjects.submissionStatus': null
+              })
+              if (countWithNull === 0) return
+            }
+
+            const enrollmentStatus = enrollmentsToMigrate.length > 0
+              ? enrollmentsToMigrate[0].gradeSubmission?.status
+              : 'Draft'
+
+            // For existing data, set all active subjects' submissionStatus to match the enrollment-level status.
+            // Uses aggregation pipeline so we can reference $gradeSubmission.status as a field value
+            // (standard $set with arrayFilters cannot reference other document fields).
+            await Enrollment.updateMany(
+              { 'gradeSubmission.status': { $in: ['Submitted', 'Verified', 'Published', 'Returned'] } },
+              [{
+                $set: {
+                  subjects: {
+                    $map: {
+                      input: '$subjects',
+                      as: 'subj',
+                      in: {
+                        $mergeObjects: [
+                          '$$subj',
+                          {
+                            submissionStatus: {
+                              $cond: [
+                                { $in: ['$$subj.status', ['Dropped', 'Removed']] },
+                                '$$subj.submissionStatus',
+                                {
+                                  $ifNull: ['$$subj.submissionStatus', '$gradeSubmission.status']
+                                }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }]
+            )
+
+            // Fix any subjects whose submissionStatus was corrupted to the literal
+            // string "$gradeSubmission.status" by the previous broken updateMany.
+            await Enrollment.updateMany(
+              { 'subjects.submissionStatus': '$gradeSubmission.status' },
+              [{
+                $set: {
+                  subjects: {
+                    $map: {
+                      input: '$subjects',
+                      as: 'subj',
+                      in: {
+                        $mergeObjects: [
+                          '$$subj',
+                          {
+                            submissionStatus: {
+                              $cond: [
+                                { $eq: ['$$subj.submissionStatus', '$gradeSubmission.status'] },
+                                { $ifNull: ['$gradeSubmission.status', 'Draft'] },
+                                '$$subj.submissionStatus'
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }]
+            ).catch(() => null)
+
+            // Fix corrupted submissionStatus values using raw MongoDB driver
+            // (bypasses Mongoose validation that would reject the bad enum value).
+            // The broken migration wrote literal "$gradeSubmission.status" strings.
+            const rawCollection = mongoose.connection.db.collection('enrollments')
+            const corruptDocs = await rawCollection.find({
+              'subjects.submissionStatus': '$gradeSubmission.status'
+            }).toArray()
+
+            for (const doc of corruptDocs) {
+              const enrollmentStatus = doc.gradeSubmission?.status || 'Draft'
+              const validStatus = ['Draft', 'Submitted', 'Verified', 'Published', 'Returned'].includes(enrollmentStatus)
+                ? enrollmentStatus
+                : 'Draft'
+              const updatedSubjects = (doc.subjects || []).map(s => ({
+                ...s,
+                submissionStatus: s.submissionStatus === '$gradeSubmission.status' ? validStatus : (s.submissionStatus || 'Draft')
+              }))
+              await rawCollection.updateOne(
+                { _id: doc._id },
+                { $set: { subjects: updatedSubjects } }
+              )
+            }
+            if (corruptDocs.length > 0) {
+              console.log(`Migration: Fixed ${corruptDocs.length} enrollment(s) with corrupted submissionStatus`)
+            }
+
+            console.log(`Migration: Synced per-subject submissionStatus from enrollment-level status`)
+          } catch (error) {
+            console.error('Per-subject submissionStatus migration error:', error)
+          }
+        })()
+
+  try {
+    await SystemSetting.updateOne(
+      { key: MARKER_KEY },
+      { $set: { key: MARKER_KEY, value: { completedAt: new Date() } } },
+      { upsert: true }
+    )
+  } catch (markerError) {
+    console.error('Startup migration marker write failed:', markerError?.message || markerError)
+  }
+}
+    
+    // A restart during a backup orphans its in_progress record because the
+    // overlap lock lives in memory. Mark such leftovers failed so history is
+    // truthful and the next eligible backup is never blocked by a ghost lock.
+    // (The in-memory guard additionally guarantees no two backups overlap.)
     void (async () => {
       try {
-        const enrollmentsToMigrate = await Enrollment.find({
-          'gradeSubmission.status': { $in: ['Submitted', 'Verified', 'Published', 'Returned'] },
-          'subjects.submissionStatus': { $exists: false }
-        }).select('_id gradeSubmission subjects').lean()
-
-        if (enrollmentsToMigrate.length === 0) {
-          // Also check for subjects with null submissionStatus
-          const countWithNull = await Enrollment.countDocuments({
-            'gradeSubmission.status': { $in: ['Submitted', 'Verified', 'Published', 'Returned'] },
-            'subjects.submissionStatus': null
-          })
-          if (countWithNull === 0) return
+        const stale = await Backup.updateMany(
+          { status: 'in_progress' },
+          { $set: { status: 'failed', verificationStatus: 'failed', error: 'Interrupted by server restart', completedAt: new Date() } }
+        );
+        if (stale.modifiedCount > 0) {
+          console.log(`Marked ${stale.modifiedCount} interrupted backup(s) as failed`);
         }
-
-        const enrollmentStatus = enrollmentsToMigrate.length > 0
-          ? enrollmentsToMigrate[0].gradeSubmission?.status
-          : 'Draft'
-
-        // For existing data, set all active subjects' submissionStatus to match the enrollment-level status.
-        // Uses aggregation pipeline so we can reference $gradeSubmission.status as a field value
-        // (standard $set with arrayFilters cannot reference other document fields).
-        await Enrollment.updateMany(
-          { 'gradeSubmission.status': { $in: ['Submitted', 'Verified', 'Published', 'Returned'] } },
-          [{
-            $set: {
-              subjects: {
-                $map: {
-                  input: '$subjects',
-                  as: 'subj',
-                  in: {
-                    $mergeObjects: [
-                      '$$subj',
-                      {
-                        submissionStatus: {
-                          $cond: [
-                            { $in: ['$$subj.status', ['Dropped', 'Removed']] },
-                            '$$subj.submissionStatus',
-                            {
-                              $ifNull: ['$$subj.submissionStatus', '$gradeSubmission.status']
-                            }
-                          ]
-                        }
-                      }
-                    ]
-                  }
-                }
-              }
-            }
-          }]
-        )
-
-        // Fix any subjects whose submissionStatus was corrupted to the literal
-        // string "$gradeSubmission.status" by the previous broken updateMany.
-        await Enrollment.updateMany(
-          { 'subjects.submissionStatus': '$gradeSubmission.status' },
-          [{
-            $set: {
-              subjects: {
-                $map: {
-                  input: '$subjects',
-                  as: 'subj',
-                  in: {
-                    $mergeObjects: [
-                      '$$subj',
-                      {
-                        submissionStatus: {
-                          $cond: [
-                            { $eq: ['$$subj.submissionStatus', '$gradeSubmission.status'] },
-                            { $ifNull: ['$gradeSubmission.status', 'Draft'] },
-                            '$$subj.submissionStatus'
-                          ]
-                        }
-                      }
-                    ]
-                  }
-                }
-              }
-            }
-          }]
-        ).catch(() => null)
-
-        // Fix corrupted submissionStatus values using raw MongoDB driver
-        // (bypasses Mongoose validation that would reject the bad enum value).
-        // The broken migration wrote literal "$gradeSubmission.status" strings.
-        const rawCollection = mongoose.connection.db.collection('enrollments')
-        const corruptDocs = await rawCollection.find({
-          'subjects.submissionStatus': '$gradeSubmission.status'
-        }).toArray()
-
-        for (const doc of corruptDocs) {
-          const enrollmentStatus = doc.gradeSubmission?.status || 'Draft'
-          const validStatus = ['Draft', 'Submitted', 'Verified', 'Published', 'Returned'].includes(enrollmentStatus)
-            ? enrollmentStatus
-            : 'Draft'
-          const updatedSubjects = (doc.subjects || []).map(s => ({
-            ...s,
-            submissionStatus: s.submissionStatus === '$gradeSubmission.status' ? validStatus : (s.submissionStatus || 'Draft')
-          }))
-          await rawCollection.updateOne(
-            { _id: doc._id },
-            { $set: { subjects: updatedSubjects } }
-          )
-        }
-        if (corruptDocs.length > 0) {
-          console.log(`Migration: Fixed ${corruptDocs.length} enrollment(s) with corrupted submissionStatus`)
-        }
-
-        console.log(`Migration: Synced per-subject submissionStatus from enrollment-level status`)
-      } catch (error) {
-        console.error('Per-subject submissionStatus migration error:', error)
+      } catch (staleError) {
+        console.error('Interrupted-backup cleanup error:', staleError?.message || staleError);
       }
     })()
-    
-    // Run initial backup after connection
+
+    // Run initial backup after connection — but skip it when a recent
+    // successful backup already exists, and delay it so cold-start requests
+    // are not starved by a full database export + compress + encrypt cycle
+    // competing for the event loop right when the server comes up.
+    const INITIAL_BACKUP_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+    const INITIAL_BACKUP_DELAY_MS = 60 * 1000;
     initialBackupTimeout = setTimeout(async () => {
+      try {
+        const recent = await Backup.findOne({ status: 'completed' }).sort({ createdAt: -1 }).lean();
+        if (recent && Date.now() - new Date(recent.createdAt).getTime() < INITIAL_BACKUP_MAX_AGE_MS) {
+          console.log('Skipping initial backup: recent backup exists:', recent.fileName);
+          return;
+        }
+      } catch (skipCheckError) {
+        console.error('Initial backup freshness check failed, proceeding anyway:', skipCheckError?.message || skipCheckError);
+      }
       console.log('Running initial backup...');
       try {
         const result = await backupSystem.createBackup('initial', 'system');
@@ -1776,7 +1839,7 @@ mongoose.connect(uri)
       } catch (error) {
         console.error('Initial backup error:', error);
       }
-    }, 2000); // 2 seconds after connection
+    }, INITIAL_BACKUP_DELAY_MS); // 60 seconds after connection, off the cold-start path
   })
   .catch((err) => {
     console.error('MongoDB connection error:', err.message)
@@ -6451,37 +6514,50 @@ app.post('/api/admin/backup/create', adminActionLimiter, authMiddleware, require
   const ipAddress = req.ip || req.connection?.remoteAddress || null
   const userAgent = req.get('user-agent') || null
   try {
-    const result = await backupSystem.createBackup('manual', req.adminId || 'admin');
+  // Fire-and-forget: the HTTP request must not wait out a full backup.
+  // The withLock guard is acquired synchronously inside createBackup, so a
+  // busy system surfaces here as 409 before any work starts.
+  const start = backupSystem.startBackupAsync('manual', req.adminId || 'admin', async (settleError, result) => {
+    try {
+      await logAudit(
+        'CREATE',
+        'SYSTEM',
+        String(result?.backupId || result?.fileName || 'backup'),
+        'Backup',
+        settleError
+          ? `Manual backup failed: ${settleError.message || 'Unknown error'}`
+          : result?.success
+            ? `Manual backup created: ${result.fileName || 'backup file'}`
+            : `Manual backup failed: ${result?.error || 'Unknown error'}`,
+        performedBy,
+        performedByRole,
+        null,
+        {
+          backupType: 'manual',
+          fileName: result?.fileName || null,
+          success: Boolean(result?.success) && !settleError,
+          error: (settleError && settleError.message) || result?.error || null
+        },
+        !settleError && result?.success ? 'SUCCESS' : 'FAILED',
+        !settleError && result?.success ? 'LOW' : 'MEDIUM',
+        ipAddress,
+        userAgent
+      )
 
-    await logAudit(
-      'CREATE',
-      'SYSTEM',
-      String(result?.backupId || result?.fileName || 'backup'),
-      'Backup',
-      result?.success
-        ? `Manual backup created: ${result.fileName || 'backup file'}`
-        : `Manual backup failed: ${result?.error || 'Unknown error'}`,
-      performedBy,
-      performedByRole,
-      null,
-      {
-        backupType: 'manual',
-        fileName: result?.fileName || null,
-        success: Boolean(result?.success),
-        error: result?.error || null
-      },
-      result?.success ? 'SUCCESS' : 'FAILED',
-      result?.success ? 'LOW' : 'MEDIUM',
-      ipAddress,
-      userAgent
-    )
-    
-    // Clear system health cache so next request gets fresh backup data
-    global.cachedSystemHealth = null;
-    global.lastSystemHealthScan = new Date(0); // Force fresh scan on next request
-    
-    console.log('Backup created and system health cache cleared');
-    res.status(result?.code === 'BACKUP_BUSY' ? 409 : 200).json(result);
+      // Clear system health cache so next request gets fresh backup data
+      global.cachedSystemHealth = null;
+      global.lastSystemHealthScan = new Date(0); // Force fresh scan on next request
+
+      console.log('Manual backup settled and system health cache cleared');
+    } catch (auditError) {
+      console.error('Manual backup completion audit failed:', auditError);
+    }
+  });
+
+  if (!start.accepted) {
+    return res.status(409).json({ success: false, accepted: false, status: start.status, operation: start.operation, error: start.error, code: start.code || 'BACKUP_BUSY' });
+  }
+  res.status(202).json({ success: true, accepted: true, status: start.status, operation: start.operation });
   } catch (error) {
     await logAudit(
       'CREATE',

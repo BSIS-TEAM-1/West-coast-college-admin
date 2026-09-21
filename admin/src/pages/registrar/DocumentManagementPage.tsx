@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom'
 import {
   ChevronRight,
   Download,
-  Eye,
   FileText,
   Folder as FolderIcon,
   HardDrive,
@@ -103,7 +102,6 @@ export default function DocumentManagementPage() {
   const [editingFolder, setEditingFolder] = useState<DocumentFolder | null>(null)
   const [busy, setBusy] = useState(false)
   const [toasts, setToasts] = useState<Array<{ id: string; message: string; isError?: boolean }>>([])
-  const [previewDoc, setPreviewDoc] = useState<ArchiveDocument | null>(null)
 
   const addToast = useCallback((message: string, isError = false) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
@@ -172,7 +170,10 @@ export default function DocumentManagementPage() {
       const response = await fetch(`${API_URL}/api/admin/documents/${doc._id}/asset?download=true`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-      if (!response.ok) throw new Error('Download failed')
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}))
+        throw new Error(errData?.error || errData?.message || `Download failed (${response.status})`)
+      }
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
@@ -185,10 +186,6 @@ export default function DocumentManagementPage() {
     } finally {
       setBusy(false)
     }
-  }
-
-  const handlePreview = (doc: ArchiveDocument) => {
-    setPreviewDoc(doc)
   }
 
   const handleDeleteFolder = async (folder: DocumentFolder) => {
@@ -341,7 +338,7 @@ export default function DocumentManagementPage() {
                         key={doc._id}
                         className={`${doc.isTrashed ? 'doc-mgmt-row--trashed' : ''} ${selectedDocId === doc._id ? 'doc-mgmt-row--selected' : ''}`}
                         onClick={() => setSelectedDocId(selectedDocId === doc._id ? null : doc._id)}
-                        onDoubleClick={() => handlePreview(doc)}
+                        onDoubleClick={() => handleDownload(doc)}
                       >
                         <td>
                           <div className="doc-mgmt-doc-title">
@@ -372,7 +369,6 @@ export default function DocumentManagementPage() {
                         <td>
                           <ActionDropdown
                             busy={busy}
-                            onPreview={() => handlePreview(doc)}
                             onDownload={() => handleDownload(doc)}
                             onEdit={() => { setEditingDoc(doc); setShowUploadModal(true) }}
                             onDelete={() => handleDelete(doc)}
@@ -425,7 +421,7 @@ export default function DocumentManagementPage() {
                             key={doc._id}
                             className={`${doc.isTrashed ? 'doc-mgmt-row--trashed' : ''} ${selectedDocId === doc._id ? 'doc-mgmt-row--selected' : ''}`}
                             onClick={() => setSelectedDocId(selectedDocId === doc._id ? null : doc._id)}
-                            onDoubleClick={() => handlePreview(doc)}
+                            onDoubleClick={() => handleDownload(doc)}
                           >
                             <td>
                               <div className="doc-mgmt-doc-title">
@@ -456,8 +452,7 @@ export default function DocumentManagementPage() {
                             <td>
                               <ActionDropdown
                                 busy={busy}
-                                onPreview={() => handlePreview(doc)}
-                                onDownload={() => handleDownload(doc)}
+                                    onDownload={() => handleDownload(doc)}
                                 onEdit={() => { setEditingDoc(doc); setShowUploadModal(true) }}
                                 onDelete={() => handleDelete(doc)}
                               />
@@ -500,10 +495,6 @@ export default function DocumentManagementPage() {
         />
       )}
 
-      {previewDoc && (
-        <PreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} onDownload={handleDownload} />
-      )}
-
       {toasts.length > 0 && createPortal(
         <div className="doc-mgmt-toast-stack" role="status" aria-live="polite">
           {toasts.map((t) => (
@@ -524,13 +515,11 @@ export default function DocumentManagementPage() {
 
 function ActionDropdown({
   busy,
-  onPreview,
   onDownload,
   onEdit,
   onDelete,
 }: {
   busy: boolean
-  onPreview: () => void
   onDownload: () => void
   onEdit: () => void
   onDelete: () => void
@@ -576,9 +565,6 @@ function ActionDropdown({
       </button>
       {open && menuPos && (
         <div className="doc-mgmt-action-menu" role="menu" style={{ position: 'fixed', top: menuPos.top, left: menuPos.left }}>
-          <button role="menuitem" onClick={() => handle(onPreview)}>
-            <Eye size={15} /> Preview
-          </button>
           <button role="menuitem" onClick={() => handle(onDownload)} disabled={busy}>
             <Download size={15} /> Download
           </button>
@@ -943,123 +929,6 @@ function FolderModal({
             </button>
           </div>
         </form>
-      </section>
-    </div>
-  )
-}
-
-function PreviewModal({
-  doc,
-  onClose,
-  onDownload,
-}: {
-  doc: ArchiveDocument
-  onClose: () => void
-  onDownload: (doc: ArchiveDocument) => void
-}) {
-  const [blobUrl, setBlobUrl] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-
-  const fileName = doc.originalFileName || doc.fileName || doc.title
-  const ext = fileName.split('.').pop()?.toLowerCase() || ''
-  const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext)
-  const isPdf = ext === 'pdf'
-  const isPreviewable = isImage || isPdf
-
-  useEffect(() => {
-    let revoked = false
-    let createdUrl: string | null = null
-    setLoading(true)
-    setError('')
-    setBlobUrl(null)
-
-    getStoredToken()
-      .then(token =>
-        fetch(`${API_URL}/api/admin/documents/${doc._id}/asset`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-      )
-      .then(res => {
-        if (!res.ok) throw new Error(`Failed to load file (${res.status})`)
-        return res.blob()
-      })
-      .then(blob => {
-        if (revoked) return
-        createdUrl = URL.createObjectURL(blob)
-        setBlobUrl(createdUrl)
-        setLoading(false)
-      })
-      .catch(err => {
-        if (revoked) return
-        setError(err instanceof Error ? err.message : 'Failed to load preview')
-        setLoading(false)
-      })
-
-    return () => {
-      revoked = true
-      if (createdUrl) URL.revokeObjectURL(createdUrl)
-    }
-  }, [doc._id])
-
-  // Close on Escape
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [onClose])
-
-  return (
-    <div className="doc-mgmt-modal-overlay doc-mgmt-preview-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <section className="doc-mgmt-preview-modal" role="dialog" aria-modal="true">
-        <header className="doc-mgmt-preview-header">
-          <div className="doc-mgmt-preview-title">
-            <FileText size={18} />
-            <div>
-              <strong title={doc.title}>{doc.title}</strong>
-              <small>{fileName} • {formatBytes(doc.fileSize)}</small>
-            </div>
-          </div>
-          <div className="doc-mgmt-preview-actions">
-            <button className="doc-mgmt-btn doc-mgmt-btn--ghost" onClick={() => onDownload(doc)} title="Download">
-              <Download size={16} /> Download
-            </button>
-            <button onClick={onClose} aria-label="Close" className="doc-mgmt-preview-close"><X size={20} /></button>
-          </div>
-        </header>
-        <div className="doc-mgmt-preview-body">
-          {loading && (
-            <div className="doc-mgmt-preview-loading">
-              <RefreshCw size={28} className="doc-mgmt-spin" />
-              <p>Loading preview…</p>
-            </div>
-          )}
-          {error && (
-            <div className="doc-mgmt-preview-error">
-              <AlertTriangle size={28} />
-              <p>{error}</p>
-              <button className="doc-mgmt-btn doc-mgmt-btn--ghost" onClick={() => onDownload(doc)}>
-                <Download size={16} /> Download instead
-              </button>
-            </div>
-          )}
-          {!loading && !error && blobUrl && isImage && (
-            <img src={blobUrl} alt={doc.title} className="doc-mgmt-preview-image" />
-          )}
-          {!loading && !error && blobUrl && isPdf && (
-            <iframe src={blobUrl} title={doc.title} className="doc-mgmt-preview-iframe" />
-          )}
-          {!loading && !error && blobUrl && !isPreviewable && (
-            <div className="doc-mgmt-preview-unsupported">
-              <FileText size={40} />
-              <h3>Preview not available</h3>
-              <p>This file type (.{ext}) can't be previewed in the browser.</p>
-              <button className="doc-mgmt-btn doc-mgmt-btn--primary" onClick={() => onDownload(doc)}>
-                <Download size={16} /> Download File
-              </button>
-            </div>
-          )}
-        </div>
       </section>
     </div>
   )

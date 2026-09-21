@@ -75,6 +75,7 @@ type UnassignedSubject = {
   courseShortLabel: string
   studentCount: number
   issueType: 'tba' | 'unmatched' | 'orphaned'
+  hint?: string
 }
 
 type LoadStats = {
@@ -344,6 +345,9 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
                 <p className="professor-load-attention-card-meta">
                   {subject.courseShortLabel} · {subject.sectionLabel} · {subject.studentCount} students
                 </p>
+                {subject.hint ? (
+                  <p className="professor-load-attention-card-hint">{subject.hint}</p>
+                ) : null}
               </div>
             ))}
           </div>

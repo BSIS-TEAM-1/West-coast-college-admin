@@ -148,9 +148,12 @@ function createDocumentController({ logAudit, dbReadyGuard }) {
         return res.status(403).json({ error: 'You do not have permission to access this document.' })
       }
 
-      const isDownloadRequest = req.query.download === true
+      const isDownloadRequest = req.query.download === true || req.query.download === 'true'
       const preferredFileName = sanitizeStorageFileName(document.originalFileName || document.fileName || document.title || 'document')
       const storageKey = document.storageKey || document.filePath
+      if (!storageKey) {
+        return res.status(404).json({ error: 'Document file is not stored on the server.' })
+      }
 
       if (document.storageProvider === 'supabase' && storage.isUsingSupabase) {
         // Server-mediated streaming: download via service role and stream the
@@ -168,17 +171,28 @@ function createDocumentController({ logAudit, dbReadyGuard }) {
 
       const absoluteFilePath = resolveUploadPath(document.filePath)
       const uploadsRoot = path.resolve(UPLOADS_ROOT_DIR)
-      if (!absoluteFilePath.startsWith(uploadsRoot) || !fs.existsSync(absoluteFilePath)) {
-        return res.status(404).json({ error: 'Document file not found.' })
+      let isStoredFile = false
+      try {
+        isStoredFile = absoluteFilePath.startsWith(uploadsRoot) && fs.statSync(absoluteFilePath).isFile()
+      } catch (statError) {
+        isStoredFile = false
+      }
+      if (!isStoredFile) {
+        return res.status(404).json({ error: 'Document file not found on the server.' })
       }
 
       res.setHeader('Cache-Control', 'private, max-age=300')
       res.type(document.mimeType || 'application/octet-stream')
       res.setHeader('Content-Disposition', `${isDownloadRequest ? 'attachment' : 'inline'}; filename="${preferredFileName.replace(/"/g, '')}"`)
-      res.sendFile(absoluteFilePath)
+      res.sendFile(absoluteFilePath, (sendError) => {
+        if (sendError && !res.headersSent) {
+          console.error('Send document asset error:', sendError.message)
+          res.status(500).json({ error: 'Failed to load document file.' })
+        }
+      })
     } catch (err) {
       console.error('Get admin document asset error:', err.message)
-      res.status(500).json({ error: 'Failed to load document file.' })
+      res.status(500).json({ error: `Failed to load document file: ${err.message || 'unknown error'}` })
     }
   }
 
@@ -693,9 +707,12 @@ function createDocumentController({ logAudit, dbReadyGuard }) {
         return res.status(403).json({ error: 'You do not have permission to access this document.' })
       }
 
-      const isDownloadRequest = req.query.download === true
+      const isDownloadRequest = req.query.download === true || req.query.download === 'true'
       const preferredFileName = sanitizeStorageFileName(version.originalFileName || version.fileName || 'document')
       const storageKey = version.storageKey || version.filePath
+      if (!storageKey) {
+        return res.status(404).json({ error: 'Version file is not stored on the server.' })
+      }
 
       if (version.storageProvider === 'supabase' && storage.isUsingSupabase) {
         // Server-mediated streaming (see serveDocumentAsset for rationale).
@@ -708,17 +725,28 @@ function createDocumentController({ logAudit, dbReadyGuard }) {
 
       const absoluteFilePath = resolveUploadPath(version.filePath)
       const uploadsRoot = path.resolve(UPLOADS_ROOT_DIR)
-      if (!absoluteFilePath.startsWith(uploadsRoot) || !fs.existsSync(absoluteFilePath)) {
-        return res.status(404).json({ error: 'Version file not found.' })
+      let isStoredVersionFile = false
+      try {
+        isStoredVersionFile = absoluteFilePath.startsWith(uploadsRoot) && fs.statSync(absoluteFilePath).isFile()
+      } catch (statError) {
+        isStoredVersionFile = false
+      }
+      if (!isStoredVersionFile) {
+        return res.status(404).json({ error: 'Version file not found on the server.' })
       }
 
       res.setHeader('Cache-Control', 'private, max-age=300')
       res.type(version.mimeType || 'application/octet-stream')
       res.setHeader('Content-Disposition', `${isDownloadRequest ? 'attachment' : 'inline'}; filename="${preferredFileName.replace(/"/g, '')}"`)
-      res.sendFile(absoluteFilePath)
+      res.sendFile(absoluteFilePath, (sendError) => {
+        if (sendError && !res.headersSent) {
+          console.error('Send version asset error:', sendError.message)
+          res.status(500).json({ error: 'Failed to load version file.' })
+        }
+      })
     } catch (err) {
       console.error('Serve version asset error:', err.message)
-      res.status(500).json({ error: 'Failed to load version file.' })
+      res.status(500).json({ error: `Failed to load version file: ${err.message || 'unknown error'}` })
     }
   }
 

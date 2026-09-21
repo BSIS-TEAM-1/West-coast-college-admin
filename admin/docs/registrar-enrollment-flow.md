@@ -14,7 +14,7 @@ the backend rejects it with HTTP 409.
 |------|----------------------|-----------------------------|-----------------|
 | 1 | Applicant Queue → approve applicant (`src/pages/ApplicantQueue.tsx` → `PUT /api/applicants/:id/status`) | `controllers/applicantController.js:updateApplicantStatus` creates/updates the Student **as `Pending`** and creates the Enrollment record **as `Pending`**, all in one transaction | `REGISTERED` / `ENROLLMENT_PENDING` |
 | 2 | Student Management → select student(s) → Bulk enroll (`src/components/StudentManagement.tsx` → `POST /api/registrar/students/:id/enroll`) | `controllers/studentController.js:enrollStudent` → `createEnrollmentRecord` creates the Enrollment as `Pending`; lifecycle is set to `Pending` (never `Enrolled`) | `ENROLLMENT_PENDING` |
-| 3 | Student Management / Assign Block → Assign Selected (`src/components/BlockAssignmentModal.tsx` → `POST /api/blocks/assign-student`) | `controllers/blockController.js:assignStudent` (one transaction): checks section open → finds active enrollment → server-side eligibility (`services/blockEligibilityService.js`) → capacity guard → creates `StudentBlockAssignment` → `enrollmentGuard.finalizeEnrollment()` verifies requirements → flips Enrollment to `Enrolled` + student to `Enrolled`. Any failure rolls back **everything** | `BLOCK_ASSIGNED` → `ENROLLED` |
+| 3 | Student Management / Assign Block → Assign Selected (`src/components/BlockAssignmentModal.tsx` → `POST /api/blocks/assign-student`) | `controllers/blockController.js:assignStudent` (one transaction): checks section open → finds the term enrollment, **auto-creating a `Pending` one from the block's curriculum if missing** (`createEnrollmentForBlockAssignment`) → server-side eligibility (`services/blockEligibilityService.js`) → capacity guard → creates `StudentBlockAssignment` → `enrollmentGuard.finalizeEnrollment()` verifies requirements → flips Enrollment to `Enrolled` + student to `Enrolled`. Any failure rolls back **everything** | `BLOCK_ASSIGNED` → `ENROLLED` |
 | 4 | Generate COR (`GET /api/registrar/students/:id/cor`) | `studentController.js:generateCorPdf` renders from Enrollment + assignment | Proof of completed enrollment |
 | 5 | Unassign if needed (`DELETE /api/blocks/sections/:sectionId/students/:studentId`) | `blockController.js:unassignStudentFromSection` drops the enrollment rows, clears the section, reverts lifecycle to `Pending` | Back to `ENROLLMENT_PENDING` |
 
@@ -32,6 +32,13 @@ requirements if it is attempted anyway.
   `PUT /api/registrar/students/:id`) clears block membership AND demotes a
   leftover `Enrolled` back to `Pending` automatically.
 - `Graduated` / `Inactive` / `Dropped` behave as before.
+- **Dropped → Irregular policy:** a dropped student never returns straight to
+  `Regular`. Edit the record to `studentStatus: Irregular` (+ lifecycle
+  `Pending`); the API aligns `classification` to `Irregular` automatically so
+  block eligibility treats them correctly. Enroll them in the lacking
+  requirements, assign a block that accepts Irregular classification, and the
+  assignment finalizes them. Only after completing the dropped requirements
+  do they go back to `Regular`.
 
 ## 3. File connectiveness map
 
@@ -96,7 +103,10 @@ Models (`server/models`):
 
 Read paths (display only, never write `Enrolled`):
 
-- Professor loads (`studentController.js:467`) read `Enrollment.status`.
+- Professor loads (`studentController.js:getProfessorCourseLoads`) read
+  `Enrollment.status` (`Enrolled` or `Pending` — both are real teaching work
+  once students sit in sections) and match instructor names against professor
+  accounts; students without a block land in the orphaned bucket, never on a card.
 - Student dashboards / mobile app read `lifecycleStatus`.
 - `deriveLifecycleStatus` falls back to `Pending`, never `Enrolled`.
 

@@ -220,7 +220,7 @@ function evaluateStudentEligibility(enrollment, student, blockGroup, blockSectio
     }
   } else if (!allowAutoEnroll) {
     checks.enrollmentStatus = false;
-    reasons.push('No active enrollment found for this student.');
+    reasons.push('No enrollment record found for this student.');
   }
   // If allowAutoEnroll is true and there's no enrollment, the enrollment will be
   // auto-created at assignment time — so this is not a blocker.

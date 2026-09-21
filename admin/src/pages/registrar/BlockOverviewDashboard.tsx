@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Blocks, Users, CheckCircle, XCircle, AlertTriangle, ShieldAlert, RefreshCw, ListChecks } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
+import { formatBlockDisplay } from '../../lib/blockAssignmentShared'
 import type { BlockGroup, BlockSection } from './registrarBlockTypes'
 import '../BlockManagement.css'
 
@@ -323,7 +324,7 @@ export default function BlockOverviewDashboard({
                 {largestBlocks.map((section) => (
                   <li key={section._id} className="block-overview__list-item">
                     <div className="block-overview__list-meta">
-                      <span className="block-overview__list-title">{section.sectionCode}</span>
+                      <span className="block-overview__list-title" title={section.sectionCode}>{formatBlockDisplay(section.sectionCode)}</span>
                       <span className="block-overview__list-value">{section.currentPopulation} students</span>
                     </div>
                     <div className="block-overview__progress">
