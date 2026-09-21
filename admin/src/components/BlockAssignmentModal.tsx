@@ -226,10 +226,18 @@ export default function BlockAssignmentModal({
           failures.push(`${studentNumberDisplay(student)}: ${message}`)
         }
 
+        // Stay open when nothing was assigned so the registrar can see the
+        // reason inline and retry — closing here hid the actual error.
+        // onSaved is intentionally NOT called: there is nothing to refresh.
+        if (assignedCount === 0) {
+          setError(failures.join('; ') || 'No students assigned.')
+          return
+        }
+
         await onSaved(
           failures.length
-            ? `Block assignment finished for ${assignedCount} student(s). ${failures.length} record(s) need attention.`
-            : `Assigned ${assignedCount} student(s) to ${selectedEligibleBlock?.section.sectionCode}.`
+            ? `Block assignment finished for ${assignedCount} student(s). ${failures.length} record(s) need attention: ${failures.join('; ')}. Assigned students are now officially enrolled.`
+            : `Assigned ${assignedCount} student(s) to ${selectedEligibleBlock?.section.sectionCode}. Students are now officially enrolled.`
         )
       } else {
         const targetSection = availableSections.find((section) => section._id === selectedSectionId)
@@ -299,7 +307,7 @@ export default function BlockAssignmentModal({
         }
 
         // Build structured summary message
-        const parts: string[] = [`Assigned ${assignedCount} student(s) to ${targetSection.sectionCode}.`]
+        const parts: string[] = [`Assigned ${assignedCount} student(s) to ${targetSection.sectionCode}. Assigned students are now officially enrolled.`]
         if (capacityExhaustedNames.length > 0) {
           parts.push(`${capacityExhaustedNames.length} eligible student(s) not assigned due to capacity: ${capacityExhaustedNames.join('; ')}.`)
         }
@@ -313,6 +321,13 @@ export default function BlockAssignmentModal({
         const summaryMessage = assignedCount > 0
           ? parts.join(' ')
           : `No students assigned. ${parts.slice(1).join(' ')}`
+
+        // Stay open when nothing was assigned so the registrar can see the
+        // reasons inline and retry instead of losing the context.
+        if (assignedCount === 0) {
+          setError(summaryMessage)
+          return
+        }
 
         await onSaved(summaryMessage)
       }

@@ -4,6 +4,13 @@
  * Finds students with lifecycleStatus="Enrolled" who lack an Enrollment
  * record for their current academic period and creates one.
  *
+ * IMPORTANT: backfilled enrollments are created with status "Pending", NOT
+ * "Enrolled". Official ENROLLED status requires a valid block assignment for
+ * the same academic period/context (see services/enrollmentGuard.js), and this
+ * migration must never fabricate a finalized state. Students that are
+ * Enrolled without a block assignment are handled by
+ * migrations/revertEnrolledWithoutBlock.js instead.
+ *
  * Usage:
  *   node migrations/backfillMissingEnrollments.js           → DRY RUN (no writes)
  *   node migrations/backfillMissingEnrollments.js --apply    → APPLY (writes)
@@ -166,7 +173,7 @@ async function run() {
           yearLevel: Number(student.yearLevel) || 1,
           course: enrollmentCourse,
           curriculumId,
-          status: 'Enrolled',
+          status: 'Pending',
           isCurrent: true,
           subjects: [],
         });

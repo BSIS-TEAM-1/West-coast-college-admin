@@ -403,8 +403,11 @@ class ApplicantController {
         const session = await mongoose.startSession();
         try {
           await session.withTransaction(async () => {
-            const lifecycleStatus = status === 'Enrolled' ? 'Enrolled' : 'Pending';
-            const enrollmentStatus = status === 'Enrolled' ? 'Enrolled' : 'Not Enrolled';
+            // An applicant approval only reaches ENROLLMENT_PENDING. The
+            // official ENROLLED state requires a block assignment, which
+            // happens later via the block assignment flow (finalizeEnrollment).
+            const lifecycleStatus = 'Pending';
+            const enrollmentStatus = 'Not Enrolled';
 
             // ─── 1. Update Applicant status (inside transaction) ───
             applicant.status = status;
@@ -489,6 +492,9 @@ class ApplicantController {
             // ─── 3. Create Enrollment (only for "Enrolled" status) ───
             // Enrollment is the authoritative academic-period record.
             // Student.enrollmentStatus is a denormalized display field.
+            // The enrollment starts as Pending: official ENROLLED status is
+            // only granted later by block-assignment finalization, which
+            // requires a valid block for the same academic period/context.
             // If this fails, the transaction rolls back — no partial state.
             if (status === 'Enrolled' && studentRecord) {
               await createOrReactivateEnrollment({
@@ -499,6 +505,7 @@ class ApplicantController {
                 semester: applicant.semester || studentRecord.semester || '1st',
                 schoolYear: applicant.schoolYear || studentRecord.schoolYear,
                 curriculumVersion: studentRecord.curriculumVersion,
+                status: 'Pending',
                 session,
               });
             }

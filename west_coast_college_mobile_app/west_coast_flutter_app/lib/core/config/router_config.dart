@@ -59,6 +59,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/',
         name: 'home',
         redirect: (context, state) {
+          // Only handle the exact root URL. NOTE: use uri.path, not
+          // matchedLocation — parent redirects run before child matching,
+          // so matchedLocation is '/' for every sub-route navigation.
+          if (state.uri.path != '/') return null;
           final authState = ref.read(authControllerProvider);
           if (authState.status == AuthStatus.authenticated) {
             return '/dashboard';

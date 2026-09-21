@@ -89,6 +89,9 @@ async function resolveCurriculum({ programCode, curriculumVersion, explicitCurri
  * @param {string} params.schoolYear - '2026-2027'
  * @param {string|null} [params.curriculumVersion] - Optional Student.curriculumVersion
  * @param {string|null} [params.explicitCurriculumId] - Optional explicit curriculumId
+ * @param {string} [params.status] - Initial enrollment status ('Enrolled' default).
++ *   Applicant approvals create 'Pending' enrollments: the official ENROLLED
++ *   state is only reached later via block assignment finalization.
  * @param {import('mongoose').ClientSession|null} [params.session] - Optional mongoose session
  * @returns {Promise<{ enrollment: Object, created: boolean, reactivated: boolean, curriculumSource: string }>}
  * @throws {Error} If required fields are missing or curriculum cannot be resolved
@@ -102,6 +105,7 @@ async function createOrReactivateEnrollment({
   schoolYear,
   curriculumVersion,
   explicitCurriculumId,
+  status = 'Enrolled',
   session,
 }) {
   // ─── Validate required fields ───
@@ -114,6 +118,9 @@ async function createOrReactivateEnrollment({
   }
   if (!Number.isFinite(Number(yearLevel)) || Number(yearLevel) < 1) {
     throw new Error(`Invalid yearLevel "${yearLevel}"`);
+  }
+  if (!['Enrolled', 'Pending'].includes(status)) {
+    throw new Error(`Invalid status "${status}". Expected Enrolled or Pending`);
   }
 
   const normalizedProgramCode = normalizeCourseCode(programCode);
@@ -153,7 +160,7 @@ async function createOrReactivateEnrollment({
     if (existing.lockedAt) {
       return { enrollment: existing, created: false, reactivated: false, curriculumSource: 'existing-locked' };
     }
-    if (existing.status === 'Enrolled' && existing.isCurrent) {
+    if (existing.status === status && existing.isCurrent) {
       return { enrollment: existing, created: false, reactivated: false, curriculumSource: 'existing' };
     }
     // Reactivate
@@ -161,7 +168,7 @@ async function createOrReactivateEnrollment({
       { _id: existing._id },
       {
         $set: {
-          status: 'Enrolled',
+          status,
           isCurrent: true,
           curriculumId: curriculumId,
           course: enrollmentCourse,
@@ -170,7 +177,7 @@ async function createOrReactivateEnrollment({
       },
       { session }
     );
-    return { enrollment: { ...existing, status: 'Enrolled', isCurrent: true, curriculumId }, created: false, reactivated: true, curriculumSource: source };
+    return { enrollment: { ...existing, status, isCurrent: true, curriculumId }, created: false, reactivated: true, curriculumSource: source };
   }
 
   // ─── Create new enrollment ───
@@ -182,7 +189,7 @@ async function createOrReactivateEnrollment({
     yearLevel: Number(yearLevel),
     course: enrollmentCourse,
     curriculumId,
-    status: 'Enrolled',
+    status,
     isCurrent: true,
     subjects: [],
   }], { session });

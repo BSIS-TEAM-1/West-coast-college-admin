@@ -15,6 +15,7 @@ const Subject = require('../models/Subject');
 const CurriculumSubject = require('../models/CurriculumSubject');
 const { autoAssignSubjectsFromCurriculum } = require('../services/blockSubjectAutoAssignService');
 const { convertToSchoolYear } = require('../services/dateUtils');
+const enrollmentGuard = require('../services/enrollmentGuard');
 
 class BlockController {
   extractBlockSlotFromName(value) {
@@ -1125,11 +1126,39 @@ class BlockController {
         }
       }], { session });
 
+      // Finalize enrollment atomically (same transaction): the block
+      // assignment above was verified, so the Enrollment record and the
+      // student lifecycle now transition to ENROLLED together. If this
+      // fails, the whole transaction — including the assignment — rolls back,
+      // and the student is never left in a partial ENROLLED state.
+      const finalized = await enrollmentGuard.finalizeEnrollment({
+        studentId,
+        schoolYear: enrollment.schoolYear,
+        semester: enrollment.semester,
+        actorId: req.registrarId || req.adminId,
+        session
+      });
+
       await session.commitTransaction();
-      return res.json({ status: 'ASSIGNED', assignmentId: assignment[0]._id });
+      return res.json({
+        status: 'ASSIGNED',
+        assignmentId: assignment[0]._id,
+        enrolled: true,
+        enrollmentId: finalized.enrollmentId,
+        sectionCode: finalized.sectionCode
+      });
     } catch (error) {
       await session.abortTransaction();
       console.error('Assign student error:', error);
+      // Preserve guard rejections (e.g. enrollment finalization found a
+      // period/context mismatch) instead of masking them as a generic 500,
+      // so the registrar sees the actionable reason inline.
+      if (error && (error.statusCode === 409 || error.statusCode === 400)) {
+        return res.status(error.statusCode).json({
+          error: error.message || 'Assignment failed enrollment validation',
+          reasons: error.details || [error.message || 'Assignment failed enrollment validation']
+        });
+      }
       res.status(500).json({ error: 'Failed to assign student' });
     } finally {
       session.endSession();
@@ -1681,6 +1710,10 @@ class BlockController {
         {
           $set: {
             section: '',
+            // Losing the block means the student no longer satisfies the
+            // ENROLLED requirements — revert to the non-final Pending state
+            // instead of keeping an invalid Enrolled status.
+            lifecycleStatus: 'Pending',
             enrollmentStatus: 'Not Enrolled',
             corStatus: 'Pending'
           }
