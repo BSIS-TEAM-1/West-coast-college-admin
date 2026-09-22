@@ -59,7 +59,7 @@ class _GradesPageState extends ConsumerState<GradesPage> with SingleTickerProvid
 
   Widget _buildBody(GradesState state, ThemeColors colors) {
     return switch (state) {
-      GradesLoading() => Center(child: CircularProgressIndicator(color: colors.primary)),
+      GradesLoading() => Center(child: CircularProgressIndicator(color: colors.textBold)),
       GradesFailed(:final message) => Center(
           child: ErrorState(
             message: message,
@@ -175,7 +175,7 @@ class _GpaCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.school, color: colors.primary, size: 32),
+          Icon(Icons.school, color: colors.textBold, size: 32),
           const SizedBox(width: AppDimensions.md),
           Expanded(
             child: Column(
@@ -184,7 +184,7 @@ class _GpaCard extends StatelessWidget {
                 Text(label, style: AppTextStyles.bodySmall.copyWith(color: colors.textSecondary)),
                 Text(
                   gpa.toStringAsFixed(2),
-                  style: AppTextStyles.headlineLarge.copyWith(color: colors.primary),
+                  style: AppTextStyles.headlineLarge.copyWith(color: colors.textBold),
                 ),
               ],
             ),

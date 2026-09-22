@@ -17,7 +17,7 @@ class StatusBadge extends StatelessWidget {
         StatusTone.success => colors.success,
         StatusTone.warning => colors.warning,
         StatusTone.danger => colors.error,
-        StatusTone.info => colors.primary,
+        StatusTone.info => colors.textBold,
         StatusTone.neutral => colors.textMuted,
       };
 

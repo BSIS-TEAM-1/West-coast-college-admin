@@ -52,7 +52,7 @@ class StudentAvatar extends StatelessWidget {
         style: TextStyle(
           fontSize: size * 0.36,
           fontWeight: FontWeight.w700,
-          color: colors.primary,
+          color: colors.textBold,
         ),
       ),
     );

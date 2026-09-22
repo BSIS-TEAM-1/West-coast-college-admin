@@ -40,7 +40,7 @@ class AppSplashPage extends ConsumerWidget {
             ),
             const SizedBox(height: AppDimensions.xl),
             if (isChecking)
-              CircularProgressIndicator(color: colors.primary, strokeWidth: 2.4),
+              CircularProgressIndicator(color: colors.textBold, strokeWidth: 2.4),
           ],
         ),
       ),

@@ -619,6 +619,6 @@ class _AnnouncementRow extends StatelessWidget {
         'urgent' => colors.error,
         'warning' => colors.warning,
         'maintenance' => colors.maintenance,
-        _ => colors.primary,
+        _ => colors.textBold,
       };
 }

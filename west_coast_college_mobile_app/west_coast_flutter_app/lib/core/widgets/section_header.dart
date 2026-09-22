@@ -33,7 +33,7 @@ class SectionHeader extends StatelessWidget {
               minimumSize: Size.zero,
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
-            child: Text(actionLabel!, style: AppTextStyles.link.copyWith(color: colors.primary)),
+            child: Text(actionLabel!, style: AppTextStyles.link.copyWith(color: colors.gold)),
           ),
       ],
     );

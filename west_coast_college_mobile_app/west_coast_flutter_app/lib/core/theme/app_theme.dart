@@ -79,10 +79,11 @@ class AppTheme {
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
+        backgroundColor: AppColors.primary,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
         ),
-        contentTextStyle: AppTextStyles.bodyMedium,
+        contentTextStyle: AppTextStyles.bodyMedium.copyWith(color: AppColors.onPrimary),
       ),
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
@@ -173,10 +174,11 @@ class AppTheme {
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFFE8EAED),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
         ),
-        contentTextStyle: AppTextStyles.bodyMedium.copyWith(color: const Color(0xFFFFFFFF)),
+        contentTextStyle: AppTextStyles.bodyMedium.copyWith(color: const Color(0xFF1C1B1B)),
       ),
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
