@@ -189,7 +189,7 @@ class _GpaCard extends StatelessWidget {
               ],
             ),
           ),
-          Text('$gpa GPA', style: AppTextStyles.caption),
+          Text('$gpa GPA', style: AppTextStyles.caption.copyWith(color: colors.textMuted)),
         ],
       ),
     );
@@ -279,7 +279,7 @@ class _GradeRow extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: AppTextStyles.caption),
+          Text(label, style: AppTextStyles.caption.copyWith(color: colors.textMuted)),
           const SizedBox(height: 2),
           Text(value, style: AppTextStyles.bodyMedium.copyWith(color: colors.textPrimary)),
         ],

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/theme_colors.dart';
 import '../../../../core/theme/app_dimensions.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../providers/auth_controller.dart';
@@ -13,10 +13,11 @@ class AppSplashPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colors = ThemeColors.of(context);
     final isChecking = ref.watch(authControllerProvider).status == AuthStatus.checking;
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: colors.background,
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -25,21 +26,21 @@ class AppSplashPage extends ConsumerWidget {
               width: 96,
               height: 96,
               decoration: BoxDecoration(
-                color: AppColors.primary,
+                color: colors.primary,
                 borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
               ),
-              child: const Icon(Icons.school, size: 56, color: AppColors.onPrimary),
+              child: Icon(Icons.school, size: 56, color: colors.onPrimary),
             ),
             const SizedBox(height: AppDimensions.lg),
-            Text('WCConnect', style: AppTextStyles.headlineLarge.copyWith(color: AppColors.textBold)),
+            Text('WCConnect', style: AppTextStyles.headlineLarge.copyWith(color: colors.textBold)),
             const SizedBox(height: AppDimensions.xs),
             Text(
               'Your Academic Journey, One Tap Away',
-              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textMuted),
+              style: AppTextStyles.bodyMedium.copyWith(color: colors.textMuted),
             ),
             const SizedBox(height: AppDimensions.xl),
             if (isChecking)
-              const CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2.4),
+              CircularProgressIndicator(color: colors.primary, strokeWidth: 2.4),
           ],
         ),
       ),

@@ -83,7 +83,7 @@ class ThemeColors extends ThemeExtension<ThemeColors> {
     primarySubtle: Color(0x2E4F46E5),
     onPrimary: AppColors.onPrimary,
     gold: AppColors.goldLight,
-    success: AppColors.success,
+    success: AppColors.darkSuccess,
     warning: AppColors.warning,
     error: AppColors.darkError,
     maintenance: AppColors.maintenance,

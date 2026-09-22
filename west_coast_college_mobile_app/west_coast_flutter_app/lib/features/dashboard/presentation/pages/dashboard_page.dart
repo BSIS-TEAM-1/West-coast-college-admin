@@ -226,7 +226,7 @@ class _AcademicContextRow extends StatelessWidget {
         children: [
           Text(value, style: AppTextStyles.titleLarge.copyWith(color: colors.textBold)),
           const SizedBox(height: 2),
-          Text(label, style: AppTextStyles.caption, textAlign: TextAlign.center),
+          Text(label, style: AppTextStyles.caption.copyWith(color: colors.textMuted), textAlign: TextAlign.center),
         ],
       ),
     );
@@ -357,7 +357,7 @@ class _ScheduleRow extends StatelessWidget {
               children: [
                 Text('${item.subjectCode} — ${item.subjectTitle}', style: AppTextStyles.bodyMedium),
                 const SizedBox(height: 2),
-                Text('${item.room} • ${item.instructor}', style: AppTextStyles.caption),
+                Text('${item.room} • ${item.instructor}', style: AppTextStyles.caption.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6))),
               ],
             ),
           ),
@@ -417,7 +417,7 @@ class _GradeRow extends StatelessWidget {
               children: [
                 Text('${grade.subjectCode} — ${grade.subjectTitle}', style: AppTextStyles.bodyMedium),
                 const SizedBox(height: 2),
-                Text('${grade.units} units', style: AppTextStyles.caption),
+                Text('${grade.units} units', style: AppTextStyles.caption.copyWith(color: colors.textMuted)),
               ],
             ),
           ),

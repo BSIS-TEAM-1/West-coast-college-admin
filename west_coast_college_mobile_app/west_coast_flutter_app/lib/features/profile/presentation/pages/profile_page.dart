@@ -455,7 +455,7 @@ class _CorCardState extends ConsumerState<_CorCard> {
           ),
           if (_error != null) ...[
             const SizedBox(height: AppDimensions.sm),
-            Text(_error!, style: AppTextStyles.error),
+            Text(_error!, style: AppTextStyles.error.copyWith(color: widget.colors.error)),
           ],
           const SizedBox(height: AppDimensions.sm),
           SizedBox(
@@ -513,7 +513,7 @@ class _LogoutButton extends ConsumerWidget {
               Navigator.pop(dialogContext);
               ref.read(logoutActionProvider)(ref);
             },
-            style: FilledButton.styleFrom(backgroundColor: colors.error),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
             child: const Text('Log Out'),
           ),
         ],

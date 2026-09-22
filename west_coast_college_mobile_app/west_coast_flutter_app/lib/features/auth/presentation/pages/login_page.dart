@@ -209,7 +209,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         children: [
           Icon(Icons.error_outline, color: colors.error, size: AppDimensions.iconMedium),
           const SizedBox(width: AppDimensions.sm),
-          Expanded(child: Text(message, style: AppTextStyles.error)),
+          Expanded(child: Text(message, style: AppTextStyles.error.copyWith(color: colors.error))),
         ],
       ),
     );
