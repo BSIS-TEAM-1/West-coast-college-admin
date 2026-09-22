@@ -76,4 +76,5 @@ class AppColors {
   static const Color darkTextMuted = Color(0xFF94A3B8);       // Muted light text
   static const Color darkBorder = Color(0x2EFFFFFF);          // 18% opacity white
   static const Color darkError = Color(0xFFF87171);           // Lighter red for dark mode
+  static const Color darkSuccess = Color(0xFF4ADE80);         // Lighter green for dark mode
 }
