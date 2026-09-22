@@ -57,7 +57,7 @@ class _SchedulePageState extends ConsumerState<SchedulePage> with SingleTickerPr
 
   Widget _buildBody(ScheduleState state, ThemeColors colors) {
     return switch (state) {
-      ScheduleLoading() => Center(child: CircularProgressIndicator(color: colors.primary)),
+      ScheduleLoading() => Center(child: CircularProgressIndicator(color: colors.textBold)),
       ScheduleFailed(:final message) => Center(
           child: ErrorState(
             message: message,

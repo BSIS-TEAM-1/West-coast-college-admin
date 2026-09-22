@@ -35,7 +35,7 @@ class AnnouncementsPage extends ConsumerWidget {
 
   Widget _buildBody(BuildContext context, WidgetRef ref, AnnouncementsState state, ThemeColors colors) {
     return switch (state) {
-      AnnouncementsLoading() => Center(child: CircularProgressIndicator(color: colors.primary)),
+      AnnouncementsLoading() => Center(child: CircularProgressIndicator(color: colors.textBold)),
       AnnouncementsFailed(:final message) => Center(
           child: ErrorState(
             message: message,
@@ -181,8 +181,8 @@ class _AnnouncementTile extends StatelessWidget {
   Color _colorFor(String type, ThemeColors colors) => switch (type) {
         'urgent' => colors.error,
         'warning' => colors.warning,
-        'maintenance' => colors.primary,
-        _ => colors.primary,
+        'maintenance' => colors.maintenance,
+        _ => colors.textBold,
       };
 
   StatusTone _toneFor(String type) => switch (type) {

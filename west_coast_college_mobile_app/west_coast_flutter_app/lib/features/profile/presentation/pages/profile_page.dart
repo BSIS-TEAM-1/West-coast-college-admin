@@ -42,7 +42,7 @@ class ProfilePage extends ConsumerWidget {
 
   Widget _buildBody(BuildContext context, WidgetRef ref, ProfileState state, ThemeColors colors) {
     return switch (state) {
-      ProfileLoading() => Center(child: CircularProgressIndicator(color: colors.primary)),
+      ProfileLoading() => Center(child: CircularProgressIndicator(color: colors.textBold)),
       ProfileFailed(:final message) => Center(
           child: ErrorState(
             message: message,
@@ -266,7 +266,7 @@ class _ProfilePictureCardState extends ConsumerState<_ProfilePictureCard> {
         children: [
           Row(
             children: [
-              Icon(Icons.account_circle_outlined, color: colors.primary, size: 20),
+              Icon(Icons.account_circle_outlined, color: colors.textBold, size: 20),
               const SizedBox(width: AppDimensions.sm),
               Text(
                 'Profile Picture',
@@ -399,30 +399,41 @@ class _CorCard extends ConsumerStatefulWidget {
 }
 
 class _CorCardState extends ConsumerState<_CorCard> {
-  bool _downloading = false;
+  bool _busy = false;
   String? _error;
 
-  Future<void> _downloadCor() async {
+  /// Share-only flow: fetches the COR PDF to a temp file and opens the
+  /// system share sheet. No on-device save.
+  Future<void> _shareCor() async {
+    debugPrint('[COR] Share pressed');
     setState(() {
-      _downloading = true;
+      _busy = true;
       _error = null;
     });
     try {
+      debugPrint('[COR] Fetching PDF bytes');
       final bytes = await ref.read(corServiceProvider).downloadCorPdf();
+      debugPrint('[COR] Got ${bytes.length} bytes, writing temp file');
+      final name = 'COR-${widget.profile.studentNumber}.pdf';
       final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/COR-${widget.profile.studentNumber}.pdf');
+      final file = File('${dir.path}/$name');
       await file.writeAsBytes(bytes);
       if (mounted) {
-        await Share.shareXFiles([XFile(file.path)], text: 'Certificate of Registration — ${widget.profile.fullName}');
+        debugPrint('[COR] Opening share sheet');
+        await Share.shareXFiles(
+          [XFile(file.path)],
+          text: 'Certificate of Registration — ${widget.profile.fullName}',
+        );
       }
     } catch (e) {
+      debugPrint('[COR] FAILED: $e');
       if (mounted) {
         setState(() {
-          _error = 'We couldn\'t download your COR. Please check your connection and try again.';
+          _error = 'We couldn\'t fetch your COR. Please check your connection and try again.';
         });
       }
     } finally {
-      if (mounted) setState(() => _downloading = false);
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -439,7 +450,7 @@ class _CorCardState extends ConsumerState<_CorCard> {
         children: [
           Row(
             children: [
-              Icon(Icons.description_outlined, color: widget.colors.primary),
+              Icon(Icons.description_outlined, color: widget.colors.textBold),
               const SizedBox(width: AppDimensions.sm),
               Expanded(
                 child: Column(
@@ -461,15 +472,15 @@ class _CorCardState extends ConsumerState<_CorCard> {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: _downloading ? null : _downloadCor,
-              icon: _downloading
+              onPressed: _busy ? null : _shareCor,
+              icon: _busy
                   ? const SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2, color: _onPrimaryTint),
                     )
-                  : const Icon(Icons.download_outlined, size: 18),
-              label: Text(_downloading ? 'Preparing…' : 'Download & Share COR'),
+                  : const Icon(Icons.share_outlined, size: 18),
+              label: Text(_busy ? 'Preparing…' : 'Share COR'),
             ),
           ),
         ],
@@ -546,17 +557,17 @@ class _EditProfileButton extends StatelessWidget {
             );
           }
         },
-        icon: Icon(Icons.edit_outlined, size: 20, color: colors.primary),
+        icon: Icon(Icons.edit_outlined, size: 20, color: colors.textBold),
         label: Text(
           'EDIT PROFILE',
           style: TextStyle(
-            color: colors.primary,
+            color: colors.textBold,
             fontWeight: FontWeight.w800,
             letterSpacing: 1.2,
           ),
         ),
         style: OutlinedButton.styleFrom(
-          side: BorderSide(color: colors.primary),
+          side: BorderSide(color: colors.textBold),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppDimensions.radiusSmall)),
         ),
       ),
@@ -575,17 +586,17 @@ class _SettingsButton extends StatelessWidget {
       height: AppDimensions.buttonHeightLarge,
       child: OutlinedButton.icon(
         onPressed: () => context.go('/settings'),
-        icon: Icon(Icons.settings_outlined, size: 20, color: colors.primary),
+        icon: Icon(Icons.settings_outlined, size: 20, color: colors.textBold),
         label: Text(
           'SETTINGS',
           style: TextStyle(
-            color: colors.primary,
+            color: colors.textBold,
             fontWeight: FontWeight.w800,
             letterSpacing: 1.2,
           ),
         ),
         style: OutlinedButton.styleFrom(
-          side: BorderSide(color: colors.primary),
+          side: BorderSide(color: colors.textBold),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppDimensions.radiusSmall)),
         ),
       ),
