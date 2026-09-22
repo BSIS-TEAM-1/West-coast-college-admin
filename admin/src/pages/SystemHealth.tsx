@@ -293,20 +293,6 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
         }
       }));
       
-      setLogs(data.logs || []);
-      
-      // If no logs are found, create a fallback log for testing
-      if (!data.logs || data.logs.length === 0) {
-        const fallbackLog = {
-          id: 'frontend-fallback',
-          timestamp: new Date().toISOString(),
-          level: 'INFO',
-          message: 'System health check completed - no recent errors detected',
-          module: 'SYSTEM'
-        };
-        setLogs([fallbackLog]);
-      }
-      
       // Update historical data (keep last 20 data points)
       const nextMemoryUsage = Number(data.memoryUsage ?? metrics.memoryUsage ?? 0);
       const nextServerLoad = Number(data.serverLoad ?? metrics.serverLoad ?? 0);

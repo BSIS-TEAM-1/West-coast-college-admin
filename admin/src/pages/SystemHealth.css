@@ -116,7 +116,7 @@
 .backup-progress span { display: block; width: 40%; height: 100%; border-radius: inherit; background: var(--color-warning); animation: backup-progress 1s ease-in-out infinite; }
 .backup-health-details { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.35rem 0.75rem; color: var(--color-text-muted); font-size: 0.75rem; }
 .backup-health-details span:not(:first-child)::before { content: '•'; margin-right: 0.75rem; color: var(--color-border); }
-.backup-status { padding: 0.2rem 0.45rem; font-size: 0.625rem; }
+.backup-status { padding: 0.2rem 0.45rem; font-size: 0.625rem; line-height: 1.2; max-height: 1.5rem; overflow: hidden; }
 .backup-card-busy .backup-now-btn svg { animation: spin 900ms linear infinite; }
 
 .section-heading-row { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 0.875rem; }

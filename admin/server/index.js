@@ -629,6 +629,17 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
       const match = String(schoolYearValue || '').trim().match(/^(\d{4})\s*-\s*\d{4}$/)
       return match ? Number(match[1]) : null
     }
+    // Normalize either year convention ("2026" or "2026-2027") to school-year
+    // format. Assignment rows mix both across legacy and current records, and
+    // comparing raw values (or Number() coercion, where "2026-2027" becomes
+    // NaN) falsely reports assigned students as block-less.
+    const toSchoolYear = (value) => {
+      const text = String(value ?? '').trim()
+      if (!text) return ''
+      if (/^\d{4}-\d{4}$/.test(text)) return text
+      const startYear = Number(text)
+      return Number.isFinite(startYear) && startYear > 0 ? `${startYear}-${startYear + 1}` : text
+    }
 
     const professorIdentifiers = Array.from(
       new Set(
@@ -741,10 +752,10 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
       if (list.length === 0) return null
 
       const semester = normalizeText(semesterValue)
-      const yearStart = parseSchoolYearStart(schoolYearValue)
+      const schoolYear = toSchoolYear(schoolYearValue)
       const strictMatch = list.find((entry) => {
         const semesterMatch = normalizeText(entry.semester) === semester
-        const yearMatch = Number(entry.year || 0) === Number(yearStart || 0)
+        const yearMatch = toSchoolYear(entry.year) === schoolYear
         return semesterMatch && yearMatch
       })
       if (strictMatch) return strictMatch
@@ -752,7 +763,7 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
       // Do not fall back to unrelated section assignments when the school year
       // no longer matches. That creates fake "unassigned" or stale professor
       // loads after a registrar removes a student from a block.
-      if (!Number.isFinite(yearStart)) {
+      if (!schoolYear) {
         const semesterMatch = list.find((entry) => normalizeText(entry.semester) === semester)
         if (semesterMatch) return semesterMatch
       }
@@ -3420,11 +3431,11 @@ app.post('/api/student/profile-picture', studentAuthMiddleware, async (req, res)
     student.profilePictureMimeType = normalizedMime
     await student.save()
 
-    console.log(`[profile-picture] ${student.studentNumber}: profile picture uploaded (one-time)`)
+    console.log(`[profile-picture] ${student.studentNumber}: profile picture updated`)
 
-    res.status(201).json({
+    res.status(200).json({
       success: true,
-      message: 'Profile picture uploaded successfully. This cannot be changed later.',
+      message: 'Profile picture updated successfully.',
       data: {
         profilePictureUrl: `data:${normalizedMime};base64,${imageBase64}`
       }
@@ -6004,9 +6015,10 @@ app.get('/api/admin/error-logs', authMiddleware, requireAdminRole, async (req, r
     const now = new Date();
     const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     
-    // Get error logs from audit logs
+    // System activity feed: recent audit records of any outcome (not only
+    // failures), so a healthy system still shows activity instead of an
+    // eternally empty panel.
     const errorLogs = await AuditLog.find({
-      status: { $in: ['FAILED', 'ERROR'] },
       createdAt: { $gte: last24h }
     })
     .sort({ createdAt: -1 })
@@ -6014,14 +6026,21 @@ app.get('/api/admin/error-logs', authMiddleware, requireAdminRole, async (req, r
     .lean();
     
     res.json({
-      logs: errorLogs.map(log => ({
-        id: log._id.toString(),
-        timestamp: log.createdAt,
-        level: ['CRITICAL', 'HIGH'].includes(log.severity) ? 'error' : 'info',
-        message: log.description,
-        source: log.action,
-        details: log.metadata || {}
-      })),
+      logs: errorLogs.map(log => {
+        const status = String(log.status || '').toUpperCase();
+        const severity = String(log.severity || '').toUpperCase();
+        const level = (status === 'FAILED' || status === 'ERROR' || log.status === 'failed')
+          ? 'error'
+          : (['CRITICAL', 'HIGH'].includes(severity) ? 'warning' : 'info');
+        return {
+          id: log._id.toString(),
+          timestamp: log.createdAt,
+          level,
+          message: log.description,
+          source: log.action,
+          details: log.metadata || {}
+        };
+      }),
       total: errorLogs.length
     });
     
@@ -8357,15 +8376,50 @@ app.use((err, req, res, next) => {
 })
 
 // Mobile App APK Download
+function getApkFileInfo() {
+  const apkPath = path.join(mobileAppPath, 'WestConnect-release.apk')
+  if (!fs.existsSync(apkPath)) return { available: false, apkPath }
+  let size = 0
+  try {
+    size = fs.statSync(apkPath).size
+  } catch {
+    size = 0
+  }
+  return { available: true, apkPath, size }
+}
+
+// WCConnect student-app download landing page. This is what every printed
+// QR code (e.g. on the COR) points to, so it must stay at this exact URL:
+// scan -> branded page -> tap Download. The raw file lives at /download-apk/file.
 app.get('/download-apk', (req, res) => {
   try {
-    const apkPath = path.join(mobileAppPath, 'WestConnect-release.apk')
-    
-    if (!fs.existsSync(apkPath)) {
+    const { renderMobileDownloadPage, formatBytes, readAppVersion } = require('./mobileDownloadPage')
+    const info = getApkFileInfo()
+    const html = renderMobileDownloadPage({
+      available: info.available,
+      fileName: 'WCConnect.apk',
+      fileSize: info.available ? formatBytes(info.size) : '',
+      appVersion: readAppVersion(path.join(mobileAppPath, '..', '..'))
+    })
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    res.setHeader('Cache-Control', 'no-store')
+    return res.send(html)
+  } catch (error) {
+    logger.error('Download page error:', error.message)
+    res.status(500).json({ error: 'Failed to load download page.' })
+  }
+})
+
+// Raw APK bytes for the landing page's download button.
+app.get('/download-apk/file', (req, res) => {
+  try {
+    const info = getApkFileInfo()
+
+    if (!info.available) {
       return res.status(404).json({ error: 'APK file not found. Please build the mobile app first.' })
     }
 
-    res.download(apkPath, 'WestConnect.apk', (err) => {
+    res.download(info.apkPath, 'WCConnect.apk', (err) => {
       if (err) {
         logger.error('APK download error:', err.message)
         if (!res.headersSent) {

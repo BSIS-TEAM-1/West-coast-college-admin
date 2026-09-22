@@ -1,0 +1,78 @@
+/* Shared section-level loading placeholders.
+   Use inside the loading section so headings, filters, and navigation stay
+   interactive — never replace a whole page with a spinner. */
+.section-skeleton {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.25rem 0;
+}
+
+.section-skeleton__announcer {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.section-skeleton__row {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  background: var(--color-surface);
+}
+
+.section-skeleton--rows .section-skeleton__row {
+  border-style: dashed;
+  padding: 0.65rem 1rem;
+}
+
+.section-skeleton--table .section-skeleton__row {
+  grid-template-columns: 3rem 2fr 1fr 5rem;
+  align-items: center;
+}
+
+.section-skeleton__bar {
+  display: block;
+  height: 0.75rem;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-border) 72%, transparent),
+    color-mix(in srgb, var(--color-primary) 12%, transparent),
+    color-mix(in srgb, var(--color-border) 72%, transparent)
+  );
+  background-size: 200% 100%;
+  animation: section-skeleton-shimmer 1.3s linear infinite;
+}
+
+.section-skeleton__bar--narrow {
+  width: 3rem;
+}
+
+.section-skeleton__bar--medium {
+  width: 55%;
+}
+
+.section-skeleton__bar--wide {
+  width: 100%;
+}
+
+.section-skeleton__bar--title {
+  width: 42%;
+  height: 1rem;
+}
+
+@keyframes section-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section-skeleton__bar {
+    animation: none;
+  }
+}

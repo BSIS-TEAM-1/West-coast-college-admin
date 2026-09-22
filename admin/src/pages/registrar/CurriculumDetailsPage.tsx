@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { ArrowLeft, BookOpen, ChevronDown, ChevronRight, Copy, Plus, Search, Trash2, GraduationCap, BookPlus, Info, X, CheckCircle } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import type { CurriculumStructure, Semester, SubjectItem } from './registrarBlockTypes'
+import SectionSkeleton from '../../components/SectionSkeleton'
+import '../../components/SectionSkeleton.css'
 import '../CurriculumManagement.css'
 
 type CurriculumDetailsPageProps = {
@@ -330,7 +332,11 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
   if (loading) {
     return (
       <div className="registrar-section curriculum-details-page">
-        <p className="assignment-empty-copy">Loading curriculum...</p>
+        <button className="registrar-btn registrar-btn-secondary" type="button" onClick={onBack}>
+          <ArrowLeft size={16} />
+          Back to Curriculums
+        </button>
+        <SectionSkeleton variant="cards" rows={3} label="Loading curriculum" />
       </div>
     )
   }

@@ -36,6 +36,8 @@ import { buildStudentPayloadFromWizardForm, buildWizardFormData } from './AddStu
 import StudentWizard from './AddStudent/StudentWizard'
 import BlockAssignmentModal from './BlockAssignmentModal'
 import NotificationToast from './NotificationToast'
+import SectionSkeleton from './SectionSkeleton'
+import './SectionSkeleton.css'
 import { StudentWorkspaceOverlay, isStudentWorkspaceBackdropTarget } from './shared/StudentWorkspaceOverlay'
 import {
   COURSE_OPTIONS,
@@ -2099,7 +2101,9 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
           </header>
 
           {loading ? (
-            <div className="student-workspace__empty-state">Loading student records...</div>
+            <div className="student-workspace__table-shell">
+              <SectionSkeleton variant="table" rows={8} label="Loading student records" />
+            </div>
           ) : filteredStudents.length ? (
             <div className="student-workspace__table-shell">
               <table className="student-workspace__table">

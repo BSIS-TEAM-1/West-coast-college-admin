@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Download, Search, Send } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import { fetchWithAutoReconnect, isAbortRequestError, isNetworkRequestError } from '../../lib/network'
@@ -711,7 +712,7 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
         )}
       </>
 
-      {selectedStudent && (
+      {selectedStudent && createPortal(
         <div className="professor-student-modal-backdrop" onClick={() => setSelectedStudent(null)}>
           <div className="professor-student-modal" onClick={(event) => event.stopPropagation()}>
             <div className="professor-student-modal-header">
@@ -732,7 +733,8 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

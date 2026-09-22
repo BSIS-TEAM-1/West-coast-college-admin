@@ -630,7 +630,9 @@ class BackupSystem {
         collectionCounts: verification.validation.counts
       });
 
-      await this.cleanupOldBackups();
+      if (String(process.env.BACKUP_AUTO_RETENTION || 'false').toLowerCase() === 'true') {
+        await this.cleanupOldBackups();
+      }
       await this.notifications.notify('backup.completed', { backupId: String(record._id), fileName: finalFileName, backupType: type, durationMs, isEncrypted });
       return {
         success: true,

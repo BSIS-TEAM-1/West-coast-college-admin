@@ -1930,36 +1930,19 @@ class StudentController {
       : null;
 
     const resolvedSemester = String(options.semester || blockGroup?.semester || '').trim();
-    const resolvedSchoolYear = String(
-      options.schoolYear || String(blockGroup?.year || '').trim() || ''
-    ).trim();
+    // Normalize to "YYYY-YYYY": group.year is frequently a bare start-year
+    // (2026, sometimes stored as a BSON Number) while Enrollment.schoolYear
+    // is "2026-2027". Comparing raw values misses and makes populated
+    // sections report zero students.
+    const resolvedSchoolYear = StudentController.toSchoolYearSafe(
+      String(options.schoolYear || String(blockGroup?.year ?? '').trim() || '').trim()
+    );
 
     const assignmentQuery = {
       sectionId: section._id,
       status: 'ASSIGNED'
     };
     if (resolvedSemester) assignmentQuery.semester = resolvedSemester;
-    // Year conventions vary across records (bare "2026" vs "2026-2027"),
-    // so match either form instead of finding zero students in sections
-    // whose assignments were stored with the other convention.
-    const yearVariants = new Set();
-    if (resolvedSchoolYear) {
-      yearVariants.add(resolvedSchoolYear);
-      const startYear = Number(String(resolvedSchoolYear).split('-')[0]);
-      if (Number.isFinite(startYear) && startYear > 0) {
-        yearVariants.add(String(startYear));
-      }
-    } else if (blockGroup?.year) {
-      yearVariants.add(String(blockGroup.year).trim());
-      const startYear = Number(String(blockGroup.year).trim().split('-')[0]);
-      if (Number.isFinite(startYear) && startYear > 0) {
-        yearVariants.add(String(startYear));
-        yearVariants.add(`${startYear}-${startYear + 1}`);
-      }
-    }
-    if (yearVariants.size > 0) {
-      assignmentQuery.year = { $in: Array.from(yearVariants).filter(Boolean) };
-    }
 
     const assignments = await StudentBlockAssignment.find(assignmentQuery).select('studentId semester year').lean();
     const studentObjectIds = assignments
@@ -2355,7 +2338,7 @@ class StudentController {
     return generated;
   }
 
-  static async buildCorViewModel(student, { adminId, username } = {}) {
+  static async buildCorViewModel(student, { adminId, username, baseUrl } = {}) {
     const h = CorPdfService.helpers;
 
     // --- program / course ---
@@ -2386,8 +2369,12 @@ class StudentController {
     const registrarName = registrar?.displayName || username || "Registrar's Office";
 
     // --- QR target ---
+    // Priority: explicit baseUrl (e.g. derived from the generating request)
+    // -> APP_DOWNLOAD_URL env -> legacy fallback. Deriving from the request
+    // keeps scanned codes working on any host (local, LAN, production)
+    // without configuration.
     const appBaseUrl = String(
-      process.env.APP_DOWNLOAD_URL || 'https://west-coast-college-admin-production.up.railway.app'
+      baseUrl || process.env.APP_DOWNLOAD_URL || 'https://west-coast-college-admin-production.up.railway.app'
     ).replace(/\/+$/, '');
 
     return {
@@ -2434,9 +2421,16 @@ class StudentController {
         return res.status(404).json({ success: false, message: 'Student not found' });
       }
 
+      const forwardedProto = String(req.headers?.['x-forwarded-proto'] || '').split(',')[0].trim();
+      const forwardedHost = String(req.headers?.['x-forwarded-host'] || '').split(',')[0].trim();
+      const requestBaseUrl = forwardedHost
+        ? `${forwardedProto || req.protocol || 'http'}://${forwardedHost}`
+        : null;
+
       const corData = await StudentController.buildCorViewModel(student, {
         adminId: req.adminId,
-        username: req.username
+        username: req.username,
+        baseUrl: requestBaseUrl
       });
 
       const pdf = await CorPdfService.generate(corData);

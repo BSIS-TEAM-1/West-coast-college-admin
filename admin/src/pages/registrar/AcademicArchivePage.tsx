@@ -15,6 +15,8 @@ import {
 } from 'lucide-react'
 import { listRolloverSnapshots, getRolloverSnapshot } from '../../lib/rolloverApi'
 import type { ArchiveSnapshotSummary } from '../../lib/rolloverApi'
+import SectionSkeleton from '../../components/SectionSkeleton'
+import '../../components/SectionSkeleton.css'
 import './AcademicArchivePage.css'
 
 type View = 'grid' | 'year'
@@ -130,17 +132,6 @@ export default function AcademicArchivePage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="academic-archive-page">
-        <div className="academic-archive-loading">
-          <RefreshCw size={24} className="academic-archive-spin" />
-          <p>Loading academic archives...</p>
-        </div>
-      </div>
-    )
-  }
-
   if (error) {
     return (
       <div className="academic-archive-page">
@@ -190,7 +181,9 @@ export default function AcademicArchivePage() {
         </div>
       </header>
 
-      {snapshots.length === 0 ? (
+      {loading ? (
+        <SectionSkeleton variant="cards" rows={4} label="Loading academic archives" />
+      ) : snapshots.length === 0 ? (
         <div className="academic-archive-empty">
           <Archive size={40} />
           <h3>No archives yet</h3>
