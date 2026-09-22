@@ -840,14 +840,14 @@
   gap: 1rem;
   padding: 0.75rem 0.85rem;
   border-radius: 0.5rem;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
+  border: none;
   background: transparent;
 }
 
 /* Dedicated scoped styling for teaching load course header */
 .teaching-load-course-header {
   background: transparent !important;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border)) !important;
+  border: none !important;
   border-radius: 0.5rem !important;
 }
 
@@ -966,7 +966,7 @@
   padding: 0.5rem 0.6rem;
   border-radius: 0.4rem;
   border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
-  background: var(--color-surface);
+  background: transparent;
   transition: border-color 0.2s ease;
 }
 

@@ -342,7 +342,6 @@ function CourseManagement({
 
   useEffect(() => {
     const allKeys = filteredCourses.flatMap((course) => course.blocks.map((block) => getBlockKey(course.courseCode, block)))
-    const defaultKeys = filteredCourses.flatMap((course) => course.blocks.slice(0, 1).map((block) => getBlockKey(course.courseCode, block)))
 
     setExpandedBlockKeys((current) => {
       const validKeys = new Set(allKeys)
@@ -352,17 +351,15 @@ function CourseManagement({
         return []
       }
 
-      if (hasActiveFilters) {
-        return allKeys
-      }
-
       if (kept.length > 0) {
         return kept
       }
 
-      return defaultKeys
+      // Default to fully expanded so subjects are visible without drilling
+      // through every block accordion. The user can still collapse all.
+      return allKeys
     })
-  }, [filteredCourses, hasActiveFilters])
+  }, [filteredCourses])
 
   const clearFilters = () => {
     setSearchQuery('')
@@ -381,6 +378,8 @@ function CourseManagement({
       return [...current, blockKey]
     })
   }
+
+  const allBlockKeys = useMemo(() => { return filteredCourses.flatMap((course) => course.blocks.map((block) => getBlockKey(course.courseCode, block))) }, [filteredCourses])
 
   const subjectRows = useMemo(() => {
     return filteredCourses.flatMap((course) => {
@@ -711,6 +710,24 @@ function CourseManagement({
               List
             </button>
           </div>
+          {layoutMode === 'grid' && allBlockKeys.length > 1 && (
+            <div className="professor-layout-toggle" role="group" aria-label="Block expand controls">
+              <button
+                type="button"
+                className="professor-layout-btn"
+                onClick={() => setExpandedBlockKeys(allBlockKeys)}
+              >
+                Expand all
+              </button>
+              <button
+                type="button"
+                className="professor-layout-btn"
+                onClick={() => setExpandedBlockKeys([])}
+              >
+                Collapse all
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

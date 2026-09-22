@@ -36,6 +36,8 @@ import {
   type DocumentStatus,
   type DocumentDepartment,
 } from '../../lib/documentApi'
+import SectionSkeleton from '../../components/SectionSkeleton'
+import '../../components/SectionSkeleton.css'
 import './DocumentManagementPage.css'
 
 const CATEGORIES: DocumentCategory[] = ['POLICY', 'HANDBOOK', 'ACCREDITATION', 'FORM', 'GUIDELINE', 'PROCEDURE', 'REPORT', 'OTHER']
@@ -306,10 +308,7 @@ export default function DocumentManagementPage() {
           )}
 
           {loading ? (
-            <div className="doc-mgmt-loading">
-              <RefreshCw size={24} className="doc-mgmt-spin" />
-              <p>Loading...</p>
-            </div>
+            <SectionSkeleton variant="table" rows={6} label="Loading documents" />
           ) : selectedFolderId ? (
             /* Inside a folder — show files in a list */
             documents.length === 0 ? (

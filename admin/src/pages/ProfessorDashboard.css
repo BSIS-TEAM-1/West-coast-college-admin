@@ -1051,6 +1051,19 @@
   background: transparent;
 }
 
+/* The global form reset in index.css draws its own bordered input inside
+   search wrappers (border + background + min-height with !important),
+   producing a doubled border. Neutralize it here so only the wrapper
+   border shows. */
+.professor-course-search input,
+.professor-course-search input:focus {
+  border: none !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  min-height: 0 !important;
+}
+
 .professor-course-search input::placeholder {
   color: var(--color-text-muted);
 }
@@ -1152,8 +1165,8 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: transparent;
+  border: none;
   border-radius: 0.5rem;
   padding: 0.2rem;
   flex-shrink: 0;
@@ -1349,6 +1362,19 @@
   color: var(--color-text);
 }
 
+/* The global form reset in index.css draws its own bordered input inside
+   search wrappers (border + background + min-height with !important),
+   producing a doubled border. Neutralize it here so only the wrapper
+   border shows. */
+.professor-roster-search input,
+.professor-roster-search input:focus {
+  border: none !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  min-height: 0 !important;
+}
+
 .professor-roster-search input::placeholder {
   color: var(--color-text-muted);
 }
@@ -1537,6 +1563,92 @@
 .professor-student-modal-content {
   display: grid;
   gap: 1rem;
+}
+
+/* Event details modal: tag + prominent title, fact rows, section panels. */
+.professor-event-modal {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.8rem;
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.28);
+  padding: 1.25rem;
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
+[data-theme='dark'] .professor-event-modal {
+  background:
+    linear-gradient(145deg, rgba(37, 99, 235, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.98));
+  border-color: rgba(148, 163, 184, 0.24);
+  color: #e5e7eb;
+}
+.professor-event-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.professor-event-modal-title {
+  display: grid;
+  gap: 0.45rem;
+  justify-items: start;
+  min-width: 0;
+}
+
+.professor-event-modal-title h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-text-bold, var(--color-text));
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.professor-event-modal-title p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.professor-event-modal-facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.6rem 1rem;
+}
+
+.professor-event-modal-facts > div {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.professor-event-modal-facts dt {
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.professor-event-modal-facts dd {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.professor-student-academic p {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  color: var(--color-text);
 }
 
 .professor-student-modal-grid {
@@ -2013,9 +2125,10 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  border: 1px solid var(--color-border);
+  border: none;
   border-radius: 0.5rem;
   padding: 0.15rem;
+  background: transparent;
 }
 
 .professor-schedule-view-toggle .professor-layout-btn {
@@ -2051,6 +2164,43 @@
 
 .professor-schedule-card-list .professor-empty-state {
   grid-column: 1 / -1;
+}
+
+.professor-schedule-card-list > .professor-schedule-day-group {
+  display: grid;
+  gap: 0.6rem;
+  align-content: start;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  background: var(--color-surface);
+  padding: 0.85rem 1rem;
+}
+
+.professor-schedule-day-title {
+  margin: 0.5rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.professor-schedule-day-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+
+.professor-schedule-day-group .professor-schedule-day-cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+  min-width: 0;
 }
 
 .professor-schedule-day-section {
@@ -2491,16 +2641,19 @@
 
 .professor-mini-calendar-day,
 .professor-mini-calendar-empty {
-  min-height: 108px;
+  box-sizing: border-box;
+  height: 4.5rem;
   border: 1px solid var(--color-border);
-  border-radius: 0.4rem;
+  border-radius: 0.5rem;
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
   justify-content: flex-start;
-  flex-direction: column;
+  gap: 0.35rem;
   font-size: 0.78rem;
-  padding: 0.45rem;
+  padding: 0.45rem 0.5rem;
   position: relative;
+  overflow: hidden;
 }
 
 .professor-mini-calendar-empty {
@@ -2513,20 +2666,28 @@
   cursor: pointer;
   width: 100%;
   color: var(--color-text);
+  font: inherit;
+  text-align: left;
 }
 
 .professor-mini-calendar-date {
   display: block;
-  align-self: flex-start;
   font-size: 0.8rem;
   font-weight: 700;
   line-height: 1;
   color: var(--color-text);
 }
 
-.professor-mini-calendar-day.is-today {
-  border-color: var(--color-primary);
-  box-shadow: inset 0 0 0 1px var(--color-primary);
+.professor-mini-calendar-day.is-today .professor-mini-calendar-date {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
 }
 
 .professor-mini-calendar-day.has-event {
@@ -2534,119 +2695,48 @@
 }
 
 .professor-mini-calendar-day.is-active {
-  background: var(--color-primary);
-  color: var(--color-on-primary);
   border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
 }
 
-.professor-mini-calendar-day.is-active .professor-mini-calendar-date {
-  color: var(--color-on-primary);
-}
-
-.professor-mini-calendar-timeline {
-  width: 100%;
-  display: grid;
-  gap: 0.38rem;
-  margin-top: 0.5rem;
-}
-
-.professor-mini-calendar-event-line {
-  --mini-event-fill: color-mix(in srgb, var(--color-primary) 82%, white);
-  --mini-event-track: color-mix(in srgb, var(--mini-event-fill) 12%, var(--color-surface));
-  --mini-event-border: color-mix(in srgb, var(--mini-event-fill) 26%, var(--color-border));
-  width: 100%;
-  min-height: 1.72rem;
-  border-radius: 0.65rem;
-  background: var(--mini-event-track);
-  border: 1px solid var(--mini-event-border);
-  overflow: hidden;
-  position: relative;
-  display: grid;
-  align-content: start;
-  gap: 0.2rem;
-  padding: 0.18rem 0.4rem 0.58rem;
-  box-sizing: border-box;
-}
-
-.professor-mini-calendar-event-fill {
-  display: block;
-  height: 0.34rem;
-  border-radius: 999px;
-  background: var(--mini-event-fill);
-  min-width: 16px;
-  position: absolute;
-  bottom: 0.18rem;
-  left: 0;
-  top: auto;
-  right: auto;
-  opacity: 1;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--mini-event-fill) 35%, rgba(15, 23, 42, 0.12));
-}
-
-.professor-mini-calendar-event-label {
-  position: relative;
-  z-index: 1;
-  display: block;
+.professor-mini-calendar-dots {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.63rem;
-  font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: 0.01em;
-  color: var(--color-text-bold);
+  margin-top: auto;
 }
 
-.professor-mini-calendar-event-line.tag-exam .professor-mini-calendar-event-fill {
-  --mini-event-fill: #f59e0b;
+.professor-mini-calendar-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary) 82%, white);
 }
 
-.professor-mini-calendar-event-line.tag-holiday .professor-mini-calendar-event-fill {
-  --mini-event-fill: #16a34a;
+.professor-mini-calendar-dot.tag-exam {
+  background: #f59e0b;
 }
 
-.professor-mini-calendar-event-line.tag-meeting .professor-mini-calendar-event-fill {
-  --mini-event-fill: #0ea5e9;
+.professor-mini-calendar-dot.tag-holiday {
+  background: #16a34a;
 }
 
-.professor-mini-calendar-event-line.tag-deadline .professor-mini-calendar-event-fill {
-  --mini-event-fill: #ef4444;
+.professor-mini-calendar-dot.tag-meeting {
+  background: #0ea5e9;
 }
 
-.professor-mini-calendar-event-line.tag-general .professor-mini-calendar-event-fill,
-.professor-mini-calendar-event-line.tag-academic .professor-mini-calendar-event-fill {
-  --mini-event-fill: color-mix(in srgb, var(--color-primary) 82%, white);
+.professor-mini-calendar-dot.tag-deadline {
+  background: #ef4444;
 }
 
 .professor-mini-calendar-more {
-  display: inline-flex;
-  align-items: center;
-  align-self: flex-start;
-  padding: 0.12rem 0.42rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
   font-size: 0.66rem;
   font-weight: 700;
   color: var(--color-text-muted);
-}
-
-.professor-mini-calendar-day.is-active .professor-mini-calendar-event-line {
-  background: color-mix(in srgb, var(--color-on-primary) 18%, transparent);
-  border-color: color-mix(in srgb, var(--color-on-primary) 26%, transparent);
-}
-
-.professor-mini-calendar-day.is-active .professor-mini-calendar-event-fill {
-  background: color-mix(in srgb, var(--color-on-primary) 94%, transparent);
-  box-shadow: none;
-}
-
-.professor-mini-calendar-day.is-active .professor-mini-calendar-event-label {
-  color: var(--color-on-primary);
-}
-
-.professor-mini-calendar-day.is-active .professor-mini-calendar-more {
-  color: rgba(255, 255, 255, 0.92);
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .professor-schedule-event-list {
@@ -2663,16 +2753,21 @@
 
 .professor-schedule-event-item {
   border: 1px solid var(--color-border);
-  border-radius: 0.55rem;
+  border-radius: 0.75rem;
   background: var(--color-surface);
   color: var(--color-text);
   width: 100%;
+  min-width: 0;
+  min-height: 8.5rem;
   text-align: left;
-  padding: 0.75rem 0.65rem 0.6rem;
+  padding: 1rem 1rem 0.9rem;
   cursor: pointer;
   height: 100%;
   position: relative;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
 }
 
 .professor-schedule-event-item::before {
@@ -2687,20 +2782,31 @@
 
 .professor-schedule-event-header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.4rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
   font-size: 0.8rem;
+  min-width: 0;
 }
 
 .professor-schedule-event-header strong {
-  color: inherit;
+  color: var(--color-text-bold, inherit);
+  font-size: 1.02rem;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.professor-schedule-event-header .professor-schedule-event-tag {
+  flex-shrink: 0;
 }
 
 .professor-schedule-event-meta {
-  margin-top: 0.3rem;
+  margin-top: auto;
+  padding-top: 0.35rem;
   color: var(--color-text-muted);
-  font-size: 0.75rem;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
 }
 
 .professor-schedule-event-tag {

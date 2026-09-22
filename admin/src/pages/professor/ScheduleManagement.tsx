@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { CalendarDays, Clock, Grid3X3, List, MapPin, Search } from 'lucide-react'
 import { API_URL } from '../../lib/authApi'
 import { fetchWithAutoReconnect, isAbortRequestError } from '../../lib/network'
 import type { ProfessorAssignedCourse } from './professorTypes'
 import { isVisibleProfessorAnnouncement } from './professorUtils'
+import SectionSkeleton from '../../components/SectionSkeleton'
+import '../../components/SectionSkeleton.css'
 
 interface ScheduleManagementProps {
   courses: ProfessorAssignedCourse[]
@@ -1127,9 +1130,14 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
 
   if (loading) {
     return (
-      <div className="professor-section">
-        <h2 className="professor-section-title">Schedule</h2>
-        <p className="professor-section-desc">Loading assigned teaching schedules...</p>
+      <div className="professor-section professor-schedule-page">
+        <div className="professor-schedule-head">
+          <div>
+            <h2 className="professor-section-title">Schedule</h2>
+            <p className="professor-section-desc">View your teaching schedule and upcoming academic events.</p>
+          </div>
+        </div>
+        <SectionSkeleton variant="cards" rows={3} label="Loading assigned teaching schedules" />
       </div>
     )
   }
@@ -1295,7 +1303,11 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
                       const items = groupedClassDays[day]
                       if (items.length === 0) return null
 
-                      return items.map((entry) => (
+                      return (
+                        <section key={`day-group-${day}`} className="professor-schedule-day-group" aria-label={`${day} classes`}>
+                          <h3 className="professor-schedule-day-title">{day}</h3>
+                          <div className="professor-schedule-day-cards">
+                          {items.map((entry) => (
                         <button
                           key={`${entry.id}-${day}`}
                           type="button"
@@ -1303,7 +1315,6 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
                           onClick={() => setSelectedClass(entry)}
                         >
                           <div className="professor-schedule-card-head">
-                            <span className="professor-schedule-card-day">{day}</span>
                             <span className="professor-schedule-card-badge">{entry.classType}</span>
                           </div>
                           <div className="professor-schedule-item-title">
@@ -1321,7 +1332,10 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
                             <span>School Year: {entry.schoolYear}</span>
                           </div>
                         </button>
-                      ))
+                          ))}
+                          </div>
+                        </section>
+                      )
                     })}
 
                     {groupedClassDays.Unscheduled.map((entry) => (
@@ -1526,25 +1540,14 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
                         onClick={() => setCalendarDate((prev) => (prev === cell.date ? null : cell.date))}
                       >
                         <span className="professor-mini-calendar-date">{cell.day}</span>
-                        {cell.previews.length > 0 && (
-                          <span className="professor-mini-calendar-timeline">
+                        {(cell.previews.length > 0 || cell.extraCount > 0) && (
+                          <span className="professor-mini-calendar-dots" aria-hidden="true">
                             {cell.previews.map((preview) => (
                               <span
                                 key={preview.id}
-                                className={`professor-mini-calendar-event-line tag-${preview.tagClass}`}
-                                title={`${preview.title} • ${preview.label}`}
-                              >
-                                <span className="professor-mini-calendar-event-label">
-                                  {preview.title}
-                                </span>
-                                <span
-                                  className="professor-mini-calendar-event-fill"
-                                  style={{
-                                    left: `${preview.offsetPercent}%`,
-                                    width: `${preview.widthPercent}%`
-                                  }}
-                                />
-                              </span>
+                                className={`professor-mini-calendar-dot tag-${preview.tagClass}`}
+                                title={preview.title}
+                              />
                             ))}
                             {cell.extraCount > 0 && (
                               <span className="professor-mini-calendar-more">+{cell.extraCount}</span>
@@ -1577,11 +1580,11 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
                           onClick={() => setSelectedEvent(event)}
                         >
                           <div className="professor-schedule-event-header">
-                            <strong>{event.title}</strong>
                             <span className={`professor-schedule-event-tag tag-${eventTag}`}>{event.statusTag}</span>
+                            <strong>{event.title}</strong>
                           </div>
                           <div className="professor-schedule-event-meta">
-                            {event.date} • {event.time} • {event.category}
+                            {event.time} • {event.category}
                           </div>
                         </button>
                       )
@@ -1598,7 +1601,7 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
         </section>
       </div>
 
-      {selectedClass && (
+      {selectedClass && createPortal(
         <div className="professor-student-modal-backdrop" onClick={() => setSelectedClass(null)}>
           <div className="professor-student-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
             <div className="professor-student-modal-header">
@@ -1626,52 +1629,56 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {selectedEvent && (
+      {selectedEvent && createPortal(
         <div className="professor-student-modal-backdrop" onClick={() => setSelectedEvent(null)}>
-          <div className="professor-student-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
-            <div className="professor-student-modal-header">
-              <h3>School Event</h3>
+          <div className="professor-student-modal professor-event-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <div className="professor-event-modal-head">
+              <div className="professor-event-modal-title">
+                <span className={`professor-schedule-event-tag tag-${selectedEvent.statusTagClass || 'general'}`}>{selectedEvent.statusTag}</span>
+                <h3>{selectedEvent.title}</h3>
+                <p>{selectedEvent.date} • {selectedEvent.time} • {selectedEvent.category}</p>
+              </div>
               <button className="professor-btn professor-btn-secondary" type="button" onClick={() => setSelectedEvent(null)}>Close</button>
             </div>
-            <div className="professor-student-modal-content">
-              <div className="professor-student-modal-grid">
-                <div><strong>Title:</strong> {selectedEvent.title}</div>
-                <div><strong>Date:</strong> {selectedEvent.date}</div>
-                <div><strong>Time:</strong> {selectedEvent.time}</div>
-                <div><strong>Type:</strong> {selectedEvent.category}</div>
-                <div><strong>Status:</strong> {selectedEvent.statusTag}</div>
-                <div><strong>Day:</strong> {selectedEventDay || 'N/A'}</div>
-              </div>
-              <p><strong>Description:</strong> {selectedEvent.description}</p>
-
-              <div className="professor-student-academic">
-                <h4>Affected classes</h4>
-                <ul>
-                  {(filteredClasses.filter((entry) => {
-                    if (!selectedEventDay) return false
-                    if (entry.days.length === 0) return false
-                    return entry.days.includes(selectedEventDay)
-                  })).length === 0 ? (
-                    <li>No directly affected classes identified.</li>
-                  ) : (
-                    filteredClasses
-                      .filter((entry) => {
-                        if (!selectedEventDay) return false
-                        if (entry.days.length === 0) return false
-                        return entry.days.includes(selectedEventDay)
-                      })
-                      .map((entry) => (
-                        <li key={`${entry.id}-${selectedEventDay}`}>{entry.subjectCode} • {entry.blockCode}</li>
-                      ))
-                  )}
-                </ul>
-              </div>
+            <dl className="professor-event-modal-facts">
+              <div><dt>Date</dt><dd>{selectedEvent.date}</dd></div>
+              <div><dt>Time</dt><dd>{selectedEvent.time}</dd></div>
+              <div><dt>Type</dt><dd>{selectedEvent.category}</dd></div>
+              <div><dt>Day</dt><dd>{selectedEventDay || 'N/A'}</dd></div>
+            </dl>
+            <div className="professor-student-academic">
+              <h4>Description</h4>
+              <p>{selectedEvent.description || 'No description provided.'}</p>
+            </div>
+            <div className="professor-student-academic">
+              <h4>Affected classes</h4>
+              <ul>
+                {(filteredClasses.filter((entry) => {
+                  if (!selectedEventDay) return false
+                  if (entry.days.length === 0) return false
+                  return entry.days.includes(selectedEventDay)
+                })).length === 0 ? (
+                  <li>No directly affected classes identified.</li>
+                ) : (
+                  filteredClasses
+                    .filter((entry) => {
+                      if (!selectedEventDay) return false
+                      if (entry.days.length === 0) return false
+                      return entry.days.includes(selectedEventDay)
+                    })
+                    .map((entry) => (
+                      <li key={`${entry.id}-${selectedEventDay}`}>{entry.subjectCode} • {entry.blockCode}</li>
+                    ))
+                )}
+              </ul>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
