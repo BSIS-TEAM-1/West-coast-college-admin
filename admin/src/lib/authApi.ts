@@ -519,7 +519,10 @@ export async function createAccount(accountData: CreateAccountRequest): Promise<
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    throw new Error((data?.error as string) || 'Failed to create account.')
+    const details = Array.isArray((data as { details?: unknown }).details)
+      ? ` ${((data as { details: string[] }).details).join(' ')}`
+      : ''
+    throw new Error(`${(data?.error as string) || 'Failed to create account.'}${details}`)
   }
   return data as { message: string; account: AccountLog }
 }
@@ -530,7 +533,8 @@ export async function getAccountCount(accountType: 'admin' | 'registrar' | 'prof
   if (!res.ok) {
     throw new Error((data?.error as string) || 'Failed to get account count.')
   }
-  return data.count as number
+  const count = (data as { count?: unknown }).count
+  return typeof count === 'number' && Number.isFinite(count) ? count : 0
 }
 
 export async function deleteAccount(accountId: string): Promise<{ message: string }> {
