@@ -49,7 +49,7 @@ const STUDENT_GENDERS = ['Male', 'Female', 'Other', 'Prefer not to say'];
 const STUDENT_CIVIL_STATUSES = ['Single', 'Married', 'Widowed', 'Separated', 'Divorced'];
 const subjectIdSchema = Joi.string().pattern(/^[0-9a-fA-F]{24}$/);
 const studentNumberSchema = Joi.string().pattern(/^[0-9]{12}$/);
-const accountUidSchema = Joi.string().trim().pattern(/^1\d{11,12}$/);
+const accountUidSchema = Joi.string().trim().pattern(/^1?\d{11,12}$/);
 const schoolYearSchema = Joi.string().pattern(/^\d{4}-\d{4}$/);
 const nonEmptyTrimmedString = (max = 254) => Joi.string().trim().min(1).max(max);
 const optionalTrimmedString = (max = 254) => Joi.string().trim().max(max).allow('');
@@ -329,7 +329,7 @@ const schemas = {
   createAdmin: {
     body: Joi.object({
       username: Joi.string().trim().lowercase().min(1).max(254).required(),
-      displayName: Joi.string().trim().min(1).max(254).optional(),
+      displayName: Joi.string().trim().max(254).allow('').optional(),
       accountType: Joi.string().valid(...ACCOUNT_TYPES).required(),
       password: Joi.string().min(8).max(128).required(),
       uid: accountUidSchema.required()
@@ -413,7 +413,7 @@ const schemas = {
     createAccount: {
       body: Joi.object({
         username: Joi.string().trim().lowercase().min(1).max(254).required(),
-        displayName: Joi.string().trim().min(1).max(254).optional(),
+        displayName: Joi.string().trim().max(254).allow('').optional(),
         accountType: Joi.string().valid(...ACCOUNT_TYPES).required(),
         password: Joi.string().min(8).max(128).required(),
         uid: accountUidSchema.required()
