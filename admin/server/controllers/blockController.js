@@ -13,6 +13,7 @@ const Curriculum = require('../models/Curriculum');
 const AcademicPeriod = require('../models/AcademicPeriod');
 const Subject = require('../models/Subject');
 const CurriculumSubject = require('../models/CurriculumSubject');
+const BlockSubjectAssignment = require('../models/BlockSubjectAssignment');
 const { autoAssignSubjectsFromCurriculum } = require('../services/blockSubjectAutoAssignService');
 const { convertToSchoolYear } = require('../services/dateUtils');
 const enrollmentGuard = require('../services/enrollmentGuard');
@@ -506,7 +507,16 @@ class BlockController {
         data: {
           group: { _id: String(group._id), name: group.name, courseId: group.courseId ?? null, yearLevel, semester },
           curriculum: curriculum
-            ? { _id: String(curriculum._id), name: curriculum.name, programCode: curriculum.programCode, version: curriculum.version, status: curriculum.status }
+            ? {
+                _id: String(curriculum._id),
+                // `name` is optional on Curriculum, so fall back to the same
+                // program + version label evaluateCurriculumFit uses. Without
+                // this the panel renders a blank curriculum name.
+                name: curriculum.name || `${curriculum.programName || ''} ${curriculum.version || ''}`.trim(),
+                programCode: curriculum.programCode,
+                version: curriculum.version,
+                status: curriculum.status,
+              }
             : null,
           sections: sections.map((s) => ({ _id: String(s._id), sectionCode: s.sectionCode })),
           expected,
