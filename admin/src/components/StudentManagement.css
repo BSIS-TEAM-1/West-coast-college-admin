@@ -1284,6 +1284,43 @@ body.student-workspace-overlay-open #root * {
   font-size: 0.86rem;
 }
 
+.student-workspace__eligibility-context {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0.75rem 1rem;
+  margin-bottom: 1.25rem;
+  padding: 0.95rem 1.1rem;
+  border: 1px solid var(--student-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--student-surface-soft) 92%, transparent);
+}
+
+.student-workspace__eligibility-context-item {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.student-workspace__eligibility-context-item span {
+  color: var(--student-text-soft);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.student-workspace__eligibility-context-item strong {
+  color: var(--color-text, #f8fafc);
+  font-size: 0.86rem;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.student-workspace__eligibility-context-item--warning strong {
+  color: var(--color-warning, #f59e0b);
+}
+
 .student-workspace__state-card {
   display: flex;
   gap: 1rem;

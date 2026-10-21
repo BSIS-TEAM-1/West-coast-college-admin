@@ -2,10 +2,7 @@ const mongoose = require('mongoose');
 const Student = require('../models/Student');
 const BlockGroup = require('../models/BlockGroup');
 const BlockSection = require('../models/BlockSection');
-const StudentBlockAssignment = require('../models/StudentBlockAssignment');
 const Enrollment = require('../models/Enrollment');
-const Curriculum = require('../models/Curriculum');
-const AcademicPeriod = require('../models/AcademicPeriod');
 
 const COURSE_MAP = {
   101: 'BEED',
@@ -60,45 +57,40 @@ async function findActiveEnrollment(studentId, schoolYear, semester) {
 }
 
 /**
- * Evaluate whether a student's enrollment is eligible for a specific block section.
+ * Evaluate whether a student may join a specific block section.
  *
- * @param {Object|null} enrollment - Enrollment document (lean), authoritative academic source
- * @param {Object} student - Student document (lean), for classification + studentStatus
+ * Deliberately simple: a student can join any section that matches their
+ * course and year level and still has a free slot. Curriculum version,
+ * student classification, school year, semester, enrollment status and prior
+ * assignments are NOT blocking conditions — the registrar decides those, and
+ * the enrollment is created or reconciled when the assignment is saved.
+ *
+ * The extra parameters are kept so existing callers keep working; they are no
+ * longer consulted.
+ *
+ * @param {Object|null} enrollment - Enrollment document (lean); course/year source when present
+ * @param {Object} student - Student document (lean)
  * @param {Object} blockGroup - BlockGroup document (lean)
  * @param {Object} blockSection - BlockSection document (lean)
- * @param {Object|null} existingAssignment - Existing StudentBlockAssignment or null
- * @param {Object|null} curriculumDoc - Curriculum document for blockGroup.curriculumId, or null
- * @param {Object|null} activePeriod - Active AcademicPeriod, or null
+ * @param {Object|null} _existingAssignment - Ignored
+ * @param {Object|null} _curriculumDoc - Ignored
+ * @param {Object|null} _activePeriod - Ignored
+ * @param {Object} [_options] - Ignored
  * @returns {{ eligible: boolean, reasons: string[], checks: Object }}
  */
-function evaluateStudentEligibility(enrollment, student, blockGroup, blockSection, existingAssignment, curriculumDoc, activePeriod, options = {}) {
-  const { allowAutoEnroll = false } = options;
+function evaluateStudentEligibility(enrollment, student, blockGroup, blockSection, _existingAssignment, _curriculumDoc, _activePeriod, _options = {}) {
   const reasons = [];
   const checks = {
     program: true,
     yearLevel: true,
-    curriculum: true,
-    classification: true,
     capacity: true,
-    conflicts: true,
-    schoolYear: true,
-    semester: true,
-    enrollmentStatus: true,
   };
 
-  // Use Enrollment as the authoritative academic source, fall back to Student for legacy
-  const enrollmentCourse = enrollment ? enrollment.course : null;
-  const enrollmentYearLevel = enrollment ? Number(enrollment.yearLevel) : null;
-  const enrollmentSchoolYear = enrollment ? enrollment.schoolYear : null;
-  const enrollmentSemester = enrollment ? enrollment.semester : null;
-
-  // 1. Program / Course
-  // The Enrollment.course field uses a limited enum (e.g. 'BSED') that may not
-  // distinguish between sub-programs (BSED-English=102 vs BSED-Math=103).
-  // If the enrollment course doesn't normalize to a numeric code, fall back to
-  // student.course (which stores the numeric code: 101, 102, 103, 201).
-  const normalizedEnrollmentCourse = normalizeCourseCode(enrollmentCourse);
-  const studentCourse = normalizedEnrollmentCourse || normalizeCourseCode(student.course);
+  // 1. Course / program only. The enrollment is authoritative when present,
+  //    because its course enum may be coarser than the numeric student code
+  //    (BSED-English vs BSED-Math); fall back to student.course otherwise.
+  const enrollmentCourse = enrollment ? normalizeCourseCode(enrollment.course) : null;
+  const studentCourse = enrollmentCourse || normalizeCourseCode(student.course);
   const groupCourse = normalizeCourseCode(blockGroup.courseId || blockGroup.courseCode);
   if (groupCourse && studentCourse !== groupCourse) {
     checks.program = false;
@@ -107,71 +99,19 @@ function evaluateStudentEligibility(enrollment, student, blockGroup, blockSectio
     reasons.push(`Program/course does not match this block. Student is ${studentLabel}, block requires ${blockLabel}.`);
   }
 
-  // 2. Year Level
+  // 2. Year level only.
   const groupYearLevel = Number(blockGroup.yearLevel);
-  const effectiveYearLevel = Number.isFinite(enrollmentYearLevel) ? enrollmentYearLevel : Number(student.yearLevel);
-  if (Number.isFinite(groupYearLevel) && groupYearLevel > 0) {
-    if (effectiveYearLevel !== groupYearLevel) {
-      checks.yearLevel = false;
-      reasons.push(`Student year level does not match this block. Student is Year ${effectiveYearLevel}, block requires Year ${groupYearLevel}.`);
-    }
+  const enrollmentYearLevel = enrollment ? Number(enrollment.yearLevel) : NaN;
+  const effectiveYearLevel = Number.isFinite(enrollmentYearLevel)
+    ? enrollmentYearLevel
+    : Number(student.yearLevel);
+  if (Number.isFinite(groupYearLevel) && groupYearLevel > 0 && effectiveYearLevel !== groupYearLevel) {
+    checks.yearLevel = false;
+    reasons.push(`Student year level does not match this block. Student is Year ${effectiveYearLevel}, block requires Year ${groupYearLevel}.`);
   }
 
-  // 3. Curriculum — Enrollment.curriculumId is authoritative, Student.curriculumVersion is legacy fallback.
-  //
-  // ARCHITECTURAL RULE:
-  //   New enrollments should have curriculumId populated at creation time.
-  //   Legacy enrollments (created before this field existed) may have curriculumId = null.
-  //   For legacy records ONLY, Student.curriculumVersion is used as a temporary fallback
-  //   to match against Curriculum.version.
-  //
-  //   Student.curriculumVersion MUST NEVER override an explicit Enrollment.curriculumId.
-  //   This ensures historical immutability: a student changing their curriculum version
-  //   cannot reinterpret locked historical enrollment records.
-  if (blockGroup.curriculumId) {
-    // Prefer Enrollment.curriculumId (authoritative, school-year-specific)
-    const enrollmentCurriculumId = enrollment && enrollment.curriculumId ? String(enrollment.curriculumId) : null;
-
-    if (enrollmentCurriculumId) {
-      // Direct ObjectId comparison: enrollment curriculum vs block curriculum
-      if (enrollmentCurriculumId !== String(blockGroup.curriculumId)) {
-        checks.curriculum = false;
-        const blockLabel = curriculumDoc
-          ? `${curriculumDoc.programName || ''} ${curriculumDoc.version || ''}`.trim()
-          : 'the required curriculum';
-        reasons.push(`Curriculum mismatch. This block uses ${blockLabel}.`);
-      }
-    } else {
-      // Legacy fallback: use Student.curriculumVersion to match against Curriculum.version
-      const studentCurriculumVersion = String(student.curriculumVersion || '').trim();
-      if (!studentCurriculumVersion) {
-        // If auto-enroll is allowed and the block has a curriculum, the auto-created
-        // enrollment will inherit the block's curriculum — so this is not a blocker.
-        if (!allowAutoEnroll) {
-          checks.curriculum = false;
-          reasons.push('Student enrollment has no curriculum configured.');
-        }
-      } else if (curriculumDoc) {
-        const blockVersion = String(curriculumDoc.version || '').trim();
-        if (blockVersion && studentCurriculumVersion && blockVersion !== studentCurriculumVersion) {
-          checks.curriculum = false;
-          reasons.push(`Curriculum mismatch. This block uses the ${curriculumDoc.programName || ''} ${blockVersion} curriculum.`);
-        }
-      }
-    }
-  }
-
-  // 4. Student Classification
-  const blockClassification = blockGroup.studentClassification || 'All';
-  if (blockClassification !== 'All') {
-    const studentClassification = student.classification || 'Regular';
-    if (studentClassification !== blockClassification) {
-      checks.classification = false;
-      reasons.push(`This block accepts ${blockClassification} students only.`);
-    }
-  }
-
-  // 5. Capacity
+  // 3. Capacity is a property of the section, not of the student, so it stays
+  //    a hard stop — a section cannot hold more students than it has slots.
   if (blockSection) {
     const current = Number(blockSection.currentPopulation) || 0;
     const capacity = Number(blockSection.capacity) || 0;
@@ -179,56 +119,6 @@ function evaluateStudentEligibility(enrollment, student, blockGroup, blockSectio
       checks.capacity = false;
       reasons.push(`Block section is full. ${current} / ${capacity} students.`);
     }
-  }
-
-  // 6. Existing assignment conflict
-  if (existingAssignment) {
-    checks.conflicts = false;
-    reasons.push('Student already has a block assignment for this school year and semester.');
-  }
-
-  // 7. School Year — block must match enrollment's school year
-  const blockSchoolYear = blockGroup.schoolYear || formatSchoolYearFromStartYear(blockGroup.year);
-  if (enrollmentSchoolYear && blockSchoolYear && enrollmentSchoolYear !== blockSchoolYear) {
-    checks.schoolYear = false;
-    reasons.push(`Block belongs to a different school year (${blockSchoolYear}).`);
-  }
-
-  // Also reject if the block's school year is archived
-  if (activePeriod && blockSchoolYear) {
-    if (activePeriod.status === 'Archived' && activePeriod.schoolYear === blockSchoolYear) {
-      checks.schoolYear = false;
-      reasons.push(`School year ${blockSchoolYear} is archived and closed for new assignments.`);
-    }
-  }
-
-  // 8. Semester — enrollment semester must match block semester
-  if (enrollmentSemester && blockGroup.semester && enrollmentSemester !== blockGroup.semester) {
-    checks.semester = false;
-    reasons.push(`Block belongs to a different semester (${blockGroup.semester}).`);
-  }
-
-  // 9. Enrollment Status — reject locked/cancelled/dropped enrollments
-  if (enrollment) {
-    if (enrollment.lockedAt) {
-      checks.enrollmentStatus = false;
-      reasons.push('Enrollment is locked as a historical record and cannot receive new assignments.');
-    }
-    if (enrollment.status === 'Cancelled' || enrollment.status === 'Dropped') {
-      checks.enrollmentStatus = false;
-      reasons.push(`Enrollment status is ${enrollment.status} and cannot receive assignments.`);
-    }
-  } else if (!allowAutoEnroll) {
-    checks.enrollmentStatus = false;
-    reasons.push('No enrollment record found for this student.');
-  }
-  // If allowAutoEnroll is true and there's no enrollment, the enrollment will be
-  // auto-created at assignment time — so this is not a blocker.
-
-  // 10. Dropped student check
-  if (student.studentStatus === 'Dropped') {
-    checks.enrollmentStatus = false;
-    reasons.push('Student is marked as Dropped and cannot be assigned to a block.');
   }
 
   const eligible = reasons.length === 0;
@@ -289,10 +179,8 @@ async function getEligibleBlocks(studentId, options = {}) {
     return { student: studentSummary, enrollment: enrollmentSummary, eligible: [], ineligible: [], recommended: null };
   }
 
-  // Load active academic period
-  const activePeriod = await AcademicPeriod.findOne({ status: 'Active' }).lean();
-
-  // Load block groups for this school year and semester
+  // Only blocks for the student's current term are offered; course, year
+  // level and capacity decide the rest.
   const groups = await BlockGroup.find({ schoolYear: effectiveSchoolYear, semester: effectiveSemester }).lean();
 
   if (!groups.length) {
@@ -302,32 +190,6 @@ async function getEligibleBlocks(studentId, options = {}) {
   // Load all open sections for these groups
   const groupIds = groups.map((g) => g._id);
   const sections = await BlockSection.find({ blockGroupId: { $in: groupIds }, status: 'OPEN' }).lean();
-
-  // Load curriculum docs for groups that have curriculumId
-  const curriculumIds = [...new Set(groups.map((g) => g.curriculumId).filter(Boolean).map(String))];
-  const curricula = curriculumIds.length
-    ? await Curriculum.find({ _id: { $in: curriculumIds } }).select('version programCode programName status').lean()
-    : [];
-  const curriculumById = Object.fromEntries(curricula.map((c) => [String(c._id), c]));
-
-  // Check for existing assignment — prefer enrollmentId if available
-  let existingAssignment = null;
-  if (enrollment) {
-    existingAssignment = await StudentBlockAssignment.findOne({
-      $or: [
-        { enrollmentId: enrollment._id },
-        { studentId: String(student._id), schoolYear: effectiveSchoolYear, semester: effectiveSemester },
-      ],
-      status: 'ASSIGNED',
-    }).lean();
-  } else {
-    existingAssignment = await StudentBlockAssignment.findOne({
-      studentId: String(student._id),
-      schoolYear: effectiveSchoolYear,
-      semester: effectiveSemester,
-      status: 'ASSIGNED',
-    }).lean();
-  }
 
   // Group sections by blockGroupId
   const sectionsByGroup = {};
@@ -342,19 +204,13 @@ async function getEligibleBlocks(studentId, options = {}) {
 
   for (const group of groups) {
     const groupSections = sectionsByGroup[String(group._id)] || [];
-    const curriculumDoc = group.curriculumId ? curriculumById[String(group.curriculumId)] : null;
 
     for (const section of groupSections) {
-      const isCurrentSection = existingAssignment && String(existingAssignment.sectionId) === String(section._id);
       const result = evaluateStudentEligibility(
         enrollment,
         student,
         group,
-        section,
-        isCurrentSection ? null : existingAssignment,
-        curriculumDoc,
-        activePeriod,
-        { allowAutoEnroll: true }
+        section
       );
 
       const entry = {
@@ -427,15 +283,6 @@ async function getBulkEligibility(studentIds, sectionId) {
     throw new Error('Block group not found for this section');
   }
 
-  // Load curriculum doc for the block group if configured
-  let curriculumDoc = null;
-  if (group.curriculumId) {
-    curriculumDoc = await Curriculum.findById(group.curriculumId).select('version programCode programName status').lean();
-  }
-
-  // Load active academic period
-  const activePeriod = await AcademicPeriod.findOne({ status: 'Active' }).lean();
-
   // Load all students in one query
   const students = await Student.find({ _id: { $in: studentIds } })
     .select('studentNumber firstName lastName course yearLevel classification curriculumVersion schoolYear semester studentStatus')
@@ -459,20 +306,6 @@ async function getBulkEligibility(studentIds, sectionId) {
     }
   }
 
-  // Check for existing assignments for all these students
-  const existingAssignments = await StudentBlockAssignment.find({
-    studentId: { $in: studentIds.map(String) },
-    status: 'ASSIGNED',
-  }).lean();
-  const assignmentByStudent = {};
-  for (const a of existingAssignments) {
-    const sid = String(a.studentId);
-    // Only flag as conflict if it's for a different section
-    if (String(a.sectionId) !== String(section._id)) {
-      assignmentByStudent[sid] = a;
-    }
-  }
-
   const eligible = [];
   const ineligible = [];
 
@@ -490,17 +323,12 @@ async function getBulkEligibility(studentIds, sectionId) {
     }
 
     const enrollment = enrollmentByStudent[String(studentId)] || null;
-    const existingAssignment = assignmentByStudent[String(studentId)] || null;
 
     const result = evaluateStudentEligibility(
       enrollment,
       student,
       group,
-      section,
-      existingAssignment,
-      curriculumDoc,
-      activePeriod,
-      { allowAutoEnroll: true }
+      section
     );
 
     const studentName = `${student.firstName || ''} ${student.lastName || ''}`.trim();

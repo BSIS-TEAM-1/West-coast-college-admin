@@ -49,13 +49,28 @@ router.get('/', async (req, res) => {
     }
 
     if (typeof performedBy === 'string' && performedBy.trim() !== '') {
-      filter.performedBy = { $eq: performedBy.trim() };
+      const Admin = require('../../../models/Admin');
+      const adminUser = await Admin.findOne({ username: performedBy.trim().toLowerCase() }).select('_id');
+      if (adminUser) {
+        filter.performedBy = adminUser._id;
+      } else {
+        // Username not found - return empty results
+        filter.performedBy = null;
+      }
     }
 
     if (startDate || endDate) {
       filter.createdAt = {};
-      if (startDate) filter.createdAt.$gte = new Date(startDate);
-      if (endDate) filter.createdAt.$lte = new Date(endDate);
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        filter.createdAt.$gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = end;
+      }
     }
 
     const normalizedSortOrder = String(sortOrder || 'newest').toLowerCase();

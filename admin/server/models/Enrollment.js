@@ -130,6 +130,64 @@ const enrollmentSchema = new Schema({
       type: Schema.Types.ObjectId,
       ref: 'TransmutationTable',
       default: null
+    },
+    // ── Registrar lifecycle metadata (additive; see below) ──────────────
+    // Who added this subject entry and under what override, if any.
+    addedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'Admin',
+      default: null
+    },
+    overrideReason: {
+      type: String,
+      trim: true,
+      default: null
+    },
+    overriddenBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'Admin',
+      default: null
+    },
+    // Drop metadata. A dropped entry is NEVER removed — status, grade, and
+    // these fields together are the official record of the attempt.
+    droppedAt: {
+      type: Date,
+      default: null
+    },
+    droppedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'Admin',
+      default: null
+    },
+    dropReason: {
+      type: String,
+      trim: true,
+      default: null
+    },
+    // Section the student actually sat in when it was not their own block's
+    // (block membership does not restrict individual subject enrollment).
+    sectionCode: {
+      type: String,
+      trim: true,
+      default: null
+    },
+    // On a retake entry, a snapshot of the attempt being retaken. The source
+    // record is left untouched; this is only a pointer back to it.
+    retakeOf: {
+      enrollmentId: {
+        type: Schema.Types.ObjectId,
+        ref: 'Enrollment',
+        default: null
+      },
+      subjectEntryId: {
+        type: Schema.Types.ObjectId,
+        default: null
+      },
+      schoolYear: { type: String, default: null },
+      semester: { type: String, default: null },
+      status: { type: String, default: null },
+      grade: { type: Number, default: null },
+      gradeMark: { type: String, default: null }
     }
   }],
   
@@ -398,18 +456,23 @@ enrollmentSchema.pre('save', function(next) {
   // Update isCurrent flag
   if (this.isNew || this.isModified('status') || this.isModified('isCurrent')) {
     if (this.status === 'Enrolled' && this.isCurrent) {
-      // Set other enrollments for this student as not current
+      // Set other enrollments for this student as not current. Keep this write
+      // inside the caller's transaction so a rollover cannot race its own
+      // enrollment writes and fail with a transaction write conflict.
+      const session = this.$session();
       this.constructor.updateMany(
-        { 
+        {
           studentId: this.studentId,
           _id: { $ne: this._id },
           isCurrent: true
         },
-        { $set: { isCurrent: false } }
-      ).exec();
+        { $set: { isCurrent: false } },
+        session ? { session } : undefined
+      ).exec().then(() => next()).catch(next);
+      return;
     }
   }
-  
+
   next();
 });
 

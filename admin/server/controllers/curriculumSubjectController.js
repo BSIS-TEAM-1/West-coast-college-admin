@@ -7,6 +7,45 @@ const BlockSection = require('../models/BlockSection');
 const BlockSubjectAssignment = require('../models/BlockSubjectAssignment');
 const StudentBlockAssignment = require('../models/StudentBlockAssignment');
 const Enrollment = require('../models/Enrollment');
+const AuditLog = require('../models/AuditLog');
+const { normalizeSchoolYear } = require('../services/blockTerm');
+const {
+  MIN_YEAR_LEVEL,
+  MAX_YEAR_LEVEL,
+  SEMESTERS: VALID_SEMESTERS,
+  supportedYearLevels,
+} = require('../lib/curriculumYears');
+
+const VALID_SUBJECT_TYPES = ['General', 'Major', 'Professional', 'Elective'];
+
+/**
+ * Validate the placement fields shared by add/update/bulk. Returns an error
+ * string for the first invalid field, or null when the values are usable.
+ * Mongoose also validates these enums, but by then the failure surfaces as a
+ * 500; controllers should reject bad input with a readable 400 instead.
+ */
+function validatePlacementFields({ yearLevel, semester, type, units, lecturePeriods, labPeriods }, { requireYearAndSemester }) {
+  if (yearLevel !== undefined || requireYearAndSemester) {
+    const parsedYear = Number(yearLevel);
+    if (!Number.isInteger(parsedYear) || parsedYear < MIN_YEAR_LEVEL || parsedYear > MAX_YEAR_LEVEL) {
+      return `yearLevel must be a whole number between ${MIN_YEAR_LEVEL} and ${MAX_YEAR_LEVEL}`;
+    }
+  }
+  if ((semester !== undefined || requireYearAndSemester) && !VALID_SEMESTERS.includes(semester)) {
+    return `semester must be one of ${VALID_SEMESTERS.join(', ')}`;
+  }
+  if (type !== undefined && !VALID_SUBJECT_TYPES.includes(type)) {
+    return `type must be one of ${VALID_SUBJECT_TYPES.join(', ')}`;
+  }
+  for (const [field, value] of [['units', units], ['lecturePeriods', lecturePeriods], ['labPeriods', labPeriods]]) {
+    if (value === undefined) continue;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return `${field} must be a non-negative number`;
+    }
+  }
+  return null;
+}
 
 // NOTE: units/lecturePeriods/labPeriods/prerequisiteSubjectIds are NOT read
 // from the populated Subject for display/totals — CurriculumSubject snapshots
@@ -84,35 +123,39 @@ class CurriculumSubjectController {
         }
       }
 
-      const years = [];
-      for (const [yearLevel, semMap] of yearMap) {
-        const semesters = [];
-        let yearUnits = 0;
-        let yearLecturePeriods = 0;
-        let yearLabPeriods = 0;
-        for (const [semester, subjects] of semMap) {
-          const semUnits = subjects.reduce((sum, s) => sum + (s.units || 0), 0);
-          const semLecturePeriods = subjects.reduce((sum, s) => sum + (s.lecturePeriods || 0), 0);
-          const semLabPeriods = subjects.reduce((sum, s) => sum + (s.labPeriods || 0), 0);
-          yearUnits += semUnits;
-          yearLecturePeriods += semLecturePeriods;
-          yearLabPeriods += semLabPeriods;
-          semesters.push({
+      // The structure endpoint is also the place a registrar discovers which
+      // years exist at all — the per-year "Add Subject" control only renders
+      // inside a year block. Emitting every supported year and semester (with
+      // empty ones included) is what makes an unpopulated year reachable;
+      // building the map from populated years alone locked Year 2-4 out.
+      const highestYearWithSubjects = yearMap.size > 0 ? Math.max(...yearMap.keys()) : 0;
+      const years = supportedYearLevels(highestYearWithSubjects).map((yearLevel) => {
+        const semMap = yearMap.get(yearLevel) || new Map();
+        const semesters = VALID_SEMESTERS.map((semester) => {
+          const subjects = semMap.get(semester) || [];
+          return {
             semester,
             subjects,
-            totalUnits: semUnits,
-            totalLecturePeriods: semLecturePeriods,
-            totalLabPeriods: semLabPeriods,
-          });
-        }
-        years.push({
+            totalUnits: subjects.reduce((sum, s) => sum + (s.units || 0), 0),
+            totalLecturePeriods: subjects.reduce((sum, s) => sum + (s.lecturePeriods || 0), 0),
+            totalLabPeriods: subjects.reduce((sum, s) => sum + (s.labPeriods || 0), 0),
+          };
+        });
+        return {
           yearLevel,
           semesters,
-          totalUnits: yearUnits,
-          totalLecturePeriods: yearLecturePeriods,
-          totalLabPeriods: yearLabPeriods,
-        });
-      }
+          totalUnits: semesters.reduce((sum, s) => sum + s.totalUnits, 0),
+          totalLecturePeriods: semesters.reduce((sum, s) => sum + s.totalLecturePeriods, 0),
+          totalLabPeriods: semesters.reduce((sum, s) => sum + s.totalLabPeriods, 0),
+        };
+      });
+
+      // "Years covered" keeps its original meaning — years that actually hold
+      // at least one subject — so it stays a truthful progress figure now that
+      // `years` always reports the full supported range.
+      const yearsCovered = years.filter((year) =>
+        year.semesters.some((semester) => semester.subjects.length > 0)
+      ).length;
 
       res.json({
         success: true,
@@ -126,7 +169,8 @@ class CurriculumSubjectController {
             totalLabPeriods,
             requiredCount,
             electiveCount,
-            yearsCovered: years.length,
+            yearsCovered,
+            yearsSupported: years.length,
           },
         },
       });
@@ -146,6 +190,14 @@ class CurriculumSubjectController {
           success: false,
           message: 'subjectId, yearLevel, and semester are required',
         });
+      }
+
+      const fieldError = validatePlacementFields(
+        { yearLevel, semester, type },
+        { requireYearAndSemester: true }
+      );
+      if (fieldError) {
+        return res.status(400).json({ success: false, message: fieldError });
       }
 
       const curriculum = await Curriculum.findById(id).select('status programCode');
@@ -221,6 +273,17 @@ class CurriculumSubjectController {
 
       if (!Array.isArray(subjects) || subjects.length === 0) {
         return res.status(400).json({ success: false, message: 'subjects array is required' });
+      }
+
+      for (let i = 0; i < subjects.length; i++) {
+        const entry = subjects[i] || {};
+        const fieldError = validatePlacementFields(entry, { requireYearAndSemester: true });
+        if (fieldError) {
+          return res.status(400).json({
+            success: false,
+            message: `Subject placement at index ${i}: ${fieldError}`,
+          });
+        }
       }
 
       const curriculum = await Curriculum.findById(id).select('status programCode');
@@ -325,6 +388,14 @@ class CurriculumSubjectController {
         return res.status(400).json({ success: false, message: 'Curriculum subject does not belong to this curriculum' });
       }
 
+      const fieldError = validatePlacementFields(
+        { yearLevel, semester, type, units, lecturePeriods, labPeriods },
+        { requireYearAndSemester: false }
+      );
+      if (fieldError) {
+        return res.status(400).json({ success: false, message: fieldError });
+      }
+
       if (prerequisiteSubjectIds !== undefined) {
         const ids = Array.isArray(prerequisiteSubjectIds) ? prerequisiteSubjectIds.map(String) : [];
         if (ids.includes(String(cs.subjectId))) {
@@ -413,27 +484,34 @@ class CurriculumSubjectController {
             const studentAssignments = await StudentBlockAssignment.find({
               sectionId: { $in: sectionIds },
               status: 'ASSIGNED'
-            }).select('studentId semester year').lean();
+            }).select('studentId semester year schoolYear').lean();
 
             if (studentAssignments.length > 0) {
-              // Build enrollment query: match by studentId + schoolYear + semester
-              const enrollmentPairs = new Set();
-              studentAssignments.forEach((sa) => {
-                const startYear = Number(sa.year);
-                if (Number.isFinite(startYear)) {
-                  const schoolYear = `${startYear}-${startYear + 1}`;
-                  enrollmentPairs.add(`${schoolYear}|${String(sa.semester || '').trim()}`);
+              // Build one filter per affected student+term. StudentBlockAssignment.year
+              // is the "YYYY-YYYY" string on current rows (legacy rows stored a
+              // bare number), so normalise it instead of Number(year) — the old
+              // logic produced NaN for every current assignment and silently
+              // skipped the enrollment update.
+              const enrollmentFilters = new Map();
+              for (const sa of studentAssignments) {
+                const studentId = String(sa.studentId || '');
+                const schoolYear = normalizeSchoolYear(sa.schoolYear || sa.year);
+                const semester = String(sa.semester || '').trim();
+                if (!mongoose.isValidObjectId(studentId) || !schoolYear || !VALID_SEMESTERS.includes(semester)) {
+                  continue;
                 }
-              });
-
-              if (enrollmentPairs.size > 0) {
-                const enrollmentQueries = Array.from(enrollmentPairs).map((pair) => {
-                  const [schoolYear, semester] = pair.split('|');
-                  return { schoolYear, semester };
+                enrollmentFilters.set(`${studentId}|${schoolYear}|${semester}`, {
+                  studentId: new mongoose.Types.ObjectId(studentId),
+                  schoolYear,
+                  semester,
                 });
+              }
 
+              if (enrollmentFilters.size > 0) {
                 const enrollments = await Enrollment.find({
-                  $or: enrollmentQueries,
+                  $or: Array.from(enrollmentFilters.values()),
+                  // Locked (historical) records are immutable — never touch them.
+                  lockedAt: null,
                   status: { $ne: 'Dropped' },
                   'subjects.subjectId': cs.subjectId,
                   'subjects.status': { $in: ['Enrolled', 'Incomplete'] },
@@ -466,6 +544,37 @@ class CurriculumSubjectController {
       const parts = ['Subject removed from curriculum'];
       if (removedAssignments > 0) parts.push(`${removedAssignments} block assignment(s) cleaned up`);
       if (updatedEnrollments > 0) parts.push(`${updatedEnrollments} enrollment(s) updated`);
+
+      // Removing a placement can cascade into live enrollment records, which
+      // would otherwise be an invisible edit to a student's term. Record it so
+      // the curriculum change and its blast radius are always traceable. An
+      // audit-write failure must not roll back a completed removal, so it is
+      // reported instead of thrown.
+      try {
+        await AuditLog.create({
+          action: 'DELETE',
+          resourceType: 'CURRICULUM',
+          resourceId: String(id),
+          resourceName: cs.courseNo || cs.descriptiveTitle || String(curriculumSubjectId),
+          description:
+            `Removed subject ${cs.courseNo || cs.descriptiveTitle || ''} (year ${cs.yearLevel ?? 'N/A'}, ${cs.semester || 'N/A'}) from curriculum`
+            + ` · ${removedAssignments} block assignment(s) cleaned up`
+            + ` · ${updatedEnrollments} enrollment(s) updated`,
+          performedBy: req.adminId,
+          performedByRole: String(req.accountType || 'registrar').toLowerCase() === 'admin' ? 'admin' : 'registrar',
+          newValue: {
+            curriculumId: String(id),
+            curriculumSubjectId: String(curriculumSubjectId),
+            subjectId: cs.subjectId ? String(cs.subjectId) : null,
+            removedAssignments,
+            updatedEnrollments,
+          },
+          status: 'SUCCESS',
+          severity: updatedEnrollments > 0 ? 'HIGH' : 'MEDIUM',
+        });
+      } catch (auditError) {
+        console.error('Failed to record curriculum subject removal audit entry:', auditError);
+      }
 
       res.json({ success: true, data: { _id: String(cs._id) }, message: parts.join(' · ') });
     } catch (error) {

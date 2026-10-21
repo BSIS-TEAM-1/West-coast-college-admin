@@ -14,6 +14,7 @@ const DomainEvents = {
   // School year events
   SCHOOL_YEAR_OPENED: 'SchoolYearOpened',
   SCHOOL_YEAR_CLOSED: 'SchoolYearClosed',
+  ROLLOVER_REVERTED: 'RolloverReverted',
 
   // Academic period events
   ACADEMIC_PERIOD_OPENED: 'AcademicPeriodOpened',

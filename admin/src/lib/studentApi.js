@@ -176,5 +176,85 @@ class StudentService {
 
     return response.json();
   }
+
+  /**
+   * Shared transport for the subject-level enrollment endpoints.
+   * Surfaces the server's own message so the UI can show the real reason
+   * (duplicate, prerequisite, override required, locked, …) instead of a
+   * generic "request failed".
+   */
+  static async send(token, path, { method = 'GET', body } = {}) {
+    const response = await fetch(`${API_URL}${path}`, {
+      method,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {})
+    });
+
+    if (!response.ok) {
+      let detail = '';
+      try {
+        const payload = await response.json();
+        detail = payload?.message || payload?.error || '';
+      } catch {
+        // Response was not JSON; fall through to the generic message.
+      }
+      throw new Error(detail || `${method} ${path} failed (${response.status})`);
+    }
+
+    return response.json();
+  }
+
+  /** Subjects the student's curriculum expects for a year level + semester. */
+  static getCurriculumSuggestions(token, params) {
+    const query = new URLSearchParams(
+      Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== '')
+    ).toString();
+    return this.send(token, `/registrar/curriculum-suggestions${query ? `?${query}` : ''}`);
+  }
+
+  /** Curriculum-based completion, progression and graduation evaluation. */
+  static getAcademicProgress(token, studentId) {
+    return this.send(token, `/registrar/students/${studentId}/academic-progress`);
+  }
+
+  /** Dry run — every per-subject reason, before anything is written. */
+  static validateEnrollmentSubjects(token, enrollmentId, subjectIds) {
+    return this.send(token, `/registrar/enrollments/${enrollmentId}/subjects/validate`, {
+      method: 'POST',
+      body: { subjectIds }
+    });
+  }
+
+  /** Add subjects to a term enrollment (overrideReason when a rule is waived). */
+  static addEnrollmentSubjects(token, enrollmentId, subjectIds, overrideReason) {
+    return this.send(token, `/registrar/enrollments/${enrollmentId}/subjects`, {
+      method: 'POST',
+      body: { subjectIds, overrideReason }
+    });
+  }
+
+  /** Official drop — the record and its grade are preserved, never deleted. */
+  static dropEnrollmentSubject(token, enrollmentId, subjectId, reason, overrideReason) {
+    return this.send(token, `/registrar/enrollments/${enrollmentId}/subjects/${subjectId}/drop`, {
+      method: 'POST',
+      body: { reason, overrideReason }
+    });
+  }
+
+  /** Record a retake in a later term. Year level and block are never changed. */
+  static retakeSubject(token, studentId, subjectId, { schoolYear, semester, overrideReason }) {
+    return this.send(token, `/registrar/students/${studentId}/retake`, {
+      method: 'POST',
+      body: { subjectId, schoolYear, semester, overrideReason }
+    });
+  }
+
+  /** Curriculum-derived subjects a block cohort is normally expected to take. */
+  static getExpectedBlockSubjects(token, groupId) {
+    return this.send(token, `/api/blocks/groups/${groupId}/expected-subjects`);
+  }
 }
 export default StudentService;

@@ -3,13 +3,7 @@ import { authorizedFetch, type BlockGroup, type BlockSection } from './blockAssi
 export type EligibilityChecks = {
   program: boolean
   yearLevel: boolean
-  curriculum: boolean
-  classification: boolean
   capacity: boolean
-  conflicts: boolean
-  schoolYear: boolean
-  semester: boolean
-  enrollmentStatus: boolean
 }
 
 export type EligibleBlock = {

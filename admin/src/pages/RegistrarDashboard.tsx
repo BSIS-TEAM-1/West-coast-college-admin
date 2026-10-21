@@ -170,6 +170,10 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
         return <BlockOverviewDashboard
           onManageAssignments={() => setView('assign-block')}
           onViewBlocks={() => setView('view-blocks')}
+          onOpenBlock={(selection) => {
+            setBlockWorkspaceSelection(selection)
+            setView('block-workspace')
+          }}
         />
       case 'block-management':
         return <BlockManagement onOpenBlocksPage={() => setView('view-blocks')} onGoDashboard={() => setView('block-overview')} />

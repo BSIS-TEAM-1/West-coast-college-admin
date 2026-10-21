@@ -140,6 +140,57 @@ test('version compatibility requires confirmation for app/schema differences and
   } finally { cleanup(directory); }
 });
 
+test('an in-progress backup is never reported as storage missing', () => {
+  const { directory, system } = createSystem();
+  try {
+    const state = system.describeVerificationState(
+      { status: 'in_progress', instanceId: system.instanceId, verificationStatus: 'pending' },
+      { exists: false, candidates: ['running.json.gz.enc'] }
+    );
+    assert.equal(state.state, 'verification_required');
+    assert.equal(system.badgeStatusForState(state), 'pending');
+    assert.equal(state.restorable, false);
+  } finally { cleanup(directory); }
+});
+
+test('a completed backup absent from this instance storage is still storage missing', () => {
+  const { directory, system } = createSystem();
+  try {
+    const state = system.describeVerificationState(
+      { status: 'completed', instanceId: system.instanceId, verificationStatus: 'pending' },
+      { exists: false, candidates: ['gone.json.gz.enc'] }
+    );
+    assert.equal(state.state, 'storage_missing');
+    assert.equal(system.badgeStatusForState(state), 'missing');
+  } finally { cleanup(directory); }
+});
+
+test('a verified backup on another server still reads as verified, not elsewhere', () => {
+  const { directory, system } = createSystem();
+  try {
+    const state = system.describeVerificationState(
+      { status: 'completed', instanceId: 'other-host', verificationStatus: 'verified' },
+      { exists: false, candidates: ['remote.json.gz.enc'] }
+    );
+    assert.equal(state.state, 'verified');
+    assert.equal(system.badgeStatusForState(state), 'verified');
+    // Valid restore point, but not from this machine.
+    assert.equal(state.restorable, false);
+  } finally { cleanup(directory); }
+});
+
+test('an unverified backup on another server reads as stored elsewhere', () => {
+  const { directory, system } = createSystem();
+  try {
+    const state = system.describeVerificationState(
+      { status: 'completed', instanceId: 'other-host', verificationStatus: 'pending' },
+      { exists: false, candidates: ['remote.json.gz.enc'] }
+    );
+    assert.equal(state.state, 'stored_elsewhere');
+    assert.equal(system.badgeStatusForState(state), 'remote');
+  } finally { cleanup(directory); }
+});
+
 test('encrypted archives verify without retaining a plaintext JSON file', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'wcc-encrypted-verify-'));
   process.env.BACKUP_STORAGE_PROVIDER = 'local';

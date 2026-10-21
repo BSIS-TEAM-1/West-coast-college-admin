@@ -103,6 +103,7 @@ describe('Test 1 — Applicant enrollment creates Enrollment', () => {
 
     const result = await createOrReactivateEnrollment({
       studentId: 'stu1',
+      createdBy: 'admin1',
       studentNumber: '2026-101-55906',
       programCode: 101,
       yearLevel: 1,
@@ -135,6 +136,7 @@ describe('Test 2 — Existing Enrollment does not create a duplicate', () => {
 
     const result = await createOrReactivateEnrollment({
       studentId: 'stu1',
+      createdBy: 'admin1',
       studentNumber: '2026-101-55906',
       programCode: 101,
       yearLevel: 1,
@@ -155,6 +157,7 @@ describe('Test 3 — Enrollment creation failure prevents inconsistent state', (
 
     await expect(createOrReactivateEnrollment({
       studentId: 'stu1',
+      createdBy: 'admin1',
       studentNumber: '2026-101-55906',
       programCode: 101,
       yearLevel: 1,
@@ -174,6 +177,7 @@ describe('Test 4 — Correct curriculumId is stored', () => {
 
     const result = await createOrReactivateEnrollment({
       studentId: 'stu1',
+      createdBy: 'admin1',
       studentNumber: 'sn1',
       programCode: 101,
       yearLevel: 1,
@@ -193,6 +197,7 @@ describe('Test 4 — Correct curriculumId is stored', () => {
 
     const result = await createOrReactivateEnrollment({
       studentId: 'stu1',
+      createdBy: 'admin1',
       studentNumber: 'sn1',
       programCode: 101,
       yearLevel: 1,
@@ -213,6 +218,7 @@ describe('Test 5 — Incorrect/missing curriculum is rejected', () => {
 
     await expect(createOrReactivateEnrollment({
       studentId: 'stu1',
+      createdBy: 'admin1',
       studentNumber: 'sn1',
       programCode: 101,
       yearLevel: 1,
@@ -243,6 +249,7 @@ describe('Test 6 — Course/program mapping uses centralized source', () => {
 
     await createOrReactivateEnrollment({
       studentId: 'stu1',
+      createdBy: 'admin1',
       studentNumber: 'sn1',
       programCode: 201,
       yearLevel: 1,
@@ -356,6 +363,7 @@ describe('Test 12 — Migration --apply creates missing Enrollment records', () 
     if (IS_APPLY) {
       await createOrReactivateEnrollment({
         studentId: 'stu1',
+        createdBy: 'admin1',
         studentNumber: 'sn1',
         programCode: 101,
         yearLevel: 1,
@@ -377,6 +385,7 @@ describe('Test 13 — Migration is idempotent', () => {
 
     const result1 = await createOrReactivateEnrollment({
       studentId: 'stu1',
+      createdBy: 'admin1',
       studentNumber: 'sn1',
       programCode: 101,
       yearLevel: 1,
@@ -395,6 +404,7 @@ describe('Test 13 — Migration is idempotent', () => {
 
     const result2 = await createOrReactivateEnrollment({
       studentId: 'stu1',
+      createdBy: 'admin1',
       studentNumber: 'sn1',
       programCode: 101,
       yearLevel: 1,
@@ -422,6 +432,7 @@ describe('Test 14 — Existing Enrollment records are not duplicated', () => {
 
     const result = await createOrReactivateEnrollment({
       studentId: 'stu1',
+      createdBy: 'admin1',
       studentNumber: 'sn1',
       programCode: 101,
       yearLevel: 1,
@@ -450,6 +461,7 @@ describe('Test 15 — Historical/locked Enrollment records are not modified', ()
 
     const result = await createOrReactivateEnrollment({
       studentId: 'stu1',
+      createdBy: 'admin1',
       studentNumber: 'sn1',
       programCode: 101,
       yearLevel: 1,
@@ -469,6 +481,7 @@ describe('Test 16 — Missing/ambiguous academic information is reported, not gu
   test('invalid schoolYear format is rejected', async () => {
     await expect(createOrReactivateEnrollment({
       studentId: 'stu1',
+      createdBy: 'admin1',
       studentNumber: 'sn1',
       programCode: 101,
       yearLevel: 1,
@@ -480,6 +493,7 @@ describe('Test 16 — Missing/ambiguous academic information is reported, not gu
   test('invalid semester is rejected', async () => {
     await expect(createOrReactivateEnrollment({
       studentId: 'stu1',
+      createdBy: 'admin1',
       studentNumber: 'sn1',
       programCode: 101,
       yearLevel: 1,
@@ -491,6 +505,7 @@ describe('Test 16 — Missing/ambiguous academic information is reported, not gu
   test('invalid program code is rejected', async () => {
     await expect(createOrReactivateEnrollment({
       studentId: 'stu1',
+      createdBy: 'admin1',
       studentNumber: 'sn1',
       programCode: 999,
       yearLevel: 1,
@@ -502,6 +517,7 @@ describe('Test 16 — Missing/ambiguous academic information is reported, not gu
   test('missing yearLevel is rejected', async () => {
     await expect(createOrReactivateEnrollment({
       studentId: 'stu1',
+      createdBy: 'admin1',
       studentNumber: 'sn1',
       programCode: 101,
       yearLevel: 0,

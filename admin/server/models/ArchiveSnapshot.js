@@ -22,6 +22,7 @@ const archiveSnapshotSchema = new Schema({
       'GRADUATION_REPORT',
       'BLOCK_SNAPSHOT',
       'ROLLOVER_AUDIT',
+      'ROLLOVER_REVERT',
       'STUDENT_ARCHIVE',
       'GRADES_ARCHIVE',
     ],

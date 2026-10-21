@@ -9,7 +9,8 @@ const auditLogSchema = new mongoose.Schema({
       'VIEW', 'EXPORT', 'UPLOAD', 'DOWNLOAD', 'APPROVE', 
       'REJECT', 'ARCHIVE', 'RESTORE', 'BAN', 'UNBAN',
       'SECURITY_SCAN', 'SECURITY_HEADERS_SCAN',
-      'BLOCK_IP', 'UNBLOCK_IP', 'VERIFY'
+      'BLOCK_IP', 'UNBLOCK_IP', 'VERIFY',
+      'DROP', 'RETAKE', 'OVERRIDE'
     ]
   },
   resourceType: {
@@ -18,7 +19,7 @@ const auditLogSchema = new mongoose.Schema({
     enum: [
       'ADMIN', 'STUDENT', 'FACULTY', 'COURSE', 'REGISTRATION', 
       'ANNOUNCEMENT', 'DOCUMENT', 'SYSTEM', 'PROFILE', 'ACCOUNT',
-      'SECURITY'
+      'SECURITY', 'ENROLLMENT', 'CURRICULUM'
     ]
   },
   resourceId: {

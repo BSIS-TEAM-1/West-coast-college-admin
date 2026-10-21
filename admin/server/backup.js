@@ -1,4 +1,5 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const zlib = require('zlib');
@@ -16,6 +17,18 @@ function formatBytesLocal(bytes) {
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
   if (bytes < 1024 ** 3) return (bytes / 1024 ** 2).toFixed(1) + ' MB';
   return (bytes / 1024 ** 3).toFixed(1) + ' GB';
+}
+
+/**
+ * Read a non-negative integer from the environment. Unlike `parseInt(x) || 0`
+ * this keeps an explicit `0` (used to disable a retention tier) and falls back
+ * cleanly when the value is unset or malformed.
+ */
+function readCount(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : fallback;
 }
 
 /**
@@ -46,12 +59,14 @@ const SUPPORTED_TYPES = new Set(['manual', 'scheduled', 'initial', 'emergency', 
  *   pending              -> Verification Required
  *   failed               -> Verification Failed
  *   missing              -> Storage Missing
+ *   remote               -> Stored Elsewhere     (owned by another server)
  */
 const VERIFICATION_STATE = {
   verified: { state: 'verified', label: 'Verified', restorable: true },
   pending: { state: 'verification_required', label: 'Verification Required', restorable: false },
   failed: { state: 'verification_failed', label: 'Verification Failed', restorable: false },
-  missing: { state: 'storage_missing', label: 'Storage Missing', restorable: false }
+  missing: { state: 'storage_missing', label: 'Storage Missing', restorable: false },
+  remote: { state: 'stored_elsewhere', label: 'Stored Elsewhere', restorable: false }
 };
 
 class BackupBusyError extends Error {
@@ -78,11 +93,22 @@ class BackupSystem {
     this.statsCache = null;
     this.statsPromise = null;
     this.statsCacheTtlMs = Math.max(5000, Number.parseInt(process.env.BACKUP_STATS_CACHE_MS || '30000', 10) || 30000);
+    // A stable name for the machine/container writing archives. The metadata
+    // collection is shared across deployments, so this is what lets a server
+    // tell "my archive is gone" apart from "another server owns that archive".
+    this.instanceId = String(process.env.BACKUP_INSTANCE_ID || os.hostname() || 'unknown').trim() || 'unknown';
+    // Roots this host used to write to before its storage path changed. Used to
+    // keep ownership of pre-existing records after moving to a mounted disk.
+    this.legacyStorageRoots = String(process.env.BACKUP_LEGACY_STORAGE_PATHS || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .map((value) => path.resolve(value));
     this.retentionPolicy = {
-      hourly: Math.max(0, Number.parseInt(process.env.BACKUP_RETENTION_HOURLY || '48', 10) || 0),
-      daily: Math.max(0, Number.parseInt(process.env.BACKUP_RETENTION_DAILY || '30', 10) || 0),
-      weekly: Math.max(0, Number.parseInt(process.env.BACKUP_RETENTION_WEEKLY || '12', 10) || 0),
-      monthly: Math.max(0, Number.parseInt(process.env.BACKUP_RETENTION_MONTHLY || '12', 10) || 0)
+      hourly: readCount('BACKUP_RETENTION_HOURLY', 0),
+      daily: readCount('BACKUP_RETENTION_DAILY', 7),
+      weekly: readCount('BACKUP_RETENTION_WEEKLY', 4),
+      monthly: readCount('BACKUP_RETENTION_MONTHLY', 0)
     };
   }
 
@@ -96,6 +122,49 @@ class BackupSystem {
 
   invalidateCaches() {
     this.statsCache = null;
+  }
+
+  /**
+   * Whether this server is responsible for the archive behind a record.
+   *
+   * The metadata collection is shared between deployments, but storage is
+   * not: each server has its own backup directory. A developer machine must
+   * never report the production server's archives as "missing", and must never
+   * delete them during retention.
+   *
+   * New records carry `instanceId`. Legacy records (written before that field
+   * existed) are matched by the absolute path recorded at creation time.
+   */
+  isRecordOwnedByThisInstance(record) {
+    if (!record) return false;
+    const owner = String(record.instanceId || '').trim();
+    if (owner) return owner === this.instanceId;
+    const recorded = String(record.filePath || '').trim();
+    if (!recorded) return true;
+    try {
+      const recordedRoot = path.resolve(path.dirname(recorded));
+      const ownRoots = [path.resolve(this.storage.rootDir), ...this.legacyStorageRoots];
+      return ownRoots.includes(recordedRoot);
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * Describe where archives are being written, so startup logging can make an
+   * ephemeral storage path obvious instead of silently losing backups.
+   */
+  describeStorage() {
+    const rootDir = path.resolve(this.storage.rootDir);
+    return {
+      provider: this.storage.provider,
+      rootDir,
+      instanceId: this.instanceId,
+      // Archives written inside the application directory live on the
+      // container filesystem and are erased by every restart or redeploy.
+      durable: !rootDir.startsWith(path.resolve(__dirname)),
+      retentionPolicy: { ...this.retentionPolicy }
+    };
   }
 
   async withLock(type, details, work) {
@@ -234,7 +303,40 @@ class BackupSystem {
    * missing verification report can never masquerade as a missing file.
    */
   describeVerificationState(record, resolved) {
+    // A job that is still running has not written its archive yet. Judging it
+    // by storage presence here would label a healthy in-flight backup
+    // "Storage Missing" for the entire duration of the export.
+    if (record?.status === 'in_progress') {
+      return {
+        ...VERIFICATION_STATE.pending,
+        detail: 'Backup is still running; integrity is checked when the export completes.'
+      };
+    }
     if (!resolved || !resolved.exists) {
+      // Another server owns this archive. Its absence here is expected, not a
+      // storage failure on this machine — and a verification result recorded
+      // by the owning server is still a fact about this restore point, so a
+      // verified backup must not be downgraded to "elsewhere".
+      if (!this.isRecordOwnedByThisInstance(record)) {
+        if (record?.verificationStatus === 'verified') {
+          return {
+            ...VERIFICATION_STATE.verified,
+            // It is a valid restore point, but not from this machine.
+            restorable: false,
+            detail: 'Verified by the server that stores this archive; it is not present on this machine.'
+          };
+        }
+        if (record?.verificationStatus === 'failed') {
+          return {
+            ...VERIFICATION_STATE.failed,
+            detail: record?.error || 'Integrity verification failed on the server that stores this archive.'
+          };
+        }
+        return {
+          ...VERIFICATION_STATE.remote,
+          detail: 'This archive was written by another server and is not stored on this one.'
+        };
+      }
       return { ...VERIFICATION_STATE.missing, detail: 'The backup archive is not present in configured storage.' };
     }
     const status = record?.verificationStatus;
@@ -249,6 +351,23 @@ class BackupSystem {
       return { ...VERIFICATION_STATE.pending, detail: 'Archive found in storage but not yet verified.' };
     }
     return { ...VERIFICATION_STATE.pending, detail: 'This backup has not been verified yet.' };
+  }
+
+  /**
+   * Collapse a conceptual state back onto the badge values the UI already
+   * understands. The derived state is authoritative: a record whose archive is
+   * present must never render as "missing" just because an older server wrote
+   * that verdict into the shared database.
+   */
+  badgeStatusForState(state) {
+    const map = {
+      [VERIFICATION_STATE.verified.state]: 'verified',
+      [VERIFICATION_STATE.pending.state]: 'pending',
+      [VERIFICATION_STATE.failed.state]: 'failed',
+      [VERIFICATION_STATE.missing.state]: 'missing',
+      [VERIFICATION_STATE.remote.state]: 'remote'
+    };
+    return map[state?.state] || 'pending';
   }
 
   /* ------------------------------------------------------------------ */
@@ -558,6 +677,7 @@ class BackupSystem {
         verificationStatus: 'pending',
         isProtected,
         storageProvider: this.storage.provider,
+        instanceId: this.instanceId,
         appVersion: APP_VERSION,
         schemaVersion: SCHEMA_VERSION,
         backupEngineVersion: ENGINE_VERSION,
@@ -630,7 +750,9 @@ class BackupSystem {
         collectionCounts: verification.validation.counts
       });
 
-      if (String(process.env.BACKUP_AUTO_RETENTION || 'false').toLowerCase() === 'true') {
+      // Retention is on by default now that archives live on durable storage;
+      // set BACKUP_AUTO_RETENTION=false to keep every archive forever.
+      if (String(process.env.BACKUP_AUTO_RETENTION ?? 'true').toLowerCase() !== 'false') {
         await this.cleanupOldBackups();
       }
       await this.notifications.notify('backup.completed', { backupId: String(record._id), fileName: finalFileName, backupType: type, durationMs, isEncrypted });
@@ -699,12 +821,28 @@ class BackupSystem {
 
   async cleanupOldBackups() {
     if (mongoose.connection.readyState !== 1) return [];
-    const candidates = await Backup.find({
+    const eligible = await Backup.find({
       backupType: { $in: Array.from(AUTOMATIC_TYPES) },
       status: 'completed',
-      verificationStatus: 'verified',
+      // Include 'missing' so archive-less metadata ages out with the normal
+      // retention window instead of accumulating forever.
+      verificationStatus: { $in: ['verified', 'missing'] },
       isProtected: { $ne: true }
     }).sort({ createdAt: -1 });
+
+    // Never rotate another server's history: this process can only see and
+    // delete the files in its own storage directory.
+    const candidates = eligible
+      .filter((record) => this.isRecordOwnedByThisInstance(record))
+      // When two records compete for the same retention slot, prefer the one
+      // with a real archive so purging lost metadata never evicts a usable
+      // backup.
+      .sort((a, b) => {
+        const aRank = a.verificationStatus === 'verified' ? 0 : 1;
+        const bRank = b.verificationStatus === 'verified' ? 0 : 1;
+        if (aRank !== bRank) return aRank - bRank;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
 
     const recordsToRemove = this.selectRetentionRecords(candidates);
 
@@ -720,6 +858,25 @@ class BackupSystem {
         console.error(`Could not rotate backup ${record.fileName}:`, error);
       }
     }
+    // Failed attempts are diagnostics, not recovery points. Keep a week so an
+    // operator can investigate, then let them go instead of accumulating rows
+    // like "Interrupted by server restart" forever. No archive is touched, so
+    // this is safe to apply across instances.
+    const staleFailureCutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const staleFailures = await Backup.find({
+      status: 'failed',
+      isProtected: { $ne: true },
+      createdAt: { $lt: staleFailureCutoff }
+    }).select('_id fileName');
+    for (const record of staleFailures) {
+      try {
+        await Backup.deleteOne({ _id: record._id });
+        removed.push(record.fileName);
+      } catch (error) {
+        console.error(`Could not prune failed backup ${record.fileName}:`, error);
+      }
+    }
+
     return removed;
   }
 
@@ -773,12 +930,32 @@ class BackupSystem {
     let imported = 0;
     let healed = 0;
 
+    // Reclaim staging files abandoned by a crash or a killed container. Skip
+    // this while a backup is running so an in-flight export is never touched.
+    if (!this.activeOperation) {
+      for (const name of this.storage.list().filter(n => n.startsWith('.pending-'))) {
+        try {
+          const abandoned = this.storage.stat(name);
+          if (Date.now() - abandoned.mtimeMs > 6 * 60 * 60 * 1000) this.storage.remove(name);
+        } catch (_) { /* best effort */ }
+      }
+    }
+
     for (const record of records) {
       const resolved = this.resolveBackupFiles(record);
+      const ownedByThisInstance = this.isRecordOwnedByThisInstance(record);
 
       if (record.status === 'completed' && !resolved.exists) {
-        // Genuinely absent from storage. This is Storage Missing, and it is
-        // the only condition that may set verificationStatus to 'missing'.
+        // Another server wrote this archive into its own storage. Its absence
+        // here says nothing about whether the backup is healthy, so leave the
+        // record exactly as that server left it.
+        if (!ownedByThisInstance) continue;
+        // Already recorded as absent; avoid rewriting the same document on
+        // every reconciliation pass.
+        if (record.verificationStatus === 'missing') continue;
+
+        // Genuinely absent from this server's storage. This is Storage
+        // Missing, and it is the only condition that may set it.
         await Backup.updateOne(
           { _id: record._id },
           {
@@ -894,6 +1071,7 @@ class BackupSystem {
           createdAt: new Date(stat.mtime),
           isProtected: true,
           storageProvider: this.storage.provider,
+          instanceId: this.instanceId,
           appVersion: 'unknown', schemaVersion: 'unknown', backupEngineVersion: 'legacy', backupFormatVersion: FORMAT_VERSION,
           isEncrypted, encryptionProvider: isEncrypted ? this.encryption.name : null,
           error
@@ -915,13 +1093,24 @@ class BackupSystem {
     return records.map((record) => {
       const resolved = this.resolveBackupFiles(record);
       const state = this.describeVerificationState(record, resolved);
+      const badgeStatus = this.badgeStatusForState(state);
+      const isFailure = badgeStatus === 'missing' || badgeStatus === 'failed';
       return {
         ...record,
         physicalFileName: resolved.archiveName,
         storagePresent: resolved.exists,
+        // Where the archive is meant to live: this server's storage, or the
+        // storage of the instance that wrote the record.
+        storageLocation: resolved.exists || this.isRecordOwnedByThisInstance(record) ? 'local' : 'remote',
         verificationState: state.state,
         verificationLabel: state.label,
-        restorable: state.restorable
+        verificationDetail: state.detail,
+        restorable: state.restorable,
+        // The badge state the UI renders. The value persisted in MongoDB is
+        // preserved separately so a derived state never overwrites history.
+        storedVerificationStatus: record.verificationStatus,
+        verificationStatus: badgeStatus,
+        error: isFailure ? record.error : null
       };
     });
   }
@@ -934,8 +1123,31 @@ class BackupSystem {
     const record = await this.findBackupRecord(fileName);
     if (!record) return { success: false, code: 'BACKUP_NOT_FOUND', error: 'Backup metadata not found' };
 
+    // Verifying a running export would only report a missing archive and
+    // stamp it as a failure while the job is still writing it.
+    if (record.status === 'in_progress') {
+      return {
+        success: false,
+        code: 'BACKUP_IN_PROGRESS',
+        error: 'This backup is still running. Verify it once the export completes.'
+      };
+    }
+
     const verificationStartedAt = Date.now();
     const resolved = this.resolveBackupFiles(record);
+
+    // An archive owned by another server cannot be verified from here. Refuse
+    // rather than stamping a healthy production backup as missing.
+    if (!resolved.exists && !this.isRecordOwnedByThisInstance(record)) {
+      return {
+        success: false,
+        code: 'STORAGE_ELSEWHERE',
+        error: 'This backup archive is stored on another server and cannot be verified from this one.',
+        verificationStatus: 'remote',
+        verificationState: VERIFICATION_STATE.remote.state,
+        verificationLabel: VERIFICATION_STATE.remote.label
+      };
+    }
 
     // Storage Missing is evaluated first and reported as its own condition.
     if (!resolved.exists) {
@@ -1041,6 +1253,13 @@ class BackupSystem {
     const record = await this.findBackupRecord(fileName);
     if (!record) return { success: false, error: 'Backup not found' };
     if (record.status === 'in_progress') return { success: false, error: 'Running backups cannot be deleted' };
+    if (!this.isRecordOwnedByThisInstance(record)) {
+      return {
+        success: false,
+        code: 'STORAGE_ELSEWHERE',
+        error: 'This backup belongs to another server. Delete it from the server that stores the archive.'
+      };
+    }
     if (record.isProtected && !force) return { success: false, error: 'Protected backup requires elevated administrator confirmation', confirmationRequired: true, protectedConfirmationRequired: true };
     await this.removeBackupFiles(record);
     await Backup.deleteOne({ _id: record._id });
@@ -1144,6 +1363,7 @@ class BackupSystem {
         fileName: record.fileName,
         physicalFileName: resolved.archiveName,
         storagePresent: resolved.exists,
+        storageLocation: resolved.exists || this.isRecordOwnedByThisInstance(record) ? 'local' : 'remote',
         createdAt: record.createdAt,
         appVersion: record.appVersion,
         schemaVersion: record.schemaVersion,
@@ -1153,11 +1373,11 @@ class BackupSystem {
         documentCount: record.documentCount,
         size: record.size,
         compressedSize: record.compressedSize,
-        verificationStatus: record.verificationStatus,
+        verificationStatus: this.badgeStatusForState(state),
         verificationState: state.state,
         verificationLabel: state.label,
         verificationDetail: state.detail,
-        verificationError: record.verificationStatus === 'verified' ? null : (record.error || null),
+        verificationError: ['storage_missing', 'verification_failed'].includes(state.state) ? (record.error || null) : null,
         verifiedAt: record.verifiedAt || null,
         restorable: state.restorable,
         checksum: record.checksum,
@@ -1401,11 +1621,21 @@ class BackupSystem {
 
   async computeBackupStats() {
     try {
-      const records = await Backup.find().sort({ createdAt: -1 }).lean();
+      const allRecords = await Backup.find().sort({ createdAt: -1 }).lean();
+      // Recovery posture describes what *this* server can actually restore.
+      // Another server's records are excluded so a developer machine does not
+      // report production's archives as its own failures.
+      const records = allRecords.filter(item => this.isRecordOwnedByThisInstance(item));
       const completed = records.filter(item => item.status === 'completed' && item.verificationStatus === 'verified');
       // 'pending' is Verification Required, not a failure. Only genuine
       // failures and genuinely absent files count against reliability.
-      const failed = records.filter(item => item.status === 'failed' || ['failed', 'missing'].includes(item.verificationStatus));
+      // A restart that killed an in-flight backup is an environmental event,
+      // not a data failure, so it must not drag the reliability score down.
+      const interruptedByRestart = (item) => /interrupted by server restart/i.test(String(item.error || ''));
+      const failed = records.filter(item =>
+        (item.status === 'failed' && !interruptedByRestart(item)) ||
+        ['failed', 'missing'].includes(item.verificationStatus)
+      );
       const unverified = records.filter(item => item.status === 'completed' && item.verificationStatus === 'pending');
       const latestBackup = completed[0] || null;
       const scheduledMs = 6 * 60 * 60 * 1000;

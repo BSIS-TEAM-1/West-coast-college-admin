@@ -112,7 +112,7 @@ class AcademicArchiveService {
     blocksCreated,
     context,
   }) {
-    const { fromSchoolYear, toSchoolYear, targetSemester, adminId } = context;
+    const { fromSchoolYear, toSchoolYear, targetSemester, adminId, rolloverBatchId } = context;
     const baseSnapshots = [
       {
         type: 'ENROLLMENT_SNAPSHOT',

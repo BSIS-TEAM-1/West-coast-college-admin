@@ -159,7 +159,7 @@ const AuditLogs: React.FC = () => {
         log.action,
         log.resourceName,
         `"${log.description}"`,
-        log.performedBy.displayName || log.performedBy.username,
+        log.performedBy.username || log.performedBy.displayName,
         log.status,
         log.severity
       ].join(','))
@@ -227,7 +227,7 @@ const AuditLogs: React.FC = () => {
       }
     }
     return {
-      name: log.performedBy?.displayName || log.performedBy?.username || 'System',
+      name: log.performedBy?.username || log.performedBy?.displayName || 'System',
       role: log.performedByRole || 'system'
     }
   }
@@ -323,15 +323,26 @@ const AuditLogs: React.FC = () => {
               onChange={(e) => handleFilterChange('action', e.target.value)}
             >
               <option value="">All Actions</option>
-              <option value="CREATE_ACCOUNT">Create Account</option>
+              <option value="CREATE">Create</option>
+              <option value="UPDATE">Update</option>
+              <option value="DELETE">Delete</option>
               <option value="LOGIN">Login</option>
               <option value="LOGOUT">Logout</option>
-              <option value="DELETE_ACCOUNT">Delete Account</option>
-              <option value="UPDATE_PROFILE">Update Profile</option>
-              <option value="DELETE_AVATAR">Delete Avatar</option>
-              <option value="UPLOAD_AVATAR">Upload Avatar</option>
-              <option value="UPDATE_PASSWORD">Update Password</option>
-              <option value="RESET_PASSWORD">Reset Password</option>
+              <option value="VIEW">View</option>
+              <option value="EXPORT">Export</option>
+              <option value="UPLOAD">Upload</option>
+              <option value="DOWNLOAD">Download</option>
+              <option value="APPROVE">Approve</option>
+              <option value="REJECT">Reject</option>
+              <option value="ARCHIVE">Archive</option>
+              <option value="RESTORE">Restore</option>
+              <option value="BAN">Ban</option>
+              <option value="UNBAN">Unban</option>
+              <option value="SECURITY_SCAN">Security Scan</option>
+              <option value="SECURITY_HEADERS_SCAN">Security Headers Scan</option>
+              <option value="BLOCK_IP">Block IP</option>
+              <option value="UNBLOCK_IP">Unblock IP</option>
+              <option value="VERIFY">Verify</option>
             </select>
           </label>
 
@@ -435,61 +446,61 @@ const AuditLogs: React.FC = () => {
           <div>Severity</div>
         </div>
 
-        {displayedLogs.map((log) => (
-          <div key={log._id} className="table-row">
-            <div className="date-cell">{formatDate(log.createdAt)}</div>
-            <div className="action-cell">{log.action}</div>
-            <div className="resource-cell">
-              <span className="resource-type">{log.resourceType}</span>
-              <span className="resource-name">{log.resourceName}</span>
-            </div>
-            <div className="description-cell" title={log.description}>
-              {log.description}
-            </div>
-            <div className="user-cell">
-              {getUserDisplayForLog(log).name}
-              <span className="user-role">({getUserDisplayForLog(log).role})</span>
-            </div>
-            <div className="status-cell">
-              {getStatusIcon(log.status)}
-              <span>{log.status}</span>
-            </div>
-            <div className="severity-cell">
-              <span 
-                className="severity-badge" 
-                style={{ backgroundColor: getSeverityColor(log.severity) }}
-                title={getSeverityDescription(log.severity)}
-              >
-                {log.severity}
-              </span>
-            </div>
+        {displayedLogs.length === 0 && !loading ? (
+          <div className="no-results">
+            <Clock size={48} />
+            <h3>No audit logs yet</h3>
+            <p>Audit logs will appear here as users perform actions in the system.</p>
           </div>
-        ))}
+        ) : (
+          displayedLogs.map((log) => (
+            <div key={log._id} className="table-row">
+              <div className="date-cell">{formatDate(log.createdAt)}</div>
+              <div className="action-cell">{log.action}</div>
+              <div className="resource-cell">
+                <span className="resource-type">{log.resourceType}</span>
+                <span className="resource-name">{log.resourceName}</span>
+              </div>
+              <div className="description-cell" title={log.description}>
+                {log.description}
+              </div>
+              <div className="user-cell">
+                {getUserDisplayForLog(log).name}
+                <span className="user-role">({getUserDisplayForLog(log).role})</span>
+              </div>
+              <div className="status-cell">
+                {getStatusIcon(log.status)}
+                <span>{log.status}</span>
+              </div>
+              <div className="severity-cell">
+                <span
+                  className="severity-badge"
+                  style={{ backgroundColor: getSeverityColor(log.severity) }}
+                  title={getSeverityDescription(log.severity)}
+                >
+                  {log.severity}
+                </span>
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       {totalPages > 1 && (
         <div className="pagination">
-          <button 
+          <button
             disabled={currentPage === 1}
             onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
           >
             Previous
           </button>
           <span>Page {currentPage} of {totalPages}</span>
-          <button 
+          <button
             disabled={currentPage === totalPages}
             onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
           >
             Next
           </button>
-        </div>
-      )}
-
-      {displayedLogs.length === 0 && !loading && (
-        <div className="no-results">
-          <Search size={48} />
-          <h3>No audit logs found</h3>
-          <p>Try adjusting your filters or check back later for new activity.</p>
         </div>
       )}
     </div>

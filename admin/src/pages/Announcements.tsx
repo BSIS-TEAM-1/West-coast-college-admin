@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { 
   Bell, Plus, Search, Filter, Clock, AlertTriangle, Info, AlertCircle, 
-  Wrench, Users, Edit, Trash2, Eye, ChevronDown,
+  Wrench, Users, Edit, Trash2, Eye, ChevronDown, Check,
   CheckCircle, XCircle, Archive, RefreshCw, Upload, X, Send
 } from 'lucide-react'
 import { getStoredToken, clearStoredToken, API_URL, getProfile, type ProfileResponse } from '../lib/authApi'
@@ -80,12 +80,103 @@ const normalizeAnnouncementRecord = (value: any): Announcement => ({
   targetAudience: normalizeAnnouncementAudience(value?.targetAudience),
 })
 
+const AUDIENCE_INDIVIDUAL_ROLES: AnnouncementAudience[] = ['students', 'registrar', 'professor', 'admin']
+
+function AnnouncementAudienceDropdown({
+  value,
+  onChange,
+  id,
+}: {
+  value: AnnouncementAudienceSelection
+  onChange: (nextValue: AnnouncementAudienceSelection) => void
+  id?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const isAllSelected =
+    value.length === AUDIENCE_INDIVIDUAL_ROLES.length &&
+    value.every((role) => AUDIENCE_INDIVIDUAL_ROLES.includes(role))
+
+  const displayLabel = isAllSelected
+    ? 'All users'
+    : value.length === 0
+      ? 'Select audience...'
+      : getAnnouncementAudienceLabels(value).join(', ')
+
+  useEffect(() => {
+    if (!open) return
+    const handlePointerDown = (event: PointerEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open ])
+
+  return (
+    <div className="audience-dropdown" ref={containerRef}>
+      <button
+        type="button"
+        id={id}
+        className="audience-dropdown-toggle"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        <span className={`audience-dropdown-label ${value.length === 0 && !isAllSelected ? 'is-placeholder' : ''}`}>
+          {displayLabel}
+        </span>
+        <ChevronDown size={16} className={`audience-dropdown-chevron ${open ? 'is-open' : ''}`} />
+      </button>
+      {open && (
+        <div className="audience-dropdown-panel" role="listbox" aria-label="Target audience">
+          {audienceOptions.map((option) => {
+            const checked =
+              option.value === 'all'
+                ? isAllSelected
+                : value.includes(option.value)
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="option"
+                aria-selected={checked}
+                className={`audience-dropdown-option ${checked ? 'is-checked' : ''}`}
+                onClick={() =>
+                  onChange(toggleAnnouncementAudience(value, option.value as AnnouncementAudience))
+                }
+              >
+                <span className="audience-dropdown-check" aria-hidden="true">
+                  {checked && <Check size={14} strokeWidth={3} />}
+                </span>
+                <span>{option.label}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+      <p className="audience-selector-hint">
+        Choose one or more audiences. Selecting All users includes all roles.
+      </p>
+    </div>
+  )
+}
+
 export default function Announcements({ onNavigate }: AnnouncementsProps) {
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState<string>('all')
-  const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [filterStatus, setFilterStatus] = useState<string>('active')
   const [showFilters, setShowFilters] = useState(false)
   const [selectedAnnouncements, setSelectedAnnouncements] = useState<string[]>([])
   const [editingAnnouncement, setEditingAnnouncement] = useState<Announcement | null>(null)
@@ -481,6 +572,12 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
            date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   }
 
+  const isAnnouncementExpired = (announcement: Announcement) => {
+    if (!announcement.expiresAt) return false
+    const expiry = new Date(announcement.expiresAt)
+    return !isNaN(expiry.getTime()) && expiry.getTime() < Date.now()
+  }
+
   const truncateDisplayText = (value: string, maxLength: number) => {
     const text = String(value || '').replace(/\s+/g, ' ').trim()
     if (!text) return ''
@@ -501,46 +598,20 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
   const renderAudienceSelector = (
     value: AnnouncementAudienceSelection,
     onChange: (nextValue: AnnouncementAudienceSelection) => void
-  ) => {
-    const individualRoles: AnnouncementAudience[] = ['students', 'registrar', 'professor', 'admin']
-    const isAllSelected = value.length === individualRoles.length && 
-                          value.every(role => individualRoles.includes(role))
-    
-    return (
-      <>
-        <div className="audience-selector" role="group" aria-label="Target audience">
-          {audienceOptions.map((option) => {
-            const isSelected = option.value === 'all' 
-              ? isAllSelected 
-              : value.includes(option.value)
-            return (
-              <button
-                key={option.value}
-                type="button"
-                className={`audience-selector-option ${isSelected ? 'active' : ''}`}
-                onClick={() => onChange(toggleAnnouncementAudience(value, option.value as AnnouncementAudience))}
-                aria-pressed={isSelected}
-              >
-                <span>{option.label}</span>
-              </button>
-            )
-          })}
-        </div>
-        <p className="audience-selector-hint">
-          Choose one or more audiences. Selecting All users includes all roles. Deselecting a role from All users keeps the other roles selected.
-        </p>
-      </>
-    )
-  }
+  ) => (
+    <AnnouncementAudienceDropdown value={value} onChange={onChange} />
+  )
 
   const filteredAnnouncements = announcements.filter(announcement => {
     const matchesSearch = announcement.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          announcement.message.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesType = filterType === 'all' || announcement.type === filterType
+    const expired = isAnnouncementExpired(announcement)
     const matchesStatus = filterStatus === 'all' || 
-                         (filterStatus === 'active' && announcement.isActive) ||
-                         (filterStatus === 'inactive' && !announcement.isActive && !announcement.isArchived) ||
-                         (filterStatus === 'archived' && announcement.isArchived)
+                         (filterStatus === 'active' && announcement.isActive && !expired && !announcement.isArchived) ||
+                         (filterStatus === 'inactive' && !announcement.isActive && !announcement.isArchived && !expired) ||
+                         (filterStatus === 'archived' && announcement.isArchived) ||
+                         (filterStatus === 'expired' && expired && !announcement.isArchived)
     
     return matchesSearch && matchesType && matchesStatus
   })
@@ -797,6 +868,7 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
             <option value="archived">Archived</option>
+            <option value="expired">Expired</option>
           </select>
         </div>
       )}
@@ -1268,6 +1340,21 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
               const canEdit = currentUser?.accountType === 'admin' || 
                             currentUser?.username === announcement.createdBy.username
               const isSelected = selectedAnnouncements.includes(announcement._id)
+              const expired = isAnnouncementExpired(announcement)
+              const statusClass = announcement.isArchived
+                ? 'archived'
+                : expired
+                  ? 'expired'
+                  : announcement.isActive
+                    ? 'published'
+                    : 'draft'
+              const statusLabel = announcement.isArchived
+                ? 'Archived'
+                : expired
+                  ? 'Expired'
+                  : announcement.isActive
+                    ? 'Published'
+                    : 'Draft'
 
               return (
                 <div className="announcements-table-row" key={announcement._id}>
@@ -1297,9 +1384,9 @@ export default function Announcements({ onNavigate }: AnnouncementsProps) {
                     {renderAudienceTags(announcement.targetAudience)}
                   </div>
                   <div className="table-status">
-                    <span className={`status-badge ${announcement.isActive ? 'published' : announcement.isArchived ? 'archived' : 'draft'}`}>
-                      {announcement.isActive ? <CheckCircle size={14} /> : announcement.isArchived ? <Archive size={14} /> : <XCircle size={14} />}
-                      {announcement.isActive ? 'Published' : announcement.isArchived ? 'Archived' : 'Draft'}
+                    <span className={`status-badge ${statusClass}`}>
+                      {statusClass === 'published' ? <CheckCircle size={14} /> : statusClass === 'archived' ? <Archive size={14} /> : statusClass === 'expired' ? <Clock size={14} /> : <XCircle size={14} />}
+                      {statusLabel}
                     </span>
                     {!announcement.isActive && canEdit && (
                       <button

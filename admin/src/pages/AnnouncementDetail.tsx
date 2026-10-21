@@ -80,26 +80,49 @@ export default function AnnouncementDetail({ announcementId, onBack, viewerAudie
       if (viewerAudience) {
         query.set('targetAudience', viewerAudience)
       }
-      const response = await fetch(`${API_URL}/api/announcements/${announcementId}${query.size > 0 ? `?${query.toString()}` : ''}`, {
+      const querySuffix = query.size > 0 ? `?${query.toString()}` : ''
+
+      // Admin endpoint includes expired announcements; public one does not.
+      // Try admin first so ADMIN keeps full CRUD visibility on expired records.
+      let data: any = null
+      let loadedViaAdmin = false
+      const adminResponse = await fetch(`${API_URL}/api/admin/announcements/${announcementId}`, {
         headers: {
           Authorization: `Bearer ${token}`
         }
       })
 
-      if (!response.ok) {
-        if (response.status === 404) {
-          setError('Announcement not found')
-        } else if (response.status === 401) {
-          setError('Authentication failed')
-        } else {
-          throw new Error(`HTTP error! status: ${response.status}`)
+      if (adminResponse.ok) {
+        data = await adminResponse.json()
+        loadedViaAdmin = true
+      } else if (adminResponse.status === 403 || adminResponse.status === 404) {
+        const response = await fetch(`${API_URL}/api/announcements/${announcementId}${querySuffix}`, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        })
+
+        if (!response.ok) {
+          if (response.status === 404) {
+            setError('Announcement not found')
+          } else if (response.status === 401) {
+            setError('Authentication failed')
+          } else {
+            throw new Error(`HTTP error! status: ${response.status}`)
+          }
+          return
         }
+
+        data = await response.json()
+      } else if (adminResponse.status === 401) {
+        setError('Authentication failed')
         return
+      } else {
+        throw new Error(`HTTP error! status: ${adminResponse.status}`)
       }
 
-      const data = await response.json()
       const normalizedAudience = normalizeAnnouncementAudience(data?.targetAudience)
-      if (viewerAudience && !normalizedAudience.includes('all') && !normalizedAudience.includes(viewerAudience)) {
+      if (!loadedViaAdmin && viewerAudience && !normalizedAudience.includes('all') && !normalizedAudience.includes(viewerAudience)) {
         setError('Announcement not found')
         setAnnouncement(null)
         return
@@ -260,6 +283,12 @@ export default function AnnouncementDetail({ announcementId, onBack, viewerAudie
               {!announcement.isActive && (
                 <span className="status-badge status-badge-danger">Inactive</span>
               )}
+              {(() => {
+                if (!announcement.expiresAt) return null
+                const expiry = new Date(announcement.expiresAt)
+                if (isNaN(expiry.getTime()) || expiry.getTime() >= Date.now()) return null
+                return <span className="status-badge status-badge-danger">Expired</span>
+              })()}
             </div>
 
             <h1 className="article-title">{announcement.title}</h1>

@@ -6,6 +6,7 @@ const SubjectController = require('../controllers/subjectController');
 const BlockSubjectAssignmentController = require('../controllers/blockSubjectAssignmentController');
 const CurriculumController = require('../controllers/curriculumController');
 const CurriculumSubjectController = require('../controllers/curriculumSubjectController');
+const EnrollmentManagementController = require('../controllers/enrollmentManagementController');
 const securityMiddleware = require('../securityMiddleware');
 const { requireAnyRole } = require('../authorization');
 const { apiCache, cacheMiddleware } = require('../services/apiCache');
@@ -58,6 +59,17 @@ router.get('/students/:id/cor', securityMiddleware.inputValidationMiddleware(sec
 router.post('/students/:id/enroll', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.enroll), invalidateCacheOnSuccess(...studentCachePrefixes, ...courseLoadCachePrefixes), StudentController.enrollStudent);
 router.get('/students/:id/current-enrollment', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.currentEnrollment), cacheMiddleware({ ttlMs: 15 * 1000 }), StudentController.getCurrentEnrollment);
 router.get('/students/:id/enrollments', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.idParam), cacheMiddleware({ ttlMs: 15 * 1000 }), StudentController.getEnrollmentHistory);
+
+// Subject-level enrollment management (add / drop / retake / progress).
+// These act on the subjects inside one term's enrollment record and always
+// leave the records they touch intact.
+const enrollmentCachePrefixes = ['/registrar/students', '/api/registrar/students'];
+router.get('/students/:id/academic-progress', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.idParam), EnrollmentManagementController.getAcademicProgress);
+router.post('/students/:id/retake', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.idParam), invalidateCacheOnSuccess(...enrollmentCachePrefixes), EnrollmentManagementController.retakeSubject);
+router.get('/curriculum-suggestions', cacheMiddleware({ ttlMs: 30 * 1000 }), EnrollmentManagementController.getSuggestedSubjects);
+router.post('/enrollments/:enrollmentId/subjects/validate', EnrollmentManagementController.validateEnrollmentSubjects);
+router.post('/enrollments/:enrollmentId/subjects', invalidateCacheOnSuccess(...enrollmentCachePrefixes, ...courseLoadCachePrefixes), EnrollmentManagementController.addEnrollmentSubjects);
+router.post('/enrollments/:enrollmentId/subjects/:subjectId/drop', invalidateCacheOnSuccess(...enrollmentCachePrefixes, ...courseLoadCachePrefixes), EnrollmentManagementController.dropEnrollmentSubject);
 router.post('/sections/:sectionId/subject-assignment', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.assignSubjectInstructor), invalidateCacheOnSuccess(...courseLoadCachePrefixes), StudentController.assignSubjectInstructorToSection);
 router.put('/sections/:sectionId/subject-assignment', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.assignSubjectInstructor), invalidateCacheOnSuccess(...courseLoadCachePrefixes), StudentController.assignSubjectInstructorToSection);
 router.delete('/sections/:sectionId/subject-assignment/:subjectId', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.sectionAssignmentTarget), invalidateCacheOnSuccess(...courseLoadCachePrefixes), StudentController.clearSubjectInstructorForSection);

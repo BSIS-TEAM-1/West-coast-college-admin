@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle, Archive, ArrowRight, CalendarClock, Check, CheckCircle2,
-  ChevronDown, ChevronRight, GraduationCap, History, RefreshCw, Search,
+  ChevronDown, ChevronRight, GraduationCap, History, RefreshCw, RotateCcw, Search,
   Users, AlertTriangle, Filter, X,
 } from 'lucide-react'
 import { getAcademicTerm, type AcademicSemester } from '../../lib/settingsApi'
 import {
   executeRollover,
+  getLatestRollover,
   listRolloverSnapshots,
   previewRolloverSummary,
   previewRolloverExceptions,
+  revertRollover,
   type ArchiveSnapshotSummary,
   type RolloverAction,
+  type RolloverBatchSummary,
   type RolloverGroupSummary,
+  type RolloverRevertResult,
   type RolloverSummaryPreview,
   type RolloverEvaluation,
   type RolloverResult,
@@ -43,6 +47,12 @@ function groupKey(g: { course: number; yearLevel: number; section: string }) {
   return `${g.course}_${g.yearLevel}_${g.section}`
 }
 
+function formatDateTime(value?: string | null) {
+  if (!value) return '—'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString()
+}
+
 export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) {
   const [step, setStep] = useState<WizardStep>(1)
   const [fromSchoolYear, setFromSchoolYear] = useState('')
@@ -52,12 +62,21 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
   const [approvedGroups, setApprovedGroups] = useState<Set<string>>(new Set())
   const [groupActions, setGroupActions] = useState<Record<string, RolloverAction>>({})
   const [decisionOverrides, setDecisionOverrides] = useState<Record<string, RolloverAction>>({})
+  const [decisionOverrideGroups, setDecisionOverrideGroups] = useState<Record<string, string>>({})
   const [result, setResult] = useState<RolloverResult | null>(null)
   const [snapshots, setSnapshots] = useState<ArchiveSnapshotSummary[]>([])
   const [showHistory, setShowHistory] = useState(false)
   const [loading, setLoading] = useState(false)
   const [executing, setExecuting] = useState(false)
   const [error, setError] = useState('')
+
+  // ---- Rollover revert ----
+  const [latestBatch, setLatestBatch] = useState<RolloverBatchSummary | null>(null)
+  const [latestBatchLoading, setLatestBatchLoading] = useState(false)
+  const [showRevertConfirm, setShowRevertConfirm] = useState(false)
+  const [reverting, setReverting] = useState(false)
+  const [revertError, setRevertError] = useState('')
+  const [revertSuccess, setRevertSuccess] = useState<RolloverRevertResult | null>(null)
 
   // ---- Step 2: card filter + group search ----
   const [cardFilter, setCardFilter] = useState<CardFilter>('all')
@@ -95,6 +114,31 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
       }
     })()
   }, [])
+
+  const loadLatestBatch = useCallback(async () => {
+    setLatestBatchLoading(true)
+    try {
+      const batch = await getLatestRollover()
+      setLatestBatch(batch)
+    } catch {
+      // Keep any optimistic batch already shown; never block the rollover workflow.
+    } finally {
+      setLatestBatchLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadLatestBatch()
+  }, [loadLatestBatch])
+
+  useEffect(() => {
+    if (!showRevertConfirm) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !reverting) setShowRevertConfirm(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [showRevertConfirm, reverting])
 
   const loadSnapshots = async () => {
     try {
@@ -134,6 +178,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
       setApprovedGroups(autoApproved)
       setGroupActions(defaultActions)
       setDecisionOverrides({})
+      setDecisionOverrideGroups({})
       setCardFilter('all')
       setGroupSearchText('')
       setStep(2)
@@ -156,6 +201,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
           search,
           course: group.course,
           yearLevel: group.yearLevel,
+          section: group.section,
         })
         setExceptionStudents(data.students)
         setExceptionPage(data.page)
@@ -235,8 +281,9 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
   }
 
   // ---- Override a single student's action ----
-  const handleStudentOverride = (studentId: string, action: RolloverAction) => {
+  const handleStudentOverride = (studentId: string, action: RolloverAction, groupKeyValue: string) => {
     setDecisionOverrides((current) => ({ ...current, [studentId]: action }))
+    setDecisionOverrideGroups((current) => ({ ...current, [studentId]: groupKeyValue }))
   }
 
   // ---- Group approval toggle ----
@@ -298,16 +345,20 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
     if (!summaryPreview) return counts
     for (const g of summaryPreview.groups) {
       const key = groupKey(g)
-      if (approvedGroups.has(key)) {
-        const action = groupActions[key] || 'promote'
-        counts[action] += g.total
-      }
+      if (!approvedGroups.has(key)) continue
+      const action = groupActions[key] || 'promote'
+      const overrideCount = Object.entries(decisionOverrideGroups)
+        .filter(([, overrideGroupKey]) => overrideGroupKey === key)
+        .length
+      counts[action] += Math.max(0, g.total - overrideCount)
     }
-    for (const action of Object.values(decisionOverrides)) {
+    for (const [studentId, action] of Object.entries(decisionOverrides)) {
+      const overrideGroupKey = decisionOverrideGroups[studentId]
+      if (overrideGroupKey && !approvedGroups.has(overrideGroupKey)) continue
       counts[action] += 1
     }
     return counts
-  }, [summaryPreview, approvedGroups, groupActions, decisionOverrides])
+  }, [summaryPreview, approvedGroups, groupActions, decisionOverrides, decisionOverrideGroups])
 
   const totalApprovedStudents = useMemo(() => {
     if (!summaryPreview) return 0
@@ -336,10 +387,15 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
           action: groupActions[groupKey(g)] || 'promote',
         }))
 
-      const overrides = Object.entries(decisionOverrides).map(([studentId, action]) => ({
-        studentId,
-        action,
-      }))
+      const overrides = Object.entries(decisionOverrides)
+        .filter(([studentId]) => {
+          const overrideGroupKey = decisionOverrideGroups[studentId]
+          return !overrideGroupKey || approvedGroups.has(overrideGroupKey)
+        })
+        .map(([studentId, action]) => ({
+          studentId,
+          action,
+        }))
 
       const data = await executeRollover({
         fromSchoolYear: summaryPreview.fromSchoolYear,
@@ -349,11 +405,80 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
         decisionOverrides: overrides.length > 0 ? overrides : undefined,
       })
       setResult(data)
+      setRevertSuccess(null)
+      setRevertError('')
+      setLatestBatch({
+        batchId: data.rolloverBatchId,
+        fromSchoolYear: data.fromSchoolYear,
+        toSchoolYear: data.toSchoolYear,
+        semester: data.semester,
+        status: 'applied',
+        executedAt: new Date().toISOString(),
+        executedBy: null,
+        counts: {
+          total: data.promoted.length + data.retained.length + data.graduated.length + data.skipped.length,
+          promoted: data.promoted.length,
+          retained: data.retained.length,
+          graduated: data.graduated.length,
+          skipped: data.skipped.length,
+        },
+      })
       setStep(4)
+      void loadLatestBatch()
     } catch (executeError) {
       setError(executeError instanceof Error ? executeError.message : 'Rollover failed. All changes were rolled back.')
     } finally {
       setExecuting(false)
+    }
+  }
+
+  // ---- Revert the most recent rollover ----
+  const handleOpenRevert = () => {
+    setRevertError('')
+    setRevertSuccess(null)
+    setShowRevertConfirm(true)
+  }
+
+  const handleRevert = async () => {
+    if (!latestBatch) return
+    setReverting(true)
+    setRevertError('')
+    try {
+      const data = await revertRollover({ batchId: latestBatch.batchId })
+      setRevertSuccess(data)
+      setLatestBatch((current) => current ? {
+        ...current,
+        status: 'reverted',
+        revertedAt: data.revertedAt,
+        revertedBy: null,
+      } : current)
+      setShowRevertConfirm(false)
+      setResult(null)
+      setSummaryPreview(null)
+      setApprovedGroups(new Set())
+      setGroupActions({})
+      setDecisionOverrides({})
+      setDecisionOverrideGroups({})
+      setExpandedGroup(null)
+      setExceptionStudents([])
+      setShowGlobalExceptions(false)
+      setStep(1)
+      setShowHistory(false)
+
+      try {
+        const term = await getAcademicTerm()
+        setFromSchoolYear(term.schoolYear)
+        setToSchoolYear(nextSchoolYear(term.schoolYear))
+        setSemester(term.semester)
+      } catch {
+        // Keep the current form values if the term cannot be reloaded.
+      }
+
+      await loadLatestBatch()
+    } catch (revertFailure) {
+      setRevertError(revertFailure instanceof Error ? revertFailure.message : 'Failed to revert rollover. All changes were rolled back.')
+    } finally {
+      setReverting(false)
     }
   }
 
@@ -393,6 +518,81 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
           ) : null}
         </div>
       </header>
+
+      {latestBatch ? (
+        <section
+          className={[
+            'rollover-page__panel',
+            'rollover-page__rollover-status',
+            latestBatch.status === 'reverted' ? 'rollover-page__rollover-status--reverted' : '',
+          ].filter(Boolean).join(' ')}
+        >
+          <div className="rollover-page__status-header">
+            <div>
+              <span className="rollover-page__eyebrow">Last rollover</span>
+              <h3>
+                SY {latestBatch.fromSchoolYear} <ArrowRight size={16} /> SY {latestBatch.toSchoolYear}
+              </h3>
+              <p className="rollover-page__hint">
+                {latestBatch.status === 'applied'
+                  ? `Executed ${formatDateTime(latestBatch.executedAt)} by ${latestBatch.executedBy?.displayName || latestBatch.executedBy?.username || 'an administrator'} · ${latestBatch.semester} semester`
+                  : `Reverted ${formatDateTime(latestBatch.revertedAt)} by ${latestBatch.revertedBy?.displayName || latestBatch.revertedBy?.username || 'an administrator'} · ${latestBatch.semester} semester`}
+              </p>
+            </div>
+            <span
+              className={[
+                'rollover-page__status-badge',
+                latestBatch.status === 'applied' ? 'rollover-page__status-badge--ok' : 'rollover-page__status-badge--warn',
+              ].join(' ')}
+            >
+              {latestBatch.status === 'applied' ? 'Applied' : 'Reverted'}
+            </span>
+          </div>
+
+          <div className="rollover-page__status-counts">
+            <span><strong>{latestBatch.counts?.promoted?.toLocaleString() ?? 0}</strong> promoted</span>
+            <span><strong>{latestBatch.counts?.retained?.toLocaleString() ?? 0}</strong> retained</span>
+            <span><strong>{latestBatch.counts?.graduated?.toLocaleString() ?? 0}</strong> graduated</span>
+            <span><strong>{latestBatch.counts?.skipped?.toLocaleString() ?? 0}</strong> skipped</span>
+          </div>
+
+          {latestBatch.status === 'applied' ? (
+            <footer className="rollover-page__status-actions">
+              <button
+                type="button"
+                className="rollover-page__danger-button"
+                onClick={handleOpenRevert}
+                disabled={reverting || latestBatchLoading}
+              >
+                <RotateCcw size={16} /> Revert this rollover
+              </button>
+              <span className="rollover-page__hint">
+                Restores the previous academic term, closing enrollments, student year levels, and block assignments.
+              </span>
+            </footer>
+          ) : (
+            <p className="rollover-page__hint">
+              The previous academic term and student records have been restored. The rollover archive remains immutable.
+            </p>
+          )}
+
+          {revertSuccess ? (
+            <div className="rollover-page__success">
+              <CheckCircle2 size={18} />
+              <div>
+                <strong>Rollover reverted.</strong>
+                <span>
+                  Restored {revertSuccess.restoredStudents.toLocaleString()} student
+                  {revertSuccess.restoredStudents === 1 ? '' : 's'}, removed{' '}
+                  {revertSuccess.deletedEnrollments.toLocaleString()} new enrollment
+                  {revertSuccess.deletedEnrollments === 1 ? '' : 's'}, and reopened SY{' '}
+                  {revertSuccess.restoredAcademicTerm.schoolYear} ({revertSuccess.restoredAcademicTerm.semester} semester).
+                </span>
+              </div>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       {showHistory ? (
         <section className="rollover-page__panel">
@@ -589,7 +789,11 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
                             <td>
                               <select
                                 value={decisionOverrides[student.studentId] || student.recommendedAction}
-                                onChange={(e) => handleStudentOverride(student.studentId, e.target.value as RolloverAction)}
+                                onChange={(e) => handleStudentOverride(
+                                  student.studentId,
+                                  e.target.value as RolloverAction,
+                                  groupKey({ course: student.course, yearLevel: student.yearLevel, section: student.section || 'Unassigned' })
+                                )}
                                 className="rollover-page__decision-select"
                               >
                                 {(Object.keys(ACTION_LABELS) as RolloverAction[]).map((action) => (
@@ -755,7 +959,11 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
                                             <td>
                                               <select
                                                 value={decisionOverrides[student.studentId] || student.recommendedAction}
-                                                onChange={(e) => handleStudentOverride(student.studentId, e.target.value as RolloverAction)}
+                                                onChange={(e) => handleStudentOverride(
+                                                  student.studentId,
+                                                  e.target.value as RolloverAction,
+                                                  groupKey(group)
+                                                )}
                                                 className="rollover-page__decision-select"
                                               >
                                                 {(Object.keys(ACTION_LABELS) as RolloverAction[]).map((action) => (
@@ -810,7 +1018,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
               onClick={() => setStep(3)}
               disabled={approvedGroups.size === 0}
             >
-              Continue to confirmation ({approvedGroups.size} groups approved) <ArrowRight size={16} />
+              Continue to confirmation ({approvedGroups.size} {approvedGroups.size === 1 ? 'group' : 'groups'} approved) <ArrowRight size={16} />
             </button>
           </footer>
         </section>
@@ -826,15 +1034,18 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
               <strong>SY {summaryPreview.toSchoolYear} ({summaryPreview.semester} semester)</strong>.
             </p>
             <ul>
-              <li><Users size={14} /> {totalApprovedStudents.toLocaleString()} student(s) across {approvedGroups.size} approved group(s).</li>
+              <li><Users size={14} /> {totalApprovedStudents.toLocaleString()} student{totalApprovedStudents === 1 ? '' : 's'} across {approvedGroups.size} approved group{approvedGroups.size === 1 ? '' : 's'}.</li>
               <li><Check size={14} /> {decisionCounts.promote.toLocaleString()} will be promoted.</li>
               <li><RefreshCw size={14} /> {decisionCounts.retain.toLocaleString()} will be retained.</li>
               <li><GraduationCap size={14} /> {decisionCounts.graduate.toLocaleString()} will be graduated.</li>
+              {decisionCounts.skip > 0 ? (
+                <li><X size={14} /> {decisionCounts.skip.toLocaleString()} will be skipped.</li>
+              ) : null}
               {Object.keys(decisionOverrides).length > 0 ? (
-                <li><AlertTriangle size={14} /> {Object.keys(decisionOverrides).length} manual override(s) applied.</li>
+                <li><AlertTriangle size={14} /> {Object.keys(decisionOverrides).length} manual override{Object.keys(decisionOverrides).length === 1 ? '' : 's'} applied.</li>
               ) : null}
               {unapprovedGroups.length > 0 ? (
-                <li className="rollover-page__warning"><AlertCircle size={14} /> {unapprovedGroups.length} group(s) not approved — their students will be skipped.</li>
+                <li className="rollover-page__warning"><AlertCircle size={14} /> {unapprovedGroups.length} unapproved group{unapprovedGroups.length === 1 ? '' : 's'} — students in those groups will be skipped.</li>
               ) : null}
             </ul>
             <p className="rollover-page__warning">
@@ -872,6 +1083,16 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
             {result.snapshotIds.length} immutable archive snapshot(s) were generated. Batch ID: <code>{result.rolloverBatchId}</code>
           </p>
           <footer className="rollover-page__actions">
+            {latestBatch?.batchId === result.rolloverBatchId && latestBatch.status === 'applied' ? (
+              <button
+                type="button"
+                className="rollover-page__danger-button"
+                onClick={handleOpenRevert}
+                disabled={reverting}
+              >
+                <RotateCcw size={16} /> Revert this rollover
+              </button>
+            ) : null}
             <button
               type="button"
               className="rollover-page__primary-button"
@@ -886,6 +1107,84 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
             </button>
           </footer>
         </section>
+      ) : null}
+
+      {showRevertConfirm && latestBatch ? (
+        <div
+          className="rollover-page__modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !reverting) setShowRevertConfirm(false)
+          }}
+        >
+          <div
+            className="rollover-page__modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="revert-rollover-title"
+            aria-describedby="revert-rollover-description"
+          >
+            <div className="rollover-page__modal-header">
+              <div>
+                <span className="rollover-page__eyebrow">Destructive action</span>
+                <h3 id="revert-rollover-title">Revert this rollover?</h3>
+              </div>
+              <button
+                type="button"
+                className="rollover-page__ghost-button"
+                onClick={() => setShowRevertConfirm(false)}
+                disabled={reverting}
+                aria-label="Close revert confirmation"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p id="revert-rollover-description">
+              This will undo the <strong>SY {latestBatch.fromSchoolYear} <ArrowRight size={14} /> SY {latestBatch.toSchoolYear}</strong>{' '}
+              rollover and reopen <strong>SY {latestBatch.fromSchoolYear}</strong>.
+            </p>
+
+            <ul className="rollover-page__modal-list">
+              <li>Delete the enrollment records created for SY {latestBatch.toSchoolYear}.</li>
+              <li>Unlock and restore the closing enrollments for SY {latestBatch.fromSchoolYear}.</li>
+              <li>Restore student year levels, sections, and block assignments.</li>
+              <li>Restore the previous academic term.</li>
+            </ul>
+
+            <p className="rollover-page__warning">
+              Revert is blocked if any new enrollment already has grades or payments, if a student was changed after
+              the rollover, or if the active academic term has changed.
+            </p>
+
+            {revertError ? (
+              <div className="rollover-page__error" role="alert">
+                <AlertCircle size={18} />
+                <span>{revertError}</span>
+              </div>
+            ) : null}
+
+            <footer className="rollover-page__modal-actions">
+              <button
+                type="button"
+                className="rollover-page__ghost-button"
+                onClick={() => setShowRevertConfirm(false)}
+                disabled={reverting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rollover-page__primary-button rollover-page__primary-button--danger"
+                onClick={() => void handleRevert()}
+                disabled={reverting}
+              >
+                {reverting ? <RefreshCw size={16} className="rollover-page__spin" /> : <RotateCcw size={16} />}
+                {reverting ? 'Reverting...' : 'Revert rollover'}
+              </button>
+            </footer>
+          </div>
+        </div>
       ) : null}
     </div>
   )
