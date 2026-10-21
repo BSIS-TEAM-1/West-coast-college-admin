@@ -27,10 +27,13 @@ export type BlockGroup = {
 
 export type BlockSection = {
   _id: string
+  blockGroupId?: string
   sectionCode: string
   capacity: number
   currentPopulation: number
   status: 'OPEN' | 'CLOSED'
+  schedule?: string
+  classAdviser?: string
 }
 
 export type BlockStudent = {

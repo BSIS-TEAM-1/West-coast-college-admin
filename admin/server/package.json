@@ -4,7 +4,11 @@
   "type": "commonjs",
   "scripts": {
     "start": "node index.js",
-    "dev": "node index.js"
+    "dev": "node index.js",
+    "test": "jest && node --test enterprise-architecture.test.js backup.test.js",
+    "test:unit": "jest",
+    "test:node": "node --test enterprise-architecture.test.js backup.test.js",
+    "test:integration": "node enrollmentScenarios.integration.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

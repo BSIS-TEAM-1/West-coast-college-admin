@@ -6,9 +6,33 @@ services:
     rootDir: admin
     buildCommand: npm install && npm run build
     startCommand: npm start
+    # Backup archives used to be written inside the container filesystem and
+    # were erased by every restart/redeploy. Mount a disk and point the backup
+    # store at it so archives survive deploys.
+    disk:
+      name: wcc-backups
+      mountPath: /var/backups
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
+      - key: BACKUP_STORAGE_PATH
+        value: /var/backups
+      - key: BACKUP_AUTO_RETENTION
+        value: "true"
+      # Keep 7 daily restore points plus 4 weekly ones (~12 archives).
+      - key: BACKUP_RETENTION_HOURLY
+        value: "0"
+      - key: BACKUP_RETENTION_DAILY
+        value: "7"
+      - key: BACKUP_RETENTION_WEEKLY
+        value: "4"
+      - key: BACKUP_RETENTION_MONTHLY
+        value: "0"
+      # Roots this service wrote to before the disk was mounted, so records
+      # created earlier still count as belonging to this server.
+      - key: BACKUP_LEGACY_STORAGE_PATHS
+        value: /app/server/backups,/opt/render/project/src/admin/server/backups
       - key: MONGODB_URI
         value: YOUR_MONGODB_URI_HERE
       - key: JWT_SECRET

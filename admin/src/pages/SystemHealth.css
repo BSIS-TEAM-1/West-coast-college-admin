@@ -1,6 +1,7 @@
 .system-health {
   --health-radius: 8px;
   --health-shadow: 0 1px 2px color-mix(in srgb, var(--color-text) 8%, transparent);
+  box-sizing: border-box;
   width: 100%;
   min-height: 100%;
   padding: clamp(1rem, 2.5vw, 2rem);
@@ -100,10 +101,12 @@
 .status-pill,
 .backup-status,
 .warning-severity { width: fit-content; display: inline-flex; align-items: center; padding: 0.25rem 0.5rem; border-radius: 999px; font-size: 0.6875rem; font-weight: 750; letter-spacing: 0.035em; text-transform: uppercase; }
-.activity-log-row .activity-log-level { display: inline-block !important; padding: 0.15rem 0.4rem !important; border-radius: 3px !important; font-size: 0.65rem !important; font-weight: 700 !important; line-height: 1.2 !important; letter-spacing: 0.02em !important; text-transform: uppercase !important; white-space: nowrap !important; vertical-align: middle !important; }
-.activity-log-row .activity-log-level.error { color: var(--color-error) !important; background: color-mix(in srgb, var(--color-error) 6%, var(--color-surface)) !important; }
-.activity-log-row .activity-log-level.warning { color: var(--color-warning) !important; background: color-mix(in srgb, var(--color-warning) 8%, var(--color-surface)) !important; }
-.activity-log-row .activity-log-level.info { color: var(--color-info) !important; background: color-mix(in srgb, var(--color-info) 8%, var(--color-surface)) !important; }
+.activity-log-level { justify-self: start; display: inline-flex; align-items: center; padding: 0.15rem 0.45rem; border: 1px solid color-mix(in srgb, var(--color-text-muted) 32%, transparent); border-radius: 3px; background: var(--color-bg-soft); color: var(--color-text-secondary); font-size: 0.6875rem; font-weight: 700; line-height: 1.3; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; }
+.activity-log-level.info { border-color: color-mix(in srgb, var(--color-info) 38%, transparent); background: color-mix(in srgb, var(--color-info) 12%, var(--color-surface)); color: var(--color-info); }
+.activity-log-level.warning,
+.activity-log-level.warn { border-color: color-mix(in srgb, var(--color-warning) 38%, transparent); background: color-mix(in srgb, var(--color-warning) 12%, var(--color-surface)); color: var(--color-warning); }
+.activity-log-level.error { border-color: color-mix(in srgb, var(--color-error) 38%, transparent); background: color-mix(in srgb, var(--color-error) 12%, var(--color-surface)); color: var(--color-error); }
+.activity-log-level.debug { color: var(--color-text-muted); }
 .warning,
 .in-progress { color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 13%, var(--color-surface)); }
 .error,
@@ -129,21 +132,38 @@
 .atlas-graphs-section > h2 { margin: 0 0 1rem; }
 
 .logs-section { overflow: hidden; }
-.logs-section-header { min-height: 4rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.875rem 1.25rem; border-bottom: 1px solid var(--color-border); }
-.logs-section h2 { display: inline-flex; align-items: center; gap: 0.5rem; }
-.logs-actions { display: flex; gap: 0.5rem; }
-.logs-actions .danger { color: var(--color-error); }
-.activity-log-table { width: 100%; overflow-x: auto; }
+.logs-section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); }
+.logs-heading { display: grid; gap: 0.2rem; min-width: 0; }
+.logs-section h2 { display: inline-flex; align-items: center; gap: 0.5rem; margin: 0; font-size: 1.125rem; }
+.logs-section h2 svg { flex: 0 0 auto; color: var(--color-text-muted); }
+.logs-meta { margin: 0; color: var(--color-text-muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.logs-actions { display: flex; flex: 0 0 auto; gap: 0.5rem; }
+.logs-actions button { min-height: 2.25rem; padding: 0.45rem 0.8rem; font-size: 0.8125rem; }
+.logs-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--color-border); }
+.logs-search { display: inline-flex; flex: 1 1 15rem; align-items: center; gap: 0.5rem; max-width: 26rem; height: 2.25rem; padding: 0 0.65rem; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-soft); color: var(--color-text-muted); }
+.logs-search:focus-within { border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border)); }
+.logs-search input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; color: var(--color-text); font: inherit; font-size: 0.8125rem; }
+.logs-search input::placeholder { color: var(--color-text-muted); }
+.logs-search input:focus { outline: none; }
+.logs-levels { display: inline-flex; gap: 0.2rem; padding: 0.2rem; border: 1px solid var(--color-border); border-radius: 7px; background: var(--color-bg-soft); }
+.logs-levels button { min-height: 1.9rem; padding: 0.2rem 0.55rem; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--color-text-muted); font-size: 0.75rem; font-weight: 650; }
+.logs-levels button:hover { background: var(--color-surface-hover); color: var(--color-text); }
+.logs-levels button[aria-pressed='true'] { border-color: var(--color-border); background: var(--color-surface); color: var(--color-text); }
+.logs-level-count { margin-left: 0.3rem; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.activity-log-table { width: 100%; max-height: 26rem; overflow: auto; overscroll-behavior: contain; }
 .activity-log-header,
-.activity-log-row { min-width: 0; display: grid; grid-template-columns: minmax(10rem, 14rem) minmax(4.5rem, 6rem) minmax(6rem, 9rem) minmax(12rem, 1fr); align-items: center; gap: 0.875rem; padding: 0.75rem 1.25rem; }
-.activity-log-header { border-bottom: 1px solid var(--color-border); background: var(--color-bg-soft); color: var(--color-text-muted); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
-.activity-log-row { min-height: 3.25rem; border-bottom: 1px solid var(--color-border); color: var(--color-text); font-size: 0.8125rem; }
+.activity-log-row { display: grid; grid-template-columns: 11.5rem 6rem minmax(9rem, 12.5rem) minmax(0, 1fr); align-items: center; gap: 1.25rem; min-width: 44rem; padding: 0.625rem 1.25rem; }
+.activity-log-header { position: sticky; top: 0; z-index: 1; border-bottom: 1px solid var(--color-border); background: var(--color-bg-soft); color: var(--color-text-muted); font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.activity-log-row { min-height: 2.875rem; border-bottom: 1px solid var(--color-border); color: var(--color-text); font-size: 0.8125rem; }
 .activity-log-row:last-child { border-bottom: 0; }
 .activity-log-row:hover { background: var(--color-surface-hover); }
-.activity-log-time,
-.activity-log-module { color: var(--color-text-muted); }
+.activity-log-time { color: var(--color-text-muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.activity-log-module { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-muted); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em; }
 .activity-log-message { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.activity-log-empty { min-height: 10rem; display: grid; place-items: center; align-content: center; gap: 0.75rem; color: var(--color-text-muted); }
+.activity-log-empty { min-height: 12rem; display: grid; place-items: center; align-content: center; gap: 0.45rem; padding: 2rem 1.25rem; text-align: center; color: var(--color-text-muted); }
+.activity-log-empty strong { color: var(--color-text); font-size: 0.875rem; font-weight: 650; }
+.activity-log-empty span { font-size: 0.8125rem; }
+.activity-log-empty button { margin-top: 0.5rem; min-height: 2rem; padding: 0.35rem 0.7rem; font-size: 0.75rem; }
 
 .loading-container,
 .error-container { min-height: 18rem; display: grid; place-items: center; align-content: center; gap: 0.75rem; padding: 2rem; text-align: center; }
@@ -182,8 +202,6 @@
 @media (max-width: 1100px) {
   .dashboard-summary-grid { grid-template-columns: 1fr; }
   .dashboard-card__body { padding: 1rem; }
-  .activity-log-header,
-  .activity-log-row { grid-template-columns: minmax(8rem, 12rem) minmax(4rem, 5.5rem) minmax(5rem, 7rem) minmax(10rem, 1fr); gap: 0.75rem; padding: 0.625rem 1rem; }
 }
 
 @media (max-width: 768px) {
@@ -196,15 +214,29 @@
   .logs-section-header,
   .system-health-footer { align-items: stretch; flex-direction: column; }
   .logs-actions button { flex: 1; }
-  .activity-log-header,
-  .activity-log-row { grid-template-columns: minmax(7rem, 10rem) minmax(3.5rem, 5rem) minmax(4.5rem, 6rem) minmax(8rem, 1fr); gap: 0.625rem; padding: 0.5rem 0.875rem; }
+  .logs-toolbar { align-items: stretch; }
+  .logs-search { flex-basis: 100%; max-width: none; }
+  .logs-levels { justify-content: space-between; }
 }
 
 @media (max-width: 520px) {
   .summary-card-body { grid-template-columns: 1fr; }
   .status-card { grid-template-columns: minmax(0, 1fr); }
   .status-card-ring { position: absolute; top: 1.25rem; right: 1.25rem; width: 3.25rem; height: 3.25rem; }
-  .logs-actions { flex-direction: column; }
+  .logs-actions { flex-wrap: wrap; }
+}
+
+/* Below this width the four-column grid cannot stay readable, so each log
+   entry becomes a self-describing block instead of a horizontally scrolling
+   table. */
+@media (max-width: 640px) {
+  .activity-log-table { overflow-x: visible; }
+  .activity-log-header { display: none; }
+  .activity-log-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'time level' 'module module' 'message message'; gap: 0.2rem 0.75rem; min-width: 0; padding: 0.75rem 1rem; }
+  .activity-log-time { grid-area: time; }
+  .activity-log-level { grid-area: level; }
+  .activity-log-module { grid-area: module; margin-top: 0.15rem; }
+  .activity-log-message { grid-area: message; margin-top: 0.15rem; overflow: visible; white-space: normal; text-overflow: clip; line-height: 1.45; }
 }
 
 @media (prefers-reduced-motion: reduce) {

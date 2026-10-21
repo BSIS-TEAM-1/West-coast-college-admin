@@ -16,6 +16,8 @@ const CurriculumSubject = require('../models/CurriculumSubject');
 const { autoAssignSubjectsFromCurriculum } = require('../services/blockSubjectAutoAssignService');
 const { convertToSchoolYear } = require('../services/dateUtils');
 const enrollmentGuard = require('../services/enrollmentGuard');
+const { describeAssignmentFailure } = require('../services/assignmentFailure');
+const { normalizeSchoolYear } = require('../services/blockTerm');
 
 class BlockController {
   extractBlockSlotFromName(value) {
@@ -290,6 +292,9 @@ class BlockController {
         if (!curriculum) {
           return res.status(400).json({ error: 'Curriculum not found' });
         }
+        if (curriculum.status === 'Archived') {
+          return res.status(400).json({ error: 'Archived curricula are read-only and cannot back a new block' });
+        }
         const structuredCourseId = this.normalizeCourseCode(courseId) || this.normalizeCourseCode(courseCode) || this.extractCourseFromGroupName(this.buildCanonicalBlockCode(name));
         if (structuredCourseId && Number(curriculum.programCode) !== Number(structuredCourseId)) {
           return res.status(400).json({ error: 'Curriculum does not belong to the selected program' });
@@ -349,13 +354,171 @@ class BlockController {
         }
       });
 
-      res.status(201).json(group);
+      res.status(201).json({
+        ...group.toObject(),
+        // Program + cohort fit is reported rather than enforced: an empty
+        // curriculum year is a configuration gap the registrar still needs to
+        // be able to work around, not a reason to refuse the block.
+        curriculumFit: await this.evaluateCurriculumFit(validatedCurriculumId, structuredYearLevel, normalizedSemester),
+      });
     } catch (error) {
       if (error && error.code === 11000) {
         return res.status(409).json({ error: 'Block group already exists for this semester/year' });
       }
       console.error('Create block group error:', error);
       res.status(500).json({ error: 'Failed to create block group' });
+    }
+  }
+
+  /**
+   * Does the curriculum actually carry subjects for this block's cohort?
+   *
+   * Program match is a hard requirement (checked by the callers). Cohort fit
+   * is advisory: a curriculum with nothing placed at the block's year level
+   * and semester still works as a link, but the block will receive no subjects
+   * from it, so the registrar is told instead of finding out later.
+   */
+  async evaluateCurriculumFit(curriculumId, yearLevel, semester) {
+    if (!curriculumId) return null;
+    const parsedYear = Number(yearLevel);
+    if (!Number.isFinite(parsedYear) || parsedYear < 1 || !semester) return null;
+
+    const [curriculum, expectedCount] = await Promise.all([
+      Curriculum.findById(curriculumId).select('_id name programCode programName version status').lean(),
+      CurriculumSubject.countDocuments({ curriculumId, yearLevel: parsedYear, semester }),
+    ]);
+    if (!curriculum) return null;
+
+    return {
+      curriculumId: String(curriculum._id),
+      curriculumName: curriculum.name || `${curriculum.programName || ''} ${curriculum.version || ''}`.trim(),
+      yearLevel: parsedYear,
+      semester,
+      expectedSubjectCount: expectedCount,
+      programMatches: true,
+      warning: expectedCount === 0
+        ? `This curriculum has no subjects placed at Year ${parsedYear}, ${semester} semester, so the block will start with an empty subject list. Add the placements, then use Sync from Curriculum.`
+        : null,
+    };
+  }
+
+  // GET /api/blocks/groups/:groupId/expected-subjects
+  // What the curriculum says this cohort should be taking, next to what each
+  // section has actually been assigned. Block membership is informative: a
+  // missing subject here does not stop a student from enrolling elsewhere.
+  async getExpectedSubjects(req, res) {
+    try {
+      const { groupId } = req.params;
+      if (!mongoose.Types.ObjectId.isValid(String(groupId))) {
+        return res.status(400).json({ error: 'Invalid block group id' });
+      }
+
+      const group = await BlockGroup.findById(groupId).lean();
+      if (!group) {
+        return res.status(404).json({ error: 'Block group not found' });
+      }
+
+      const yearLevel = Number(group.yearLevel) || null;
+      const semester = group.semester || null;
+
+      if (!group.curriculumId) {
+        return res.json({
+          success: true,
+          data: {
+            group: { _id: String(group._id), name: group.name, yearLevel, semester },
+            curriculum: null,
+            expected: [],
+            assignedNotExpected: [],
+            warning: 'This block group has no linked curriculum, so no expected subjects can be derived.',
+          },
+        });
+      }
+
+      const [curriculum, placements, sections] = await Promise.all([
+        Curriculum.findById(group.curriculumId)
+          .select('_id name programCode programName version status')
+          .lean(),
+        yearLevel && semester
+          ? CurriculumSubject.find({ curriculumId: group.curriculumId, yearLevel, semester })
+              .sort({ displayOrder: 1, courseNo: 1 })
+              .select('subjectId courseNo descriptiveTitle units isRequired type lecturePeriods labPeriods')
+              .lean()
+          : Promise.resolve([]),
+        BlockSection.find({ blockGroupId: group._id }).select('_id sectionCode').lean(),
+      ]);
+
+      const sectionIds = sections.map((s) => s._id);
+      const assignments = sectionIds.length > 0
+        ? await BlockSubjectAssignment.find({ blockSectionId: { $in: sectionIds } })
+            .select('blockSectionId subjectId semester academicYear')
+            .lean()
+        : [];
+
+      const assignedBySection = new Map();
+      const assignedSubjectIds = new Set();
+      for (const assignment of assignments) {
+        const sectionId = String(assignment.blockSectionId);
+        if (!assignedBySection.has(sectionId)) assignedBySection.set(sectionId, new Set());
+        assignedBySection.get(sectionId).add(String(assignment.subjectId));
+        assignedSubjectIds.add(String(assignment.subjectId));
+      }
+
+      const expectedSubjectIds = new Set(placements.map((p) => String(p.subjectId)));
+
+      const expected = placements.map((placement) => {
+        const subjectId = String(placement.subjectId);
+        const assignedSections = sections
+          .filter((section) => assignedBySection.get(String(section._id))?.has(subjectId))
+          .map((section) => String(section._id));
+        const missingSections = sections
+          .filter((section) => !assignedBySection.get(String(section._id))?.has(subjectId))
+          .map((section) => String(section._id));
+        return {
+          curriculumSubjectId: String(placement._id),
+          subjectId,
+          code: placement.courseNo,
+          title: placement.descriptiveTitle,
+          units: placement.units,
+          type: placement.type,
+          isRequired: placement.isRequired !== false,
+          assignedSectionIds: assignedSections,
+          missingSectionIds: missingSections,
+          complete: missingSections.length === 0,
+        };
+      });
+
+      const assignedNotExpected = [];
+      for (const assignment of assignments) {
+        const subjectId = String(assignment.subjectId);
+        if (expectedSubjectIds.has(subjectId)) continue;
+        if (assignedNotExpected.some((entry) => entry.subjectId === subjectId)) continue;
+        const subject = await Subject.findById(subjectId).select('code title units').lean();
+        assignedNotExpected.push({
+          subjectId,
+          code: subject?.code || 'Unknown',
+          title: subject?.title || 'Unknown subject',
+          units: subject?.units ?? null,
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          group: { _id: String(group._id), name: group.name, courseId: group.courseId ?? null, yearLevel, semester },
+          curriculum: curriculum
+            ? { _id: String(curriculum._id), name: curriculum.name, programCode: curriculum.programCode, version: curriculum.version, status: curriculum.status }
+            : null,
+          sections: sections.map((s) => ({ _id: String(s._id), sectionCode: s.sectionCode })),
+          expected,
+          assignedNotExpected,
+          warning: placements.length === 0 && yearLevel && semester
+            ? `This curriculum has no subjects placed at Year ${yearLevel}, ${semester} semester.`
+            : null,
+        },
+      });
+    } catch (error) {
+      console.error('Get expected subjects error:', error);
+      res.status(500).json({ error: 'Failed to load expected subjects' });
     }
   }
 
@@ -457,6 +620,9 @@ class BlockController {
           if (!curriculum) {
             return res.status(400).json({ error: 'Curriculum not found' });
           }
+          if (curriculum.status === 'Archived') {
+            return res.status(400).json({ error: 'Archived curricula are read-only and cannot back a block' });
+          }
           if (nextCourseId && Number(curriculum.programCode) !== Number(nextCourseId)) {
             return res.status(400).json({ error: 'Curriculum does not belong to the selected program' });
           }
@@ -519,6 +685,7 @@ class BlockController {
       res.json({
         ...group.toObject(),
         autoAssign: autoAssignResult,
+        curriculumFit: await this.evaluateCurriculumFit(group.curriculumId, nextYearLevel, nextSemester),
       });
     } catch (error) {
       if (error && error.code === 11000) {
@@ -1020,6 +1187,15 @@ class BlockController {
       // since the student is being assigned to this specific block's term.
       const blockSchoolYear = group.schoolYear || group.year;
       const blockSemester = semester || group.semester;
+      // Term identity stored on the assignment row. The unique index is
+      // (studentId, semester, year, schoolYear), so these must be the values
+      // that are actually written. Legacy groups hold `year` as a number
+      // (2026) and the schema requires "2026-2027", which used to reject the
+      // whole assignment with an unreadable validation error.
+      const assignmentSemester = blockSemester || group.semester;
+      const assignmentYear = normalizeSchoolYear(group.year) ||
+        normalizeSchoolYear(year) ||
+        normalizeSchoolYear(group.schoolYear);
 
       let enrollment = await blockEligibilityService.findActiveEnrollment(
         studentId,
@@ -1058,37 +1234,18 @@ class BlockController {
       }
 
       // Determine schoolYear for the assignment
-      const assignmentSchoolYear = (enrollment && enrollment.schoolYear) || student.schoolYear ||
-        blockSchoolYear;
+      const assignmentSchoolYear =
+        normalizeSchoolYear((enrollment && enrollment.schoolYear) || student.schoolYear || blockSchoolYear);
 
-      // Check existing assignment using schoolYear + semester
-      const existing = await StudentBlockAssignment.findOne({
-        $or: [
-          { enrollmentId: enrollment ? enrollment._id : null },
-          { studentId, schoolYear: assignmentSchoolYear, semester },
-        ].filter((c) => c.enrollmentId || (c.studentId && c.schoolYear)),
-        status: 'ASSIGNED',
-      }).session(session);
-
-      // Load curriculum doc for the block group if configured
-      let curriculumDoc = null;
-      if (group.curriculumId) {
-        curriculumDoc = await Curriculum.findById(group.curriculumId).select('version programCode programName status').lean().session(session);
-      }
-
-      // Load active academic period
-      const activePeriod = await AcademicPeriod.findOne({ status: 'Active' }).lean().session(session);
-
-      // Server-side eligibility revalidation — never trust frontend
+      // Server-side revalidation — never trust the frontend. Eligibility is
+      // intentionally limited to course + year level (+ capacity): the
+      // registrar decides curriculum, classification and term choices, and
+      // the enrollment is created or reconciled below.
       const eligibility = blockEligibilityService.evaluateStudentEligibility(
         enrollment,
         student.toObject(),
         group.toObject(),
-        section.toObject(),
-        existing && String(existing.sectionId) === String(section._id) ? null : existing,
-        curriculumDoc,
-        activePeriod,
-        { allowAutoEnroll: true }
+        section.toObject()
       );
 
       if (!eligibility.eligible) {
@@ -1097,6 +1254,40 @@ class BlockController {
           error: 'Student is not eligible for this block',
           reasons: eligibility.reasons,
           checks: eligibility.checks
+        });
+      }
+
+      // The unique index covers (studentId, semester, year, schoolYear), but the
+      // lookups above only match ASSIGNED rows. A WAITLISTED or legacy row for
+      // the same term is invisible to them, so the insert below would fail with
+      // a duplicate-key error — and retrying the same request would fail the
+      // same way. Resolve that case explicitly.
+      const sameTermRecord = await StudentBlockAssignment.findOne({
+        studentId,
+        semester: assignmentSemester,
+        schoolYear: assignmentSchoolYear,
+      }).session(session);
+
+      if (sameTermRecord && sameTermRecord.status === 'ASSIGNED') {
+        await session.abortTransaction();
+        if (String(sameTermRecord.sectionId) === String(sectionId)) {
+          // Idempotent retry: the student is already where the registrar is
+          // trying to put them. Report success instead of a duplicate-key 500.
+          return res.json({
+            status: 'ASSIGNED',
+            assignmentId: sameTermRecord._id,
+            alreadyAssigned: true,
+            sectionCode: section.sectionCode,
+          });
+        }
+        const currentSection = await BlockSection.findById(sameTermRecord.sectionId)
+          .select('sectionCode')
+          .lean();
+        return res.status(409).json({
+          error: 'Student is already assigned to another block section for this term',
+          reasons: [
+            `The student already has a block assignment (${currentSection?.sectionCode || 'another section'}) for ${assignmentSemester} ${assignmentYear}. Remove that assignment before assigning a different section.`,
+          ],
         });
       }
 
@@ -1115,16 +1306,41 @@ class BlockController {
         });
       }
 
-      // Create assignment with schoolYear and enrollmentId
-      const assignment = await StudentBlockAssignment.create([{
-        studentId,
-        enrollmentId: enrollment ? enrollment._id : null,
-        sectionId,
-        semester,
-        year,
-        schoolYear: assignmentSchoolYear,
-        assignedAt: new Date()
-      }], { session });
+      // Create the assignment under the term identity that was validated
+      // above. A pre-existing WAITLISTED row is promoted in place rather than
+      // duplicated (the unique index would reject the insert).
+      let assignment;
+      if (sameTermRecord) {
+        assignment = await StudentBlockAssignment.findOneAndUpdate(
+          { _id: sameTermRecord._id },
+          {
+            $set: {
+              enrollmentId: enrollment ? enrollment._id : null,
+              sectionId,
+              semester: assignmentSemester,
+              year: assignmentYear,
+              schoolYear: assignmentSchoolYear,
+              status: 'ASSIGNED',
+              assignedAt: new Date(),
+            },
+            $unset: { waitlistPriority: 1 },
+          },
+          { session, new: true }
+        );
+        if (!assignment) {
+          throw new Error('The existing block record for this term disappeared while it was being reassigned.');
+        }
+      } else {
+        [assignment] = await StudentBlockAssignment.create([{
+          studentId,
+          enrollmentId: enrollment ? enrollment._id : null,
+          sectionId,
+          semester: assignmentSemester,
+          year: assignmentYear,
+          schoolYear: assignmentSchoolYear,
+          assignedAt: new Date()
+        }], { session });
+      }
 
       const studentName = `${student.firstName || ''} ${student.lastName || ''}`.trim() || 'Unknown';
       await BlockActionLog.create([{
@@ -1161,24 +1377,31 @@ class BlockController {
       await session.commitTransaction();
       return res.json({
         status: 'ASSIGNED',
-        assignmentId: assignment[0]._id,
+        assignmentId: assignment._id,
         enrolled: true,
         enrollmentId: finalized.enrollmentId,
         sectionCode: finalized.sectionCode
       });
     } catch (error) {
-      await session.abortTransaction();
-      console.error('Assign student error:', error);
-      // Preserve guard rejections (e.g. enrollment finalization found a
-      // period/context mismatch) instead of masking them as a generic 500,
-      // so the registrar sees the actionable reason inline.
-      if (error && (error.statusCode === 409 || error.statusCode === 400)) {
-        return res.status(error.statusCode).json({
-          error: error.message || 'Assignment failed enrollment validation',
-          reasons: error.details || [error.message || 'Assignment failed enrollment validation']
-        });
+      // Cleanup must never mask the error that actually broke the assignment:
+      // aborting a transaction that a helper already committed/aborted throws.
+      try {
+        await session.abortTransaction();
+      } catch (abortError) {
+        console.error('Assign student rollback error:', abortError);
       }
-      res.status(500).json({ error: 'Failed to assign student' });
+      console.error('Assign student error:', error);
+
+      if (res.headersSent) return;
+
+      // Every failure carries a readable reason (duplicate term record,
+      // invalid field, busy database, ...) instead of the old dead-end
+      // "Failed to assign student".
+      const failure = describeAssignmentFailure(error);
+      return res.status(failure.status).json({
+        error: failure.error,
+        reasons: failure.reasons,
+      });
     } finally {
       session.endSession();
     }
@@ -1365,7 +1588,10 @@ class BlockController {
   }
 
   async overrideAssign(studentId, sectionId, semester, year, reason, session) {
-    const assignment = await StudentBlockAssignment.create([{ studentId, sectionId, semester, year, assignedAt: new Date() }], { session });
+    // Legacy groups carry `year` as a number; the assignment schema requires
+    // the "YYYY-YYYY" form.
+    const assignmentYear = normalizeSchoolYear(year) || year;
+    const assignment = await StudentBlockAssignment.create([{ studentId, sectionId, semester, year: assignmentYear, assignedAt: new Date() }], { session });
     await BlockSection.findByIdAndUpdate(sectionId, { $inc: { currentPopulation: 1 } }, { session });
     return { assignmentId: assignment[0]._id };
   }
@@ -1397,12 +1623,14 @@ class BlockController {
       .session(session);
     const studentName = student ? `${student.firstName || ''} ${student.lastName || ''}`.trim() : 'Unknown';
 
-    // Remove from original
-    await StudentBlockAssignment.deleteOne({ studentId, semester, year }).session(session);
+    // Remove from original. Match on the section instead of the year: legacy
+    // rows store `year` as a number and would not match a normalised term.
+    await StudentBlockAssignment.deleteOne({ studentId, sectionId: originalSectionId, semester }).session(session);
     await BlockSection.findByIdAndUpdate(originalSectionId, { $inc: { currentPopulation: -1 } }, { session });
 
     // Add to target
-    const assignment = await StudentBlockAssignment.create([{ studentId, sectionId: targetSectionId, semester, year, assignedAt: new Date() }], { session });
+    const assignmentYear = normalizeSchoolYear(year) || year;
+    const assignment = await StudentBlockAssignment.create([{ studentId, sectionId: targetSectionId, semester, year: assignmentYear, assignedAt: new Date() }], { session });
     await BlockSection.findByIdAndUpdate(targetSectionId, { $inc: { currentPopulation: 1 } }, { session });
 
     // Create audit entries for BOTH the removal from the original section
@@ -1481,7 +1709,8 @@ class BlockController {
   }
 
   async assignToNewSection(studentId, sectionId, semester, year, session) {
-    const assignment = await StudentBlockAssignment.create([{ studentId, sectionId, semester, year, assignedAt: new Date() }], { session });
+    const assignmentYear = normalizeSchoolYear(year) || year;
+    const assignment = await StudentBlockAssignment.create([{ studentId, sectionId, semester, year: assignmentYear, assignedAt: new Date() }], { session });
     await BlockSection.findByIdAndUpdate(sectionId, { $inc: { currentPopulation: 1 } }, { session });
     return { assignmentId: assignment[0]._id };
   }

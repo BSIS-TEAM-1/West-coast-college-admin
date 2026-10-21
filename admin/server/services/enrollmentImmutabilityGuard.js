@@ -38,7 +38,12 @@ function assertEnrollmentMutable(enrollment, fieldName) {
   const lockedAt = enrollment.lockedAt || (enrollment.get ? enrollment.get('lockedAt') : null);
   if (lockedAt) {
     const fieldMsg = fieldName ? ` (attempted to modify: ${fieldName})` : '';
-    throw new Error(`${LOCKED_ENROLLMENT_ERROR}${fieldMsg}`);
+    // 409, not 500: the record exists, it is simply immutable. Callers surface
+    // this as a conflict the registrar can read, not a server fault.
+    throw Object.assign(new Error(`${LOCKED_ENROLLMENT_ERROR}${fieldMsg}`), {
+      statusCode: 409,
+      reasonCode: 'ENROLLMENT_LOCKED',
+    });
   }
 }
 

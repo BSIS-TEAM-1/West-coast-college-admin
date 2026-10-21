@@ -506,6 +506,7 @@ class ApplicantController {
                 schoolYear: applicant.schoolYear || studentRecord.schoolYear,
                 curriculumVersion: studentRecord.curriculumVersion,
                 status: 'Pending',
+                createdBy: req.adminId,
                 session,
               });
             }

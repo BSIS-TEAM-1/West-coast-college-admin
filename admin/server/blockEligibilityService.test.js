@@ -75,16 +75,21 @@ function makeOverrides(base, overrides) {
 }
 
 describe('evaluateStudentEligibility', () => {
+  // Assignment eligibility is intentionally limited to course + year level
+  // (+ section capacity). Curriculum version, classification, school
+  // year/semester, enrollment status and prior assignments are the
+  // registrar's call and must not block a block assignment.
+
   // === PROGRAM MATCH / MISMATCH ===
   test('✓ Program match — eligible', () => {
-    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, baseBlockGroup, baseBlockSection, null, null, activePeriod);
+    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, baseBlockGroup, baseBlockSection);
     expect(result.checks.program).toBe(true);
     expect(result.eligible).toBe(true);
   });
 
   test('✗ Program mismatch — ineligible', () => {
     const group = makeOverrides(baseBlockGroup, { courseId: 201, courseCode: 'BSBA-HRM' });
-    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, group, baseBlockSection, null, null, activePeriod);
+    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, group, baseBlockSection);
     expect(result.checks.program).toBe(false);
     expect(result.eligible).toBe(false);
     expect(result.reasons.some((r) => r.includes('Program/course does not match'))).toBe(true);
@@ -92,219 +97,83 @@ describe('evaluateStudentEligibility', () => {
 
   // === YEAR LEVEL MATCH / MISMATCH ===
   test('✓ Year-level match — eligible', () => {
-    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, baseBlockGroup, baseBlockSection, null, null, activePeriod);
+    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, baseBlockGroup, baseBlockSection);
     expect(result.checks.yearLevel).toBe(true);
     expect(result.eligible).toBe(true);
   });
 
   test('✗ Year-level mismatch — ineligible', () => {
     const group = makeOverrides(baseBlockGroup, { yearLevel: 3 });
-    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, group, baseBlockSection, null, null, activePeriod);
+    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, group, baseBlockSection);
     expect(result.checks.yearLevel).toBe(false);
     expect(result.eligible).toBe(false);
     expect(result.reasons.some((r) => r.includes('year level'))).toBe(true);
   });
 
-  // === CURRICULUM MATCH / MISMATCH ===
-  test('✓ Curriculum match (Enrollment.curriculumId) — eligible', () => {
-    const enrollment = makeOverrides(baseEnrollment, { curriculumId: '507f1f77bcf86cd799439015' });
-    const group = makeOverrides(baseBlockGroup, { curriculumId: '507f1f77bcf86cd799439015' });
-    const result = evaluateStudentEligibility(enrollment, baseStudent, group, baseBlockSection, null, baseCurriculumDoc, activePeriod);
-    expect(result.checks.curriculum).toBe(true);
-    expect(result.eligible).toBe(true);
-  });
-
-  test('✗ Curriculum mismatch (Enrollment.curriculumId differs from BlockGroup) — ineligible', () => {
+  // === REMOVED RESTRICTIONS ===
+  test('✓ Curriculum mismatch no longer blocks assignment', () => {
     const enrollment = makeOverrides(baseEnrollment, { curriculumId: '507f1f77bcf86cd799439099' });
     const group = makeOverrides(baseBlockGroup, { curriculumId: '507f1f77bcf86cd799439015' });
     const result = evaluateStudentEligibility(enrollment, baseStudent, group, baseBlockSection, null, baseCurriculumDoc, activePeriod);
-    expect(result.checks.curriculum).toBe(false);
-    expect(result.eligible).toBe(false);
-    expect(result.reasons.some((r) => r.includes('Curriculum mismatch'))).toBe(true);
-  });
-
-  test('✓ No curriculum restriction (BlockGroup.curriculumId = null) — eligible', () => {
-    const group = makeOverrides(baseBlockGroup, { curriculumId: null });
-    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, group, baseBlockSection, null, null, activePeriod);
-    expect(result.checks.curriculum).toBe(true);
     expect(result.eligible).toBe(true);
+    expect(result.reasons).toHaveLength(0);
   });
 
-  test('✓ Legacy fallback: Student.curriculumVersion matches Curriculum.version — eligible', () => {
-    const enrollment = makeOverrides(baseEnrollment, { curriculumId: null });
-    const group = makeOverrides(baseBlockGroup, { curriculumId: '507f1f77bcf86cd799439015' });
-    const student = makeOverrides(baseStudent, { curriculumVersion: '2023' });
-    const result = evaluateStudentEligibility(enrollment, student, group, baseBlockSection, null, baseCurriculumDoc, activePeriod);
-    expect(result.checks.curriculum).toBe(true);
-    expect(result.eligible).toBe(true);
-  });
-
-  test('✗ Legacy fallback: Student.curriculumVersion mismatch — ineligible', () => {
-    const enrollment = makeOverrides(baseEnrollment, { curriculumId: null });
-    const group = makeOverrides(baseBlockGroup, { curriculumId: '507f1f77bcf86cd799439015' });
-    const student = makeOverrides(baseStudent, { curriculumVersion: '2026' });
-    const result = evaluateStudentEligibility(enrollment, student, group, baseBlockSection, null, baseCurriculumDoc, activePeriod);
-    expect(result.checks.curriculum).toBe(false);
-    expect(result.eligible).toBe(false);
-    expect(result.reasons.some((r) => r.includes('Curriculum mismatch'))).toBe(true);
-  });
-
-  // === HISTORICAL CURRICULUM IMMUTABILITY ===
-  test('✓ Historical curriculum remains immutable — Enrollment.curriculumId used even when Student.curriculumVersion changes', () => {
-    // Initial state: Student has 2023, Enrollment has curriculumId for 2023
-    const enrollment = makeOverrides(baseEnrollment, {
-      curriculumId: '507f1f77bcf86cd799439015', // Curriculum 2023
-    });
-    // Student changes curriculum to 2026
-    const student = makeOverrides(baseStudent, { curriculumVersion: '2026' });
-    // Block group requires 2023
-    const group = makeOverrides(baseBlockGroup, { curriculumId: '507f1f77bcf86cd799439015' });
-
-    const result = evaluateStudentEligibility(enrollment, student, group, baseBlockSection, null, baseCurriculumDoc, activePeriod);
-
-    // Should use Enrollment.curriculumId (2023), NOT Student.curriculumVersion (2026)
-    // Curriculum check passes because Enrollment.curriculumId matches BlockGroup.curriculumId
-    expect(result.checks.curriculum).toBe(true);
-    // Enrollment is not locked, so overall eligible
-    expect(result.eligible).toBe(true);
-  });
-
-  test('✗ Historical curriculum: locked enrollment with wrong curriculum — ineligible', () => {
-    const enrollment = makeOverrides(baseEnrollment, {
-      curriculumId: '507f1f77bcf86cd799439099', // Different curriculum
-      lockedAt: new Date('2027-06-01'),
-    });
-    const student = makeOverrides(baseStudent, { curriculumVersion: '2026' }); // Changed
-    const group = makeOverrides(baseBlockGroup, { curriculumId: '507f1f77bcf86cd799439015' });
-
-    const result = evaluateStudentEligibility(enrollment, student, group, baseBlockSection, null, baseCurriculumDoc, activePeriod);
-
-    // Enrollment.curriculumId differs from BlockGroup — should be ineligible
-    expect(result.checks.curriculum).toBe(false);
-    expect(result.eligible).toBe(false);
-    // But also locked enrollment should fail enrollmentStatus
-    expect(result.checks.enrollmentStatus).toBe(false);
-  });
-
-  // === CLASSIFICATION MATCH / MISMATCH ===
-  test('✓ Classification match — eligible', () => {
-    const group = makeOverrides(baseBlockGroup, { studentClassification: 'Regular' });
-    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, group, baseBlockSection, null, null, activePeriod);
-    expect(result.checks.classification).toBe(true);
-    expect(result.eligible).toBe(true);
-  });
-
-  test('✗ Classification mismatch — ineligible', () => {
+  test('✓ Classification mismatch no longer blocks assignment', () => {
     const group = makeOverrides(baseBlockGroup, { studentClassification: 'Irregular' });
-    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, group, baseBlockSection, null, null, activePeriod);
-    expect(result.checks.classification).toBe(false);
-    expect(result.eligible).toBe(false);
-    expect(result.reasons.some((r) => r.includes('Irregular'))).toBe(true);
+    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, group, baseBlockSection);
+    expect(result.eligible).toBe(true);
+    expect(result.reasons).toHaveLength(0);
   });
 
-  test('✓ Classification = All — always eligible regardless of student classification', () => {
-    const group = makeOverrides(baseBlockGroup, { studentClassification: 'All' });
-    const student = makeOverrides(baseStudent, { classification: 'Transferee' });
-    const result = evaluateStudentEligibility(baseEnrollment, student, group, baseBlockSection, null, null, activePeriod);
-    expect(result.checks.classification).toBe(true);
+  test('✓ Different school year and semester no longer block assignment', () => {
+    const group = makeOverrides(baseBlockGroup, { schoolYear: '2025-2026', year: 2025, semester: '2nd' });
+    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, group, baseBlockSection);
+    expect(result.eligible).toBe(true);
+    expect(result.reasons).toHaveLength(0);
+  });
+
+  test('✓ Locked, dropped or cancelled enrollment no longer blocks assignment', () => {
+    for (const patch of [{ lockedAt: new Date() }, { status: 'Dropped' }, { status: 'Cancelled' }]) {
+      const enrollment = makeOverrides(baseEnrollment, patch);
+      const result = evaluateStudentEligibility(enrollment, baseStudent, baseBlockGroup, baseBlockSection);
+      expect(result.eligible).toBe(true);
+    }
+  });
+
+  test('✓ Missing enrollment no longer blocks assignment', () => {
+    const result = evaluateStudentEligibility(null, baseStudent, baseBlockGroup, baseBlockSection);
+    expect(result.eligible).toBe(true);
+    expect(result.reasons).toHaveLength(0);
+  });
+
+  test('✓ Prior assignment no longer blocks assignment', () => {
+    const existing = { _id: '507f1f77bcf86cd799439098', sectionId: '507f1f77bcf86cd799439097' };
+    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, baseBlockGroup, baseBlockSection, existing);
+    expect(result.eligible).toBe(true);
+    expect(result.reasons).toHaveLength(0);
+  });
+
+  test('✓ Dropped student no longer blocks assignment', () => {
+    const student = makeOverrides(baseStudent, { studentStatus: 'Dropped' });
+    const result = evaluateStudentEligibility(baseEnrollment, student, baseBlockGroup, baseBlockSection);
     expect(result.eligible).toBe(true);
   });
 
-  // === CAPACITY ===
+  // === CAPACITY (still enforced) ===
   test('✓ Capacity available — eligible', () => {
     const section = makeOverrides(baseBlockSection, { currentPopulation: 20, capacity: 40 });
-    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, baseBlockGroup, section, null, null, activePeriod);
+    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, baseBlockGroup, section);
     expect(result.checks.capacity).toBe(true);
     expect(result.eligible).toBe(true);
   });
 
   test('✗ Capacity full — ineligible', () => {
     const section = makeOverrides(baseBlockSection, { currentPopulation: 40, capacity: 40 });
-    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, baseBlockGroup, section, null, null, activePeriod);
+    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, baseBlockGroup, section);
     expect(result.checks.capacity).toBe(false);
     expect(result.eligible).toBe(false);
     expect(result.reasons.some((r) => r.includes('full'))).toBe(true);
-  });
-
-  // === EXISTING ASSIGNMENT ===
-  test('✓ No existing assignment — eligible', () => {
-    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, baseBlockGroup, baseBlockSection, null, null, activePeriod);
-    expect(result.checks.conflicts).toBe(true);
-    expect(result.eligible).toBe(true);
-  });
-
-  test('✗ Existing assignment — ineligible', () => {
-    const existing = { _id: '507f1f77bcf86cd799439098', sectionId: '507f1f77bcf86cd799439097' };
-    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, baseBlockGroup, baseBlockSection, existing, null, activePeriod);
-    expect(result.checks.conflicts).toBe(false);
-    expect(result.eligible).toBe(false);
-    expect(result.reasons.some((r) => r.includes('already has a block assignment'))).toBe(true);
-  });
-
-  // === SCHOOL YEAR ===
-  test('✓ Correct school year — eligible', () => {
-    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, baseBlockGroup, baseBlockSection, null, null, activePeriod);
-    expect(result.checks.schoolYear).toBe(true);
-    expect(result.eligible).toBe(true);
-  });
-
-  test('✗ Wrong school year — ineligible', () => {
-    const group = makeOverrides(baseBlockGroup, { schoolYear: '2025-2026', year: 2025 });
-    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, group, baseBlockSection, null, null, activePeriod);
-    expect(result.checks.schoolYear).toBe(false);
-    expect(result.eligible).toBe(false);
-    expect(result.reasons.some((r) => r.includes('different school year'))).toBe(true);
-  });
-
-  // === SEMESTER ===
-  test('✓ Correct semester — eligible', () => {
-    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, baseBlockGroup, baseBlockSection, null, null, activePeriod);
-    expect(result.checks.semester).toBe(true);
-    expect(result.eligible).toBe(true);
-  });
-
-  test('✗ Wrong semester — ineligible', () => {
-    const group = makeOverrides(baseBlockGroup, { semester: '2nd' });
-    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, group, baseBlockSection, null, null, activePeriod);
-    expect(result.checks.semester).toBe(false);
-    expect(result.eligible).toBe(false);
-    expect(result.reasons.some((r) => r.includes('different semester'))).toBe(true);
-  });
-
-  // === ENROLLMENT STATUS ===
-  test('✓ Active enrollment — eligible', () => {
-    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, baseBlockGroup, baseBlockSection, null, null, activePeriod);
-    expect(result.checks.enrollmentStatus).toBe(true);
-    expect(result.eligible).toBe(true);
-  });
-
-  test('✗ Locked enrollment — ineligible', () => {
-    const enrollment = makeOverrides(baseEnrollment, { lockedAt: new Date() });
-    const result = evaluateStudentEligibility(enrollment, baseStudent, baseBlockGroup, baseBlockSection, null, null, activePeriod);
-    expect(result.checks.enrollmentStatus).toBe(false);
-    expect(result.eligible).toBe(false);
-    expect(result.reasons.some((r) => r.includes('locked'))).toBe(true);
-  });
-
-  test('✗ No enrollment found — ineligible', () => {
-    const result = evaluateStudentEligibility(null, baseStudent, baseBlockGroup, baseBlockSection, null, null, activePeriod);
-    expect(result.checks.enrollmentStatus).toBe(false);
-    expect(result.eligible).toBe(false);
-    expect(result.reasons.some((r) => r.includes('No enrollment record'))).toBe(true);
-  });
-
-  // === STUDENT STATUS ===
-  test('✓ Active student (Regular) — eligible', () => {
-    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, baseBlockGroup, baseBlockSection, null, null, activePeriod);
-    expect(result.eligible).toBe(true);
-  });
-
-  test('✗ Dropped student — ineligible', () => {
-    const student = makeOverrides(baseStudent, { studentStatus: 'Dropped' });
-    const result = evaluateStudentEligibility(baseEnrollment, student, baseBlockGroup, baseBlockSection, null, null, activePeriod);
-    expect(result.checks.enrollmentStatus).toBe(false);
-    expect(result.eligible).toBe(false);
-    expect(result.reasons.some((r) => r.includes('Dropped'))).toBe(true);
   });
 
   // === ENROLLMENT AS AUTHORITATIVE SOURCE ===
@@ -312,7 +181,7 @@ describe('evaluateStudentEligibility', () => {
     const enrollment = makeOverrides(baseEnrollment, { yearLevel: 2 });
     const student = makeOverrides(baseStudent, { yearLevel: 3 });
     const group = makeOverrides(baseBlockGroup, { yearLevel: 2 });
-    const result = evaluateStudentEligibility(enrollment, student, group, baseBlockSection, null, null, activePeriod);
+    const result = evaluateStudentEligibility(enrollment, student, group, baseBlockSection);
     expect(result.checks.yearLevel).toBe(true);
     expect(result.eligible).toBe(true);
   });
@@ -321,23 +190,17 @@ describe('evaluateStudentEligibility', () => {
     const enrollment = makeOverrides(baseEnrollment, { course: 'BEED' });
     const student = makeOverrides(baseStudent, { course: 201 });
     const group = makeOverrides(baseBlockGroup, { courseId: 101, courseCode: 'BEED' });
-    const result = evaluateStudentEligibility(enrollment, student, group, baseBlockSection, null, null, activePeriod);
+    const result = evaluateStudentEligibility(enrollment, student, group, baseBlockSection);
     expect(result.checks.program).toBe(true);
     expect(result.eligible).toBe(true);
   });
 
   // === HUMAN-READABLE REASONS ===
-  test('Curriculum mismatch produces human-readable reason', () => {
-    const enrollment = makeOverrides(baseEnrollment, { curriculumId: '507f1f77bcf86cd799439099' });
-    const group = makeOverrides(baseBlockGroup, { curriculumId: '507f1f77bcf86cd799439015' });
-    const result = evaluateStudentEligibility(enrollment, baseStudent, group, baseBlockSection, null, baseCurriculumDoc, activePeriod);
-    expect(result.reasons.some((r) => r.includes('Curriculum mismatch') && r.includes('BEED'))).toBe(true);
-  });
-
-  test('Classification mismatch produces human-readable reason', () => {
-    const group = makeOverrides(baseBlockGroup, { studentClassification: 'Irregular' });
-    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, group, baseBlockSection, null, null, activePeriod);
-    expect(result.reasons.some((r) => r.includes('Irregular'))).toBe(true);
+  test('Mismatches produce human-readable reasons', () => {
+    const group = makeOverrides(baseBlockGroup, { courseId: 201, yearLevel: 4 });
+    const result = evaluateStudentEligibility(baseEnrollment, baseStudent, group, baseBlockSection);
+    expect(result.reasons.some((r) => r.includes('Program/course does not match'))).toBe(true);
+    expect(result.reasons.some((r) => r.includes('year level does not match'))).toBe(true);
   });
 });
 
@@ -382,18 +245,18 @@ describe('Single vs Bulk eligibility consistency', () => {
     expect(result1.checks).toEqual(result2.checks);
   });
 
-  test('curriculum mismatch produces same result in both paths', () => {
-    const enrollment = makeOverrides(baseEnrollment, { curriculumId: '507f1f77bcf86cd799439099' });
-    const group = makeOverrides(baseBlockGroup, { curriculumId: '507f1f77bcf86cd799439015' });
+  test('course mismatch produces same result in both paths', () => {
+    const group = makeOverrides(baseBlockGroup, { courseId: 201, courseCode: 'BSBA-HRM' });
 
     // Simulate single eligibility call
-    const singleResult = evaluateStudentEligibility(enrollment, baseStudent, group, baseBlockSection, null, baseCurriculumDoc, activePeriod);
+    const singleResult = evaluateStudentEligibility(baseEnrollment, baseStudent, group, baseBlockSection);
 
     // Simulate bulk eligibility call (same function, same inputs)
-    const bulkResult = evaluateStudentEligibility(enrollment, baseStudent, group, baseBlockSection, null, baseCurriculumDoc, activePeriod);
+    const bulkResult = evaluateStudentEligibility(baseEnrollment, baseStudent, group, baseBlockSection);
 
+    expect(singleResult.eligible).toBe(false);
     expect(singleResult.eligible).toBe(bulkResult.eligible);
-    expect(singleResult.checks.curriculum).toBe(bulkResult.checks.curriculum);
+    expect(singleResult.checks.program).toBe(bulkResult.checks.program);
     expect(singleResult.reasons).toEqual(bulkResult.reasons);
   });
 });
@@ -460,50 +323,14 @@ describe('isEnrollmentLocked', () => {
 });
 
 // === LEGACY CURRICULUM FALLBACK EXPLICIT BEHAVIOR ===
-describe('Legacy curriculum fallback behavior', () => {
-  test('✓ legacy enrollment with null curriculumId can use Student.curriculumVersion fallback', () => {
-    const enrollment = makeOverrides(baseEnrollment, { curriculumId: null });
-    const group = makeOverrides(baseBlockGroup, { curriculumId: '507f1f77bcf86cd799439015' });
-    const student = makeOverrides(baseStudent, { curriculumVersion: '2023' });
-    const result = evaluateStudentEligibility(enrollment, student, group, baseBlockSection, null, baseCurriculumDoc, activePeriod);
-    expect(result.checks.curriculum).toBe(true);
-    expect(result.eligible).toBe(true);
-  });
-
-  test('✓ explicit Enrollment.curriculumId overrides Student.curriculumVersion', () => {
-    // Enrollment says 2023, Student says 2026 — Enrollment wins
-    const enrollment = makeOverrides(baseEnrollment, { curriculumId: '507f1f77bcf86cd799439015' }); // 2023
-    const student = makeOverrides(baseStudent, { curriculumVersion: '2026' });
-    const group = makeOverrides(baseBlockGroup, { curriculumId: '507f1f77bcf86cd799439015' }); // 2023
-    const result = evaluateStudentEligibility(enrollment, student, group, baseBlockSection, null, baseCurriculumDoc, activePeriod);
-    expect(result.checks.curriculum).toBe(true);
-    expect(result.eligible).toBe(true);
-  });
-
-  test('✓ Student curriculum changes do not alter explicit Enrollment curriculum', () => {
-    // Same enrollment, student changes version — result should be the same
+describe('Curriculum is no longer an eligibility gate', () => {
+  test('✓ disagreeing enrollment, student and block curriculum stays eligible', () => {
     const enrollment = makeOverrides(baseEnrollment, { curriculumId: '507f1f77bcf86cd799439015' });
-    const group = makeOverrides(baseBlockGroup, { curriculumId: '507f1f77bcf86cd799439015' });
-
-    const studentBefore = makeOverrides(baseStudent, { curriculumVersion: '2023' });
-    const studentAfter = makeOverrides(baseStudent, { curriculumVersion: '2026' });
-
-    const resultBefore = evaluateStudentEligibility(enrollment, studentBefore, group, baseBlockSection, null, baseCurriculumDoc, activePeriod);
-    const resultAfter = evaluateStudentEligibility(enrollment, studentAfter, group, baseBlockSection, null, baseCurriculumDoc, activePeriod);
-
-    expect(resultBefore.checks.curriculum).toBe(resultAfter.checks.curriculum);
-    expect(resultBefore.eligible).toBe(resultAfter.eligible);
-  });
-
-  test('✗ legacy fallback does not override explicit Enrollment.curriculumId mismatch', () => {
-    // Enrollment says 2023, Student says 2023, BlockGroup says 2026
-    // Enrollment.curriculumId (2023) is authoritative — mismatch with BlockGroup (2026)
-    const enrollment = makeOverrides(baseEnrollment, { curriculumId: '507f1f77bcf86cd799439015' }); // 2023
-    const student = makeOverrides(baseStudent, { curriculumVersion: '2023' });
-    const group = makeOverrides(baseBlockGroup, { curriculumId: '507f1f77bcf86cd799439099' }); // 2026 different
+    const student = makeOverrides(baseStudent, { curriculumVersion: '2026' });
+    const group = makeOverrides(baseBlockGroup, { curriculumId: '507f1f77bcf86cd799439099' });
     const result = evaluateStudentEligibility(enrollment, student, group, baseBlockSection, null, baseCurriculumDoc, activePeriod);
-    expect(result.checks.curriculum).toBe(false);
-    expect(result.eligible).toBe(false);
+    expect(result.checks.curriculum).toBeUndefined();
+    expect(result.eligible).toBe(true);
   });
 });
 

@@ -195,6 +195,7 @@
   border: 1px solid var(--color-border, rgba(148, 163, 184, 0.24));
   border-radius: 10px;
   background: var(--color-bg-soft, #f8fafc);
+  color: var(--color-text);
 }
 
 .rollover-page__summary-card span {
@@ -207,6 +208,7 @@
 
 .rollover-page__summary-card strong {
   font-size: 1.3rem;
+  color: inherit;
 }
 
 .rollover-page__summary-card--graduate strong {
@@ -439,6 +441,10 @@
 
 .rollover-page__summary-card--review strong {
   color: var(--color-warning, #f59e0b);
+}
+
+[data-theme="light"] .rollover-page__summary-card--review strong {
+  color: #b45309;
 }
 
 .rollover-page__summary-card--review.rollover-page__summary-card--active {
@@ -872,6 +878,163 @@
   cursor: not-allowed;
 }
 
+/* ---- Rollover status / revert ---- */
+
+.rollover-page__rollover-status {
+  border-left: 3px solid var(--color-primary, #2563eb);
+}
+
+.rollover-page__rollover-status--reverted {
+  border-left-color: var(--color-warning, #f59e0b);
+}
+
+.rollover-page__status-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.rollover-page__status-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.15rem 0 0.3rem;
+  font-size: 1rem;
+}
+
+.rollover-page__status-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-border, rgba(148, 163, 184, 0.24));
+  border-radius: 8px;
+  background: var(--color-bg-soft, #f8fafc);
+  color: var(--color-text-muted, #64748b);
+  font-size: 0.82rem;
+}
+
+.rollover-page__status-counts strong {
+  color: var(--color-text);
+  font-size: 0.98rem;
+}
+
+.rollover-page__status-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.rollover-page__danger-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.95rem;
+  border: 1px solid color-mix(in srgb, var(--color-danger, #dc2626) 45%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-danger, #dc2626) 10%, transparent);
+  color: var(--color-danger, #dc2626);
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.rollover-page__danger-button:hover:not(:disabled) {
+  border-color: var(--color-danger, #dc2626);
+  background: color-mix(in srgb, var(--color-danger, #dc2626) 16%, transparent);
+}
+
+.rollover-page__danger-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.rollover-page__success {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-success, #22c55e) 35%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-success, #22c55e) 8%, transparent);
+  color: var(--color-success, #22c55e);
+  font-size: 0.84rem;
+}
+
+.rollover-page__success div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.rollover-page__success span {
+  color: var(--color-text);
+}
+
+/* ---- Revert confirmation modal ---- */
+
+.rollover-page__modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: rgba(2, 6, 23, 0.62);
+}
+
+.rollover-page__modal {
+  display: grid;
+  gap: 1rem;
+  width: min(34rem, 100%);
+  max-height: calc(100vh - 2.5rem);
+  overflow: auto;
+  padding: 1.4rem;
+  border: 1px solid var(--color-border, rgba(148, 163, 184, 0.24));
+  border-radius: 12px;
+  background: var(--color-surface, #fff);
+  color: var(--color-text);
+  box-shadow: 0 20px 45px rgba(2, 6, 23, 0.3);
+}
+
+.rollover-page__modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.rollover-page__modal-header h3 {
+  margin: 0.15rem 0 0;
+  font-size: 1.1rem;
+}
+
+.rollover-page__modal p {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.rollover-page__modal-list {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding-left: 1.15rem;
+  color: var(--color-text-muted, #64748b);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.rollover-page__modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
 /* ---- Responsive ---- */
 
 @media (max-width: 900px) {
@@ -924,5 +1087,35 @@
   .rollover-page__action-cell {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .rollover-page__status-header {
+    flex-direction: column;
+  }
+
+  .rollover-page__status-actions {
+    align-items: stretch;
+  }
+
+  .rollover-page__status-actions .rollover-page__danger-button {
+    justify-content: center;
+  }
+
+  .rollover-page__modal-backdrop {
+    align-items: flex-end;
+    padding: 0.75rem;
+  }
+
+  .rollover-page__modal {
+    max-height: calc(100vh - 1.5rem);
+  }
+
+  .rollover-page__modal-actions {
+    flex-direction: column-reverse;
+  }
+
+  .rollover-page__modal-actions > button {
+    justify-content: center;
+    width: 100%;
   }
 }

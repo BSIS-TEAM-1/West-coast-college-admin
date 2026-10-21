@@ -3,6 +3,7 @@ const Curriculum = require('../models/Curriculum');
 const CurriculumSubject = require('../models/CurriculumSubject');
 const Enrollment = require('../models/Enrollment');
 const Subject = require('../models/Subject');
+const BlockGroup = require('../models/BlockGroup');
 
 const PROGRAM_NAMES = {
   101: 'BEED',
@@ -11,8 +12,14 @@ const PROGRAM_NAMES = {
   201: 'BSBA',
 };
 
+const VALID_PROGRAM_CODES = [101, 102, 103, 201];
+const VALID_STATUSES = ['Draft', 'Active', 'Legacy', 'Archived'];
 const VALID_SEMESTERS = ['1st', '2nd', 'Summer'];
 const VALID_SUBJECT_TYPES = ['General', 'Major', 'Professional', 'Elective'];
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 /**
  * Validate a bulk list of subject placements supplied at curriculum-creation
@@ -122,10 +129,11 @@ class CurriculumController {
       if (programCode) query.programCode = Number(programCode);
       if (status) query.status = status;
       if (q) {
+        const term = escapeRegExp(String(q).trim());
         query.$or = [
-          { name: { $regex: String(q).trim(), $options: 'i' } },
-          { code: { $regex: String(q).trim(), $options: 'i' } },
-          { version: { $regex: String(q).trim(), $options: 'i' } },
+          { name: { $regex: term, $options: 'i' } },
+          { code: { $regex: term, $options: 'i' } },
+          { version: { $regex: term, $options: 'i' } },
         ];
       }
 
@@ -172,10 +180,18 @@ class CurriculumController {
         return res.status(400).json({ success: false, message: 'Program code is required' });
       }
 
-      const programName = PROGRAM_NAMES[Number(programCode)] || 'Unknown';
+      const parsedProgramCode = Number(programCode);
+      if (!VALID_PROGRAM_CODES.includes(parsedProgramCode)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid program code "${programCode}". Expected one of ${VALID_PROGRAM_CODES.join(', ')}.`,
+        });
+      }
+
+      const programName = PROGRAM_NAMES[parsedProgramCode] || 'Unknown';
 
       const existing = await Curriculum.findOne({
-        programCode: Number(programCode),
+        programCode: parsedProgramCode,
         version: String(version || new Date().getFullYear()).trim(),
       });
       if (existing) {
@@ -210,7 +226,7 @@ class CurriculumController {
       try {
         await session.withTransaction(async () => {
           curriculum = await Curriculum.create([{
-            programCode: Number(programCode),
+            programCode: parsedProgramCode,
             programName,
             name: name ? String(name).trim() : `${programName} Curriculum ${version || new Date().getFullYear()}`,
             code: code ? String(code).trim().toUpperCase() : undefined,
@@ -281,7 +297,22 @@ class CurriculumController {
       // labels in block/curriculum selectors.
       if (name !== undefined && String(name).trim()) curriculum.name = String(name).trim();
       if (code !== undefined) curriculum.code = String(code).trim().toUpperCase() || undefined;
-      if (version !== undefined) {
+      if (version !== undefined && String(version).trim() !== curriculum.version) {
+        // A version label is what enrollment records and student
+        // curriculumVersion values resolve against. Re-pointing it on a
+        // curriculum that is already referenced would silently detach that
+        // history from its curriculum, so in-use versions are immutable —
+        // the supported route for a new version is Duplicate.
+        const [hasEnrollments, hasBlocks] = await Promise.all([
+          Enrollment.exists({ curriculumId: id }),
+          BlockGroup.exists({ curriculumId: id }),
+        ]);
+        if (hasEnrollments || hasBlocks) {
+          return res.status(409).json({
+            success: false,
+            message: 'This curriculum is already used by enrollment records or block groups, so its version cannot be changed. Duplicate it to publish a new version.',
+          });
+        }
         const duplicate = await Curriculum.findOne({
           programCode: curriculum.programCode,
           version: String(version).trim(),
@@ -316,6 +347,17 @@ class CurriculumController {
         });
       }
 
+      // Block groups also point at the curriculum (sync, section subjects).
+      // Deleting it would leave them with a dangling curriculumId, so they
+      // must be re-linked or removed first — or the curriculum archived.
+      const hasBlocks = await BlockGroup.exists({ curriculumId: id });
+      if (hasBlocks) {
+        return res.status(409).json({
+          success: false,
+          message: 'Cannot delete curriculum because block groups reference it. Archive it instead.',
+        });
+      }
+
       const curriculum = await Curriculum.findByIdAndDelete(id);
       if (!curriculum) {
         return res.status(404).json({ success: false, message: 'Curriculum not found' });
@@ -334,6 +376,13 @@ class CurriculumController {
     try {
       const { id } = req.params;
       const { status } = req.body;
+
+      if (!VALID_STATUSES.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid status "${status}". Expected one of ${VALID_STATUSES.join(', ')}.`,
+        });
+      }
 
       const curriculum = await Curriculum.findById(id);
       if (!curriculum) {
@@ -423,6 +472,15 @@ class CurriculumController {
           semester: s.semester,
           type: s.type,
           isRequired: s.isRequired,
+          // Carry the approved academic snapshot across with the placement.
+          // Without these the copy loses subject codes/titles/units and its
+          // unit totals collapse to 0 (the snapshot is authoritative — see
+          // models/CurriculumSubject.js).
+          courseNo: s.courseNo,
+          descriptiveTitle: s.descriptiveTitle,
+          units: s.units,
+          lecturePeriods: s.lecturePeriods,
+          labPeriods: s.labPeriods,
           prerequisiteSubjectIds: s.prerequisiteSubjectIds,
           displayOrder: s.displayOrder,
           createdBy: req.adminId,

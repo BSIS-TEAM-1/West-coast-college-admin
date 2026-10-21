@@ -21,6 +21,20 @@ import {
 } from '../lib/blockEligibilityApi'
 import { StudentWorkspaceOverlay, isStudentWorkspaceBackdropTarget } from './shared/StudentWorkspaceOverlay'
 
+// A failed assignment must say why. The API returns a headline plus a
+// `reasons` list; show both, but avoid printing the same sentence twice.
+function describeAssignmentError(error: unknown): string {
+  const reasons = (error as { reasons?: string[] } | null)?.reasons
+  const headline = error instanceof Error ? error.message.trim() : ''
+  const details = Array.isArray(reasons)
+    ? reasons.map((reason) => String(reason).trim()).filter(Boolean)
+    : []
+  if (details.length === 0) return headline || 'Failed'
+  const joined = details.join(' ')
+  if (!headline || joined.toLowerCase().includes(headline.toLowerCase())) return joined
+  return `${headline}: ${joined}`
+}
+
 export default function BlockAssignmentModal({
   students,
   onClose,
@@ -216,10 +230,7 @@ export default function BlockAssignmentModal({
 
           assignedCount += 1
         } catch (studentError) {
-          const reasons = (studentError as any)?.reasons as string[] | undefined
-          const message = reasons && reasons.length > 0
-            ? reasons.join(' ')
-            : (studentError instanceof Error ? studentError.message : 'Failed')
+          const message = describeAssignmentError(studentError)
           if (message.includes('not eligible') || message.includes('full') || message.includes('mismatch')) {
             await loadEligibility()
           }
@@ -284,11 +295,7 @@ export default function BlockAssignmentModal({
 
             assignedCount += 1
           } catch (studentError) {
-            const reasons = (studentError as any)?.reasons as string[] | undefined
-            const message = reasons && reasons.length > 0
-              ? reasons.join(' ')
-              : (studentError instanceof Error ? studentError.message : 'Failed')
-            failures.push(`${studentNumberDisplay(student)}: ${message}`)
+            failures.push(`${studentNumberDisplay(student)}: ${describeAssignmentError(studentError)}`)
           }
         }
 

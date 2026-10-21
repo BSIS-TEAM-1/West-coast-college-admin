@@ -9,6 +9,7 @@ import {
 
 type LandingPageProps = {
   onOpenAbout: () => void
+  onOpenAnnouncements: () => void
   onOpenTermsPolicy: () => void
   onOpenCookiePolicy: () => void
   onOpenCookieSystem: () => void
@@ -23,7 +24,7 @@ type LandingVideoItem = {
   poster?: string
 }
 
-type LandingNavItem = 'home' | 'admissions' | 'programs' | 'campus' | 'about' | 'contact'
+type LandingNavItem = 'home' | 'admissions' | 'programs' | 'campus' | 'about' | 'announcements' | 'contact'
 
 type TeacherProgramItem = {
   code: string
@@ -373,6 +374,7 @@ function LandingVideoCarousel() {
 
 export default function LandingPage({
   onOpenAbout,
+  onOpenAnnouncements,
   onOpenTermsPolicy,
   onOpenCookiePolicy,
   onOpenCookieSystem,
@@ -514,6 +516,13 @@ export default function LandingPage({
     onOpenAbout()
   }
 
+  const handleAnnouncementsClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault()
+    setActiveNavItem('announcements')
+    setIsNavOpen(false)
+    onOpenAnnouncements()
+  }
+
   const toggleDarkLightTheme = () => {
     handleThemeChange(theme === 'dark' ? 'light' : 'dark')
   }
@@ -612,6 +621,16 @@ export default function LandingPage({
                   aria-current={activeNavItem === 'about' ? 'page' : undefined}
                 >
                   About
+                </a>
+              </li>
+              <li className="nav-item">
+                <a
+                  className={`nav-link ${activeNavItem === 'announcements' ? 'active' : ''}`}
+                  href="#announcements"
+                  onClick={handleAnnouncementsClick}
+                  aria-current={activeNavItem === 'announcements' ? 'page' : undefined}
+                >
+                  Announcements
                 </a>
               </li>
               <li className="nav-item">
@@ -901,7 +920,7 @@ export default function LandingPage({
                 <article className="landing-news-card h-100">
                   <span className="landing-section-kicker">News &amp; Announcements</span>
                   <h3>Admissions and campus updates are posted through the student portal.</h3>
-                  <a href="#footer-contact" onClick={handleFooterContactClick}>Contact Admissions</a>
+                  <a href="#announcements" onClick={handleAnnouncementsClick}>View all announcements</a>
                 </article>
               </div>
               <div className="col-lg-3">

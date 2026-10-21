@@ -1660,6 +1660,7 @@
   color: var(--color-text);
 }
 
+.block-picker-field input,
 .block-picker-field select {
   width: 100%;
   padding: 0.55rem 0.7rem;
@@ -1668,14 +1669,17 @@
   background: var(--color-surface);
   color: var(--color-text);
   box-sizing: border-box;
+  font: inherit;
 }
 
+.block-picker-field input:focus,
 .block-picker-field select:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--color-primary) 48%, var(--color-border));
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 16%, transparent);
 }
 
+.block-picker-field input:disabled,
 .block-picker-field select:disabled {
   opacity: 0.68;
   background: var(--color-bg-soft);
@@ -2123,6 +2127,7 @@
 
 .block-create-card .assignment-form input,
 .block-create-card .assignment-form select,
+.block-selection-card .block-picker-field input,
 .block-selection-card .block-picker-field select,
 .block-create-card .block-number-select-trigger {
   background: rgba(15, 23, 42, 0.42);
@@ -2132,6 +2137,7 @@
 
 .block-create-card .assignment-form input:focus,
 .block-create-card .assignment-form select:focus,
+.block-selection-card .block-picker-field input:focus,
 .block-selection-card .block-picker-field select:focus,
 .block-create-card .block-number-select-trigger:focus {
   border-color: color-mix(in srgb, var(--block-landing-accent) 62%, transparent);
@@ -2783,6 +2789,7 @@
 
 [data-theme="light"] .block-create-card .assignment-form input,
 [data-theme="light"] .block-create-card .assignment-form select,
+[data-theme="light"] .block-selection-card .block-picker-field input,
 [data-theme="light"] .block-selection-card .block-picker-field select,
 [data-theme="light"] .block-create-card .block-number-select-trigger {
   background: #ffffff;
@@ -2792,6 +2799,7 @@
 
 [data-theme="light"] .block-create-card .assignment-form input:focus,
 [data-theme="light"] .block-create-card .assignment-form select:focus,
+[data-theme="light"] .block-selection-card .block-picker-field input:focus,
 [data-theme="light"] .block-selection-card .block-picker-field select:focus,
 [data-theme="light"] .block-create-card .block-number-select-trigger:focus {
   border-color: color-mix(in srgb, var(--block-landing-accent) 45%, transparent);

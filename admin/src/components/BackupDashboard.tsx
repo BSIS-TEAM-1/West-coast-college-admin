@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, BarChart3, CheckCircle2, Cloud, Database, Download, HardDrive, Lock, MoreVertical, Play, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2 } from 'lucide-react'
 import { API_URL, getStoredToken } from '../lib/authApi'
 import './BackupDashboard.css'
 
 type BackupRecord = {
   _id: string; fileName: string; backupType: string; status: 'in_progress' | 'completed' | 'failed';
-  verificationStatus?: 'pending' | 'verified' | 'failed' | 'missing'; createdAt: string; size?: number;
+  verificationStatus?: 'pending' | 'verified' | 'failed' | 'missing' | 'remote'; createdAt: string; size?: number;
+  verificationLabel?: string; verificationState?: string; verificationDetail?: string; storagePresent?: boolean; restorable?: boolean; storageLocation?: 'local' | 'remote';
+  instanceId?: string | null; storedVerificationStatus?: string;
   compressedSize?: number; checksum?: string | null; durationMs?: number | null; isProtected?: boolean;
   isEncrypted?: boolean; storageProvider?: string; appVersion?: string; schemaVersion?: string;
   backupEngineVersion?: string; backupFormatVersion?: string; documentCount?: number; collections?: { name: string; count: number }[];
@@ -48,6 +50,7 @@ export default function BackupDashboard({ refreshKey = 0 }: { refreshKey?: numbe
   const [recoveryBusy, setRecoveryBusy] = useState<string | null>(null)
   const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null)
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+  const wasRunningRef = useRef(false)
 
   const request = async (route: string, init: RequestInit = {}) => {
     const token = await getStoredToken()
@@ -62,16 +65,39 @@ export default function BackupDashboard({ refreshKey = 0 }: { refreshKey?: numbe
     return data
   }
 
-  const loadBackups = async () => {
+  const loadBackups = async (silent = false) => {
     try {
-      setLoading(true); setError(null)
+      if (!silent) setLoading(true)
+      setError(null)
       const [historyData, healthData] = await Promise.all([request('/api/admin/backup/history'), request('/api/admin/backup/health')])
       setBackups(historyData.backups || []); setHealth(healthData)
-    } catch (loadError) { setError(loadError instanceof Error ? loadError.message : 'Failed to load backups') }
+    } catch (loadError) {
+      // A background refresh that fails should not flash an error banner over
+      // a page the user is already reading; the next poll will retry.
+      if (!silent) setError(loadError instanceof Error ? loadError.message : 'Failed to load backups')
+    }
     finally { setLoading(false) }
   }
 
   useEffect(() => { void loadBackups() }, [refreshKey])
+
+  // A backup takes minutes. While one is running, keep the history fresh so the
+  // user never has to decide whether the job "failed" or is simply still going.
+  const backupRunning = Boolean(health?.activeOperation) || backups.some(item => item.status === 'in_progress')
+
+  useEffect(() => {
+    if (!backupRunning) return
+    const timer = setInterval(() => { void loadBackups(true) }, 5000)
+    return () => clearInterval(timer)
+  }, [backupRunning])
+
+  useEffect(() => {
+    if (wasRunningRef.current && !backupRunning) {
+      setError(null)
+      setRecoveryNotice('Backup finished. History and readiness are up to date.')
+    }
+    wasRunningRef.current = backupRunning
+  }, [backupRunning])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -99,6 +125,10 @@ export default function BackupDashboard({ refreshKey = 0 }: { refreshKey?: numbe
   const formatBytes = (bytes = 0) => bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : bytes < 1024 ** 3 ? `${(bytes / 1024 ** 2).toFixed(1)} MB` : `${(bytes / 1024 ** 3).toFixed(1)} GB`
   const formatDuration = (value?: number | null) => value == null ? '-' : value < 1000 ? `${value} ms` : `${(value / 1000).toFixed(1)} s`
   const formatDate = (value?: string | null) => value ? new Date(value).toLocaleString() : 'Not available'
+  // One vocabulary across the table and the preview: the integrity column
+  // reports the verification result, the type column reports where the
+  // archive lives. "remote" is a location, not a verification outcome.
+  const verificationText = (status?: string) => !status || status === 'pending' || status === 'remote' ? 'unverified' : status
 
   const runAction = async (fileName: string, action: () => Promise<unknown>) => {
     try { setBusyFile(fileName); setError(null); await action(); await loadBackups() }
@@ -274,7 +304,20 @@ export default function BackupDashboard({ refreshKey = 0 }: { refreshKey?: numbe
         const csv = ['Backup,Timestamp,Status,Failure reason', ...failed.map(item => [item.fileName, item.createdAt, item.status, item.error || 'No reason recorded'].map(value => `"${String(value).replaceAll('"', '""')}"`).join(','))].join('\n')
         const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); const link = document.createElement('a'); link.href = url; link.download = 'backup-error-log.csv'; link.click(); URL.revokeObjectURL(url); setRecoveryNotice('Error log exported.'); return
       }
-      if (action === 'create') await request('/api/admin/backup/create', { method: 'POST' })
+      if (action === 'create') {
+        try {
+          await request('/api/admin/backup/create', { method: 'POST' })
+          setRecoveryNotice('Backup started. It runs in the background, so you can close this panel.')
+        } catch (createError) {
+          // A backup already in flight is not a failure: the request was
+          // rejected only because the engine runs one job at a time.
+          const code = (createError as { data?: { code?: string } })?.data?.code
+          if (code !== 'BACKUP_BUSY') throw createError
+          setRecoveryNotice('A backup is already running in the background. This list updates when it finishes.')
+        }
+        await loadBackups()
+        return
+      }
       if (action === 'restore') {
         try { await request('/api/admin/backup/restore-test', { method: 'POST' }) }
         catch (restoreErr: any) {
@@ -287,7 +330,7 @@ export default function BackupDashboard({ refreshKey = 0 }: { refreshKey?: numbe
       }
       if (action === 'cleanup') await request('/api/admin/backup/cleanup', { method: 'POST' })
       if (action === 'verify') {
-        const candidates = backups.filter(item => item.status === 'completed' && item.verificationStatus !== 'verified')
+        const candidates = backups.filter(item => item.status === 'completed' && item.verificationStatus !== 'verified' && item.verificationStatus !== 'remote')
         for (const item of candidates) await request('/api/admin/backup/verify', { method: 'POST', body: JSON.stringify({ backupFileName: item.fileName }) })
       }
       if (action === 'delete-failed') {
@@ -315,17 +358,18 @@ export default function BackupDashboard({ refreshKey = 0 }: { refreshKey?: numbe
     </div>}
 
     <div className="backup-dashboard__toolbar"><label className="backup-dashboard__search"><Search size={16} aria-hidden="true" /><span className="sr-only">Search backups</span><input value={query} onChange={event => { setQuery(event.target.value); setPage(1) }} placeholder="Search backups" /></label><select aria-label="Filter backups" value={filter} onChange={event => { setFilter(event.target.value); setPage(1) }}><option value="all">All backups</option><option value="manual">Manual</option><option value="scheduled">Scheduled</option><option value="initial">Startup</option><option value="emergency">Emergency</option><option value="verified">Verified</option><option value="failed">Failed</option><option value="encrypted">Encrypted</option></select><button type="button" disabled={compareSelection.length !== 2} onClick={() => void compare()}><BarChart3 size={16} /> Compare ({compareSelection.length}/2)</button></div>
+    {backupRunning && <div className="backup-dashboard__running" role="status"><RefreshCw size={16} className="spin" /> Backup in progress — the list refreshes automatically.</div>}
     {error && <div className="backup-dashboard__error" role="alert">{error}</div>}
     {loading && backups.length === 0 ? <div className="backup-dashboard__skeleton" aria-label="Loading backups">{Array.from({ length: 4 }, (_, index) => <span key={index} />)}</div> : visible.length === 0 ? <div className="backup-dashboard__empty"><ShieldCheck size={30} /><strong>No backups found</strong><span>Create a backup or adjust the filters.</span></div> : <div className="backup-table-wrap" id="backup-history-table"><table className="backup-table"><colgroup><col style={{width:'2.5rem'}} /><col style={{width:'2fr'}} /><col style={{width:'7rem'}} /><col style={{width:'6.5rem'}} /><col style={{width:'8rem'}} /><col style={{width:'5.5rem'}} /><col style={{width:'6rem'}} /><col style={{width:'5rem'}} /><col style={{width:'7rem'}} /><col style={{width:'6rem'}} /></colgroup><thead><tr><th aria-label="Compare" /><th><button onClick={() => changeSort('fileName')}>Name</button></th><th><button onClick={() => changeSort('status')}>Type</button></th><th><button onClick={() => changeSort('status')}>Status</button></th><th><button onClick={() => changeSort('createdAt')}>Created</button></th><th><button onClick={() => changeSort('compressedSize')}>Size</button></th><th>Integrity</th><th><button onClick={() => changeSort('durationMs')}>Duration</button></th><th>Security</th><th>Actions</th></tr></thead><tbody>{visible.map(backup => {
       const busy = busyFile === backup.fileName; const selected = compareSelection.includes(backup.fileName)
       return <tr key={backup._id}>
         <td data-label="Compare"><input type="checkbox" checked={selected} aria-label={`Compare ${backup.fileName}`} onChange={() => setCompareSelection(values => selected ? values.filter(value => value !== backup.fileName) : values.length < 2 ? [...values, backup.fileName] : values)} /></td>
         <td data-label="Name"><button className="backup-name-button" onClick={() => void openPreview(backup)}><strong>{backup.fileName}</strong></button><small>{backup.triggeredBy || 'System'} · app {backup.appVersion || 'unknown'}</small></td>
-        <td data-label="Type"><div className="backup-type-stack"><span className="backup-badge">{backup.backupType}</span><span className="backup-badge">{backup.storageProvider || 'local'}</span></div></td>
+        <td data-label="Type"><div className="backup-type-stack"><span className="backup-badge">{backup.backupType}</span><span className="backup-badge" title={backup.storageLocation === 'remote' ? 'Archive is stored on another server' : 'Archive is stored on this server'}>{backup.storageLocation === 'remote' ? <Cloud size={12} aria-hidden="true" /> : <HardDrive size={12} aria-hidden="true" />}{backup.storageLocation === 'remote' ? 'remote' : 'local'}</span></div></td>
         <td data-label="Status"><span className={`backup-badge backup-badge--${backup.status}`}>{backup.status.replace('_', ' ')}</span>{backup.error && <small className="backup-failure-reason">{backup.error}</small>}</td>
         <td data-label="Created"><time>{new Date(backup.createdAt).toLocaleString()}</time></td>
-        <td data-label="Size"><span className="backup-size">{formatBytes(backup.compressedSize || backup.size)}</span></td>
-        <td data-label="Integrity"><span className={`backup-badge backup-badge--${backup.verificationStatus || 'pending'}`}>{backup.verificationStatus || 'pending'}</span></td>
+        <td data-label="Size"><span className="backup-size">{backup.status === 'in_progress' ? '—' : formatBytes(backup.compressedSize || backup.size)}</span></td>
+        <td data-label="Integrity">{backup.status === 'in_progress' ? <span className="backup-muted" title="Integrity is checked when the backup finishes">unverified</span> : <span className={`backup-badge backup-badge--${backup.verificationStatus === 'remote' ? 'pending' : (backup.verificationStatus || 'pending')}`} title={backup.verificationDetail}>{verificationText(backup.verificationStatus)}</span>}</td>
         <td data-label="Duration"><span className="backup-duration">{formatDuration(backup.durationMs)}</span></td>
         <td data-label="Security"><div className="backup-security-stack"><span className={`backup-badge ${backup.isEncrypted ? 'backup-badge--verified' : ''}`}>{backup.isEncrypted ? 'Encrypted' : 'Plain'}</span><span className={backup.isProtected ? 'backup-protected' : 'backup-muted'}><Lock size={13} /> {backup.isProtected ? 'Protected' : 'Standard'}</span></div></td>
         <td data-label="Actions">
@@ -335,10 +379,10 @@ export default function BackupDashboard({ refreshKey = 0 }: { refreshKey?: numbe
             </button>
             {openMenuId === backup._id && <div className="backup-actions-dropdown">
               <button onClick={() => { void handleBackupAction(backup, 'details'); setOpenMenuId(null); }}>View details</button>
-              <button onClick={() => { void handleBackupAction(backup, 'verify'); setOpenMenuId(null); }}>Verify integrity</button>
-              <button disabled={backup.verificationStatus !== 'verified'} onClick={() => { void handleBackupAction(backup, 'restore'); setOpenMenuId(null); }}>Restore</button>
-              <button disabled={backup.status !== 'completed'} onClick={() => { void handleBackupAction(backup, 'download'); setOpenMenuId(null); }}>Download</button>
-              <button onClick={() => { void handleBackupAction(backup, 'rename'); setOpenMenuId(null); }}>Rename</button>
+              <button disabled={backup.verificationStatus === 'remote' || backup.status === 'in_progress'} onClick={() => { void handleBackupAction(backup, 'verify'); setOpenMenuId(null); }}>Verify integrity</button>
+              <button disabled={!backup.restorable} onClick={() => { void handleBackupAction(backup, 'restore'); setOpenMenuId(null); }}>Restore</button>
+              <button disabled={backup.status !== 'completed' || backup.verificationStatus === 'remote'} onClick={() => { void handleBackupAction(backup, 'download'); setOpenMenuId(null); }}>Download</button>
+              <button disabled={backup.verificationStatus === 'remote'} onClick={() => { void handleBackupAction(backup, 'rename'); setOpenMenuId(null); }}>Rename</button>
               <button onClick={() => { void handleBackupAction(backup, 'protection'); setOpenMenuId(null); }}>{backup.isProtected ? 'Unprotect' : 'Protect'}</button>
               <button className="backup-actions-delete" onClick={() => { void handleBackupAction(backup, 'delete'); setOpenMenuId(null); }}>Delete</button>
             </div>}
@@ -348,7 +392,7 @@ export default function BackupDashboard({ refreshKey = 0 }: { refreshKey?: numbe
     })}</tbody></table></div>}
     <footer className="backup-dashboard__pagination"><span>{filtered.length} result{filtered.length === 1 ? '' : 's'}</span><div><button type="button" disabled={currentPage <= 1} onClick={() => setPage(value => value - 1)}>Previous</button><span>Page {currentPage} of {pageCount}</span><button type="button" disabled={currentPage >= pageCount} onClick={() => setPage(value => value + 1)}>Next</button></div></footer>
 
-    {preview && <div className="backup-detail-overlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPreview(null) }}><section className="backup-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="backup-detail-title"><header><div><span className="system-health-eyebrow">Restore Preview</span><h3 id="backup-detail-title">{preview.backup.fileName}</h3></div><button onClick={() => setPreview(null)} aria-label="Close backup details">x</button></header>{preview.compatibility.warnings.length > 0 && <div className="backup-compatibility-warning"><strong>Compatibility warning</strong>{preview.compatibility.warnings.map(warning => <span key={warning}>{warning}</span>)}</div>}<dl className="backup-detail-grid"><div><dt>Created</dt><dd>{formatDate(preview.backup.createdAt)}</dd></div><div><dt>Created by</dt><dd>{preview.backup.triggeredBy || 'System'}</dd></div><div><dt>Documents</dt><dd>{preview.backup.documentCount ?? 0}</dd></div><div><dt>Backup size</dt><dd>{formatBytes(preview.backup.compressedSize || preview.backup.size)}</dd></div><div><dt>Verification</dt><dd>{preview.backup.verificationStatus}</dd></div><div><dt>Checksum</dt><dd className="backup-checksum">{preview.backup.checksum || 'Unavailable'}</dd></div><div><dt>Application</dt><dd>{preview.backup.appVersion || 'unknown'}</dd></div><div><dt>Schema / format</dt><dd>{preview.backup.schemaVersion || 'unknown'} / {preview.backup.backupFormatVersion || 'unknown'}</dd></div><div><dt>Encryption</dt><dd>{preview.backup.isEncrypted ? 'AES-256-GCM' : 'Not encrypted'}</dd></div><div><dt>Storage</dt><dd>{preview.backup.storageProvider || 'local'}</dd></div></dl><div className="backup-detail-collections"><strong>Collections ({preview.backup.collections?.length || 0})</strong><div>{preview.backup.collections?.map(item => <span key={item.name}>{item.name}: {item.count}</span>)}</div></div><footer><button onClick={() => setPreview(null)}>Cancel</button><button className="backup-restore-confirm" disabled={!preview.compatibility.compatible || preview.backup.verificationStatus !== 'verified'} onClick={() => void confirmRestore()}><RotateCcw size={16} /> {preview.compatibility.requiresConfirmation ? 'Confirm compatibility and restore' : 'Confirm restore'}</button></footer></section></div>}
+    {preview && <div className="backup-detail-overlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPreview(null) }}><section className="backup-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="backup-detail-title"><header><div><span className="system-health-eyebrow">Restore Preview</span><h3 id="backup-detail-title">{preview.backup.fileName}</h3></div><button onClick={() => setPreview(null)} aria-label="Close backup details">x</button></header>{preview.compatibility.warnings.length > 0 && <div className="backup-compatibility-warning"><strong>Compatibility warning</strong>{preview.compatibility.warnings.map(warning => <span key={warning}>{warning}</span>)}</div>}<dl className="backup-detail-grid"><div><dt>Created</dt><dd>{formatDate(preview.backup.createdAt)}</dd></div><div><dt>Created by</dt><dd>{preview.backup.triggeredBy || 'System'}</dd></div><div><dt>Documents</dt><dd>{preview.backup.documentCount ?? 0}</dd></div><div><dt>Backup size</dt><dd>{formatBytes(preview.backup.compressedSize || preview.backup.size)}</dd></div><div><dt>Verification</dt><dd title={preview.backup.verificationDetail}>{verificationText(preview.backup.verificationStatus)}</dd></div><div><dt>Checksum</dt><dd className="backup-checksum">{preview.backup.checksum || 'Unavailable'}</dd></div><div><dt>Application</dt><dd>{preview.backup.appVersion || 'unknown'}</dd></div><div><dt>Schema / format</dt><dd>{preview.backup.schemaVersion || 'unknown'} / {preview.backup.backupFormatVersion || 'unknown'}</dd></div><div><dt>Encryption</dt><dd>{preview.backup.isEncrypted ? 'AES-256-GCM' : 'Not encrypted'}</dd></div><div><dt>Storage</dt><dd>{preview.backup.storageLocation === 'remote' ? 'Another server' : 'This server'}</dd></div></dl><div className="backup-detail-collections"><strong>Collections ({preview.backup.collections?.length || 0})</strong><div>{preview.backup.collections?.map(item => <span key={item.name}>{item.name}: {item.count}</span>)}</div></div><footer><button onClick={() => setPreview(null)}>Cancel</button><button className="backup-restore-confirm" disabled={!preview.compatibility.compatible || !preview.backup.restorable} onClick={() => void confirmRestore()}><RotateCcw size={16} /> {preview.compatibility.requiresConfirmation ? 'Confirm compatibility and restore' : 'Confirm restore'}</button></footer></section></div>}
     {showReadinessDetails && health && <div className="backup-detail-overlay" onMouseDown={event => { if (event.target === event.currentTarget) setShowReadinessDetails(false) }}><section className="backup-detail-dialog recovery-center" role="dialog" aria-modal="true" aria-labelledby="readiness-detail-title"><header><div><span className="system-health-eyebrow">Disaster Preparedness</span><h3 id="readiness-detail-title">Recovery Center</h3><p>{readinessIssues.length} issue{readinessIssues.length === 1 ? '' : 's'} affecting recoverability</p></div><button onClick={() => setShowReadinessDetails(false)} aria-label="Close Recovery Center">x</button></header><div className="readiness-summary"><strong className={`readiness-score readiness-score--${health.disasterRecovery.label.toLowerCase()}`}>{health.disasterRecovery.score}/100 - {health.disasterRecovery.label}</strong><span>RPO: {health.disasterRecovery.rpoHours}h</span><span>RTO: {health.disasterRecovery.rtoMinutes}min</span></div>{health.disasterRecovery.categories && <div className="readiness-breakdown">{health.disasterRecovery.categories.map(cat => <div key={cat.id} className={`readiness-breakdown-item readiness-breakdown-item--${cat.status}`}><span>{cat.label}</span><strong>{cat.score}/{cat.maxScore}</strong></div>)}</div>}{recoveryNotice && <div className="recovery-notice" role="status"><CheckCircle2 size={16} />{recoveryNotice}</div>}<div className="recovery-layout"><main><h4>Issues reducing score</h4><div className="readiness-issues">{readinessIssues.length === 0 ? <div className="readiness-empty"><ShieldCheck size={24} /><strong>No readiness issues detected</strong><span>Backups, verification, restore testing, and storage are within their configured targets.</span></div> : readinessIssues.map((issue, index) => <article className={`readiness-issue readiness-issue--${issue.severity}`} key={issue.id}><div className="recovery-issue-heading"><span className="recovery-issue-number">{index + 1}</span><div><strong>{issue.title}</strong><span>{issue.value}</span></div><span className={`recovery-severity recovery-severity--${issue.severity}`}>{issue.severity}</span></div><dl><div><dt>Why</dt><dd>{issue.why}</dd></div><div><dt>Impact</dt><dd>{issue.impact}</dd></div><div><dt>Recommendation</dt><dd>{issue.recommendation}</dd></div></dl><div className="recovery-actions">{issue.action && <button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction(issue.action!)}>{recoveryBusy === issue.action ? <><RefreshCw size={14} className="spin" /> Running…</> : issue.actionLabel || issue.action}</button>}{issue.id === 'failed' && <><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('delete-failed')}><Trash2 size={14} /> Delete Failed</button><button onClick={() => void runRecoveryAction('export')}><Download size={14} /> Export Logs</button></>}{issue.id === 'redundancy' && <button onClick={() => setRecoveryNotice('Set BACKUP_STORAGE_PROVIDER and BACKUP_STORAGE_REDUNDANCY in the server configuration, then restart the service and test replication.')}><Cloud size={14} /> Setup Guide</button>}{issue.id === 'encryption' && <button onClick={() => setRecoveryNotice('Provide a valid 32-byte BACKUP_ENCRYPTION_KEY, enable BACKUP_ENCRYPTION, then restart the server.')}><Lock size={14} /> Setup Guide</button>}</div></article>)}</div></main><aside><h4>Quick actions</h4><div className="recovery-quick-actions"><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('create')}><Database size={16} /><span>Create Backup<small>New recovery point</small></span></button><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('restore')}><Play size={16} /><span>Run Restore Test<small>Isolated validation</small></span></button><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('verify')}><ShieldCheck size={16} /><span>Verify Backups<small>Check integrity</small></span></button><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('cleanup')}><HardDrive size={16} /><span>Clean Storage<small>Apply retention policy</small></span></button><button onClick={() => void runRecoveryAction('failed')}><AlertTriangle size={16} /><span>Failed Backups<small>Review error details</small></span></button></div><h4>Recovery timeline</h4><div className="recovery-timeline"><div className="done"><span /><p><strong>Latest backup</strong><small>{formatDate(health.lastSuccessfulBackup)}</small></p></div><div className={health.lastVerifiedBackup ? 'done' : 'warning'}><span /><p><strong>Integrity verification</strong><small>{formatDate(health.lastVerifiedBackup)}</small></p></div><div className={health.disasterRecovery.lastVerifiedRestore ? 'done' : 'warning'}><span /><p><strong>Restore test</strong><small>{formatDate(health.disasterRecovery.lastVerifiedRestore)}</small></p></div><div><span /><p><strong>Next scheduled backup</strong><small>{formatDate(health.nextScheduledBackup)}</small></p></div></div></aside></div></section></div>}
     {comparison && <div className="backup-detail-overlay" onMouseDown={event => { if (event.target === event.currentTarget) setComparison(null) }}><section className="backup-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="backup-compare-title"><header><div><span className="system-health-eyebrow">Backup Analytics</span><h3 id="backup-compare-title">Backup Comparison</h3></div><button onClick={() => setComparison(null)} aria-label="Close comparison">x</button></header><div className="backup-comparison-summary"><span>Documents: {comparison.totals.documentDifference > 0 ? '+' : ''}{comparison.totals.documentDifference}</span><span>Size: {formatBytes(Math.abs(comparison.totals.sizeDifference))} {comparison.totals.sizeDifference >= 0 ? 'larger' : 'smaller'}</span><span>Duration: {formatDuration(Math.abs(comparison.totals.durationDifferenceMs))} difference</span></div><div className="backup-comparison-list">{comparison.differences.map(item => <div className={item.difference ? 'changed' : ''} key={item.collection}><strong>{item.collection}</strong><span>{item.firstCount}</span><span>{item.secondCount}</span><span>{item.difference > 0 ? '+' : ''}{item.difference}</span></div>)}</div></section></div>}
   </section>

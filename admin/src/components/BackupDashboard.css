@@ -8,6 +8,7 @@
 .backup-dashboard__search input { width: 100%; min-height: 2.5rem; border: 0; outline: 0; background: transparent; color: var(--color-text); }
 .backup-dashboard__toolbar select { min-height: 2.5rem; padding: 0 2rem 0 0.75rem; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface); color: var(--color-text); }
 .backup-dashboard__error { display: inline-flex; align-items: center; gap: 0.45rem; margin: 0.75rem 1.25rem 0; padding: 0.4rem 0.65rem; border: 1px solid color-mix(in srgb, var(--color-error) 45%, var(--color-border)); border-radius: 6px; background: color-mix(in srgb, var(--color-error) 10%, var(--color-surface)); color: var(--color-error); font-size: 0.75rem; font-weight: 600; max-width: calc(100% - 2.5rem); }
+.backup-dashboard__running { display: inline-flex; align-items: center; gap: 0.45rem; margin: 0.75rem 1.25rem 0; padding: 0.4rem 0.65rem; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-soft); color: var(--color-text-secondary); font-size: 0.75rem; font-weight: 600; max-width: calc(100% - 2.5rem); }
 .backup-dashboard__empty { min-height: 12rem; display: grid; place-items: center; align-content: center; gap: 0.5rem; color: var(--color-text-muted); }
 
 /* Table: responsive scrolling container */
@@ -67,9 +68,10 @@
 .backup-table tbody tr:hover { background: var(--color-surface-hover); }
 
 /* Badges: existing styles remain */
-.backup-badge { display: inline-flex; padding: 0.2rem 0.45rem; border-radius: 999px; background: var(--color-bg-soft); color: var(--color-text-muted); font-weight: 650; text-transform: capitalize; }
+.backup-badge { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.2rem 0.45rem; border-radius: 999px; background: var(--color-bg-soft); color: var(--color-text-muted); font-weight: 650; text-transform: capitalize; }
 .backup-badge--completed, .backup-badge--verified { background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface)); color: var(--color-success); }
 .backup-badge--failed, .backup-badge--missing { background: color-mix(in srgb, var(--color-error) 12%, var(--color-surface)); color: var(--color-error); }
+.backup-badge--remote { background: color-mix(in srgb, var(--color-text-muted) 14%, var(--color-surface)); color: var(--color-text-secondary); }
 .backup-badge--in_progress, .backup-badge--pending { background: color-mix(in srgb, var(--color-warning) 12%, var(--color-surface)); color: var(--color-warning); }
 
 .backup-protected, .backup-muted { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--color-primary); font-size: 0.7rem; }

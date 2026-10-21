@@ -90,8 +90,11 @@ async function resolveCurriculum({ programCode, curriculumVersion, explicitCurri
  * @param {string|null} [params.curriculumVersion] - Optional Student.curriculumVersion
  * @param {string|null} [params.explicitCurriculumId] - Optional explicit curriculumId
  * @param {string} [params.status] - Initial enrollment status ('Enrolled' default).
-+ *   Applicant approvals create 'Pending' enrollments: the official ENROLLED
-+ *   state is only reached later via block assignment finalization.
+ *   Applicant approvals create 'Pending' enrollments: the official ENROLLED
+ *   state is only reached later via block assignment finalization.
+ * @param {import('mongoose').Types.ObjectId|string} params.createdBy - Admin creating the record (required by Enrollment)
+ * @param {Object} [params.assessment] - Optional fee snapshot; defaults to zeroes
+ *   because fees are assessed after the Pending enrollment is created.
  * @param {import('mongoose').ClientSession|null} [params.session] - Optional mongoose session
  * @returns {Promise<{ enrollment: Object, created: boolean, reactivated: boolean, curriculumSource: string }>}
  * @throws {Error} If required fields are missing or curriculum cannot be resolved
@@ -106,10 +109,13 @@ async function createOrReactivateEnrollment({
   curriculumVersion,
   explicitCurriculumId,
   status = 'Enrolled',
+  createdBy,
+  assessment,
   session,
 }) {
   // ─── Validate required fields ───
   if (!studentId) throw new Error('studentId is required');
+  if (!createdBy) throw new Error('createdBy is required');
   if (!schoolYear || !/^\d{4}-\d{4}$/.test(schoolYear)) {
     throw new Error(`Invalid schoolYear "${schoolYear}". Expected format YYYY-YYYY`);
   }
@@ -181,6 +187,16 @@ async function createOrReactivateEnrollment({
   }
 
   // ─── Create new enrollment ───
+  // Fees are assessed after the Pending enrollment exists, so default the
+  // assessment to zeroes rather than forcing every caller to supply one.
+  const assessmentSnapshot = {
+    tuitionFee: 0,
+    miscFee: 0,
+    otherFees: 0,
+    totalAmount: 0,
+    ...(assessment || {}),
+  };
+
   const enrollmentDocs = await Enrollment.create([{
     studentId,
     studentNumber: studentNumber || '',
@@ -192,6 +208,8 @@ async function createOrReactivateEnrollment({
     status,
     isCurrent: true,
     subjects: [],
+    assessment: assessmentSnapshot,
+    createdBy,
   }], { session });
 
   return { enrollment: enrollmentDocs[0], created: true, reactivated: false, curriculumSource: source };

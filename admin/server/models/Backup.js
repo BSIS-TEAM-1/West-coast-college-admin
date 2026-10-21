@@ -55,6 +55,14 @@ const backupSchema = new mongoose.Schema({
     type: String,
     default: 'local'
   },
+  // Which server wrote the archive. The metadata database is shared between
+  // the production server and developer machines, but each one has its own
+  // backup storage, so "the file is not here" only means "missing" for
+  // records this instance created.
+  instanceId: {
+    type: String,
+    default: null
+  },
   appVersion: { type: String, default: 'unknown' },
   schemaVersion: { type: String, default: '1' },
   backupEngineVersion: { type: String, default: '2.0.0' },
@@ -124,5 +132,6 @@ backupSchema.index({ status: 1 });
 backupSchema.index({ backupType: 1 });
 backupSchema.index({ verificationStatus: 1 });
 backupSchema.index({ isProtected: 1, createdAt: -1 });
+backupSchema.index({ instanceId: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Backup', backupSchema);

@@ -80,6 +80,16 @@ registerArchiveEventHandlers()
 
 // Initialize backup system
 const backupSystem = new BackupSystem()
+{
+  const backupStorage = backupSystem.describeStorage()
+  console.log(`[backup] instance=${backupStorage.instanceId} provider=${backupStorage.provider} path=${backupStorage.rootDir}`)
+  console.log(`[backup] retention hourly=${backupStorage.retentionPolicy.hourly} daily=${backupStorage.retentionPolicy.daily} weekly=${backupStorage.retentionPolicy.weekly} monthly=${backupStorage.retentionPolicy.monthly} auto=${process.env.BACKUP_AUTO_RETENTION ?? 'true'}`)
+  if (!backupStorage.durable) {
+    const message = 'archives are written inside the application directory, and a container restart or redeploy erases them. Set BACKUP_STORAGE_PATH to a mounted persistent disk in production.'
+    if (String(process.env.NODE_ENV || '').toLowerCase() === 'production') console.warn(`[backup] WARNING: ${message}`)
+    else console.log(`[backup] note: ${message}`)
+  }
+}
 const semaphoreSmsService = new SemaphoreSmsService()
 const smsApiPhService = new SmsApiPhService()
 const textlocalSmsService = new TextlocalSmsService()
@@ -4315,7 +4325,17 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
       accentColor
     } = req.body
 
-    if (typeof displayName === 'string') admin.displayName = displayName.trim()
+    // Track changes for audit log
+    const changes = {}
+    const oldValues = {}
+
+    if (typeof displayName === 'string') {
+      if (admin.displayName !== displayName.trim()) {
+        oldValues.displayName = admin.displayName
+        changes.displayName = displayName.trim()
+      }
+      admin.displayName = displayName.trim()
+    }
     if (typeof email === 'string') {
       const normalizedEmail = email.trim().toLowerCase()
       if (normalizedEmail !== String(admin.email || '').trim().toLowerCase()) {
@@ -4324,6 +4344,7 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
           return res.status(409).json({ error: 'That email is already used by another account.' })
         }
 
+        oldValues.email = admin.email
         admin.email = normalizedEmail
         admin.emailVerified = false
         admin.emailVerificationCodeHash = ''
@@ -4332,6 +4353,7 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
         admin.loginEmailVerificationEnabled = false
         clearLoginEmailVerificationState(admin)
         clearPendingEmailChangeState(admin)
+        changes.email = normalizedEmail
       } else {
         admin.email = normalizedEmail
       }
@@ -4344,10 +4366,12 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
         : trimmedPhone
 
       if (phoneForStorage !== String(admin.phone || '')) {
+        oldValues.phone = admin.phone
         admin.phone = phoneForStorage
         admin.phoneVerified = false
         admin.phoneVerificationCodeHash = ''
         admin.phoneVerificationExpiresAt = null
+        changes.phone = phoneForStorage
       }
     }
 
@@ -4367,6 +4391,10 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
         }
       }
 
+      if (admin.primaryLoginMethod !== primaryLoginMethod) {
+        oldValues.primaryLoginMethod = admin.primaryLoginMethod
+        changes.primaryLoginMethod = primaryLoginMethod
+      }
       admin.primaryLoginMethod = primaryLoginMethod === 'email' ? 'email' : 'username'
     }
 
@@ -4380,6 +4408,10 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
         clearLoginEmailVerificationState(admin)
       }
 
+      if (admin.loginEmailVerificationEnabled !== loginEmailVerificationEnabled) {
+        oldValues.loginEmailVerificationEnabled = admin.loginEmailVerificationEnabled
+        changes.loginEmailVerificationEnabled = loginEmailVerificationEnabled
+      }
       admin.loginEmailVerificationEnabled = loginEmailVerificationEnabled
     }
 
@@ -4390,7 +4422,9 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
         if (existing) {
           return res.status(409).json({ error: 'Username already taken.' })
         }
+        oldValues.username = admin.username
         admin.username = trimmed
+        changes.username = trimmed
       }
     }
 
@@ -4402,22 +4436,48 @@ app.patch('/api/admin/profile', authMiddleware, securityMiddleware.inputValidati
       if (!match) {
         return res.status(401).json({ error: 'Current password is incorrect.' })
       }
+      oldValues.password = '[REDACTED]'
       admin.password = newPassword
+      changes.password = '[REDACTED]'
     }
 
     if (additionalInfo && typeof additionalInfo === 'object' && !Array.isArray(additionalInfo)) {
+      oldValues.additionalInfo = '[UPDATED]'
       admin.additionalInfo = normalizeAdminAdditionalInfo({
         ...(admin.additionalInfo || {}),
         ...additionalInfo
       })
+      changes.additionalInfo = '[UPDATED]'
     }
 
     if (typeof accentColor === 'string' && accentColor.trim()) {
-      admin.accentColor = accentColor.trim()
+      if (admin.accentColor !== accentColor.trim()) {
+        oldValues.accentColor = admin.accentColor
+        admin.accentColor = accentColor.trim()
+        changes.accentColor = accentColor.trim()
+      }
     }
 
     await admin.save()
     const updated = await Admin.findById(admin._id).select('-password')
+
+    // Log profile update if there were changes
+    if (Object.keys(changes).length > 0) {
+      await logAudit(
+        'UPDATE',
+        'ADMIN',
+        admin._id.toString(),
+        admin.username,
+        'Profile updated',
+        req.adminId,
+        req.accountType,
+        oldValues,
+        changes,
+        'SUCCESS',
+        'LOW'
+      )
+    }
+
     res.json(buildAdminProfileResponse(updated))
   } catch (err) {
     console.error('Profile update error:', err.message)
@@ -4897,11 +4957,27 @@ app.post('/api/admin/avatar', authMiddleware, securityMiddleware.inputValidation
     if (!admin) return res.status(404).json({ error: 'Admin not found.' })
 
     // Update avatar in database
+    const oldAvatar = admin.avatar
     admin.avatar = avatarData
     admin.avatarMimeType = mimeType
     await admin.save()
 
-    res.json({ 
+    // Log avatar upload
+    await logAudit(
+      'UPDATE',
+      'ADMIN',
+      admin._id.toString(),
+      admin.username,
+      'Avatar uploaded',
+      req.adminId,
+      req.accountType,
+      { avatar: oldAvatar || null },
+      { avatar: avatarData, avatarMimeType: mimeType },
+      'SUCCESS',
+      'LOW'
+    )
+
+    res.json({
       message: 'Avatar uploaded successfully.',
       avatar: avatarData,
       avatarMimeType: mimeType,
@@ -4923,9 +4999,25 @@ app.delete('/api/admin/avatar', authMiddleware, async (req, res) => {
     if (!admin) return res.status(404).json({ error: 'Admin not found.' })
 
     // Clear avatar data from database
+    const oldAvatar = admin.avatar
     admin.avatar = ''
     admin.avatarMimeType = ''
     await admin.save()
+
+    // Log avatar deletion
+    await logAudit(
+      'UPDATE',
+      'ADMIN',
+      admin._id.toString(),
+      admin.username,
+      'Avatar removed',
+      req.adminId,
+      req.accountType,
+      { avatar: oldAvatar || null },
+      { avatar: '' },
+      'SUCCESS',
+      'LOW'
+    )
 
     res.json({ message: 'Avatar removed successfully.' })
   } catch (err) {
@@ -5499,6 +5591,28 @@ app.get('/api/admin/announcements', authMiddleware, requireAdminOrRegistrarRole,
   }
 })
 
+// GET /api/admin/announcements/:id - get single announcement (admin, includes expired)
+app.get('/api/admin/announcements/:id', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware({ params: Joi.object({ id: securityMiddleware.schemas.objectId }) }), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    // Admin must see ALL announcements including expired ones
+    const announcement = await Announcement.findById(req.params.id)
+      .populate('createdBy', 'username displayName')
+      .setOptions({ skipExpiryFilter: true })
+
+    if (!announcement) {
+      return res.status(404).json({ error: 'Announcement not found.' })
+    }
+
+    res.json(announcement)
+  } catch (err) {
+    console.error('Get admin announcement error:', err.message)
+    res.status(500).json({ error: 'Failed to load announcement.' })
+  }
+})
+
 // POST /api/admin/announcements - create new announcement
 app.post('/api/admin/announcements', authMiddleware, requireAdminOrRegistrarRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.announcements.create), async (req, res) => {
   if (!dbReady) {
@@ -5573,7 +5687,8 @@ app.put('/api/admin/announcements/:id', authMiddleware, requireAdminOrRegistrarR
       })
     }
     
-    const announcement = await Announcement.findById(req.params.id)
+    // Admin must be able to manage expired announcements too
+    const announcement = await Announcement.findById(req.params.id).setOptions({ skipExpiryFilter: true })
     if (!announcement) {
       return res.status(404).json({ error: 'Announcement not found.' })
     }
@@ -5595,6 +5710,17 @@ app.put('/api/admin/announcements/:id', authMiddleware, requireAdminOrRegistrarR
 
     if (Array.isArray(media)) {
       announcement.media = normalizeAnnouncementMedia(media)
+    } else if (Array.isArray(announcement.media)) {
+      // Repair legacy media so archiving/editing expired records
+      // doesn't fail full-document validation (fileSize became required).
+      announcement.media = normalizeAnnouncementMedia(announcement.media).map((item) => ({
+        ...item,
+        url: item.url || 'legacy-media',
+        fileName: item.fileName || 'legacy-file',
+        originalFileName: item.originalFileName || item.fileName || 'legacy-file',
+        mimeType: item.mimeType || 'application/octet-stream',
+        fileSize: item.fileSize > 0 ? item.fileSize : 0,
+      }))
     }
 
     await announcement.save()
@@ -5631,7 +5757,8 @@ app.delete('/api/admin/announcements/:id', authMiddleware, requireAdminOrRegistr
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
-    const announcement = await Announcement.findById(req.params.id)
+    // Admin must be able to delete expired announcements too
+    const announcement = await Announcement.findById(req.params.id).setOptions({ skipExpiryFilter: true })
     if (!announcement) {
       return res.status(404).json({ error: 'Announcement not found.' })
     }
@@ -5639,7 +5766,7 @@ app.delete('/api/admin/announcements/:id', authMiddleware, requireAdminOrRegistr
       return res.status(403).json({ error: 'You can only delete your own announcements unless you are an admin.' })
     }
 
-    await Announcement.findByIdAndDelete(req.params.id)
+    await Announcement.findByIdAndDelete(req.params.id).setOptions({ skipExpiryFilter: true })
 
     // Log the action
     await logAudit(
@@ -6979,15 +7106,21 @@ app.get('/api/admin/blocked-ips', authMiddleware, requireAdminRole, async (req, 
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
-    const blockedIPs = await BlockedIP.find({
-      isActive: true,
-      expiresAt: { $gt: new Date() }
-    })
+    // Admin must see ALL blocked IP records, including expired ones.
+    const blockedIPs = await BlockedIP.find({ isActive: true })
       .populate('blockedBy', 'username')
       .sort({ blockedAt: -1 })
       .lean()
-    
-    res.json(blockedIPs)
+
+    const now = Date.now()
+    res.json(
+      blockedIPs.map((record) => ({
+        ...record,
+        isExpired: Boolean(
+          record.expiresAt && new Date(record.expiresAt).getTime() <= now
+        )
+      }))
+    )
   } catch (error) {
     console.error('Get blocked IPs error:', error)
     res.status(500).json({ error: 'Failed to fetch blocked IPs.' })
@@ -7669,8 +7802,8 @@ app.post('/api/rollover/preview-exceptions', authMiddleware, requireBlockManagem
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
-    const { fromSchoolYear, page, limit, search, course, yearLevel } = req.body || {}
-    const result = await AcademicYearRolloverService.previewExceptions({ fromSchoolYear, page, limit, search, course, yearLevel })
+    const { fromSchoolYear, page, limit, search, course, yearLevel, section } = req.body || {}
+    const result = await AcademicYearRolloverService.previewExceptions({ fromSchoolYear, page, limit, search, course, yearLevel, section })
     res.json({ success: true, data: result })
   } catch (error) {
     console.error('Rollover preview-exceptions error:', error)
@@ -7701,6 +7834,41 @@ app.post('/api/rollover/execute', authMiddleware, requireBlockManagementRole, in
     res.status(error.statusCode || 500).json({
       error: error.message || 'Failed to execute rollover. All changes were rolled back.',
       failures: error.failures || undefined
+    })
+  }
+});
+
+// GET /api/rollover/latest - latest rollover manifest summary (revert controls)
+app.get('/api/rollover/latest', authMiddleware, requireBlockManagementRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const batch = await AcademicYearRolloverService.getLatestRolloverBatch()
+    res.json({ success: true, data: batch })
+  } catch (error) {
+    console.error('Get latest rollover error:', error)
+    res.status(500).json({ error: 'Failed to load the latest rollover.' })
+  }
+});
+
+// POST /api/rollover/revert - transactional revert of the most recent rollover
+app.post('/api/rollover/revert', authMiddleware, requireBlockManagementRole, invalidateApiCacheOnSuccess('/api/settings/academic-term', ...blockManagementCachePrefixes), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const { batchId } = req.body || {}
+    const result = await AcademicYearRolloverService.revertRollover({
+      batchId,
+      adminId: req.adminId,
+      adminRole: normalizeAccountType(req.accountType)
+    })
+    res.json({ success: true, data: result })
+  } catch (error) {
+    console.error('Rollover revert error:', error)
+    res.status(error.statusCode || 500).json({
+      error: error.message || 'Failed to revert rollover. All changes were rolled back.'
     })
   }
 });
@@ -7999,7 +8167,10 @@ app.post('/api/blocks/assign-student', authMiddleware, requireBlockManagementRol
     await blockController.assignStudent(req, res);
   } catch (error) {
     console.error('Assign student error:', error);
-    res.status(500).json({ error: 'Failed to assign student.' });
+    res.status(500).json({
+      error: 'Failed to assign student.',
+      reasons: [error && error.message ? error.message : 'Unexpected server error while assigning the student.']
+    });
   }
 });
 
@@ -8117,6 +8288,21 @@ app.get('/api/blocks/groups/:groupId/sections', authMiddleware, requireBlockMana
   } catch (error) {
     console.error('Get sections error:', error.message);
     res.status(500).json({ error: 'Failed to get sections.' });
+  }
+});
+
+// GET /api/blocks/groups/:groupId/expected-subjects
+// Curriculum-derived subjects this cohort is normally expected to take. Advisory
+// only: it describes the cohort, it never restricts what a student may enroll in.
+app.get('/api/blocks/groups/:groupId/expected-subjects', authMiddleware, requireBlockManagementRole, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.block.objectIdParam), cacheMiddleware({ ttlMs: 20 * 1000 }), async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.getExpectedSubjects(req, res);
+  } catch (error) {
+    console.error('Get expected subjects error:', error.message);
+    res.status(500).json({ error: 'Failed to get expected subjects.' });
   }
 });
 

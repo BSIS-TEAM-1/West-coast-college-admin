@@ -358,6 +358,38 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
   const isArchived = curriculum.status === 'Archived'
   const isActive = curriculum.status === 'Active'
 
+  // The structure endpoint returns every supported year and semester (empty
+  // ones included) so an unpopulated year stays reachable — the per-year
+  // "Add Subject" control only renders inside a year block. This padding
+  // mirrors that guarantee on the client so a cached or older response can
+  // never reintroduce a missing year.
+  const highestYearWithSubjects = years.reduce(
+    (max, y) => Math.max(max, Number(y.yearLevel) || 0),
+    0
+  )
+  const yearCount = Math.max(4, highestYearWithSubjects)
+  const displayYears: CurriculumStructure['years'][number][] = Array.from(
+    { length: yearCount },
+    (_, index) => {
+      const yearLevel = index + 1
+      const existing = years.find((y) => Number(y.yearLevel) === yearLevel)
+      if (existing) return existing
+      return {
+        yearLevel,
+        totalUnits: 0,
+        totalLecturePeriods: 0,
+        totalLabPeriods: 0,
+        semesters: semesterOrder.map((semester) => ({
+          semester,
+          subjects: [],
+          totalUnits: 0,
+          totalLecturePeriods: 0,
+          totalLabPeriods: 0,
+        })),
+      }
+    }
+  )
+
   return (
     <div className="registrar-section curriculum-details-page">
       <button className="registrar-btn registrar-btn-secondary" type="button" onClick={onBack}>
@@ -448,13 +480,15 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
       )}
 
       <div className="curriculum-structure">
-        {years.length === 0 && (
+        {summary.totalSubjects === 0 && (
           <div className="curriculum-empty-state">
             <div className="curriculum-empty-state-icon">
               <BookPlus size={40} />
             </div>
-            <h3>No subjects added yet</h3>
-            <p>{!isArchived ? 'Click \u201C+ Add Subject\u201D to start building the curriculum structure.' : 'This archived curriculum has no subjects.'}</p>
+            <h3>No subjects placed yet</h3>
+            <p>{!isArchived
+              ? 'Every supported year and semester is listed below so you can start building at any point — use “Add Subject” on the year you need.'
+              : 'This archived curriculum has no subjects.'}</p>
             {!isArchived && (
               <button className="registrar-btn" type="button" onClick={() => openAddModal(1, '1st')}>
                 <Plus size={16} />
@@ -463,7 +497,7 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
             )}
           </div>
         )}
-        {years.map((year) => {
+        {displayYears.map((year) => {
           const isCollapsed = collapsedYears.has(year.yearLevel)
           return (
             <div key={year.yearLevel} className="curriculum-year-section">

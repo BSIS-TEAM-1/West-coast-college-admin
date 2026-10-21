@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Activity, AlertTriangle, FileText, HardDrive, RefreshCw, ShieldCheck, TrendingUp, Users } from 'lucide-react'
+import { Activity, AlertTriangle, Download, FileText, HardDrive, RefreshCw, Search, ShieldCheck, TrendingUp, Users } from 'lucide-react'
 import LiveGraph from '../components/LiveGraph';
 import BackupDashboard from '../components/BackupDashboard'
 import { DashboardCard, StatCard } from '../components/DashboardPrimitives'
@@ -18,7 +18,7 @@ interface SystemMetrics {
   backupDetails?: {
     lastSuccessfulBackup: string | null;
     nextScheduledBackup: string | null;
-    verificationStatus: 'pending' | 'verified' | 'failed' | 'missing';
+    verificationStatus: 'pending' | 'verified' | 'failed' | 'missing' | 'remote';
     storageUsage: number;
     totalBackups: number;
     failedBackups: number;
@@ -69,6 +69,14 @@ interface LogEntry {
   message: string;
   module: string;
 }
+
+// Audit records arrive as error/warning/info; older rows may use "warn".
+const normalizeLogLevel = (level: string): 'error' | 'warning' | 'info' => {
+  const value = String(level || '').toLowerCase();
+  if (value === 'error' || value === 'critical') return 'error';
+  if (value === 'warning' || value === 'warn') return 'warning';
+  return 'info';
+};
 
 type BackupToast = {
   type: 'success' | 'error';
@@ -127,6 +135,21 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
   const [backupHistoryVersion, setBackupHistoryVersion] = useState(0)
   const systemHealthInFlightRef = useRef(false);
   const errorLogsInFlightRef = useRef(false);
+  const [logQuery, setLogQuery] = useState('');
+  const [logLevel, setLogLevel] = useState<'all' | 'error' | 'warning' | 'info'>('all');
+  const [logsRefreshing, setLogsRefreshing] = useState(false);
+  const [logsUpdatedAt, setLogsUpdatedAt] = useState<Date | null>(null);
+
+  const logCounts = logs.reduce((counts, entry) => {
+    counts[normalizeLogLevel(entry.level)] += 1;
+    return counts;
+  }, { error: 0, warning: 0, info: 0 });
+  const logFiltersActive = logQuery.trim().length > 0 || logLevel !== 'all';
+  const visibleLogs = logs.filter((entry) => {
+    if (logLevel !== 'all' && normalizeLogLevel(entry.level) !== logLevel) return false;
+    const needle = logQuery.trim().toLowerCase();
+    return !needle || `${entry.message} ${entry.module}`.toLowerCase().includes(needle);
+  });
 
   useEffect(() => {
     fetchSystemHealth(false); // Use cached data if available for faster initial load
@@ -164,9 +187,10 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
     return () => window.clearTimeout(timer);
   }, [backupToast]);
 
-  const fetchErrorLogs = async () => {
+  const fetchErrorLogs = async (manual = false) => {
     if (errorLogsInFlightRef.current) return;
     errorLogsInFlightRef.current = true;
+    if (manual) setLogsRefreshing(true);
     try {
       const token = await getStoredToken();
       if (!token) return;
@@ -181,6 +205,7 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
       // Handle 404 gracefully - the endpoint might not exist yet
       if (response.status === 404) {
         setLogs([]);
+        setLogsUpdatedAt(new Date());
         setError(null);
         return;
       }
@@ -228,11 +253,13 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
       }
       
       setError(null);
+      setLogsUpdatedAt(new Date());
     } catch (err) {
       console.error('Failed to fetch error logs:', err);
       setError('Network error while fetching error logs');
     } finally {
       errorLogsInFlightRef.current = false;
+      if (manual) setLogsRefreshing(false);
     }
   };
   
@@ -468,8 +495,17 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
 
       const result = await response.json();
       
-      // Show success message
-      if (result.success) {
+      // The endpoint is fire-and-forget: it returns 202 as soon as the job is
+      // queued. Reporting "completed" here was wrong, and a queued job is not
+      // an error.
+      if (result.success && (result.accepted === true || result.status === 'running')) {
+        setBackupToast({
+          type: 'success',
+          title: 'Backup started',
+          message: 'It is running in the background and will appear in the history when complete.'
+        });
+        setBackupHistoryVersion(version => version + 1)
+      } else if (result.success) {
         setBackupToast({
           type: 'success',
           title: 'Backup completed',
@@ -499,14 +535,17 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
   };
 
   const handleExportLogs = () => {
-    const content = logs
+    // Export what is on screen: pulling just the errors out of the feed is a
+    // common reason to export at all.
+    const entries = logFiltersActive ? visibleLogs : logs;
+    const content = entries
       .map(log => `[${formatTimestamp(log.timestamp)}] ${log.level.toUpperCase()} ${log.module}: ${log.message}`)
       .join('\n');
     const blob = new Blob([content || 'No logs available'], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `wcc-system-logs-${new Date().toISOString().slice(0, 10)}.txt`;
+    link.download = `wcc-system-logs-${new Date().toISOString().slice(0, 10)}${logLevel !== 'all' ? `-${logLevel}` : ''}.txt`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -721,49 +760,90 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
 
       <div className="logs-section">
         <div className="logs-section-header">
-          <h2>
-            System Activity Logs
-            <FileText size={18} />
-          </h2>
+          <div className="logs-heading">
+            <h2>
+              <FileText size={18} aria-hidden="true" />
+              System Activity Logs
+            </h2>
+            <p className="logs-meta">
+              {logs.length === 0
+                ? 'No activity in the last 24 hours'
+                : logFiltersActive
+                  ? `Showing ${visibleLogs.length} of ${logs.length} events`
+                  : `${logs.length} events in the last 24 hours`}
+              {logCounts.error > 0 ? ` · ${logCounts.error} error${logCounts.error === 1 ? '' : 's'}` : ''}
+              {logCounts.warning > 0 ? ` · ${logCounts.warning} warning${logCounts.warning === 1 ? '' : 's'}` : ''}
+              {logsUpdatedAt ? ` · updated ${logsUpdatedAt.toLocaleTimeString()}` : ''}
+            </p>
+            <span className="sr-only" aria-live="polite">
+              {logFiltersActive ? `${visibleLogs.length} event${visibleLogs.length === 1 ? '' : 's'} match the current filters` : ''}
+            </span>
+          </div>
           <div className="logs-actions">
-            <button type="button" onClick={handleExportLogs}>Export Logs</button>
-            <button type="button" className="danger" onClick={() => setLogs([])}>Clear Logs</button>
+            <button type="button" onClick={() => void fetchErrorLogs(true)} disabled={logsRefreshing}>
+              <RefreshCw size={15} className={logsRefreshing ? 'spin' : ''} aria-hidden="true" />
+              Refresh
+            </button>
+            <button type="button" onClick={handleExportLogs} disabled={visibleLogs.length === 0}>
+              <Download size={15} aria-hidden="true" />
+              Export
+            </button>
           </div>
         </div>
+
+        <div className="logs-toolbar">
+          <label className="logs-search">
+            <Search size={15} aria-hidden="true" />
+            <span className="sr-only">Search activity logs</span>
+            <input
+              type="search"
+              value={logQuery}
+              onChange={event => setLogQuery(event.target.value)}
+              placeholder="Search messages or modules"
+            />
+          </label>
+          <div className="logs-levels" role="group" aria-label="Filter by level">
+            {([['all', 'All', logs.length], ['error', 'Errors', logCounts.error], ['warning', 'Warnings', logCounts.warning], ['info', 'Info', logCounts.info]] as const).map(([value, label, count]) => (
+              <button key={value} type="button" aria-pressed={logLevel === value} onClick={() => setLogLevel(value)}>
+                {label}
+                <span className="logs-level-count">{count}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="activity-log-table" role="table" aria-label="System activity logs">
           <div className="activity-log-header" role="row">
-            <span>Time</span>
-            <span>Level</span>
-            <span>Module</span>
-            <span>Message</span>
+            <span role="columnheader">Time</span>
+            <span role="columnheader">Level</span>
+            <span role="columnheader">Module</span>
+            <span role="columnheader">Message</span>
           </div>
-          <div className="activity-log-body">
-            {logs.length === 0 ? (
+          <div className="activity-log-body" role="rowgroup">
+            {visibleLogs.length === 0 ? (
               <div className="activity-log-empty">
-                <FileText size={28} />
-                <span>No recent system logs found.</span>
+                {logs.length === 0 ? (
+                  <>
+                    <FileText size={28} aria-hidden="true" />
+                    <strong>No activity in the last 24 hours</strong>
+                    <span>Administrative actions will appear here as they happen.</span>
+                  </>
+                ) : (
+                  <>
+                    <Search size={28} aria-hidden="true" />
+                    <strong>No matching events</strong>
+                    <span>Try a different search term or level.</span>
+                    <button type="button" onClick={() => { setLogQuery(''); setLogLevel('all') }}>Clear filters</button>
+                  </>
+                )}
               </div>
             ) : (
-              logs.map(log => (
+              visibleLogs.map(log => (
                 <div key={log.id} className="activity-log-row" role="row">
-                  <span className="activity-log-time">{formatTimestamp(log.timestamp)}</span>
-                  <span
-                    className={`activity-log-level ${log.level.toLowerCase()}`}
-                    style={{
-                      display: 'inline-block',
-                      padding: '0.05rem 0.3rem',
-                      borderRadius: '2px',
-                      fontSize: '0.5rem',
-                      fontWeight: 700,
-                      lineHeight: 1,
-                      letterSpacing: '0.01em',
-                      textTransform: 'uppercase',
-                      whiteSpace: 'nowrap',
-                      verticalAlign: 'middle',
-                    }}
-                  >{log.level.toUpperCase()}</span>
-                  <span className="activity-log-module">{log.module}</span>
-                  <span className="activity-log-message">{log.message}</span>
+                  <span className="activity-log-time" role="cell">{formatTimestamp(log.timestamp)}</span>
+                  <span className={`activity-log-level ${normalizeLogLevel(log.level)}`} role="cell">{log.level.toUpperCase()}</span>
+                  <span className="activity-log-module" role="cell" title={log.module}>{log.module}</span>
+                  <span className="activity-log-message" role="cell" title={log.message}>{log.message}</span>
                 </div>
               ))
             )}

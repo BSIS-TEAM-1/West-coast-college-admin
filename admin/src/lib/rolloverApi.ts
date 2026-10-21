@@ -132,7 +132,10 @@ async function authorizedRequest<T>(path: string, init: RequestInit = {}): Promi
   if (!response.ok) {
     throw new Error((payload?.error as string) || (payload?.message as string) || `Request failed (${response.status})`)
   }
-  return (payload?.data ?? payload) as T
+  if (payload && typeof payload === 'object' && Object.prototype.hasOwnProperty.call(payload, 'data')) {
+    return payload.data as T
+  }
+  return payload as T
 }
 
 export function previewRollover(body: { fromSchoolYear: string; toSchoolYear?: string; semester?: string }) {
@@ -172,6 +175,7 @@ export function previewRolloverExceptions(body: {
   search?: string
   course?: number
   yearLevel?: number
+  section?: string
 }) {
   return authorizedRequest<RolloverStudentPage>('/api/rollover/preview-exceptions', {
     method: 'POST',
@@ -188,6 +192,55 @@ export function executeRollover(body: {
   decisionOverrides?: { studentId: string; action: RolloverAction }[]
 }) {
   return authorizedRequest<RolloverResult>('/api/rollover/execute', {
+    method: 'POST',
+    body: JSON.stringify(body)
+  })
+}
+
+export type RolloverBatchSummary = {
+  batchId: string
+  fromSchoolYear: string
+  toSchoolYear: string
+  semester: string
+  status: 'applied' | 'reverted'
+  executedAt: string
+  executedBy?: { _id?: string; username?: string; displayName?: string } | null
+  revertedAt?: string | null
+  revertedBy?: { _id?: string; username?: string; displayName?: string } | null
+  counts?: {
+    total: number
+    promoted: number
+    retained: number
+    graduated: number
+    skipped: number
+  }
+  createdBlockGroupIds?: string[]
+  createdBlockSectionIds?: string[]
+  snapshotIds?: string[]
+  revertAuditLogId?: string | null
+  revertSnapshotId?: string | null
+}
+
+export type RolloverRevertResult = {
+  rolloverBatchId: string
+  fromSchoolYear: string
+  toSchoolYear: string
+  semester: string
+  revertedAt: string
+  restoredStudents: number
+  deletedEnrollments: number
+  restoredEnrollments: number
+  restoredAcademicTerm: { schoolYear: string; semester: string }
+  removedSections: number
+  removedGroups: number
+}
+
+export function getLatestRollover() {
+  return authorizedRequest<RolloverBatchSummary | null>('/api/rollover/latest')
+}
+
+export function revertRollover(body: { batchId: string }) {
+  return authorizedRequest<RolloverRevertResult>('/api/rollover/revert', {
     method: 'POST',
     body: JSON.stringify(body)
   })

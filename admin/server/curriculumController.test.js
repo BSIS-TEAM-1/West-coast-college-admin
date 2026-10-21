@@ -37,6 +37,10 @@ jest.mock('./models/CurriculumSubject', () => ({
 jest.mock('./models/Enrollment', () => ({
   exists: jest.fn(),
 }));
+// deleteCurriculum checks both references before removing anything.
+jest.mock('./models/BlockGroup', () => ({
+  exists: jest.fn(),
+}));
 jest.mock('./models/Subject', () => ({
   findById: jest.fn(),
   find: jest.fn(),
@@ -52,6 +56,7 @@ function mockFindByIdSelect(doc) {
 const Curriculum = require('./models/Curriculum');
 const CurriculumSubject = require('./models/CurriculumSubject');
 const Enrollment = require('./models/Enrollment');
+const BlockGroup = require('./models/BlockGroup');
 const Subject = require('./models/Subject');
 const mongoose = require('mongoose');
 const CurriculumController = require('./controllers/curriculumController');
@@ -525,6 +530,7 @@ describe('CurriculumController', () => {
   describe('deleteCurriculum', () => {
     test('rejects deletion when enrollments reference it', async () => {
       Enrollment.exists.mockResolvedValue(true);
+      BlockGroup.exists.mockResolvedValue(false);
 
       const req = mockReq({}, { id: 'curr1' });
       const res = mockRes();
@@ -539,6 +545,7 @@ describe('CurriculumController', () => {
 
     test('deletes curriculum and its subjects when no enrollments', async () => {
       Enrollment.exists.mockResolvedValue(false);
+      BlockGroup.exists.mockResolvedValue(false);
       Curriculum.findByIdAndDelete.mockResolvedValue({ _id: 'curr1' });
       CurriculumSubject.deleteMany.mockResolvedValue({ deletedCount: 5 });
 

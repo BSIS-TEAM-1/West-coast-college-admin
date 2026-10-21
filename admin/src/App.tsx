@@ -16,6 +16,7 @@ import Login from './pages/Login'
 import SignUp from './pages/SignUp'
 import LandingPage from './pages/LandingPage'
 import AboutPage from './pages/AboutPage.tsx'
+import AnnouncementsPage from './pages/AnnouncementsPage'
 import TermsPolicyPage from './pages/TermsPolicyPage'
 import CookiePolicyPage from './pages/CookiePolicyPage'
 import CookieSystemPage from './pages/CookieSystemPage'
@@ -44,6 +45,7 @@ function App() {
   const [showSignIn, setShowSignIn] = useState(false)
   const [showSignUp, setShowSignUp] = useState(false)
   const [showAboutPage, setShowAboutPage] = useState(false)
+  const [showAnnouncementsPage, setShowAnnouncementsPage] = useState(false)
   const [showTermsPolicyPage, setShowTermsPolicyPage] = useState(false)
   const [showCookiePolicyPage, setShowCookiePolicyPage] = useState(false)
   const [showCookieSystemPage, setShowCookieSystemPage] = useState(false)
@@ -72,6 +74,8 @@ function App() {
     setProfile(profile)
     setUser({ username, accountType: profile.accountType })
     setShowApplicantPortal(false)
+    setShowAboutPage(false)
+    setShowAnnouncementsPage(false)
     setShowSignUp(false)
     setShowSignIn(false)
   }, [])
@@ -135,6 +139,7 @@ function App() {
             setShowSignIn(false)
             setShowSignUp(false)
             setShowAboutPage(false)
+            setShowAnnouncementsPage(false)
             setShowTermsPolicyPage(false)
             setShowCookiePolicyPage(false)
             setShowCookieSystemPage(false)
@@ -221,6 +226,7 @@ function App() {
       setShowSignIn(false)
       setShowSignUp(false)
       setShowAboutPage(false)
+      setShowAnnouncementsPage(false)
       setShowTermsPolicyPage(false)
       setShowCookiePolicyPage(false)
       setShowCookieSystemPage(false)
@@ -345,6 +351,12 @@ function App() {
     )
   }
 
+  if (showAnnouncementsPage) {
+    return (
+      <AnnouncementsPage onBack={() => setShowAnnouncementsPage(false)} />
+    )
+  }
+
   if (showCollaboratorsPage) {
     return (
       <CollaboratorsPage
@@ -371,7 +383,19 @@ function App() {
         setShowTermsPolicyPage(false)
         setShowCollaboratorsPage(false)
         setShowApplicantPortal(false)
+        setShowAnnouncementsPage(false)
         setShowAboutPage(true)
+      }}
+      onOpenAnnouncements={() => {
+        setShowSignIn(false)
+        setShowSignUp(false)
+        setShowCookiePolicyPage(false)
+        setShowCookieSystemPage(false)
+        setShowTermsPolicyPage(false)
+        setShowCollaboratorsPage(false)
+        setShowApplicantPortal(false)
+        setShowAboutPage(false)
+        setShowAnnouncementsPage(true)
       }}
       onOpenTermsPolicy={() => {
         setShowSignIn(false)
@@ -379,6 +403,7 @@ function App() {
         setShowCookiePolicyPage(false)
         setShowCookieSystemPage(false)
         setShowAboutPage(false)
+        setShowAnnouncementsPage(false)
         setShowCollaboratorsPage(false)
         setShowApplicantPortal(false)
         setShowTermsPolicyPage(true)
@@ -388,6 +413,7 @@ function App() {
         setShowSignUp(false)
         setShowAboutPage(false)
         setShowTermsPolicyPage(false)
+        setShowAnnouncementsPage(false)
         setShowCookieSystemPage(false)
         setShowCollaboratorsPage(false)
         setShowApplicantPortal(false)
@@ -399,6 +425,7 @@ function App() {
         setShowCookiePolicyPage(false)
         setShowAboutPage(false)
         setShowTermsPolicyPage(false)
+        setShowAnnouncementsPage(false)
         setShowCollaboratorsPage(false)
         setShowApplicantPortal(false)
         setShowCookieSystemPage(true)
@@ -408,6 +435,7 @@ function App() {
         setShowCookiePolicyPage(false)
         setShowCookieSystemPage(false)
         setShowAboutPage(false)
+        setShowAnnouncementsPage(false)
         setShowTermsPolicyPage(false)
         setShowCollaboratorsPage(false)
         setShowApplicantPortal(false)
@@ -420,6 +448,7 @@ function App() {
         setShowCookiePolicyPage(false)
         setShowCookieSystemPage(false)
         setShowAboutPage(false)
+        setShowAnnouncementsPage(false)
         setShowTermsPolicyPage(false)
         setShowCollaboratorsPage(false)
         setShowApplicantPortal(true)

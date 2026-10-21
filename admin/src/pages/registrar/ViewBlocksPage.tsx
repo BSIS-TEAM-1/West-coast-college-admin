@@ -188,12 +188,17 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
     if (!selectedGroup) return
     const meta = getBlockGroupCompatibilityMeta(selectedGroup)
     const slot = parseBlockSlot(selectedGroup.name)
+    const rawYear = String(selectedGroup.schoolYear || selectedGroup.year || '').trim()
+    const yearMatch = rawYear.match(/^(\d{4})(?:-(\d{4}))?$/)
+    const yearValue = yearMatch
+      ? `${yearMatch[1]}-${yearMatch[2] || Number(yearMatch[1]) + 1}`
+      : rawYear
     setGroupEditForm({
       courseId: meta.course || '',
       yearLevel: String(meta.yearLevel || slot?.yearLevel || ''),
       section: selectedGroup.section || slot?.letter || '',
       semester: selectedGroup.semester,
-      year: String(selectedGroup.year),
+      year: yearValue,
       curriculumId: selectedGroup.curriculumId || ''
     })
     setError('')
@@ -234,13 +239,24 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
   const handleSaveGroupEdit = async () => {
     if (!selectedGroup || !groupEditForm) return
 
+    const yearMatch = String(groupEditForm.year || '').trim().match(/^(\d{4})(?:-(\d{4}))?$/)
+    if (!yearMatch) {
+      setError('Academic year must use YYYY-YYYY format (for example, 2026-2027).')
+      return
+    }
+    const yearStart = Number(yearMatch[1])
+    const yearEnd = Number(yearMatch[2] || yearStart + 1)
+    if (yearEnd !== yearStart + 1) {
+      setError('Academic year end must be exactly one year after the start year.')
+      return
+    }
+
     setSavingGroupEdit(true)
     setError('')
     setSuccess('')
     try {
       const courseOption = COURSE_OPTIONS.find((course) => String(course.value) === groupEditForm.courseId)
       const yearLevelNum = Number(groupEditForm.yearLevel)
-      const yearNum = Number(groupEditForm.year)
       const sectionLetter = groupEditForm.section.trim().toUpperCase()
       const name = courseOption && yearLevelNum && sectionLetter
         ? `${courseOption.value}-${yearLevelNum}-${sectionLetter}`
@@ -256,12 +272,13 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
           yearLevel: yearLevelNum || undefined,
           section: sectionLetter || undefined,
           semester: groupEditForm.semester,
-          year: yearNum,
+          year: yearStart,
+          schoolYear: `${yearStart}-${yearEnd}`,
           curriculumId: groupEditForm.curriculumId || null
         })
       })
-      const autoAssign = (updated as any)?.autoAssign
-      if (autoAssign && autoAssign.created > 0) {
+      const autoAssign = updated.autoAssign
+      if (autoAssign && (autoAssign.created ?? 0) > 0) {
         setSuccess(`Block group updated. ${autoAssign.created} subjects auto-assigned from curriculum.`)
       } else {
         setSuccess('Block group updated successfully')
@@ -523,9 +540,11 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
                       <label className="block-picker-field">
                         <span>Academic Year</span>
                         <input
-                          type="number"
-                          min={2000}
-                          max={3000}
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="YYYY-YYYY"
+                          pattern="\d{4}-\d{4}"
+                          title="Academic year in YYYY-YYYY format"
                           value={groupEditForm.year}
                           onChange={(event) => setGroupEditForm((current) => current && { ...current, year: event.target.value })}
                         />
