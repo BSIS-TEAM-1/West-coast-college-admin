@@ -1293,18 +1293,6 @@
   padding: 1rem;
 }
 
-.block-wizard-validation {
-  min-height: 1.25rem;
-  display: grid;
-  gap: 0.25rem;
-}
-
-.block-wizard-validation span {
-  color: #dc2626;
-  font-size: 0.82rem;
-  font-weight: 700;
-}
-
 .block-wizard-actions,
 .block-wizard-success-actions {
   display: flex;

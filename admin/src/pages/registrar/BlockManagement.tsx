@@ -91,8 +91,16 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
   const blockNumberIsValid = /^([1-5])-([A-D])$/.test(normalizedBlockNumber)
   const yearIsValid = Number.isInteger(Number(newGroupYear)) && Number(newGroupYear) >= 2000 && Number(newGroupYear) <= 2100
   const capacityIsValid = Number.isInteger(Number(newGroupCapacity)) && Number(newGroupCapacity) >= 1 && Number(newGroupCapacity) <= 50
+  // `year` arrives from the API as a school-year string ("2026-2027") even
+  // though the BlockGroup type declares it numeric, so Number() on it is NaN
+  // and the duplicate check never matched. Parse the start year out of
+  // whichever shape we get.
+  const schoolYearStart = (value: unknown): number => {
+    const match = String(value ?? '').trim().match(/^(\d{4})/)
+    return match ? Number(match[1]) : NaN
+  }
   const hasDuplicate = blockGroups.some((group) => {
-    if (group.semester !== newGroupSemester || Number(group.year) !== Number(newGroupYear)) return false
+    if (group.semester !== newGroupSemester || schoolYearStart(group.schoolYear || group.year) !== Number(newGroupYear)) return false
     if (!generatedStorageName) return false
     if (group.courseId && group.yearLevel && group.section) {
       return (
