@@ -8,7 +8,7 @@ export type RolloverEvaluation = {
   name: string
   course: number
   yearLevel: number
-  section: string | null
+  block: string | null
   latestGrade: number | null
   lifecycleStatus: string
   recommendedAction: RolloverAction
@@ -35,7 +35,7 @@ export type RolloverGroupSummary = {
   course: number
   courseLabel: string
   yearLevel: number
-  section: string
+  block: string
   total: number
   eligible: number
   retained: number
@@ -69,7 +69,7 @@ export type RolloverStudentPage = {
 export type RolloverGroupDecision = {
   course: number
   yearLevel: number
-  section?: string
+  block?: string
   action: RolloverAction
 }
 
@@ -154,9 +154,10 @@ export function previewRolloverSummary(body: { fromSchoolYear: string; toSchoolY
 
 export function previewRolloverStudents(body: {
   fromSchoolYear: string
+  semester?: string
   course?: number
   yearLevel?: number
-  section?: string
+  block?: string
   page?: number
   limit?: number
   search?: string
@@ -170,12 +171,13 @@ export function previewRolloverStudents(body: {
 
 export function previewRolloverExceptions(body: {
   fromSchoolYear: string
+  semester?: string
   page?: number
   limit?: number
   search?: string
   course?: number
   yearLevel?: number
-  section?: string
+  block?: string
 }) {
   return authorizedRequest<RolloverStudentPage>('/api/rollover/preview-exceptions', {
     method: 'POST',

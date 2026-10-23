@@ -26,6 +26,12 @@ class AppTheme {
         unselectedColor: AppColors.textMuted,
       ),
       cardTheme: _buildCardTheme(),
+      navigationBarTheme: _buildNavigationBarTheme(
+        backgroundColor: AppColors.surface,
+        indicatorColor: AppColors.primarySubtle,
+        selectedColor: AppColors.primary,
+        unselectedColor: AppColors.textMuted,
+      ),
       elevatedButtonTheme: _buildElevatedButtonTheme(
         backgroundColor: AppColors.primaryDark,
         foregroundColor: AppColors.onPrimary,
@@ -39,7 +45,7 @@ class AppTheme {
         borderColor: AppColors.border,
       ),
       inputDecorationTheme: _buildInputDecorationTheme(
-        fillColor: AppColors.surface.withOpacity(0.5),
+        fillColor: AppColors.surface.withValues(alpha: 0.5),
         borderColor: AppColors.border,
         focusColor: AppColors.primary,
         errorColor: AppColors.error,
@@ -67,6 +73,13 @@ class AppTheme {
         color: AppColors.border,
         thickness: 1,
       ),
+      tabBarTheme: TabBarThemeData(
+        dividerColor: Colors.transparent,
+        labelStyle: AppTextStyles.labelLarge.copyWith(
+          fontWeight: FontWeight.w700,
+        ),
+        unselectedLabelStyle: AppTextStyles.labelLarge,
+      ),
       iconTheme: const IconThemeData(
         color: AppColors.textPrimary,
         size: AppDimensions.iconMedium,
@@ -74,7 +87,9 @@ class AppTheme {
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
         elevation: AppDimensions.elevationMedium,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(AppDimensions.radiusRound)),
+          borderRadius: BorderRadius.all(
+            Radius.circular(AppDimensions.radiusRound),
+          ),
         ),
       ),
       snackBarTheme: SnackBarThemeData(
@@ -83,7 +98,9 @@ class AppTheme {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
         ),
-        contentTextStyle: AppTextStyles.bodyMedium.copyWith(color: AppColors.onPrimary),
+        contentTextStyle: AppTextStyles.bodyMedium.copyWith(
+          color: AppColors.onPrimary,
+        ),
       ),
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
@@ -116,10 +133,17 @@ class AppTheme {
       ),
       cardTheme: CardThemeData(
         elevation: AppDimensions.cardElevation,
+        margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppDimensions.cardBorderRadius),
         ),
         color: const Color(0xFF1E1E1E),
+      ),
+      navigationBarTheme: _buildNavigationBarTheme(
+        backgroundColor: const Color(0xFF1E1E1E),
+        indicatorColor: const Color(0x334F46E5),
+        selectedColor: AppColors.goldLight,
+        unselectedColor: const Color(0xFF999999),
       ),
       elevatedButtonTheme: _buildElevatedButtonTheme(
         backgroundColor: AppColors.goldLight,
@@ -142,21 +166,51 @@ class AppTheme {
         hintColor: const Color(0xFF999999),
       ),
       textTheme: TextTheme(
-        displayLarge: AppTextStyles.displayLarge.copyWith(color: const Color(0xFFFFFFFF)),
-        displayMedium: AppTextStyles.displayMedium.copyWith(color: const Color(0xFFFFFFFF)),
-        displaySmall: AppTextStyles.displaySmall.copyWith(color: const Color(0xFFFFFFFF)),
-        headlineLarge: AppTextStyles.headlineLarge.copyWith(color: const Color(0xFFFFFFFF)),
-        headlineMedium: AppTextStyles.headlineMedium.copyWith(color: const Color(0xFFFFFFFF)),
-        headlineSmall: AppTextStyles.headlineSmall.copyWith(color: const Color(0xFFFFFFFF)),
-        titleLarge: AppTextStyles.titleLarge.copyWith(color: const Color(0xFFFFFFFF)),
-        titleMedium: AppTextStyles.titleMedium.copyWith(color: const Color(0xFFFFFFFF)),
-        titleSmall: AppTextStyles.titleSmall.copyWith(color: const Color(0xFFFFFFFF)),
-        bodyLarge: AppTextStyles.bodyLarge.copyWith(color: const Color(0xFFFFFFFF)),
-        bodyMedium: AppTextStyles.bodyMedium.copyWith(color: const Color(0xFFFFFFFF)),
-        bodySmall: AppTextStyles.bodySmall.copyWith(color: const Color(0xFFBBBBBB)),
-        labelLarge: AppTextStyles.labelLarge.copyWith(color: const Color(0xFFFFFFFF)),
-        labelMedium: AppTextStyles.labelMedium.copyWith(color: const Color(0xFFFFFFFF)),
-        labelSmall: AppTextStyles.labelSmall.copyWith(color: const Color(0xFFFFFFFF)),
+        displayLarge: AppTextStyles.displayLarge.copyWith(
+          color: const Color(0xFFFFFFFF),
+        ),
+        displayMedium: AppTextStyles.displayMedium.copyWith(
+          color: const Color(0xFFFFFFFF),
+        ),
+        displaySmall: AppTextStyles.displaySmall.copyWith(
+          color: const Color(0xFFFFFFFF),
+        ),
+        headlineLarge: AppTextStyles.headlineLarge.copyWith(
+          color: const Color(0xFFFFFFFF),
+        ),
+        headlineMedium: AppTextStyles.headlineMedium.copyWith(
+          color: const Color(0xFFFFFFFF),
+        ),
+        headlineSmall: AppTextStyles.headlineSmall.copyWith(
+          color: const Color(0xFFFFFFFF),
+        ),
+        titleLarge: AppTextStyles.titleLarge.copyWith(
+          color: const Color(0xFFFFFFFF),
+        ),
+        titleMedium: AppTextStyles.titleMedium.copyWith(
+          color: const Color(0xFFFFFFFF),
+        ),
+        titleSmall: AppTextStyles.titleSmall.copyWith(
+          color: const Color(0xFFFFFFFF),
+        ),
+        bodyLarge: AppTextStyles.bodyLarge.copyWith(
+          color: const Color(0xFFFFFFFF),
+        ),
+        bodyMedium: AppTextStyles.bodyMedium.copyWith(
+          color: const Color(0xFFFFFFFF),
+        ),
+        bodySmall: AppTextStyles.bodySmall.copyWith(
+          color: const Color(0xFFBBBBBB),
+        ),
+        labelLarge: AppTextStyles.labelLarge.copyWith(
+          color: const Color(0xFFFFFFFF),
+        ),
+        labelMedium: AppTextStyles.labelMedium.copyWith(
+          color: const Color(0xFFFFFFFF),
+        ),
+        labelSmall: AppTextStyles.labelSmall.copyWith(
+          color: const Color(0xFFFFFFFF),
+        ),
       ),
       dividerTheme: const DividerThemeData(
         color: Color(0xFF333333),
@@ -169,7 +223,9 @@ class AppTheme {
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
         elevation: AppDimensions.elevationMedium,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(AppDimensions.radiusRound)),
+          borderRadius: BorderRadius.all(
+            Radius.circular(AppDimensions.radiusRound),
+          ),
         ),
       ),
       snackBarTheme: SnackBarThemeData(
@@ -178,7 +234,9 @@ class AppTheme {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
         ),
-        contentTextStyle: AppTextStyles.bodyMedium.copyWith(color: const Color(0xFF1C1B1B)),
+        contentTextStyle: AppTextStyles.bodyMedium.copyWith(
+          color: const Color(0xFF1C1B1B),
+        ),
       ),
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
@@ -196,11 +254,19 @@ class AppTheme {
   }) {
     return AppBarTheme(
       elevation: 0,
-      centerTitle: true,
+      centerTitle: false,
+      scrolledUnderElevation: 0,
+      toolbarHeight: AppDimensions.appBarHeight,
       backgroundColor: backgroundColor,
       foregroundColor: foregroundColor,
-      titleTextStyle: AppTextStyles.headlineLarge.copyWith(color: foregroundColor),
-      iconTheme: IconThemeData(color: foregroundColor, size: AppDimensions.iconMedium),
+      titleTextStyle: AppTextStyles.headlineMedium.copyWith(
+        color: foregroundColor,
+        fontWeight: FontWeight.w700,
+      ),
+      iconTheme: IconThemeData(
+        color: foregroundColor,
+        size: AppDimensions.iconMedium,
+      ),
     );
   }
 
@@ -223,10 +289,43 @@ class AppTheme {
   static CardThemeData _buildCardTheme() {
     return CardThemeData(
       elevation: AppDimensions.cardElevation,
+      margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppDimensions.cardBorderRadius),
       ),
       color: AppColors.surface,
+    );
+  }
+
+  static NavigationBarThemeData _buildNavigationBarTheme({
+    required Color backgroundColor,
+    required Color indicatorColor,
+    required Color selectedColor,
+    required Color unselectedColor,
+  }) {
+    return NavigationBarThemeData(
+      height: AppDimensions.bottomNavHeight,
+      elevation: 0,
+      backgroundColor: backgroundColor,
+      indicatorColor: indicatorColor,
+      labelTextStyle: WidgetStateProperty.resolveWith(
+        (states) => AppTextStyles.labelSmall.copyWith(
+          color: states.contains(WidgetState.selected)
+              ? selectedColor
+              : unselectedColor,
+          fontWeight: states.contains(WidgetState.selected)
+              ? FontWeight.w700
+              : FontWeight.w500,
+        ),
+      ),
+      iconTheme: WidgetStateProperty.resolveWith(
+        (states) => IconThemeData(
+          size: 21,
+          color: states.contains(WidgetState.selected)
+              ? selectedColor
+              : unselectedColor,
+        ),
+      ),
     );
   }
 

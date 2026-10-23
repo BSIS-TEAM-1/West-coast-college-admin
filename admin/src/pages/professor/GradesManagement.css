@@ -562,7 +562,7 @@
 .gm-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   color: var(--color-text);
   text-align: left;
 }
@@ -570,13 +570,13 @@
 .gm-table thead th {
   background: var(--color-bg-soft);
   border-bottom: 1px solid var(--color-border);
-  padding: 0.75rem;
-  font-size: 0.6875rem;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.65rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--color-text-muted);
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .gm-table tbody tr {
@@ -593,7 +593,7 @@
 }
 
 .gm-table td {
-  padding: 0.75rem;
+  padding: 0.5rem 0.6rem;
   vertical-align: middle;
 }
 

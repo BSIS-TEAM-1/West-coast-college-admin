@@ -51,6 +51,7 @@ function App() {
   const [showCookieSystemPage, setShowCookieSystemPage] = useState(false)
   const [showCollaboratorsPage, setShowCollaboratorsPage] = useState(false)
   const [showApplicantPortal, setShowApplicantPortal] = useState(false)
+  const [showTransfereePortal, setShowTransfereePortal] = useState(false)
   const [loginError, setLoginError] = useState<string | undefined>(undefined)
   const [loginLoading, setLoginLoading] = useState(false)
   const [sessionBootstrapping, setSessionBootstrapping] = useState(true)
@@ -74,6 +75,7 @@ function App() {
     setProfile(profile)
     setUser({ username, accountType: profile.accountType })
     setShowApplicantPortal(false)
+    setShowTransfereePortal(false)
     setShowAboutPage(false)
     setShowAnnouncementsPage(false)
     setShowSignUp(false)
@@ -145,6 +147,7 @@ function App() {
             setShowCookieSystemPage(false)
             setShowCollaboratorsPage(false)
             setShowApplicantPortal(false)
+            setShowTransfereePortal(false)
           }
           break
         }
@@ -232,6 +235,7 @@ function App() {
       setShowCookieSystemPage(false)
       setShowCollaboratorsPage(false)
       setShowApplicantPortal(false)
+      setShowTransfereePortal(false)
       setLoginError(undefined)
       setLoginLoading(false)
     }
@@ -373,6 +377,15 @@ function App() {
     )
   }
 
+  if (showTransfereePortal) {
+    return (
+      <ApplicantOnboarding
+        onBack={() => setShowTransfereePortal(false)}
+        isTransferee={true}
+      />
+    )
+  }
+
   return (
     <LandingPage
       onOpenAbout={() => {
@@ -383,6 +396,7 @@ function App() {
         setShowTermsPolicyPage(false)
         setShowCollaboratorsPage(false)
         setShowApplicantPortal(false)
+        setShowTransfereePortal(false)
         setShowAnnouncementsPage(false)
         setShowAboutPage(true)
       }}
@@ -394,6 +408,7 @@ function App() {
         setShowTermsPolicyPage(false)
         setShowCollaboratorsPage(false)
         setShowApplicantPortal(false)
+        setShowTransfereePortal(false)
         setShowAboutPage(false)
         setShowAnnouncementsPage(true)
       }}
@@ -406,6 +421,7 @@ function App() {
         setShowAnnouncementsPage(false)
         setShowCollaboratorsPage(false)
         setShowApplicantPortal(false)
+        setShowTransfereePortal(false)
         setShowTermsPolicyPage(true)
       }}
       onOpenCookiePolicy={() => {
@@ -417,6 +433,7 @@ function App() {
         setShowCookieSystemPage(false)
         setShowCollaboratorsPage(false)
         setShowApplicantPortal(false)
+        setShowTransfereePortal(false)
         setShowCookiePolicyPage(true)
       }}
       onOpenCookieSystem={() => {
@@ -428,6 +445,7 @@ function App() {
         setShowAnnouncementsPage(false)
         setShowCollaboratorsPage(false)
         setShowApplicantPortal(false)
+        setShowTransfereePortal(false)
         setShowCookieSystemPage(true)
       }}
       onOpenSignIn={() => {
@@ -439,6 +457,7 @@ function App() {
         setShowTermsPolicyPage(false)
         setShowCollaboratorsPage(false)
         setShowApplicantPortal(false)
+        setShowTransfereePortal(false)
         setShowSignIn(true)
         setLoginError(undefined)
       }}
@@ -451,7 +470,20 @@ function App() {
         setShowAnnouncementsPage(false)
         setShowTermsPolicyPage(false)
         setShowCollaboratorsPage(false)
+        setShowTransfereePortal(false)
         setShowApplicantPortal(true)
+      }}
+      onOpenTransfereePortal={() => {
+        setShowSignIn(false)
+        setShowSignUp(false)
+        setShowCookiePolicyPage(false)
+        setShowCookieSystemPage(false)
+        setShowAboutPage(false)
+        setShowAnnouncementsPage(false)
+        setShowTermsPolicyPage(false)
+        setShowCollaboratorsPage(false)
+        setShowApplicantPortal(false)
+        setShowTransfereePortal(true)
       }}
     />
   )

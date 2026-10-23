@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Check, X, RotateCcw, AlertCircle, FileText, Clock, ChevronLeft, Send } from 'lucide-react'
+import { Check, X, RotateCcw, AlertCircle, FileText, Clock, ChevronDown, ChevronLeft } from 'lucide-react'
 import {
   listGradeSubmissions,
   verifyGradeSubmission,
@@ -8,6 +8,7 @@ import {
   revertGradeSubmissionToDraft,
   listGradeChangeRequests,
   reviewGradeChangeRequest,
+  getClassGradeSubmissions,
   type GradeSubmissionSummary,
   type GradeSubmissionStatus,
   type GradeChangeRequest,
@@ -46,16 +47,21 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
   const [changeRequests, setChangeRequests] = useState<GradeChangeRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
   const [schoolYearFilter, setSchoolYearFilter] = useState('')
   const [semesterFilter, setSemesterFilter] = useState('')
   const [courseFilter, setCourseFilter] = useState('')
   const [selected, setSelected] = useState<GradeSubmissionSummary | null>(null)
+  const [classSubmissions, setClassSubmissions] = useState<GradeSubmissionSummary[]>([])
+  const [loadingClass, setLoadingClass] = useState(false)
   const [reviewRemarks, setReviewRemarks] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
-  const [confirmAction, setConfirmAction] = useState<null | 'verify' | 'publish'>(null)
+  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null)
+  const [confirmAction, setConfirmAction] = useState<null | 'approve'>(null)
   const [changeRequestFilter, setChangeRequestFilter] = useState<GradeChangeRequestStatus | ''>('Pending')
   const [reviewingChangeRequest, setReviewingChangeRequest] = useState<GradeChangeRequest | null>(null)
   const [changeRequestRemarks, setChangeRequestRemarks] = useState('')
+  const [classViewContext, setClassViewContext] = useState<{ schoolYear: string; semester: string; course: string; yearLevel: number } | null>(null)
 
   // Default filters to the current academic term so legacy enrollments don't appear
   useEffect(() => {
@@ -98,20 +104,76 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
   useEffect(() => { load() }, [load])
 
   const handleView = async (submission: GradeSubmissionSummary) => {
-    setSelected(submission)
+    // Rows in the main table use a compound ID (enrollment + instructor). Resolve
+    // the matching class row first so every review action receives the real
+    // enrollment ID, then open the dialog with that row selected.
+    setSelected(null)
     setReviewRemarks('')
     setConfirmAction(null)
+    setLoadingClass(true)
+    setError('')
+    try {
+      // Store class context for refreshing after actions
+      setClassViewContext({
+        schoolYear: submission.schoolYear,
+        semester: submission.semester,
+        course: String(submission.studentId?.course || submission.course),
+        yearLevel: submission.studentId?.yearLevel || submission.yearLevel
+      })
+      // Fetch all students in the same class/section
+      const classData = await getClassGradeSubmissions({
+        schoolYear: submission.schoolYear,
+        semester: submission.semester,
+        course: String(submission.studentId?.course || submission.course),
+        yearLevel: submission.studentId?.yearLevel || submission.yearLevel,
+        status: undefined // Show all students regardless of status
+      })
+      setClassSubmissions(classData)
+      setSelected(
+        classData.find(
+          (classSubmission) =>
+            classSubmission.enrollmentId === submission.enrollmentId &&
+            classSubmission.instructor === submission.instructor
+        ) ?? null
+      )
+    } catch (e: any) {
+      console.error('Error loading class submissions:', e)
+      setError(e.message || 'Failed to load class submissions')
+      setClassSubmissions([])
+    } finally {
+      setLoadingClass(false)
+    }
   }
 
   const handleVerify = async () => {
-    if (!selected) return
+    if (!selected) {
+      setError('No student selected')
+      return
+    }
+    if (!selected.enrollmentId) {
+      setError('Missing enrollment ID for selected student')
+      return
+    }
     setActionLoading(true)
+    setError('')
     try {
-      await verifyGradeSubmission(selected.enrollmentId || selected._id, reviewRemarks, selected.instructor)
+      await verifyGradeSubmission(selected.enrollmentId, reviewRemarks, selected.instructor)
       await load()
+      // Refresh class submissions to show updated status
+      if (classViewContext) {
+        const classData = await getClassGradeSubmissions({
+          schoolYear: classViewContext.schoolYear,
+          semester: classViewContext.semester,
+          course: classViewContext.course,
+          yearLevel: classViewContext.yearLevel,
+          status: undefined
+        })
+        setClassSubmissions(classData)
+      }
       setSelected(null)
       setConfirmAction(null)
     } catch (e: any) {
+      console.error('Verify error:', e)
       setError(e.message || 'Failed to verify grades')
     } finally {
       setActionLoading(false)
@@ -119,11 +181,22 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
   }
 
   const handlePublish = async () => {
-    if (!selected) return
+    if (!selected || !selected.enrollmentId) return
     setActionLoading(true)
     try {
-      await publishGradeSubmission(selected.enrollmentId || selected._id, reviewRemarks, selected.instructor)
+      await publishGradeSubmission(selected.enrollmentId, reviewRemarks, selected.instructor)
       await load()
+      // Refresh class submissions to show updated status
+      if (classViewContext) {
+        const classData = await getClassGradeSubmissions({
+          schoolYear: classViewContext.schoolYear,
+          semester: classViewContext.semester,
+          course: classViewContext.course,
+          yearLevel: classViewContext.yearLevel,
+          status: undefined
+        })
+        setClassSubmissions(classData)
+      }
       setSelected(null)
       setConfirmAction(null)
     } catch (e: any) {
@@ -134,15 +207,26 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
   }
 
   const handleReturn = async () => {
-    if (!selected) return
+    if (!selected || !selected.enrollmentId) return
     if (!reviewRemarks.trim()) {
       setError('A reason is required when returning grades.')
       return
     }
     setActionLoading(true)
     try {
-      await returnGradeSubmission(selected.enrollmentId || selected._id, reviewRemarks, selected.instructor)
+      await returnGradeSubmission(selected.enrollmentId, reviewRemarks, selected.instructor)
       await load()
+      // Refresh class submissions to show updated status
+      if (classViewContext) {
+        const classData = await getClassGradeSubmissions({
+          schoolYear: classViewContext.schoolYear,
+          semester: classViewContext.semester,
+          course: classViewContext.course,
+          yearLevel: classViewContext.yearLevel,
+          status: undefined
+        })
+        setClassSubmissions(classData)
+      }
       setSelected(null)
     } catch (e: any) {
       setError(e.message || 'Failed to return grades')
@@ -151,15 +235,41 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
     }
   }
 
-  const handleRevert = async (enrollmentId: string) => {
-    if (!confirm('Revert this submission to draft? The professor will be able to edit grades again.')) return
+  const handleTableReview = async (submission: GradeSubmissionSummary, action: 'approve' | 'reject') => {
+    const status = submission.professorSubmissionStatus || submission.gradeSubmission?.status || 'Draft'
+    if (!submission.enrollmentId || (status !== 'Submitted' && status !== 'Verified')) {
+      setError('This grade submission is not available for review.')
+      return
+    }
+
+    const isPublishing = status === 'Verified'
+    let remarks = ''
+    if (action === 'reject') {
+      const reason = window.prompt('Reason for rejecting these grades:')
+      if (reason === null) return
+      remarks = reason.trim()
+      if (!remarks) {
+        setError('A reason is required when rejecting grades.')
+        return
+      }
+    } else if (!window.confirm(`${isPublishing ? 'Publish' : 'Verify'} this grade submission?`)) {
+      return
+    }
+
     setActionLoading(true)
+    setOpenActionMenuId(null)
+    setError('')
     try {
-      await revertGradeSubmissionToDraft(enrollmentId)
+      if (action === 'reject') {
+        await returnGradeSubmission(submission.enrollmentId, remarks, submission.instructor)
+      } else if (isPublishing) {
+        await publishGradeSubmission(submission.enrollmentId, '', submission.instructor)
+      } else {
+        await verifyGradeSubmission(submission.enrollmentId, '', submission.instructor)
+      }
       await load()
-      if (selected?.enrollmentId === enrollmentId || selected?._id === enrollmentId) setSelected(null)
     } catch (e: any) {
-      setError(e.message || 'Failed to revert submission')
+      setError(e.message || `Failed to ${action === 'approve' ? 'approve' : 'reject'} grades`)
     } finally {
       setActionLoading(false)
     }
@@ -175,10 +285,29 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
     try {
       await reviewGradeChangeRequest(reviewingChangeRequest._id, action, changeRequestRemarks)
       await load()
+      setSuccess(action === 'approve' ? 'Grade change approved and applied.' : 'Grade change request rejected.')
       setReviewingChangeRequest(null)
       setChangeRequestRemarks('')
     } catch (e: any) {
       setError(e.message || 'Failed to review change request')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleReopenReturned = async (submission: GradeSubmissionSummary) => {
+    if (!submission.enrollmentId) return
+    if (!window.confirm('Reopen this returned grade submission as a draft? The professor can then correct and resubmit it.')) return
+
+    setActionLoading(true)
+    setError('')
+    try {
+      await revertGradeSubmissionToDraft(submission.enrollmentId, submission.instructor)
+      await load()
+      setSelected(null)
+      setSuccess('Returned grades reopened as a draft for the professor.')
+    } catch (e: any) {
+      setError(e.message || 'Failed to reopen returned grades')
     } finally {
       setActionLoading(false)
     }
@@ -208,6 +337,7 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
       </header>
 
       {error && <div className="grade-submission-error"><AlertCircle size={16} /> {error} <button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer' }}><X size={14} /></button></div>}
+      {success && <div className="grade-submission-info-box" style={{ background: '#dcfce7', color: '#15803d', marginBottom: '1rem' }}><Check size={16} /> {success} <button onClick={() => setSuccess('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit' }}><X size={14} /></button></div>}
 
       {/* Tab Navigation */}
       <div className="gs-tabs">
@@ -369,7 +499,7 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
                 <th>Year</th>
                 <th>Semester</th>
                 <th>School Year</th>
-                <th>Subjects</th>
+                <th>Subjects with Grades</th>
                 <th>Graded</th>
                 <th>Status</th>
                 <th>Submitted</th>
@@ -380,11 +510,15 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
               {submissions.map((s) => {
                 const profStatus = s.professorSubmissionStatus || s.gradeSubmission?.status || 'Draft'
                 const status = STATUS_LABELS[profStatus]
-                const subjectCodes = s.subjectCodes || s.subjects?.filter(sub => sub.status !== 'Dropped' && sub.status !== 'Removed').map(sub => sub.code).join(', ') || ''
-                const graded = s.gradedCount ?? s.subjects?.filter(sub => sub.status !== 'Dropped' && sub.status !== 'Removed' && sub.grade !== null && sub.grade !== undefined).length ?? 0
-                const total = s.totalCount ?? s.subjects?.filter(sub => sub.status !== 'Dropped' && sub.status !== 'Removed').length ?? 0
+                const activeSubjects = s.subjects?.filter(sub => sub.status !== 'Dropped' && sub.status !== 'Removed') || []
+                const subjectGrades = activeSubjects.map(sub => {
+                  const grade = sub.grade !== null && sub.grade !== undefined ? sub.grade.toFixed(2) : sub.gradeMark || '—'
+                  return `${sub.code}: ${grade}`
+                }).join(', ') || '—'
+                const graded = s.gradedCount ?? activeSubjects.filter(sub => sub.grade !== null && sub.grade !== undefined || sub.gradeMark).length ?? 0
+                const total = s.totalCount ?? activeSubjects.length ?? 0
                 return (
-                  <tr key={s._id}>
+                  <tr key={s._id} style={{ cursor: 'pointer' }} onClick={() => void handleView(s)}>
                     <td>
                       <div className="gs-student-name">{s.studentId?.lastName}, {s.studentId?.firstName}</div>
                       <div className="gs-student-number">{s.studentId?.studentNumber}</div>
@@ -394,20 +528,45 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
                     <td>{s.studentId?.yearLevel || s.yearLevel}</td>
                     <td>{s.semester}</td>
                     <td>{s.schoolYear}</td>
-                    <td style={{ fontSize: '0.8125rem' }}>{subjectCodes || '—'}</td>
+                    <td style={{ fontSize: '0.8125rem', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={subjectGrades}>{subjectGrades}</td>
                     <td>{graded}/{total}</td>
                     <td>
                       <span className="status-badge" style={{ color: status.color, background: status.bg }}>{status.label}</span>
                     </td>
                     <td style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted, #6b7280)' }}>{formatDate(s.submittedAt || s.gradeSubmission?.submittedAt)}</td>
                     <td>
-                      <div style={{ display: 'flex', gap: '0.375rem' }}>
-                        <button type="button" className="gs-action-btn" title="View details" onClick={() => handleView(s)} aria-label="View Details">
-                          <FileText size={18} />
-                        </button>
-                        {(profStatus === 'Returned' || profStatus === 'Rejected') && (
-                          <button type="button" className="gs-action-btn gs-action-btn--revert" title="Revert to draft" onClick={() => handleRevert(s.enrollmentId || s._id)} aria-label="Revert to Draft">
-                            <RotateCcw size={16} />
+                      <div className="gs-table-actions" onClick={(event) => event.stopPropagation()}>
+                        {(profStatus === 'Submitted' || profStatus === 'Verified') && (
+                          <div className="gs-action-dropdown">
+                            <button
+                              type="button"
+                              className="btn-secondary gs-action-dropdown-trigger"
+                              onClick={() => setOpenActionMenuId((current) => current === s._id ? null : s._id)}
+                              disabled={actionLoading}
+                              aria-expanded={openActionMenuId === s._id}
+                            >
+                              Actions <ChevronDown size={14} />
+                            </button>
+                            {openActionMenuId === s._id && (
+                              <div className="gs-action-dropdown-menu" role="menu">
+                                <button type="button" role="menuitem" className="gs-action-dropdown-item gs-action-dropdown-item--approve" onClick={() => void handleTableReview(s, 'approve')}>
+                                  <Check size={14} /> Approve
+                                </button>
+                                <button type="button" role="menuitem" className="gs-action-dropdown-item gs-action-dropdown-item--reject" onClick={() => void handleTableReview(s, 'reject')}>
+                                  <X size={14} /> Reject
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {profStatus === 'Returned' && (
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            onClick={() => void handleReopenReturned(s)}
+                            disabled={actionLoading}
+                          >
+                            <RotateCcw size={14} /> Reopen draft
                           </button>
                         )}
                       </div>
@@ -456,8 +615,8 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
                     const isReturnedStage = isReturned && stage === 'Submitted'
                     const desc = {
                       Draft: 'Professor entering grades',
-                      Submitted: 'Awaiting verification',
-                      Verified: 'Ready to publish',
+                      Submitted: 'Awaiting review',
+                      Verified: 'Ready to approve',
                       Published: 'Visible to student'
                     }[stage]
                     return (
@@ -477,13 +636,13 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
                 {status === 'Submitted' && (
                   <div className="gs-status-banner gs-status-banner--submitted">
                     <AlertCircle size={16} />
-                    <span>This professor's grades are awaiting your verification. Review the grades below, then click <strong>Verify</strong> to approve or <strong>Return</strong> to send back for correction.</span>
+                    <span>This professor's grades are awaiting your review. Review the grades below, then click <strong>Approve</strong> to accept or <strong>Reject</strong> to send back for correction.</span>
                   </div>
                 )}
                 {status === 'Verified' && (
                   <div className="gs-status-banner gs-status-banner--verified">
                     <Check size={16} />
-                    <span>Grades are verified. Click <strong>Publish</strong> to make them official and visible to the student.</span>
+                    <span>Grades are verified. Click <strong>Approve</strong> to make them official and visible to the student.</span>
                   </div>
                 )}
                 {status === 'Published' && (
@@ -499,168 +658,135 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
                   </div>
                 )}
 
-                {/* Subject Grades Table — only this professor's subjects */}
+                {/* Students in Class Table */}
                 <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '0.95rem' }}>
-                  Subject Grades
+                  Students in Class
                   <span style={{ fontWeight: 400, fontSize: '0.8125rem', color: 'var(--color-text-muted, #6b7280)', marginLeft: '0.5rem' }}>
-                    {selected.subjects?.filter(s => s.status !== 'Dropped' && s.status !== 'Removed').length || 0} subject(s)
+                    {classSubmissions.length} student(s)
                   </span>
                 </h3>
-                {(() => {
-                  const activeSubjects = selected.subjects?.filter(sub => sub.status !== 'Dropped' && sub.status !== 'Removed') || []
-                  const droppedSubjects = selected.subjects?.filter(sub => sub.status === 'Dropped' || sub.status === 'Removed') || []
-                  const gradedCount = activeSubjects.filter(s => (s.grade !== null && s.grade !== undefined) || s.gradeMark).length
-                  return (
-                    <>
-                      <div style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted, #6b7280)', marginBottom: '0.5rem' }}>
-                        {gradedCount}/{activeSubjects.length} graded
-                      </div>
-                      <table className="grade-submission-table" style={{ marginBottom: '1rem' }}>
-                        <thead>
-                          <tr>
-                            <th>Code</th>
-                            <th>Title</th>
-                            <th>Units</th>
-                            <th>Final Grade</th>
-                            <th>Submission</th>
-                            <th>Status</th>
-                            <th>Remarks</th>
+                {loadingClass ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-muted, #6b7280)' }}>Loading class submissions...</div>
+                ) : classSubmissions.length === 0 ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-muted, #6b7280)' }}>No submitted grades found for this class.</div>
+                ) : (
+                  <table className="grade-submission-table" style={{ marginBottom: '1rem' }}>
+                    <thead>
+                      <tr>
+                        <th>Student</th>
+                        <th>Student No.</th>
+                        <th>Submitted Subjects with Grades</th>
+                        <th>Graded</th>
+                        <th>Status</th>
+                        <th>Submitted</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {classSubmissions.map((s) => {
+                        const profStatus = s.professorSubmissionStatus || s.gradeSubmission?.status || 'Draft'
+                        const status = STATUS_LABELS[profStatus]
+                        const submittedSubjects = s.subjects?.filter(sub => sub.status !== 'Dropped' && sub.status !== 'Removed' && sub.submissionStatus === 'Submitted') || []
+                        const subjectGrades = submittedSubjects.map(sub => {
+                          const grade = sub.grade !== null && sub.grade !== undefined ? sub.grade.toFixed(2) : sub.gradeMark || '—'
+                          return `${sub.code}: ${grade}`
+                        }).join(', ') || '—'
+                        const graded = submittedSubjects.filter(s => (s.grade !== null && s.grade !== undefined) || s.gradeMark).length
+                        return (
+                          <tr key={s._id} style={{ cursor: 'pointer' }} onClick={() => setSelected(s)}>
+                            <td>
+                              <div className="gs-student-name">{s.studentId?.lastName}, {s.studentId?.firstName}</div>
+                            </td>
+                            <td className="gs-student-number">{s.studentId?.studentNumber}</td>
+                            <td style={{ fontSize: '0.8125rem', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={subjectGrades}>{subjectGrades}</td>
+                            <td>{graded}/{submittedSubjects.length}</td>
+                            <td>
+                              <span className="status-badge" style={{ color: status.color, background: status.bg }}>{status.label}</span>
+                            </td>
+                            <td style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted, #6b7280)' }}>{formatDate(s.submittedAt || s.gradeSubmission?.submittedAt)}</td>
+                            <td>
+                              <button 
+                                type="button" 
+                                className="btn-secondary" 
+                                style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
+                                onClick={(e) => { e.stopPropagation(); setSelected(s) }}
+                              >
+                                Select
+                              </button>
+                            </td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {activeSubjects.map((sub, i) => (
-                            <tr key={i}>
-                              <td><strong>{sub.code}</strong></td>
-                              <td>{sub.title}</td>
-                              <td>{sub.units}</td>
-                              <td style={{ fontWeight: 600 }}>{sub.grade !== null && sub.grade !== undefined ? sub.grade.toFixed(2) : sub.gradeMark || '—'}</td>
-                              <td>
-                                <span className="status-badge" style={{
-                                  fontSize: '0.6875rem',
-                                  padding: '0.125rem 0.5rem',
-                                  color: sub.submissionStatus === 'Published' ? '#15803d' : sub.submissionStatus === 'Verified' ? '#1d4ed8' : sub.submissionStatus === 'Submitted' ? '#b45309' : sub.submissionStatus === 'Returned' ? '#b91c1c' : '#6b7280',
-                                  background: sub.submissionStatus === 'Published' ? '#dcfce7' : sub.submissionStatus === 'Verified' ? '#dbeafe' : sub.submissionStatus === 'Submitted' ? '#fef3c7' : sub.submissionStatus === 'Returned' ? '#fee2e2' : '#f3f4f6',
-                                }}>{sub.submissionStatus || 'Draft'}</span>
-                              </td>
-                              <td>{sub.status}</td>
-                              <td style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted, #6b7280)' }}>{sub.remarks || '—'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {droppedSubjects.length > 0 && (
-                        <>
-                          <div style={{
-                            fontSize: '0.8125rem',
-                            fontWeight: 600,
-                            color: 'var(--color-text-muted, #6b7280)',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.05em',
-                            margin: '0.5rem 0 0.25rem 0',
-                            padding: '0.375rem 0.625rem',
-                            background: 'var(--color-surface-alt, #f3f4f6)',
-                            borderRadius: '0.375rem',
-                          }}>
-                            Dropped / Removed ({droppedSubjects.length})
-                          </div>
-                          <table className="grade-submission-table" style={{ marginBottom: 0 }}>
-                            <thead>
-                              <tr>
-                                <th>Code</th>
-                                <th>Title</th>
-                                <th>Units</th>
-                                <th>Final Grade</th>
-                                <th>Submission</th>
-                                <th>Status</th>
-                                <th>Remarks</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {droppedSubjects.map((sub, i) => (
-                                <tr key={i} style={{ opacity: 0.6 }}>
-                                  <td><strong>{sub.code}</strong></td>
-                                  <td>{sub.title}</td>
-                                  <td>{sub.units}</td>
-                                  <td>{sub.gradeMark || '—'}</td>
-                                  <td><span style={{ fontSize: '0.6875rem' }}>{sub.submissionStatus || 'Draft'}</span></td>
-                                  <td>{sub.status}</td>
-                                  <td style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted, #6b7280)' }}>{sub.remarks || '—'}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </>
-                      )}
-                    </>
-                  )
-                })()}
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                )}
 
-                {/* Review Actions — Submitted: Verify or Return */}
+                {/* Review Actions — Submitted: Approve or Reject */}
                 {status === 'Submitted' && (
                   <>
                     <div className="form-group" style={{ marginTop: '1rem' }}>
-                      <label>Review Remarks (required for return, optional for verify)</label>
+                      <label>Review Remarks (required for reject, optional for approve)</label>
                       <textarea
                         value={reviewRemarks}
                         onChange={e => setReviewRemarks(e.target.value)}
-                        placeholder="Enter reason if returning, or optional notes for verification..."
+                        placeholder="Enter reason if rejecting, or optional notes for approval..."
                         rows={3}
                       />
                     </div>
-                    {confirmAction === 'verify' ? (
+                    {confirmAction === 'approve' ? (
                       <div className="gs-confirm-dialog">
                         <AlertCircle size={18} />
-                        <span>Confirm: Verify this grade submission? This marks it as procedurally verified.</span>
+                        <span>Confirm: Approve this grade submission? This will verify and publish the grades.</span>
                         <div className="gs-confirm-actions">
-                          <button type="button" className="btn-primary" style={{ background: '#1d4ed8' }} onClick={handleVerify} disabled={actionLoading}>
-                            <Check size={16} /> {actionLoading ? 'Verifying...' : 'Confirm Verify'}
+                          <button type="button" className="btn-primary" style={{ background: '#15803d' }} onClick={handleVerify} disabled={actionLoading}>
+                            <Check size={16} /> {actionLoading ? 'Approving...' : 'Confirm Approve'}
                           </button>
                           <button type="button" className="btn-secondary" onClick={() => setConfirmAction(null)}>Cancel</button>
                         </div>
                       </div>
                     ) : (
                       <div className="transmutation-modal-footer">
-                        <button type="button" className="btn-primary" style={{ background: '#1d4ed8' }} onClick={() => setConfirmAction('verify')} disabled={actionLoading}>
-                          <Check size={16} /> Verify Grades
+                        <button type="button" className="btn-primary" style={{ background: '#15803d' }} onClick={() => setConfirmAction('approve')} disabled={actionLoading}>
+                          <Check size={16} /> Approve
                         </button>
                         <button type="button" className="btn-primary" style={{ background: '#b91c1c' }} onClick={handleReturn} disabled={actionLoading}>
-                          <RotateCcw size={16} /> {actionLoading ? 'Returning...' : 'Return to Professor'}
+                          <X size={16} /> {actionLoading ? 'Rejecting...' : 'Reject'}
                         </button>
                       </div>
                     )}
                   </>
                 )}
 
-                {/* Review Actions — Verified: Publish or Return */}
+                {/* Review Actions — Verified: Approve or Return */}
                 {status === 'Verified' && (
                   <>
                     <div className="form-group" style={{ marginTop: '1rem' }}>
-                      <label>Review Remarks (required for return, optional for publish)</label>
+                      <label>Review Remarks (required for reject, optional for approve)</label>
                       <textarea
                         value={reviewRemarks}
                         onChange={e => setReviewRemarks(e.target.value)}
-                        placeholder="Enter reason if returning, or optional notes for publication..."
+                        placeholder="Enter reason if rejecting, or optional notes for approval..."
                         rows={3}
                       />
                     </div>
-                    {confirmAction === 'publish' ? (
+                    {confirmAction === 'approve' ? (
                       <div className="gs-confirm-dialog">
                         <AlertCircle size={18} />
-                        <span>Confirm: Publish these grades? Published grades become official and visible to students.</span>
+                        <span>Confirm: Approve these grades? Approved grades become official and visible to students.</span>
                         <div className="gs-confirm-actions">
                           <button type="button" className="btn-primary" style={{ background: '#15803d' }} onClick={handlePublish} disabled={actionLoading}>
-                            <Check size={16} /> {actionLoading ? 'Publishing...' : 'Confirm Publish'}
+                            <Check size={16} /> {actionLoading ? 'Approving...' : 'Confirm Approve'}
                           </button>
                           <button type="button" className="btn-secondary" onClick={() => setConfirmAction(null)}>Cancel</button>
                         </div>
                       </div>
                     ) : (
                       <div className="transmutation-modal-footer">
-                        <button type="button" className="btn-primary" style={{ background: '#15803d' }} onClick={() => setConfirmAction('publish')} disabled={actionLoading}>
-                          <Send size={16} /> Publish Grades
+                        <button type="button" className="btn-primary" style={{ background: '#15803d' }} onClick={() => setConfirmAction('approve')} disabled={actionLoading}>
+                          <Check size={16} /> Approve
                         </button>
                         <button type="button" className="btn-primary" style={{ background: '#b91c1c' }} onClick={handleReturn} disabled={actionLoading}>
-                          <RotateCcw size={16} /> Return to Professor
+                          <X size={16} /> Reject
                         </button>
                       </div>
                     )}
@@ -680,6 +806,9 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
                   <div className="grade-submission-info-box" style={{ background: '#fee2e2', color: '#b91c1c' }}>
                     <RotateCcw size={16} /> Grades returned to professor on {formatDate(selected.gradeSubmission?.reviewedAt)}.
                     {selected.gradeSubmission?.reviewRemarks && ` Reason: ${selected.gradeSubmission.reviewRemarks}`}
+                    <button type="button" className="btn-secondary" style={{ marginLeft: 'auto' }} onClick={() => void handleReopenReturned(selected)} disabled={actionLoading}>
+                      <RotateCcw size={14} /> Reopen draft
+                    </button>
                   </div>
                 )}
 

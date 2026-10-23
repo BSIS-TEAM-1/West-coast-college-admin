@@ -1315,6 +1315,13 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
 
     matchedEntry.grade = normalizedGrade
     matchedEntry.gradeMark = normalizedGradeMark
+    if (normalizedGradeMark === 'DRP') {
+      // DRP is a subject-level result. Preserve the entry, mark only that
+      // subject Dropped, and flag the student as Irregular for future terms.
+      matchedEntry.status = 'Dropped'
+      matchedEntry.droppedAt = new Date()
+      matchedEntry.dropReason = 'Marked DRP by professor'
+    }
     matchedEntry.remarks = remarks
     matchedEntry.dateModified = new Date()
 
@@ -1330,6 +1337,16 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
     enrollment.updatedBy = req.adminId
     enrollment.markModified('subjects')
     await enrollment.save()
+
+    if (normalizedGradeMark === 'DRP') {
+      await Student.findByIdAndUpdate(studentId, {
+        $set: {
+          lifecycleStatus: 'Irregular',
+          studentStatus: 'Irregular',
+          classification: 'Irregular'
+        }
+      })
+    }
 
     // Audit log
     await GradeAuditLog.create({
@@ -7787,8 +7804,8 @@ app.post('/api/rollover/preview-students', authMiddleware, requireBlockManagemen
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
-    const { fromSchoolYear, course, yearLevel, section, page, limit, search, filter } = req.body || {}
-    const result = await AcademicYearRolloverService.previewStudents({ fromSchoolYear, course, yearLevel, section, page, limit, search, filter })
+    const { fromSchoolYear, semester, course, yearLevel, block, page, limit, search, filter } = req.body || {}
+    const result = await AcademicYearRolloverService.previewStudents({ fromSchoolYear, semester, course, yearLevel, block, page, limit, search, filter })
     res.json({ success: true, data: result })
   } catch (error) {
     console.error('Rollover preview-students error:', error)
@@ -7802,8 +7819,8 @@ app.post('/api/rollover/preview-exceptions', authMiddleware, requireBlockManagem
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
-    const { fromSchoolYear, page, limit, search, course, yearLevel, section } = req.body || {}
-    const result = await AcademicYearRolloverService.previewExceptions({ fromSchoolYear, page, limit, search, course, yearLevel, section })
+    const { fromSchoolYear, semester, page, limit, search, course, yearLevel, block } = req.body || {}
+    const result = await AcademicYearRolloverService.previewExceptions({ fromSchoolYear, semester, page, limit, search, course, yearLevel, block })
     res.json({ success: true, data: result })
   } catch (error) {
     console.error('Rollover preview-exceptions error:', error)

@@ -16,7 +16,12 @@ export type BlockGroup = {
   yearLevel?: number
   semester: Semester
   schoolYear?: string
-  year: number
+  /**
+   * The API returns the school-year string ("2026-2027") here despite older
+   * call sites treating it as a numeric start year. Use
+   * `schoolYearStartYear()` to get the number the block endpoints expect.
+   */
+  year: number | string
   section?: string
   curriculumId?: string | null
   studentClassification?: string

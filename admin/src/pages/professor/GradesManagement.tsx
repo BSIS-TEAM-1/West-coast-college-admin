@@ -529,6 +529,38 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
   const submitGradesForReview = async () => {
     if (!selectedClass || students.length === 0) return
 
+    // First, save all pending grade drafts to ensure backend has the latest data
+    const studentsWithPendingDrafts = students.filter(s =>
+      gradeDrafts[s._id] !== undefined
+      || gradeMarkDrafts[s._id] !== undefined
+      || remarkDrafts[s._id] !== undefined
+    )
+
+    if (studentsWithPendingDrafts.length > 0) {
+      setSubmittingGrades(true)
+      try {
+        setMessageTone('info')
+        setMessage('Saving pending grades before submission...')
+        
+        // Save all pending grades in parallel and wait for all to complete
+        await Promise.all(studentsWithPendingDrafts.map(student => saveGrade(student)))
+        
+        // Clear the drafts after successful save
+        setGradeDrafts({})
+        setGradeMarkDrafts({})
+        setRemarkDrafts({})
+      } catch (saveError) {
+        setMessageTone('error')
+        setMessage(
+          isNetworkRequestError(saveError)
+            ? buildReconnectMessage('saving pending grades')
+            : (saveError instanceof Error ? saveError.message : 'Failed to save pending grades.')
+        )
+        setSubmittingGrades(false)
+        return
+      }
+    }
+
     // Collect all unique enrollment IDs from students in this class
     const enrollmentIds = [...new Set(
       students.map(s => s.enrollmentId).filter((id): id is string => !!id)
@@ -536,6 +568,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
     if (enrollmentIds.length === 0) {
       setMessageTone('error')
       setMessage('No enrollment found for this class.')
+      setSubmittingGrades(false)
       return
     }
     const ungraded = students.filter(s =>
@@ -546,12 +579,15 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
     if (ungraded.length > 0) {
       setMessageTone('error')
       setMessage(`${ungraded.length} student(s) still need a grade or grade mark (INC, DRP, W, FA, NG). Enter grades before submitting.`)
+      setSubmittingGrades(false)
       return
     }
     const confirmMessage = 'Submit all grades for this class for registrar review? You will not be able to edit grades after submission.'
-    if (!confirm(confirmMessage)) return
+    if (!confirm(confirmMessage)) {
+      setSubmittingGrades(false)
+      return
+    }
 
-    setSubmittingGrades(true)
     try {
       const token = await getStoredToken()
       if (!token) throw new Error('You are not logged in.')

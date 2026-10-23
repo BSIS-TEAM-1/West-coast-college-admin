@@ -215,6 +215,7 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
 
   const refresh = useCallback(async () => {
     const token = await getStoredToken()
+    if (!token) return
     const historyResponse = await StudentService.getEnrollmentHistory(token, studentId)
     setHistory(extractResponseData<EnrollmentRecord[]>(historyResponse) || [])
     try {
@@ -273,6 +274,7 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
     setModalBusy(true)
     try {
       const token = await getStoredToken()
+      if (!token) throw new Error('Session expired. Please sign in again.')
       const response = await StudentService.getCurriculumSuggestions(token, {
         programCode: student.course,
         yearLevel: record.yearLevel || student.yearLevel,
@@ -308,6 +310,7 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
     setModalError('')
     try {
       const token = await getStoredToken()
+      if (!token) throw new Error('Session expired. Please sign in again.')
       const response = await StudentService.validateEnrollmentSubjects(token, addTarget._id, selectedIds)
       setValidation(extractResponseData<SubjectValidationData>(response))
     } catch (validationError) {
@@ -323,6 +326,7 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
     setModalError('')
     try {
       const token = await getStoredToken()
+      if (!token) throw new Error('Session expired. Please sign in again.')
       await StudentService.addEnrollmentSubjects(token, addTarget._id, validation.okIds, overrideReason.trim())
       await refresh()
       const addedCount = validation.okIds.length
@@ -347,6 +351,7 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
     setModalError('')
     try {
       const token = await getStoredToken()
+      if (!token) throw new Error('Session expired. Please sign in again.')
       await StudentService.dropEnrollmentSubject(
         token,
         dropTarget.record._id,
@@ -376,6 +381,7 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
     setModalError('')
     try {
       const token = await getStoredToken()
+      if (!token) throw new Error('Session expired. Please sign in again.')
       await StudentService.retakeSubject(token, studentId, String(retakeTarget.entry.subjectId || ''), {
         schoolYear: retakeYear,
         semester: retakeSemester,

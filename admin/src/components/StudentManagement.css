@@ -3284,6 +3284,24 @@ body.student-workspace-overlay-open #root * {
   justify-content: center;
 }
 
+/* Read-only "already enrolled" state shown where the Enroll button would be.
+   Shares the button's box so the toolbar does not shift when the action
+   disappears or reappears. */
+.sd-enrolled-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.3rem;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--color-success, #16a34a) 45%, var(--color-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-success, #16a34a) 12%, var(--color-surface));
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.83rem;
+  font-weight: 600;
+}
+
 .sd-more {
   position: relative;
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Check, Eye, Filter, Layers, RefreshCw, Users } from 'lucide-react'
 import { API_URL, getStoredToken } from '../lib/authApi'
-import { formatStudentNumber as formatStudentNumberShared } from '../lib/blockAssignmentShared'
+import { formatStudentNumber as formatStudentNumberShared, schoolYearStartYear } from '../lib/blockAssignmentShared'
 import './CorGeneration.css'
 
 type CourseCode = '101' | '102' | '103' | '201'
@@ -10,7 +10,9 @@ type BlockGroupResponse = {
   _id: string
   name: string
   semester?: string
-  year?: number
+  /** The API returns the school-year string ("2026-2027"), not a number. */
+  year?: number | string
+  schoolYear?: string
 }
 
 type BlockSectionResponse = {
@@ -163,7 +165,9 @@ export default function CorGeneration() {
               ...section,
               groupName: String(group.name || ''),
               semester: String(group.semester || ''),
-              year: Number(group.year) || new Date().getFullYear(),
+              // `group.year` is the school-year string ("2026-2027"); Number()
+              // was NaN and silently fell back to the current year.
+              year: schoolYearStartYear(group.schoolYear || group.year) || new Date().getFullYear(),
               courseCode: extractCourseCode(`${group.name} ${section.sectionCode}`)
             }))
           } catch {

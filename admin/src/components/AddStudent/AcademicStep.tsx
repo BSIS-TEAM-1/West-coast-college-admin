@@ -35,7 +35,7 @@ const LIFECYCLE_STATUS_OPTIONS = [
   { value: 'Pending', label: 'Pending' },
   { value: 'Enrolled', label: 'Enrolled' },
   { value: 'Not Enrolled', label: 'Not Enrolled' },
-  { value: 'Dropped', label: 'Dropped' },
+  { value: 'Irregular', label: 'Irregular' },
   { value: 'Inactive', label: 'Inactive' },
   { value: 'Graduated', label: 'Graduated' }
 ]

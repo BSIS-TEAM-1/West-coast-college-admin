@@ -53,6 +53,35 @@ function uniqueIdStrings(values) {
   return [...new Set((values || []).filter(Boolean).map((value) => String(value)))];
 }
 
+async function getAssignedBlockMap(schoolYear, semester) {
+  const assignments = await StudentBlockAssignment.find({
+    semester,
+    status: 'ASSIGNED',
+    $or: [{ schoolYear }, { year: schoolYear }],
+  })
+    .populate('sectionId', 'sectionCode')
+    .lean();
+
+  return new Map(
+    assignments
+      .filter((assignment) => assignment.sectionId?.sectionCode)
+      .map((assignment) => [String(assignment.studentId), assignment.sectionId.sectionCode])
+  );
+}
+
+async function getStudentIdsForBlock({ schoolYear, semester, block }) {
+  const blockMap = await getAssignedBlockMap(schoolYear, semester);
+  if (block === 'Unassigned') {
+    return { assignedIds: [...blockMap.keys()], matchingIds: null };
+  }
+  return {
+    assignedIds: [...blockMap.keys()],
+    matchingIds: [...blockMap.entries()]
+      .filter(([, assignedBlock]) => assignedBlock === block)
+      .map(([studentId]) => studentId),
+  };
+}
+
 /**
  * Classify a student for rollover based on grades and year level.
  * The registrar can override every recommendation before execution
@@ -145,6 +174,7 @@ class AcademicYearRolloverService {
       .sort({ course: 1, yearLevel: 1, lastName: 1 })
       .lean();
 
+    const blockMap = await getAssignedBlockMap(fromSchoolYear, semester || '1st');
     const evaluations = students.map((student) => {
       const recommendation = recommendAction(student);
       return {
@@ -153,7 +183,7 @@ class AcademicYearRolloverService {
         name: studentDisplayName(student),
         course: student.course,
         yearLevel: student.yearLevel,
-        section: student.section || null,
+        block: blockMap.get(String(student._id)) || null,
         latestGrade: typeof student.latestGrade === 'number' ? student.latestGrade : null,
         lifecycleStatus: student.lifecycleStatus,
         recommendedAction: recommendation.action,
@@ -213,11 +243,51 @@ class AcademicYearRolloverService {
     const pipeline = [
       { $match: baseMatch },
       {
+        $lookup: {
+          from: StudentBlockAssignment.collection.name,
+          let: { studentId: { $toString: '$_id' } },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$studentId', '$$studentId'] },
+                    { $eq: ['$semester', targetSemester] },
+                    { $eq: ['$status', 'ASSIGNED'] },
+                    { $or: [{ $eq: ['$schoolYear', fromSchoolYear] }, { $eq: ['$year', fromSchoolYear] }] },
+                  ],
+                },
+              },
+            },
+            { $limit: 1 },
+          ],
+          as: '_blockAssignment',
+        },
+      },
+      { $unwind: { path: '$_blockAssignment', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: BlockSection.collection.name,
+          localField: '_blockAssignment.sectionId',
+          foreignField: '_id',
+          as: '_blockSection',
+        },
+      },
+      { $unwind: { path: '$_blockSection', preserveNullAndEmptyArrays: true } },
+      {
         $addFields: {
-          _hasGrade: { $eq: [{ $type: '$latestGrade' }, 'number'] },
+          // Aggregation $type returns the BSON type name ("double", "int",
+          // "long", "decimal") — there is no "number" alias in aggregation
+          // expressions (that alias only exists in find-query $type), so the
+          // numeric check must accept the individual numeric types.
+          _hasGrade: {
+            $in: [{ $type: '$latestGrade' }, ['double', 'int', 'long', 'decimal']],
+          },
           _passed: {
             $and: [
-              { $eq: [{ $type: '$latestGrade' }, 'number'] },
+              {
+                $in: [{ $type: '$latestGrade' }, ['double', 'int', 'long', 'decimal']],
+              },
               { $lte: ['$latestGrade', PASSING_GRADE] },
             ],
           },
@@ -229,7 +299,14 @@ class AcademicYearRolloverService {
           _action: {
             $switch: {
               branches: [
-                { case: { $not: [{ $eq: [{ $type: '$latestGrade' }, 'number'] }] }, then: 'retain' },
+                {
+                  case: {
+                    $not: [{
+                      $in: [{ $type: '$latestGrade' }, ['double', 'int', 'long', 'decimal']],
+                    }],
+                  },
+                  then: 'retain',
+                },
                 { case: { $gt: ['$latestGrade', PASSING_GRADE] }, then: 'retain' },
                 { case: { $gte: ['$yearLevel', FINAL_YEAR_LEVEL] }, then: 'graduate' },
               ],
@@ -237,7 +314,9 @@ class AcademicYearRolloverService {
             },
           },
           _needsReview: {
-            $ne: [{ $type: '$latestGrade' }, 'number'],
+            $not: [{
+              $in: [{ $type: '$latestGrade' }, ['double', 'int', 'long', 'decimal']],
+            }],
           },
         },
       },
@@ -246,7 +325,7 @@ class AcademicYearRolloverService {
           _id: {
             course: '$course',
             yearLevel: '$yearLevel',
-            section: { $ifNull: ['$section', 'Unassigned'] },
+            block: { $ifNull: ['$_blockSection.sectionCode', 'Unassigned'] },
           },
           total: { $sum: 1 },
           promote: { $sum: { $cond: [{ $eq: ['$_action', 'promote'] }, 1, 0] } },
@@ -255,7 +334,7 @@ class AcademicYearRolloverService {
           needsReview: { $sum: { $cond: ['$_needsReview', 1, 0] } },
         },
       },
-      { $sort: { '_id.course': 1, '_id.yearLevel': 1, '_id.section': 1 } },
+      { $sort: { '_id.course': 1, '_id.yearLevel': 1, '_id.block': 1 } },
     ];
 
     const groupResults = await Student.aggregate(pipeline);
@@ -264,7 +343,7 @@ class AcademicYearRolloverService {
       course: g._id.course,
       courseLabel: ENROLLMENT_COURSE_BY_CODE[g._id.course] || String(g._id.course),
       yearLevel: g._id.yearLevel,
-      section: g._id.section,
+      block: g._id.block,
       total: g.total,
       eligible: g.promote,
       retained: g.retain,
@@ -305,7 +384,7 @@ class AcademicYearRolloverService {
    * Lazy-load paginated students for a specific group (course/yearLevel/section).
    * Supports server-side search and filtering.
    */
-  static async previewStudents({ fromSchoolYear, course, yearLevel, section, page = 1, limit = 50, search = '', filter = 'all' }) {
+  static async previewStudents({ fromSchoolYear, semester = '1st', course, yearLevel, block, page = 1, limit = 50, search = '', filter = 'all' }) {
     if (!isValidSchoolYear(fromSchoolYear)) {
       throw Object.assign(new Error('fromSchoolYear must be in YYYY-YYYY format'), { statusCode: 400 });
     }
@@ -324,10 +403,9 @@ class AcademicYearRolloverService {
     if (yearLevel !== undefined && yearLevel !== null && yearLevel !== '') {
       query.yearLevel = Number(yearLevel);
     }
-    if (section && section !== 'Unassigned') {
-      query.section = section;
-    } else if (section === 'Unassigned') {
-      query.$or = [{ section: null }, { section: '' }, { section: { $exists: false } }];
+    if (block) {
+      const { assignedIds, matchingIds } = await getStudentIdsForBlock({ schoolYear: fromSchoolYear, semester, block });
+      query._id = block === 'Unassigned' ? { $nin: assignedIds } : { $in: matchingIds };
     }
 
     if (search) {
@@ -358,6 +436,7 @@ class AcademicYearRolloverService {
       Student.countDocuments(query),
     ]);
 
+    const blockMap = await getAssignedBlockMap(fromSchoolYear, semester);
     const studentsWithEvaluations = students.map((student) => {
       const recommendation = recommendAction(student);
       return {
@@ -366,7 +445,7 @@ class AcademicYearRolloverService {
         name: studentDisplayName(student),
         course: student.course,
         yearLevel: student.yearLevel,
-        section: student.section || null,
+        block: blockMap.get(String(student._id)) || null,
         latestGrade: typeof student.latestGrade === 'number' ? student.latestGrade : null,
         lifecycleStatus: student.lifecycleStatus,
         recommendedAction: recommendation.action,
@@ -392,7 +471,7 @@ class AcademicYearRolloverService {
    * Lazy-load paginated exception students (needsReview=true) across all groups.
    * These are students with missing grades, INC, or other flags requiring manual review.
    */
-  static async previewExceptions({ fromSchoolYear, page = 1, limit = 50, search = '', course, yearLevel, section }) {
+  static async previewExceptions({ fromSchoolYear, semester = '1st', page = 1, limit = 50, search = '', course, yearLevel, block }) {
     if (!isValidSchoolYear(fromSchoolYear)) {
       throw Object.assign(new Error('fromSchoolYear must be in YYYY-YYYY format'), { statusCode: 400 });
     }
@@ -414,10 +493,9 @@ class AcademicYearRolloverService {
     if (yearLevel !== undefined && yearLevel !== null && yearLevel !== '') {
       query.yearLevel = Number(yearLevel);
     }
-    if (section && section !== 'Unassigned') {
-      query.section = section;
-    } else if (section === 'Unassigned') {
-      query.$or = [{ section: null }, { section: '' }, { section: { $exists: false } }];
+    if (block) {
+      const { assignedIds, matchingIds } = await getStudentIdsForBlock({ schoolYear: fromSchoolYear, semester, block });
+      query._id = block === 'Unassigned' ? { $nin: assignedIds } : { $in: matchingIds };
     }
 
     if (search) {
@@ -444,6 +522,7 @@ class AcademicYearRolloverService {
       Student.countDocuments(query),
     ]);
 
+    const blockMap = await getAssignedBlockMap(fromSchoolYear, semester);
     const exceptions = students.map((student) => {
       const recommendation = recommendAction(student);
       return {
@@ -452,7 +531,7 @@ class AcademicYearRolloverService {
         name: studentDisplayName(student),
         course: student.course,
         yearLevel: student.yearLevel,
-        section: student.section || null,
+        block: blockMap.get(String(student._id)) || null,
         latestGrade: typeof student.latestGrade === 'number' ? student.latestGrade : null,
         lifecycleStatus: student.lifecycleStatus,
         recommendedAction: recommendation.action,
@@ -493,6 +572,8 @@ class AcademicYearRolloverService {
       throw Object.assign(new Error('An initiating admin is required'), { statusCode: 400 });
     }
 
+    const targetSemester = ['1st', '2nd', 'Summer'].includes(semester) ? semester : '1st';
+
     // ---- Resolve decisions from groupDecisions + decisionOverrides ----
     // If groupDecisions is provided, expand each group to individual student decisions
     // using the server-side recommendAction() logic, then apply decisionOverrides.
@@ -514,10 +595,13 @@ class AcademicYearRolloverService {
           yearLevel: Number(gd.yearLevel),
         };
 
-        if (gd.section && gd.section !== 'Unassigned') {
-          groupQuery.section = gd.section;
-        } else if (gd.section === 'Unassigned') {
-          groupQuery.$or = [{ section: null }, { section: '' }, { section: { $exists: false } }];
+        if (gd.block) {
+          const { assignedIds, matchingIds } = await getStudentIdsForBlock({
+            schoolYear: fromSchoolYear,
+            semester: targetSemester,
+            block: gd.block,
+          });
+          groupQuery._id = gd.block === 'Unassigned' ? { $nin: assignedIds } : { $in: matchingIds };
         }
 
         const groupStudents = await Student.find(groupQuery)
@@ -587,7 +671,6 @@ class AcademicYearRolloverService {
       return true;
     });
 
-    const targetSemester = ['1st', '2nd', 'Summer'].includes(semester) ? semester : '1st';
     const rolloverBatchId = `rollover_${fromSchoolYear}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const fromStartYear = schoolYearStart(fromSchoolYear);
     const toStartYear = schoolYearStart(toSchoolYear);
@@ -822,6 +905,9 @@ class AcademicYearRolloverService {
             lifecycleStatus: student.lifecycleStatus,
             enrollmentStatus: student.enrollmentStatus,
             isActive: student.isActive,
+            latestGrade: student.latestGrade,
+            gradeProfessor: student.gradeProfessor,
+            gradeDate: student.gradeDate,
             updatedBy: student.updatedBy || null,
           };
 
@@ -834,6 +920,46 @@ class AcademicYearRolloverService {
           const currentEnrollment = currentEnrollments.find(
             (enrollment) => enrollment.schoolYear === fromSchoolYear && !enrollment.lockedAt
           ) || null;
+
+          // ---- Freshness check: the decision must still match reality ----
+          // Preview/override decisions can go stale in the minutes between
+          // planning and execution: the student may have withdrawn (Inactive),
+          // become Irregular, graduated, or already have been rolled over.
+          // Acting on a stale decision would promote a withdrawn student or
+          // double-apply the rollover, so the whole batch is aborted with a
+          // clear failure list and a fresh preview is required.
+          const rolloverEligibleLifecycle = ['Enrolled', 'Pending', 'Not Enrolled'];
+          if (
+            !sameValue(student.schoolYear, fromSchoolYear) ||
+            !rolloverEligibleLifecycle.includes(student.lifecycleStatus)
+          ) {
+            results.failures.push({
+              studentId: String(student._id),
+              studentNumber: student.studentNumber,
+              error: `Student no longer matches the closing school year state (schoolYear: ${student.schoolYear ?? 'none'}, lifecycleStatus: ${student.lifecycleStatus ?? 'none'}). The preview is stale — run a new preview.`,
+              reasonCode: 'STALE_ROLLOVER_STATE',
+            });
+            continue;
+          }
+
+          // ---- Duplicate enrollment prevention ----
+          // If the student already has an enrollment for the target term
+          // (e.g. pre-registered for the new year), creating a second one
+          // would duplicate the record, so the batch is aborted.
+          if (decision.action !== 'graduate') {
+            const conflictingEnrollment = currentEnrollments.find(
+              (enrollment) => enrollment.schoolYear === toSchoolYear && enrollment.semester === targetSemester
+            );
+            if (conflictingEnrollment) {
+              results.failures.push({
+                studentId: String(student._id),
+                studentNumber: student.studentNumber,
+                error: `Student already has an enrollment for ${toSchoolYear} ${targetSemester} (${conflictingEnrollment.status}). The rollover was not applied.`,
+                reasonCode: 'TARGET_ENROLLMENT_EXISTS',
+              });
+              continue;
+            }
+          }
 
           const previousEnrollmentBefore = currentEnrollment ? {
             _id: currentEnrollment._id,
@@ -1221,7 +1347,6 @@ class AcademicYearRolloverService {
           description: `School year rollover executed: ${counts.promoted} promoted, ${counts.retained} retained, ${counts.graduated} graduated, ${counts.skipped} skipped.`,
           performedBy: adminId,
           performedByRole: ['admin', 'registrar'].includes(String(adminRole || '').toLowerCase()) ? String(adminRole).toLowerCase() : 'registrar',
-          newValue: { rolloverBatchId, fromSchoolYear, toSchoolYear, semester: targetSemester, counts },
           status: 'SUCCESS',
           severity: 'HIGH'
         }], { session });
@@ -1443,14 +1568,34 @@ class AcademicYearRolloverService {
               throw Object.assign(new Error(`New enrollment for ${label} has an unexpected year level. Revert is blocked.`), { statusCode: 409 });
             }
 
-            const hasSubjects = Array.isArray(newEnrollment.subjects) && newEnrollment.subjects.length > 0;
-            const hasPayments = Array.isArray(newEnrollment.assessment?.paymentHistory)
-              && newEnrollment.assessment.paymentHistory.length > 0;
-            const hasAssessment = Number(newEnrollment.assessment?.totalAmount || 0) > 0
-              || Number(newEnrollment.assessment?.balance || 0) !== 0;
-            if (hasSubjects || hasPayments || hasAssessment) {
+            // Documented safety rule: a new enrollment may only be deleted by
+            // a revert while it is untouched. Grades, grade marks, raw scores,
+            // an active submission workflow, or recorded payments are
+            // legitimate post-rollover changes that would otherwise be
+            // silently destroyed, so the revert is blocked for review.
+            const gradedSubjects = (newEnrollment.subjects || []).filter(
+              (subject) =>
+                typeof subject.grade === 'number' ||
+                subject.gradeMark != null ||
+                (subject.rawScore != null && subject.rawScore !== undefined) ||
+                (subject.submissionStatus && subject.submissionStatus !== 'Draft')
+            );
+            if (gradedSubjects.length > 0) {
               throw Object.assign(
-                new Error(`New enrollment for ${label} already has academic, assessment, or payment records. Revert is blocked.`),
+                new Error(`New enrollment for ${label} already carries ${gradedSubjects.length} subject grade record(s). Revert is blocked to preserve academic history.`),
+                { statusCode: 409 }
+              );
+            }
+            if (newEnrollment.gradeSubmission && newEnrollment.gradeSubmission.status && newEnrollment.gradeSubmission.status !== 'Draft') {
+              throw Object.assign(
+                new Error(`New enrollment for ${label} has an active grade submission (${newEnrollment.gradeSubmission.status}). Revert is blocked to preserve academic history.`),
+                { statusCode: 409 }
+              );
+            }
+            const recordedPayments = (newEnrollment.assessment?.paymentHistory || []);
+            if (recordedPayments.length > 0) {
+              throw Object.assign(
+                new Error(`New enrollment for ${label} has ${recordedPayments.length} recorded payment(s). Revert is blocked to preserve financial records.`),
                 { statusCode: 409 }
               );
             }
@@ -1581,6 +1726,10 @@ class AcademicYearRolloverService {
 
         // Batched: one round trip per model instead of one per student. A
         // 168-student revert used to spend most of its time here.
+        // Note: latestGrade/gradeProfessor/gradeDate are intentionally NOT
+        // restored — the rollover never changed them (revert must only reverse
+        // changes attributable to this rollover), and restoring them would
+        // silently overwrite a later authorized grade correction.
         const studentOps = changes
           .filter((change) => change.studentBefore)
           .map((change) => ({
@@ -1721,16 +1870,6 @@ class AcademicYearRolloverService {
           description: `School year rollover reverted: ${batch.counts?.promoted || 0} promoted, ${batch.counts?.retained || 0} retained, ${batch.counts?.graduated || 0} graduated restored.`,
           performedBy: adminId,
           performedByRole: auditRole,
-          oldValue: {
-            rolloverBatchId: batch.batchId,
-            toSchoolYear: batch.toSchoolYear,
-            semester: batch.semester,
-          },
-          newValue: {
-            revertedTo: batch.fromSchoolYear,
-            semester: restoredAcademicTerm?.semester || batch.semester,
-            counts: batch.counts,
-          },
           status: 'SUCCESS',
           severity: 'HIGH',
         }], { session });

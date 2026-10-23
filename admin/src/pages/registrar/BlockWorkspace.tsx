@@ -3,7 +3,7 @@ import { API_URL, getStoredToken } from '../../lib/authApi'
 import type { BlockGroup, BlockSection, BlockStudent, SectionStudent, BlockWorkspaceSelection } from './registrarBlockTypes'
 import BlockStatusBadge from '../../components/BlockStatusBadge'
 import CapacityIndicator from '../../components/CapacityIndicator'
-import { formatStudentNumber as formatStudentNumberShared, courseFullLabel, getCourseAbbreviation } from '../../lib/blockAssignmentShared'
+import { formatStudentNumber as formatStudentNumberShared, courseFullLabel, getCourseAbbreviation, schoolYearFromStartYear, schoolYearStartYear } from '../../lib/blockAssignmentShared'
 
 type BlockWorkspaceProps = {
   selection: BlockWorkspaceSelection | null
@@ -215,7 +215,9 @@ function BlockWorkspace({ selection, onBack }: BlockWorkspaceProps) {
       _id: selection.groupId,
       name: selection.groupName,
       semester: selection.semester,
-      year: Number(selection.year)
+      // selection.year is the numeric start year (2026); re-normalizing keeps
+      // this safe if a caller passes the raw "2026-2027" string instead.
+      year: schoolYearStartYear(selection.year)
     }
 
     setGroup(workspaceGroup)
@@ -419,7 +421,7 @@ function BlockWorkspace({ selection, onBack }: BlockWorkspaceProps) {
           <div className="block-workspace-meta">
             <span>{parseBlockSlot(group.name) ? `Year ${parseBlockSlot(group.name)?.yearLevel}` : ''}</span>
             <span>{group.semester === '1st' ? '1st Semester' : group.semester === '2nd' ? '2nd Semester' : 'Summer'}</span>
-            <span>{`SY ${group.year}\u2013${Number(group.year) + 1}`}</span>
+            <span>{`SY ${schoolYearFromStartYear(group.schoolYear || group.year) || '—'}`}</span>
             <span className="block-workspace-meta-dot" />
             <span>{sortedSections.length} section(s)</span>
             <span>{openSections.length} open</span>

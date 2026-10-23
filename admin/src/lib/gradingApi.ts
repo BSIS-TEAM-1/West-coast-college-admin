@@ -138,10 +138,23 @@ export async function returnGradeSubmission(enrollmentId: string, remarks: strin
   return res.data
 }
 
-export async function revertGradeSubmissionToDraft(enrollmentId: string): Promise<GradeSubmissionSummary> {
+export async function revertGradeSubmissionToDraft(enrollmentId: string, instructor?: string): Promise<GradeSubmissionSummary> {
   const res = await authorizedFetch<{ success: boolean; data: GradeSubmissionSummary }>(`/api/registrar/grade-submissions/${enrollmentId}/revert-to-draft`, {
-    method: 'POST'
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ instructor })
   })
+  return res.data
+}
+
+export async function getClassGradeSubmissions(filters: { schoolYear: string; semester: string; course: string; yearLevel: number; status?: GradeSubmissionStatus }): Promise<GradeSubmissionSummary[]> {
+  const params = new URLSearchParams()
+  params.set('schoolYear', filters.schoolYear)
+  params.set('semester', filters.semester)
+  params.set('course', filters.course)
+  params.set('yearLevel', String(filters.yearLevel))
+  if (filters.status) params.set('status', filters.status)
+  const res = await authorizedFetch<{ success: boolean; data: GradeSubmissionSummary[] }>(`/api/registrar/grade-submissions/class?${params.toString()}`)
   return res.data
 }
 

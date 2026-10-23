@@ -111,7 +111,7 @@ const studentSchema = new Schema({
   studentStatus: { 
     type: String, 
     required: true,
-    enum: ['Regular', 'Irregular', 'Dropped', 'Returnee', 'Transferee'],
+    enum: ['Regular', 'Irregular', 'Returnee', 'Transferee'],
     default: 'Regular'
   },
   classification: {
@@ -122,7 +122,7 @@ const studentSchema = new Schema({
   },
   lifecycleStatus: {
     type: String,
-    enum: ['Pending', 'Enrolled', 'Not Enrolled', 'Dropped', 'Inactive', 'Graduated'],
+    enum: ['Pending', 'Enrolled', 'Not Enrolled', 'Irregular', 'Inactive', 'Graduated'],
     default: 'Pending',
     index: true
   },
@@ -174,7 +174,7 @@ const studentSchema = new Schema({
   },
   gender: {
     type: String,
-    enum: ['Male', 'Female', 'Other', 'Prefer not to say'],
+    enum: ['Male', 'Female', 'Other', 'Non-binary', 'Prefer not to say'],
     trim: true
   },
   civilStatus: {

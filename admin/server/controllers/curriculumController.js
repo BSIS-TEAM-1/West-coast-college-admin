@@ -4,6 +4,8 @@ const CurriculumSubject = require('../models/CurriculumSubject');
 const Enrollment = require('../models/Enrollment');
 const Subject = require('../models/Subject');
 const BlockGroup = require('../models/BlockGroup');
+const BlockSection = require('../models/BlockSection');
+const { autoAssignSubjectsFromCurriculum } = require('../services/blockSubjectAutoAssignService');
 
 const PROGRAM_NAMES = {
   101: 'BEED',
@@ -122,6 +124,75 @@ async function validatePlacements(rawSubjects) {
 }
 
 class CurriculumController {
+  /**
+   * Sync the required placements in this curriculum to every section in every
+   * block group linked to it. The assignment service is idempotent, so this
+   * only adds missing subjects and never removes existing assignments.
+   */
+  static async syncLinkedBlockSubjects(req, res) {
+    try {
+      const { id } = req.params;
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ error: 'Invalid curriculum ID' });
+      }
+
+      const curriculum = await Curriculum.findById(id).select('_id status');
+      if (!curriculum) return res.status(404).json({ error: 'Curriculum not found' });
+      if (curriculum.status === 'Archived') {
+        return res.status(400).json({ error: 'Archived curriculums cannot be synced.' });
+      }
+
+      const groups = await BlockGroup.find({ curriculumId: curriculum._id }).lean();
+      const summary = {
+        blockGroups: groups.length,
+        sections: 0,
+        curriculumSubjectsFound: 0,
+        created: 0,
+        skipped: 0,
+        warnings: [],
+        errors: [],
+      };
+
+      if (groups.length === 0) {
+        return res.json({ success: true, summary });
+      }
+
+      const sections = await BlockSection.find({
+        blockGroupId: { $in: groups.map((group) => group._id) },
+      }).lean();
+      const sectionsByGroup = new Map();
+      for (const section of sections) {
+        const key = String(section.blockGroupId);
+        const groupSections = sectionsByGroup.get(key) || [];
+        groupSections.push(section);
+        sectionsByGroup.set(key, groupSections);
+      }
+
+      for (const group of groups) {
+        try {
+          const result = await autoAssignSubjectsFromCurriculum(
+            group,
+            sectionsByGroup.get(String(group._id)) || [],
+            req.adminId
+          );
+          summary.sections += result.sections;
+          summary.curriculumSubjectsFound += result.curriculumSubjectsFound;
+          summary.created += result.created;
+          summary.skipped += result.skipped;
+          summary.warnings.push(...result.warnings.map((warning) => `${group.name}: ${warning}`));
+          summary.errors.push(...result.errors.map((error) => `${group.name}: ${error}`));
+        } catch (error) {
+          summary.errors.push(`${group.name}: ${error.message || 'Failed to sync block group'}`);
+        }
+      }
+
+      return res.json({ success: true, summary });
+    } catch (error) {
+      console.error('Sync curriculum block subjects error:', error);
+      return res.status(500).json({ error: 'Failed to sync curriculum subjects' });
+    }
+  }
+
   static async listCurriculums(req, res) {
     try {
       const { programCode, status, q } = req.query;

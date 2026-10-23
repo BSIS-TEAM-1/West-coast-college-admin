@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, BookOpen, ChevronDown, ChevronRight, Copy, Plus, Search, Trash2, GraduationCap, BookPlus, Info, X, CheckCircle } from 'lucide-react'
+import { ArrowLeft, BookOpen, ChevronDown, ChevronRight, Copy, Plus, Search, Trash2, GraduationCap, BookPlus, Info, X, CheckCircle, RefreshCw } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import type { CurriculumStructure, Semester, SubjectItem } from './registrarBlockTypes'
 import SectionSkeleton from '../../components/SectionSkeleton'
@@ -52,6 +52,7 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
   const [addSelectedIds, setAddSelectedIds] = useState<Set<string>>(new Set())
   const [addSubjectConfigs, setAddSubjectConfigs] = useState<Record<string, { type: string; isRequired: boolean; displayOrder: string }>>({})
   const [saving, setSaving] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const [prereqPicker, setPrereqPicker] = useState<{
     curriculumSubjectId: string
     subjectId: string
@@ -319,6 +320,32 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
     }
   }
 
+  const handleSyncCurriculum = async () => {
+    if (!structure?.curriculum) return
+    if (!window.confirm('Sync this curriculum’s required subjects to all linked block sections? Existing section subjects will not be removed.')) return
+
+    setSyncing(true)
+    setError('')
+    setSuccess('')
+    try {
+      const data = await authorizedFetch(`/api/registrar/curriculums/${curriculumId}/sync-block-subjects`, {
+        method: 'POST',
+      })
+      const summary = data.summary
+      if (!summary || summary.blockGroups === 0) {
+        setSuccess('No block groups are linked to this curriculum yet.')
+      } else {
+        setSuccess(`Sync complete: ${summary.created} subject assignment${summary.created === 1 ? '' : 's'} added across ${summary.sections} section${summary.sections === 1 ? '' : 's'} in ${summary.blockGroups} block group${summary.blockGroups === 1 ? '' : 's'}. ${summary.skipped} already assigned.`)
+      }
+      if (summary?.errors?.length) setError(summary.errors.join(' '))
+      else if (summary?.warnings?.length) setError(summary.warnings.join(' '))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to sync curriculum')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   const openAddModal = (yearLevel: number, semester: Semester) => {
     setAddYearLevel(yearLevel)
     setAddSemester(semester)
@@ -413,6 +440,10 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
         </div>
         {!isArchived && (
           <div className="curriculum-details-actions">
+            <button className="registrar-btn registrar-btn-secondary" type="button" onClick={handleSyncCurriculum} disabled={syncing}>
+              <RefreshCw size={16} />
+              {syncing ? 'Syncing...' : 'Sync Curriculum'}
+            </button>
             <button className="registrar-btn registrar-btn-secondary" type="button" onClick={handleDuplicate}>
               <Copy size={16} />
               Duplicate
@@ -565,46 +596,53 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
                                   <span>{cs.labPeriods ?? subj?.labPeriods ?? 0}</span>
                                   <span>{subjectTypeLabels[cs.type] || cs.type}</span>
                                   <span className="curriculum-prereq-cell">
-                                    {prereqs.length > 0
-                                      ? prereqs.map((p) => (
-                                        <span key={p._id} className="subject-prereq-chip-removable">
-                                          {p.code}
-                                          {!isArchived && (
-                                            <button
-                                              type="button"
-                                              className="subject-prereq-chip-x"
-                                              onClick={() => void handleRemovePrerequisite(cs._id, String(p._id))}
-                                              disabled={saving}
-                                              aria-label={`Remove ${p.code} as prerequisite`}
-                                            >
-                                              <X size={12} />
-                                            </button>
-                                          )}
-                                        </span>
-                                      ))
-                                      : <span className="subject-prereq-empty">None</span>}
-                                    {!isArchived && (
-                                      <button
-                                        className="subject-action-btn edit curriculum-prereq-add-btn"
-                                        type="button"
-                                        onClick={() => {
-                                          const currentIds = prereqs.map((p) => String(p._id))
-                                          setPrereqPicker({
-                                            curriculumSubjectId: cs._id,
-                                            subjectId: String(subj?._id || ''),
-                                            currentPrereqIds: currentIds,
-                                            selectedIds: new Set(currentIds),
-                                            search: '',
-                                            yearFilter: '',
-                                            semesterFilter: '',
-                                            typeFilter: '',
-                                          })
-                                        }}
-                                        disabled={saving}
-                                      >
-                                        <Plus size={12} />
-                                        Add
-                                      </button>
+                                    {/* Hide prerequisite editing for Year 1 Semester 1 (base subjects) */}
+                                    {!(cs.yearLevel === 1 && cs.semester === '1st') ? (
+                                      <>
+                                        {prereqs.length > 0
+                                          ? prereqs.map((p) => (
+                                            <span key={p._id} className="subject-prereq-chip-removable">
+                                              {p.code}
+                                              {!isArchived && (
+                                                <button
+                                                  type="button"
+                                                  className="subject-prereq-chip-x"
+                                                  onClick={() => void handleRemovePrerequisite(cs._id, String(p._id))}
+                                                  disabled={saving}
+                                                  aria-label={`Remove ${p.code} as prerequisite`}
+                                                >
+                                                  <X size={12} />
+                                                </button>
+                                              )}
+                                            </span>
+                                          ))
+                                          : <span className="subject-prereq-empty">None</span>}
+                                        {!isArchived && (
+                                          <button
+                                            className="subject-action-btn edit curriculum-prereq-add-btn"
+                                            type="button"
+                                            onClick={() => {
+                                              const currentIds = prereqs.map((p) => String(p._id))
+                                              setPrereqPicker({
+                                                curriculumSubjectId: cs._id,
+                                                subjectId: String(subj?._id || ''),
+                                                currentPrereqIds: currentIds,
+                                                selectedIds: new Set(currentIds),
+                                                search: '',
+                                                yearFilter: '',
+                                                semesterFilter: '',
+                                                typeFilter: '',
+                                              })
+                                            }}
+                                            disabled={saving}
+                                          >
+                                            <Plus size={12} />
+                                            Add
+                                          </button>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <span className="subject-prereq-empty">N/A (Base Subject)</span>
                                     )}
                                   </span>
                                   <span>{cs.isRequired ? 'Yes' : 'No'}</span>

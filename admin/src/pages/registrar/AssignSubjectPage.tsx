@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle, ChevronLeft, ChevronRight, RotateCcw, Trash2 } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
-import { formatBlockColumnLabel, formatBlockLabel } from '../../lib/blockAssignmentShared'
+import { formatBlockColumnLabel, formatBlockLabel, schoolYearFromStartYear } from '../../lib/blockAssignmentShared'
 import type { BlockGroup, BlockSection, CurriculumSubject, Semester, SubjectItem } from './registrarBlockTypes'
 
 type BlockSubjectAssignment = {
@@ -124,7 +124,10 @@ function AssignSubjectPage() {
       if (course && getBlockGroupCourse(group) !== course) return false
       if (yearLevel && getBlockGroupYearLevel(group) !== yearLevel) return false
       if (semester && group.semester !== semester) return false
-      if (academicYearStart && (group.schoolYear || `${group.year}-${Number(group.year) + 1}`) !== academicYear) return false
+      // `group.year` is already the school-year string; the old
+      // `${group.year}-${Number(group.year) + 1}` built "2026-2027-NaN" and
+      // silently filtered every block out of this list.
+      if (academicYearStart && schoolYearFromStartYear(group.schoolYear || group.year) !== academicYear) return false
       return true
     })
   ), [blockGroups, course, yearLevel, semester, academicYear, academicYearStart])

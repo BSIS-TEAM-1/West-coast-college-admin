@@ -139,7 +139,7 @@ const SUBJECTS = [
   { _id: S_FIL, code: 'FIL101', title: 'Purposive Communication', units: 3, isActive: true, status: 'Active', prerequisiteSubjectIds: [] },
   { _id: S_ENG, code: 'ENG101', title: 'The Life & Works of Rizal', units: 3, isActive: true, status: 'Active', prerequisiteSubjectIds: [] },
   { _id: S_MAT, code: 'MATH101', title: 'Mathematics in the Modern World', units: 3, isActive: true, status: 'Active', prerequisiteSubjectIds: [S_FIL] },
-  { _id: S_SCI, code: 'SCI201', title: 'Science, Technology & Society', units: 3, isActive: true, status: 'Active', prerequisiteSubjectIds: [] },
+  { _id: S_SCI, code: 'SCI201', title: 'Science, Technology & Society', units: 3, isActive: true, status: 'Active', prerequisiteSubjectIds: [S_FIL] },
   { _id: '64b000000000000000000077', code: 'DEAD101', title: 'Discontinued Course', units: 3, isActive: false, status: 'Inactive', prerequisiteSubjectIds: [] },
 ];
 
@@ -147,7 +147,7 @@ const PLACEMENTS = [
   { _id: '64b000000000000000000041', curriculumId: CURRICULUM_ID, subjectId: S_FIL, courseNo: 'FIL101', descriptiveTitle: 'Purposive Communication', units: 3, lecturePeriods: 3, labPeriods: 0, isRequired: true, type: 'General', yearLevel: 1, semester: '1st', displayOrder: 1, prerequisiteSubjectIds: [] },
   { _id: '64b000000000000000000042', curriculumId: CURRICULUM_ID, subjectId: S_ENG, courseNo: 'ENG101', descriptiveTitle: 'The Life & Works of Rizal', units: 3, lecturePeriods: 3, labPeriods: 0, isRequired: true, type: 'General', yearLevel: 1, semester: '1st', displayOrder: 2, prerequisiteSubjectIds: [] },
   { _id: '64b000000000000000000043', curriculumId: CURRICULUM_ID, subjectId: S_MAT, courseNo: 'MATH101', descriptiveTitle: 'Mathematics in the Modern World', units: 3, lecturePeriods: 3, labPeriods: 0, isRequired: true, type: 'General', yearLevel: 1, semester: '1st', displayOrder: 3, prerequisiteSubjectIds: [S_FIL] },
-  { _id: '64b000000000000000000044', curriculumId: CURRICULUM_ID, subjectId: S_SCI, courseNo: 'SCI201', descriptiveTitle: 'Science, Technology & Society', units: 3, lecturePeriods: 3, labPeriods: 0, isRequired: true, type: 'General', yearLevel: 2, semester: '1st', displayOrder: 1, prerequisiteSubjectIds: [] },
+  { _id: '64b000000000000000000044', curriculumId: CURRICULUM_ID, subjectId: S_SCI, courseNo: 'SCI201', descriptiveTitle: 'Science, Technology & Society', units: 3, lecturePeriods: 3, labPeriods: 0, isRequired: true, type: 'General', yearLevel: 2, semester: '1st', displayOrder: 1, prerequisiteSubjectIds: [S_FIL] },
 ];
 
 const STUDENT = {
@@ -287,6 +287,9 @@ function mockReq(overrides = {}) {
 
 function configureModelMocks() {
   Student.updateOne = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+  // dropSubjectFromEnrollment updates the student's standing via
+  // findByIdAndUpdate; the mock must cover both so the drop path can run.
+  Student.findByIdAndUpdate = jest.fn().mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
   Student.findById = jest.fn().mockImplementation(() => chain({ ...STUDENT }));
 
   Enrollment.find = jest.fn().mockImplementation((filter = {}) => {
@@ -569,6 +572,21 @@ describe('B. Block management', () => {
 // ─── C. Individual subject enrollment ───────────────────────────────────────
 
 describe('C. Student subject enrollment', () => {
+  test('block finalization fills a pre-existing empty enrollment from its curriculum', async () => {
+    const enrollment = targetEnrollment({ subjects: [] });
+    Enrollment.findById.mockImplementation(() => chain(enrollment));
+
+    const outcome = await subjectEnrollmentService.autoAssignCurriculumSubjects({
+      enrollmentId: enrollment._id,
+      curriculumId: CURRICULUM_ID,
+      actorId: ADMIN_ID,
+    });
+
+    expect(outcome.added.map((entry) => entry.code)).toEqual(['FIL101', 'ENG101', 'MATH101']);
+    expect(enrollment.subjects.map((entry) => entry.code)).toEqual(['FIL101', 'ENG101', 'MATH101']);
+    expect(enrollment.save).toHaveBeenCalled();
+  });
+
   test('suggested subjects come from the applicable curriculum for the year level and semester', async () => {
     const result = await subjectEnrollmentService.resolveSuggestedSubjects({
       programCode: 101,
@@ -580,6 +598,7 @@ describe('C. Student subject enrollment', () => {
     expect(result.curriculumId).toBe(CURRICULUM_ID);
     expect(result.source).toBe('version');
     expect(result.subjects.map((s) => s.code)).toEqual(['FIL101', 'ENG101', 'MATH101']);
+    // MATH101 has FIL101 as a prerequisite at the subject level, not at the placement level
     expect(result.subjects.find((s) => s.code === 'MATH101').prerequisiteSubjectIds).toEqual([S_FIL]);
     // Nothing is suggested for a year the curriculum has not populated yet.
     const emptyYear = await subjectEnrollmentService.resolveSuggestedSubjects({
@@ -622,12 +641,13 @@ describe('C. Student subject enrollment', () => {
   });
 
   test('prerequisites are validated and require a written registrar override', async () => {
-    const enrollment = targetEnrollment();
+    // Use year 2 semester 1 enrollment to test prerequisites (year 1 semester 1 skips prereq validation)
+    const enrollment = targetEnrollment({ yearLevel: 2 });
 
     const validation = await subjectEnrollmentService.validateSubjectSelection({
       student: STUDENT,
       enrollment,
-      subjectIds: [S_MAT],
+      subjectIds: [S_SCI],
     });
     expect(validation.results[0].reasonCode).toBe(subjectEnrollmentService.REASON.PREREQUISITE_NOT_MET);
     expect(validation.results[0].requiresOverride).toBe(true);
@@ -636,7 +656,7 @@ describe('C. Student subject enrollment', () => {
     const withoutOverride = await subjectEnrollmentService.addSubjectsToEnrollment({
       enrollment,
       student: STUDENT,
-      subjectIds: [S_MAT],
+      subjectIds: [S_SCI],
       actorId: ADMIN_ID,
     });
     expect(withoutOverride.added).toHaveLength(0);
@@ -645,13 +665,28 @@ describe('C. Student subject enrollment', () => {
     const withOverride = await subjectEnrollmentService.addSubjectsToEnrollment({
       enrollment,
       student: STUDENT,
-      subjectIds: [S_MAT],
+      subjectIds: [S_SCI],
       actorId: ADMIN_ID,
       overrideReason: 'Dean approved a corequisite arrangement for the term.',
     });
     expect(withOverride.added).toHaveLength(1);
     expect(enrollment.subjects[0].overrideReason).toMatch(/Dean approved/);
     expect(enrollment.subjects[0].overriddenBy).toBe(ADMIN_ID);
+  });
+
+  test('prerequisites are skipped for year 1 semester 1', async () => {
+    const enrollment = targetEnrollment({ yearLevel: 1 });
+
+    // Even though MATH101 has FIL101 as a prerequisite at the subject level,
+    // year 1 semester 1 should skip prerequisite validation
+    const validation = await subjectEnrollmentService.validateSubjectSelection({
+      student: STUDENT,
+      enrollment,
+      subjectIds: [S_MAT],
+    });
+    expect(validation.okIds).toEqual([S_MAT]);
+    expect(validation.results[0].ok).toBe(true);
+    expect(validation.results[0].requiresOverride).toBe(false);
   });
 
   test('an unauthorized duplicate enrollment in the same term is prevented', async () => {
@@ -1156,11 +1191,11 @@ describe('F. Persistence and regression guards', () => {
 
     const validateRes = mockRes();
     await EnrollmentManagementController.validateEnrollmentSubjects(
-      mockReq({ params: { enrollmentId: ENR_ORIGINAL }, body: { subjectIds: [S_FIL, S_MAT] } }),
+      mockReq({ params: { enrollmentId: ENR_ORIGINAL }, body: { subjectIds: [S_FIL, S_ENG] } }),
       validateRes
     );
     expect(validateRes.body.data.results).toHaveLength(2);
-    expect(validateRes.body.data.failedIds).toEqual([S_MAT]);
+    expect(validateRes.body.data.failedIds).toEqual([]);
 
     const addRes = mockRes();
     await EnrollmentManagementController.addEnrollmentSubjects(

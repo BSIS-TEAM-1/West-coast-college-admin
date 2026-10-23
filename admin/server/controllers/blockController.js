@@ -15,6 +15,7 @@ const Subject = require('../models/Subject');
 const CurriculumSubject = require('../models/CurriculumSubject');
 const BlockSubjectAssignment = require('../models/BlockSubjectAssignment');
 const { autoAssignSubjectsFromCurriculum } = require('../services/blockSubjectAutoAssignService');
+const { autoAssignCurriculumSubjects } = require('../services/subjectEnrollmentService');
 const { convertToSchoolYear } = require('../services/dateUtils');
 const enrollmentGuard = require('../services/enrollmentGuard');
 const { describeAssignmentFailure } = require('../services/assignmentFailure');
@@ -1279,17 +1280,32 @@ class BlockController {
       }).session(session);
 
       if (sameTermRecord && sameTermRecord.status === 'ASSIGNED') {
-        await session.abortTransaction();
         if (String(sameTermRecord.sectionId) === String(sectionId)) {
-          // Idempotent retry: the student is already where the registrar is
-          // trying to put them. Report success instead of a duplicate-key 500.
+          // Idempotent retries also repair older assignments whose enrollment
+          // header was finalized before automatic subject population existed.
+          const finalized = await enrollmentGuard.finalizeEnrollment({
+            studentId,
+            schoolYear: enrollment.schoolYear,
+            semester: enrollment.semester,
+            actorId: req.registrarId || req.adminId,
+            session,
+          });
+          const subjectAssignment = await autoAssignCurriculumSubjects({
+            enrollmentId: finalized.enrollmentId,
+            curriculumId: group.curriculumId || enrollment.curriculumId,
+            actorId: req.registrarId || req.adminId,
+            session,
+          });
+          await session.commitTransaction();
           return res.json({
             status: 'ASSIGNED',
             assignmentId: sameTermRecord._id,
             alreadyAssigned: true,
-            sectionCode: section.sectionCode,
+            sectionCode: finalized.sectionCode || section.sectionCode,
+            subjectsAdded: subjectAssignment.added.length,
           });
         }
+        await session.abortTransaction();
         const currentSection = await BlockSection.findById(sameTermRecord.sectionId)
           .select('sectionCode')
           .lean();
@@ -1382,6 +1398,16 @@ class BlockController {
         semester: enrollment.semester,
         actorId: req.registrarId || req.adminId,
         session
+      });
+
+      // An enrollment that existed before block assignment used to remain
+      // empty. Populate it from the assigned block's curriculum now that the
+      // block and enrollment are known to belong to the same term.
+      await autoAssignCurriculumSubjects({
+        enrollmentId: finalized.enrollmentId,
+        curriculumId: group.curriculumId || enrollment.curriculumId,
+        actorId: req.registrarId || req.adminId,
+        session,
       });
 
       await session.commitTransaction();

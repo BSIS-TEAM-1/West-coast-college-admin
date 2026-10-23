@@ -36,9 +36,12 @@ const schoolRecordSchema = new Schema({
       validator: function(v) {
         if (!v) return true;
         const num = parseFloat(v);
-        return !isNaN(num) && num >= GPA_MIN && num <= GPA_MAX;
+        // The request validator applies the correct range per education level.
+        // This shared embedded schema accepts either supported record format:
+        // CHED (1.00–5.00) or basic education (60–100).
+        return !isNaN(num) && ((num >= 1 && num <= 5) || (num >= GPA_MIN && num <= GPA_MAX));
       },
-      message: `General average must be a number between ${GPA_MIN} and ${GPA_MAX}.`
+      message: 'General average must be valid for the applicant education level.'
     }
   },
   gradesSummary: { type: String, trim: true, maxlength: 500 },
@@ -100,7 +103,11 @@ const applicantSchema = new Schema({
 
   birthDate: { type: Date, required: true },
   birthPlace: { type: String, trim: true },
-  gender: { type: String, trim: true },
+  gender: {
+    type: String,
+    enum: ['Male', 'Female', 'Other', 'Non-binary', 'Prefer not to say'],
+    trim: true
+  },
   civilStatus: { type: String, trim: true },
   nationality: { type: String, trim: true },
   religion: { type: String, trim: true },
@@ -164,8 +171,8 @@ const applicantSchema = new Schema({
   },
 
   academicDetails: {
-    elementary: { type: schoolRecordSchema, required: true },
-    highSchool: { type: schoolRecordSchema, required: true },
+    elementary: { type: schoolRecordSchema },
+    highSchool: { type: schoolRecordSchema },
     seniorHighSchool: { type: schoolRecordSchema },
     college: { type: schoolRecordSchema }
   },

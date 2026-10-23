@@ -43,8 +43,8 @@ function nextSchoolYear(schoolYear: string) {
   return `${start + 1}-${start + 2}`
 }
 
-function groupKey(g: { course: number; yearLevel: number; section: string }) {
-  return `${g.course}_${g.yearLevel}_${g.section}`
+function groupKey(g: { course: number; yearLevel: number; block: string }) {
+  return `${g.course}_${g.yearLevel}_${g.block}`
 }
 
 function formatDateTime(value?: string | null) {
@@ -196,12 +196,13 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
       try {
         const data = await previewRolloverExceptions({
           fromSchoolYear,
+          semester,
           page,
           limit: 50,
           search,
           course: group.course,
           yearLevel: group.yearLevel,
-          section: group.section,
+          block: group.block,
         })
         setExceptionStudents(data.students)
         setExceptionPage(data.page)
@@ -215,7 +216,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
         setExceptionLoading(false)
       }
     },
-    [fromSchoolYear]
+    [fromSchoolYear, semester]
   )
 
   const handleExpandGroup = (group: RolloverGroupSummary) => {
@@ -245,6 +246,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
       try {
         const data = await previewRolloverExceptions({
           fromSchoolYear,
+          semester,
           page,
           limit: 50,
           search,
@@ -261,7 +263,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
         setGlobalExceptionLoading(false)
       }
     },
-    [fromSchoolYear]
+    [fromSchoolYear, semester]
   )
 
   const handleShowGlobalExceptions = () => {
@@ -322,7 +324,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
       groups = groups.filter((g) =>
         courseShortLabel(g.course).toLowerCase().includes(q) ||
         String(g.yearLevel).includes(q) ||
-        g.section.toLowerCase().includes(q)
+        g.block.toLowerCase().includes(q)
       )
     }
     return groups
@@ -383,7 +385,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
         .map((g) => ({
           course: g.course,
           yearLevel: g.yearLevel,
-          section: g.section,
+          block: g.block,
           action: groupActions[groupKey(g)] || 'promote',
         }))
 
@@ -792,7 +794,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
                                 onChange={(e) => handleStudentOverride(
                                   student.studentId,
                                   e.target.value as RolloverAction,
-                                  groupKey({ course: student.course, yearLevel: student.yearLevel, section: student.section || 'Unassigned' })
+                                  groupKey({ course: student.course, yearLevel: student.yearLevel, block: student.block || 'Unassigned' })
                                 )}
                                 className="rollover-page__decision-select"
                               >
@@ -890,7 +892,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
                     <th></th>
                     <th>Course</th>
                     <th>Year</th>
-                    <th>Section</th>
+                    <th>Block</th>
                     <th>Total</th>
                     <th>Promotion</th>
                     <th>Retained</th>
@@ -921,7 +923,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
                             <td colSpan={11}>
                               <div className="rollover-page__group-detail">
                                 <div className="rollover-page__group-detail-header">
-                                  <h4>Exception Students — {courseShortLabel(group.course)} Year {group.yearLevel} Section {group.section}</h4>
+                                  <h4>Exception Students — {courseShortLabel(group.course)} Year {group.yearLevel} Block {group.block}</h4>
                                   <span className="rollover-page__group-detail-count">{group.needsReview} exception(s)</span>
                                 </div>
                                 <div className="rollover-page__exceptions-search">
@@ -1225,7 +1227,7 @@ function GroupRow({
         </td>
         <td><strong>{courseShortLabel(group.course)}</strong></td>
         <td>{group.yearLevel}</td>
-        <td>{group.section}</td>
+        <td>{group.block}</td>
         <td>{group.total.toLocaleString()}</td>
         <td>{group.eligible.toLocaleString()}</td>
         <td>{group.retained.toLocaleString()}</td>

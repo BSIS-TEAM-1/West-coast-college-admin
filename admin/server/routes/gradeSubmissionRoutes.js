@@ -3,6 +3,9 @@ const router = express.Router();
 const gradeSubmissionController = require('../controllers/gradeSubmissionController');
 const { requireAnyRole } = require('../authorization');
 
+// Class-level route — must be before /:enrollmentId to avoid conflict
+router.get('/class', gradeSubmissionController.getClassSubmissions);
+
 // Grade change requests (registrar review) — must be before /:enrollmentId to avoid conflict
 router.get('/change-requests/list', gradeSubmissionController.listGradeChangeRequests);
 router.get('/change-requests/:requestId', gradeSubmissionController.getGradeChangeRequest);

@@ -20,7 +20,13 @@ export type BlockGroup = {
   yearLevel?: number | string
   semester: Semester
   schoolYear?: string
-  year: number
+  /**
+   * The API returns the school-year string ("2026-2027") here, though some
+   * request bodies send the numeric start year. Use `schoolYearStartYear()`
+   * rather than `Number()` — coercing the full string yields NaN, which Joi
+   * then rejects on the block endpoints (2000..3000).
+   */
+  year: number | string
   section?: string
   curriculumId?: string | null
   studentClassification?: string
@@ -74,14 +80,37 @@ export async function authorizedFetch<T>(path: string, init: RequestInit = {}): 
   return data as T
 }
 
-export function schoolYearFromStartYear(value: number | string) {
-  const startYear = Number(value)
+export function schoolYearFromStartYear(value?: number | string | null) {
+  // `year` is stored as a school-year string ("2026-2027") even though older
+  // call sites treated it as a numeric start year, so accept both shapes.
+  // Number() on the full string is NaN, which produced "SY NaN–NaN".
+  const text = String(value ?? '').trim()
+  const fullYear = text.match(/^(\d{4})\s*[-–—]\s*(\d{4})$/)
+  if (fullYear) return `${fullYear[1]}-${fullYear[2]}`
+  const startYear = Number(text)
   return Number.isFinite(startYear) && startYear > 0 ? `${startYear}-${startYear + 1}` : ''
 }
 
 export function schoolYearStart(schoolYear: string) {
   const match = String(schoolYear || '').trim().match(/^(\d{4})-\d{4}$/)
   return match ? Number(match[1]) : 0
+}
+
+/**
+ * Normalize a BlockGroup year into the numeric start year the API expects.
+ *
+ * `BlockGroup.year` is declared numeric but the API returns the school-year
+ * string ("2026-2027"), so `Number(group.year)` is NaN. Joi rejects that value
+ * on `/api/blocks/assignable-students` (2000..3000) and `JSON.stringify(NaN)`
+ * sends `null` on assign, so the workspace reported "0 assignable students".
+ * Returns 0 when the value is missing or neither shape can be parsed.
+ */
+export function schoolYearStartYear(value?: number | string | null) {
+  const text = String(value ?? '').trim()
+  const full = text.match(/^(\d{4})\s*[-–—]\s*\d{4}$/)
+  if (full) return Number(full[1])
+  const start = Number(text)
+  return Number.isFinite(start) && start >= 2000 && start <= 3000 ? start : 0
 }
 
 export function getDefaultSchoolYear() {

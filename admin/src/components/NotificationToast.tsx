@@ -1,5 +1,6 @@
 import { CheckCircle, XCircle, AlertCircle, X } from 'lucide-react'
 import { useEffect } from 'react'
+import './NotificationToast.css'
 
 type NotificationType = 'success' | 'error' | 'warning'
 

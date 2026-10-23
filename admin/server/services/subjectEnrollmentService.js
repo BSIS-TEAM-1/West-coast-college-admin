@@ -27,6 +27,7 @@
  */
 
 const Enrollment = require('../models/Enrollment');
+const Student = require('../models/Student');
 const Subject = require('../models/Subject');
 const CurriculumSubject = require('../models/CurriculumSubject');
 const BlockGroup = require('../models/BlockGroup');
@@ -238,6 +239,97 @@ async function resolveSuggestedSubjects({ programCode, curriculumVersion, yearLe
 }
 
 /**
+ * Add the applicable curriculum subjects when a student is finalized into a
+ * block. Existing subject entries are deliberately preserved: this fills an
+ * incomplete enrollment without recreating dropped, graded, or manual rows.
+ */
+async function autoAssignCurriculumSubjects({ enrollmentId, curriculumId, actorId, session }) {
+  const enrollmentQuery = Enrollment.findById(enrollmentId);
+  const enrollment = session ? await enrollmentQuery.session(session) : await enrollmentQuery;
+  if (!enrollment) {
+    throw Object.assign(new Error('Enrollment not found for curriculum subject assignment'), { statusCode: 404 });
+  }
+  assertEnrollmentMutable(enrollment, 'subjects');
+
+  const effectiveCurriculumId = curriculumId || enrollment.curriculumId;
+  if (!effectiveCurriculumId) {
+    return { added: [], skipped: [], reason: 'No curriculum is linked to this enrollment' };
+  }
+
+  const placementQuery = CurriculumSubject.find({
+    curriculumId: effectiveCurriculumId,
+    yearLevel: Number(enrollment.yearLevel),
+    semester: enrollment.semester,
+  }).select('subjectId courseNo descriptiveTitle units');
+  if (session) placementQuery.session(session);
+  const placements = await placementQuery.lean();
+
+  const existingSubjectIds = new Set((enrollment.subjects || []).map((entry) => String(entry.subjectId)));
+  const missingPlacements = placements.filter((placement) =>
+    placement.subjectId && !existingSubjectIds.has(String(placement.subjectId))
+  );
+  if (missingPlacements.length === 0) {
+    return { added: [], skipped: [], reason: null };
+  }
+
+  const subjectQuery = Subject.find({
+    _id: { $in: missingPlacements.map((placement) => placement.subjectId) },
+  }).select('_id code title units isActive status');
+  if (session) subjectQuery.session(session);
+  const subjects = await subjectQuery.lean();
+  const subjectById = new Map(subjects.map((subject) => [String(subject._id), subject]));
+
+  const now = new Date();
+  const added = [];
+  const skipped = [];
+  for (const placement of missingPlacements) {
+    const subject = subjectById.get(String(placement.subjectId));
+    if (!subject || subject.isActive === false || subject.status === 'Inactive') {
+      skipped.push(String(placement.subjectId));
+      continue;
+    }
+
+    enrollment.subjects.push({
+      subjectId: subject._id,
+      code: subject.code || placement.courseNo,
+      title: subject.title || placement.descriptiveTitle,
+      units: Number(placement.units ?? subject.units) || 3,
+      schedule: 'TBA',
+      room: 'TBA',
+      instructor: 'TBA',
+      status: 'Enrolled',
+      dateEnrolled: now,
+      dateModified: now,
+      ...(actorId ? { addedBy: actorId } : {}),
+    });
+    added.push({ subjectId: String(subject._id), code: subject.code || placement.courseNo });
+  }
+
+  if (added.length > 0) {
+    if (curriculumId && String(enrollment.curriculumId || '') !== String(curriculumId)) {
+      enrollment.curriculumId = curriculumId;
+    }
+    enrollment.markModified('subjects');
+    if (actorId) enrollment.updatedBy = actorId;
+    await enrollment.save({ session, validateBeforeSave: false });
+    await recordAudit({
+      action: 'CREATE',
+      resourceType: 'ENROLLMENT',
+      resourceId: String(enrollment._id),
+      resourceName: `${enrollment.studentNumber || ''} — ${enrollment.schoolYear} ${enrollment.semester}`.trim(),
+      description: `Automatically assigned ${added.length} curriculum subject(s): ${added.map((entry) => entry.code).join(', ')}`,
+      performedBy: actorId,
+      performedByRole: auditRole(),
+      newValue: { enrollmentId: String(enrollment._id), curriculumId: String(effectiveCurriculumId), subjects: added },
+      status: 'SUCCESS',
+      severity: 'MEDIUM',
+    });
+  }
+
+  return { added, skipped, reason: null };
+}
+
+/**
  * Validate a set of subject ids before they are written into an enrollment.
  *
  * @param {Object} params
@@ -432,27 +524,31 @@ async function validateSubjectSelection({ student, enrollment, subjectIds }) {
     }
 
     // 3. Prerequisites — satisfied by any prior passing attempt.
-    const requiredPrereqs = placement?.prerequisiteSubjectIds?.length
-      ? placement.prerequisiteSubjectIds
-      : (subject.prerequisiteSubjectIds || []);
-    const unmet = requiredPrereqs
-      .map((prereqId) => String(prereqId))
-      .filter((prereqId) => {
-        const attempts = prereqEvidence.get(prereqId) || [];
-        return !attempts.some(isRequirementSatisfied);
-      });
+    // Skip prerequisite validation for Year 1 Semester 1 since there are no prior subjects.
+    const isFirstSemester = placement?.yearLevel === 1 && placement?.semester === '1st';
+    if (!isFirstSemester) {
+      const requiredPrereqs = placement?.prerequisiteSubjectIds?.length
+        ? placement.prerequisiteSubjectIds
+        : (subject.prerequisiteSubjectIds || []);
+      const unmet = requiredPrereqs
+        .map((prereqId) => String(prereqId))
+        .filter((prereqId) => {
+          const attempts = prereqEvidence.get(prereqId) || [];
+          return !attempts.some(isRequirementSatisfied);
+        });
 
-    if (unmet.length > 0) {
-      const labels = unmet
-        .map((prereqId) => prereqCodeById.get(prereqId) || 'a prerequisite subject')
-        .join(', ');
-      result.ok = false;
-      result.reasonCode = REASON.PREREQUISITE_NOT_MET;
-      result.message = `Prerequisite not met for ${subject.code}: ${labels}`;
-      result.requiresOverride = true;
-      result.unmetPrerequisites = unmet;
-      results.push(result);
-      continue;
+      if (unmet.length > 0) {
+        const labels = unmet
+          .map((prereqId) => prereqCodeById.get(prereqId) || 'a prerequisite subject')
+          .join(', ');
+        result.ok = false;
+        result.reasonCode = REASON.PREREQUISITE_NOT_MET;
+        result.message = `Prerequisite not met for ${subject.code}: ${labels}`;
+        result.requiresOverride = true;
+        result.unmetPrerequisites = unmet;
+        results.push(result);
+        continue;
+      }
     }
 
     results.push(result);
@@ -641,6 +737,20 @@ async function dropSubjectFromEnrollment({ enrollment, subjectId, actorId, reaso
   if (actorId) enrollment.updatedBy = actorId;
   await enrollment.save({ session, validateBeforeSave: false });
 
+  // A subject-level drop does not drop the student from the institution.
+  // It changes their academic standing to Irregular for subsequent enrollment.
+  await Student.findByIdAndUpdate(
+    enrollment.studentId,
+    {
+      $set: {
+        lifecycleStatus: 'Irregular',
+        studentStatus: 'Irregular',
+        classification: 'Irregular',
+      },
+    },
+    session ? { session } : undefined
+  );
+
   await recordAudit({
     action: 'DROP',
     resourceType: 'ENROLLMENT',
@@ -825,6 +935,7 @@ module.exports = {
   loadTermSections,
   checkAcademicStanding,
   resolveSuggestedSubjects,
+  autoAssignCurriculumSubjects,
   validateSubjectSelection,
   addSubjectsToEnrollment,
   dropSubjectFromEnrollment,

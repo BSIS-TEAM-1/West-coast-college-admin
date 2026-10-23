@@ -18,6 +18,7 @@ import {
   MoreHorizontal,
   PencilLine,
   Phone,
+  RefreshCw,
   Search,
   ShieldCheck,
   Trash2,
@@ -58,7 +59,7 @@ import {
 } from '../lib/blockAssignmentShared'
 import './StudentManagement.css'
 
-type LifecycleStatus = 'Pending' | 'Enrolled' | 'Not Enrolled' | 'Dropped' | 'Inactive' | 'Graduated' | 'Leave of Absence'
+type LifecycleStatus = 'Pending' | 'Enrolled' | 'Not Enrolled' | 'Irregular' | 'Inactive' | 'Graduated' | 'Leave of Absence'
 type StudentRegistrySort = 'name-asc' | 'name-desc' | 'id-asc' | 'course-asc' | 'year-asc' | 'updated-desc'
 type ProfileTab = 'profile' | 'enrollment' | 'subjects' | 'documents'
 type StudentManagementMode = 'management' | 'assign-block'
@@ -171,8 +172,43 @@ type StudentFormState = {
 }
 
 const YEAR_LEVEL_OPTIONS = [1, 2, 3, 4, 5]
-const LIFECYCLE_OPTIONS: LifecycleStatus[] = ['Pending', 'Enrolled', 'Not Enrolled', 'Dropped', 'Inactive', 'Graduated', 'Leave of Absence']
+const LIFECYCLE_OPTIONS: LifecycleStatus[] = ['Pending', 'Enrolled', 'Not Enrolled', 'Irregular', 'Inactive', 'Graduated', 'Leave of Absence']
 const SEMESTER_OPTIONS: Semester[] = ['1st', '2nd', 'Summer']
+// Statuses that mean the student is already carrying a record for the active
+// term. Matches the server-side convention used by enrollmentGuard,
+// blockEligibilityService and the Enrollment model itself.
+const ACTIVE_ENROLLMENT_STATUSES = ['enrolled', 'pending']
+
+/**
+ * A student counts as already enrolled for the active term only when the
+ * record actually belongs to that term AND carries an active status.
+ *
+ * This deliberately does not fall back to the lifecycle badge or to a COR
+ * check: getCurrentEnrollmentRecord() already scopes the lookup to the
+ * student's current school year and semester and excludes Dropped records,
+ * which is exactly what makes the Enroll action reappear for a student whose
+ * record was dropped.
+ */
+function isEnrolledForActiveTerm(
+  enrollment: EnrollmentRecord | null,
+  term?: { semester?: string; schoolYear?: string }
+) {
+  if (!enrollment) return false
+  const status = String(enrollment.status || '').trim().toLowerCase()
+  if (!ACTIVE_ENROLLMENT_STATUSES.includes(status)) return false
+
+  const expectedYear = String(term?.schoolYear || '').trim()
+  const expectedSemester = String(term?.semester || '').trim()
+  const recordYear = String(enrollment.schoolYear || '').trim()
+  const recordSemester = String(enrollment.semester || '').trim()
+
+  // Only compare when the caller actually has a term to compare against;
+  // without one we fall back to the record's own current-term flag.
+  if (expectedYear && recordYear && recordYear !== expectedYear) return false
+  if (expectedSemester && recordSemester && recordSemester !== expectedSemester) return false
+
+  return enrollment.isCurrent !== false
+}
 
 function formatDate(value?: string | null) {
   if (!value) return 'N/A'
@@ -197,7 +233,7 @@ function lifecycleTone(status: LifecycleStatus): 'neutral' | 'info' | 'success' 
   if (status === 'Pending') return 'warning'
   if (status === 'Enrolled') return 'success'
   if (status === 'Graduated') return 'info'
-  if (status === 'Dropped') return 'danger'
+  if (status === 'Irregular') return 'accent'
   if (status === 'Leave of Absence') return 'accent'
   return 'neutral'
 }
@@ -223,9 +259,10 @@ function normalizeLifecycleStatus(student: Partial<ManagedStudent>): LifecycleSt
   if (LIFECYCLE_OPTIONS.includes(explicit as LifecycleStatus)) {
     return explicit as LifecycleStatus
   }
+  if (explicit === 'Dropped') return 'Irregular'
 
   if (student.isActive === false) return 'Inactive'
-  if (String(student.studentStatus || '').trim().toLowerCase() === 'dropped') return 'Dropped'
+  if (String(student.studentStatus || '').trim().toLowerCase() === 'dropped') return 'Irregular'
   // enrollmentStatus now comes from Enrollment.status (single source of truth)
   if (String(student.enrollmentStatus || '').trim().toLowerCase() === 'enrolled') return 'Enrolled'
   if (String(student.corStatus || '').trim().toLowerCase() === 'verified') return 'Enrolled'
@@ -392,6 +429,7 @@ function StudentProfileDrawer({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [moreOpen, setMoreOpen] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const moreMenuRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -442,6 +480,50 @@ function StudentProfileDrawer({
     }
   }, [profileState])
 
+  // NB: named for the Mongo id, not `studentId` — that name is already taken
+  // below for the formatted student-number display.
+  const profileRecordId = profileState?.student?._id
+  const studentSemester = student?.semester
+  const studentSchoolYear = student?.schoolYear
+
+  // Re-read enrollment status whenever the record or the active term changes,
+  // or when a workflow behind the drawer signals a refresh. Kept out of the
+  // load effect above so enrolling or dropping does not re-fetch the whole
+  // profile and flash the content behind the drawer.
+  useEffect(() => {
+    if (!profileState || !profileRecordId || !studentSchoolYear || !studentSemester) return
+
+    let cancelled = false
+    const recordId = profileRecordId
+    const schoolYear = studentSchoolYear
+    const semester = studentSemester
+
+    // The initial load above already resolves the enrollment; this effect only
+    // needs to re-read it when the student or their active term changes, which
+    // is what makes the Enroll action reappear after a drop or term rollover.
+    const load = async () => {
+      const token = await getStoredToken()
+      if (!token) throw new Error('No authentication token found')
+      const response = await StudentService.getCurrentEnrollment(
+        token,
+        recordId,
+        schoolYear,
+        semester
+      ).catch(() => null)
+      if (!cancelled) setCurrentEnrollment(response ? extractResponseData<EnrollmentRecord>(response) : null)
+    }
+
+    load().catch(() => {
+      // A status read must never block the profile from rendering; the drawer
+      // already surfaces errors raised during the initial load.
+      if (!cancelled) setCurrentEnrollment(null)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [profileState, profileRecordId, studentSemester, studentSchoolYear])
+
   useEffect(() => {
     if (!moreOpen) return
     const handlePointer = (event: PointerEvent) => {
@@ -471,10 +553,54 @@ function StudentProfileDrawer({
     )
   }, [history])
 
+  const handleSyncCurriculumSubjects = async () => {
+    if (!currentEnrollment || !student) return
+    setSyncing(true)
+    setError('')
+    try {
+      const token = await getStoredToken()
+      if (!token) throw new Error('No authentication token found')
+
+      const response = await authorizedFetch<{ success: boolean; message: string; data: any }>(
+        `/api/registrar/students/${student._id}/sync-curriculum-subjects`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enrollmentId: currentEnrollment._id })
+        }
+      )
+
+      if (response.success) {
+        // Reload enrollment to show updated subjects
+        const reloadResponse = await StudentService.getCurrentEnrollment(
+          token,
+          student._id,
+          student.schoolYear,
+          student.semester
+        )
+        setCurrentEnrollment(reloadResponse ? extractResponseData<EnrollmentRecord>(reloadResponse) : null)
+        setError('')
+      }
+    } catch (e: any) {
+      setError(e.message || 'Failed to sync curriculum subjects')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   const totalUnits = useMemo(
     () => (currentEnrollment?.subjects || []).reduce((sum, subject) => sum + (Number(subject.units) || 0), 0),
     [currentEnrollment]
   )
+
+  // Derived from the fetched record rather than the lifecycle badge: a Dropped
+  // student must still see Enroll, so only an active record for the active
+  // term hides it.
+  const activeTermStudent = student || profileState?.student || null
+  const alreadyEnrolled = isEnrolledForActiveTerm(currentEnrollment, {
+    semester: activeTermStudent?.semester,
+    schoolYear: activeTermStudent?.schoolYear
+  })
 
   if (!profileState) return null
 
@@ -560,10 +686,20 @@ function StudentProfileDrawer({
               ))}
             </nav>
             <div className="sd-actions">
-              <button type="button" className="sd-btn sd-btn--primary" onClick={() => onEnroll(activeStudent)}>
-                <BookOpenCheck size={15} />
-                Enroll
-              </button>
+              {/* Hidden once the student already holds an active record for the
+                  current term; it reappears automatically when that record is
+                  dropped or the active term rolls over. */}
+              {alreadyEnrolled ? (
+                <span className="sd-enrolled-flag" title="This student already has an active enrollment for the current term.">
+                  <BookOpenCheck size={15} />
+                  Enrolled
+                </span>
+              ) : (
+                <button type="button" className="sd-btn sd-btn--primary" onClick={() => onEnroll(activeStudent)}>
+                  <BookOpenCheck size={15} />
+                  Enroll
+                </button>
+              )}
               <button type="button" className="sd-btn" onClick={() => onGenerateCor(activeStudent)} title="Generate Certificate of Registration">
                 <FileText size={15} />
                 COR
@@ -638,7 +774,6 @@ function StudentProfileDrawer({
               <div className="sd-grid">
                 <section className="sd-card">
                   <header className="sd-card-head">
-                    <span className="sd-card-icon"><UserRound size={16} /></span>
                     <div>
                       <h3>Personal information</h3>
                       <p>Identity and background</p>
@@ -657,7 +792,6 @@ function StudentProfileDrawer({
 
                 <section className="sd-card">
                   <header className="sd-card-head">
-                    <span className="sd-card-icon"><MapPin size={16} /></span>
                     <div>
                       <h3>Contact and address</h3>
                       <p>How to reach the student</p>
@@ -670,7 +804,6 @@ function StudentProfileDrawer({
                     <div><dt>Permanent</dt><dd>{activeStudent.permanentAddress || 'N/A'}</dd></div>
                   </dl>
                   <div className="sd-subhead">
-                    <ShieldCheck size={14} />
                     Emergency contact
                   </div>
                   <dl className="sd-dl">
@@ -695,7 +828,7 @@ function StudentProfileDrawer({
                     <div><dt>Year</dt><dd>{formatYearLevel(activeStudent.yearLevel)}</dd></div>
                     <div><dt>Block</dt><dd>{formatBlockDisplay(activeStudent.section) || 'Unassigned'}</dd></div>
                     <div><dt>Lifecycle</dt><dd><ToneBadge label={lifecycleStatus} tone={lifecycleToneValue} /></dd></div>
-                    <div><dt>Enrollment</dt><dd>{activeStudent.enrollmentStatus || 'N/A'}</dd></div>
+                    <div><dt>Enrollment</dt><dd>{currentEnrollment?.status || 'Not Enrolled'}</dd></div>
                     <div><dt>Student type</dt><dd>{activeStudent.studentStatus || 'N/A'}</dd></div>
                     <div><dt>Scholarship</dt><dd>{activeStudent.scholarship || 'N/A'}</dd></div>
                     <div><dt>COR</dt><dd><ToneBadge label={corStatusLabel} tone={corToneValue} /></dd></div>
@@ -760,7 +893,22 @@ function StudentProfileDrawer({
                     <h3>Enrolled subjects</h3>
                     <p>{currentEnrollment ? `${currentEnrollment.semester} · ${currentEnrollment.schoolYear}` : 'Active term load'}</p>
                   </div>
-                  <span className="sd-card-count">{subjectCount} subjects · {totalUnits} units</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    {currentEnrollment && (
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
+                        onClick={handleSyncCurriculumSubjects}
+                        disabled={syncing}
+                        title="Sync subjects from curriculum"
+                      >
+                        <RefreshCw size={14} style={{ marginRight: '0.25rem' }} />
+                        {syncing ? 'Syncing...' : 'Sync Curriculum'}
+                      </button>
+                    )}
+                    <span className="sd-card-count">{subjectCount} subjects · {totalUnits} units</span>
+                  </div>
                 </header>
                 {currentEnrollment?.subjects?.length ? (
                   <ul className="sd-list">
@@ -1184,12 +1332,13 @@ function EnrollmentModal({
 
     ;(async () => {
       try {
+        // Use curriculum-suggestions endpoint which properly filters by curriculum/yearLevel/semester
         const query = new URLSearchParams({
-          course: String(academicContext.sharedCourse),
+          programCode: String(academicContext.sharedCourse),
           yearLevel: String(academicContext.sharedYearLevel),
           semester
         })
-        const response = await authorizedFetch<{ success: boolean; data: SubjectCatalogItem[] }>(`/registrar/subjects?${query.toString()}`)
+        const response = await authorizedFetch<{ success: boolean; data: SubjectCatalogItem[] }>(`/registrar/curriculum-suggestions?${query.toString()}`)
         if (!cancelled) {
           setSubjects(response.data || [])
         }
@@ -1261,7 +1410,7 @@ function EnrollmentModal({
           await StudentService.updateStudent(token, student._id, {
             schoolYear,
             semester,
-            lifecycleStatus: ['Dropped', 'Inactive', 'Graduated'].includes(currentLifecycle) ? currentLifecycle : 'Pending'
+            lifecycleStatus: ['Irregular', 'Inactive', 'Graduated'].includes(currentLifecycle) ? currentLifecycle : 'Pending'
           })
           successCount += 1
         } catch (studentError) {
@@ -1550,7 +1699,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
   const stats = useMemo(() => {
     const totalStudents = students.length
     const pendingEnrollment = students.filter((student) => normalizeLifecycleStatus(student) === 'Pending').length
-    const activeStudents = students.filter((student) => student.isActive !== false && !['Inactive', 'Dropped', 'Graduated'].includes(normalizeLifecycleStatus(student))).length
+    const activeStudents = students.filter((student) => student.isActive !== false && !['Inactive', 'Graduated'].includes(normalizeLifecycleStatus(student))).length
     const inactiveStudents = students.filter((student) => normalizeLifecycleStatus(student) === 'Inactive' || student.isActive === false).length
     const graduatingStudents = students.filter((student) => Number(student.yearLevel) >= 4 && normalizeLifecycleStatus(student) !== 'Graduated').length
     return { totalStudents, pendingEnrollment, activeStudents, inactiveStudents, graduatingStudents }
@@ -2022,17 +2171,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
                 <Blocks size={16} />
                 Assign Selected
               </button>
-            ) : (
-              <button
-                type="button"
-                className="student-workspace__secondary-button"
-                onClick={() => openEnrollmentWorkflow(selectedStudents)}
-                disabled={!selectedStudents.length}
-              >
-                <Layers3 size={16} />
-                Bulk Actions
-              </button>
-            )}
+            ) : null}
             <button type="button" className="student-workspace__secondary-button" onClick={handleExportRoster}>
               <Download size={16} />
               Export
@@ -2343,6 +2482,9 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
           onSaved={async (text) => {
             await loadStudents('refresh')
             setSelectedStudentIds([])
+            // Re-read the open profile so the Enroll action reflects the new
+            // enrollment right away instead of waiting for a manual reopen.
+            setProfileState((current) => (current ? { ...current } : current))
             setNotification({ type: 'success', title: 'Success', message: text || 'Enrollment completed successfully.' })
           }}
         />

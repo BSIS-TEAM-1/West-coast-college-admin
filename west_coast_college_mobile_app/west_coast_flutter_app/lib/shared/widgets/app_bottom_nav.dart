@@ -4,50 +4,55 @@ import '../../../core/theme/app_dimensions.dart';
 import '../../../core/theme/theme_colors.dart';
 
 class AppBottomNav extends StatelessWidget {
-  const AppBottomNav({
-    super.key,
-    required this.currentPath,
-  });
+  const AppBottomNav({super.key, required this.currentPath});
 
   final String currentPath;
 
   @override
   Widget build(BuildContext context) {
     final colors = ThemeColors.of(context);
-    return NavigationBar(
-      elevation: AppDimensions.elevationMedium,
-      backgroundColor: colors.surface,
-      destinations: const [
-        NavigationDestination(
-          icon: Icon(Icons.home_outlined),
-          selectedIcon: Icon(Icons.home),
-          label: 'Home',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.calendar_today_outlined),
-          selectedIcon: Icon(Icons.calendar_today),
-          label: 'Schedule',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.school_outlined),
-          selectedIcon: Icon(Icons.school),
-          label: 'Grades',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.notifications_outlined),
-          selectedIcon: Icon(Icons.notifications),
-          label: 'Notif',
-        ),
-        NavigationDestination(
-          icon: Icon(Icons.person_outlined),
-          selectedIcon: Icon(Icons.person),
-          label: 'Profile',
-        ),
-      ],
-      selectedIndex: _getSelectedIndex(currentPath),
-      onDestinationSelected: (index) {
-        _navigateToDestination(context, index);
-      },
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.surface,
+        border: Border(top: BorderSide(color: colors.border)),
+      ),
+      child: NavigationBar(
+        height: AppDimensions.bottomNavHeight,
+        elevation: 0,
+        backgroundColor: colors.surface,
+        labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.calendar_today_outlined),
+            selectedIcon: Icon(Icons.calendar_today),
+            label: 'Schedule',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.school_outlined),
+            selectedIcon: Icon(Icons.school),
+            label: 'Grades',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.notifications_outlined),
+            selectedIcon: Icon(Icons.notifications),
+            label: 'Notif',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outlined),
+            selectedIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+        ],
+        selectedIndex: _getSelectedIndex(currentPath),
+        onDestinationSelected: (index) {
+          _navigateToDestination(context, index);
+        },
+      ),
     );
   }
 
