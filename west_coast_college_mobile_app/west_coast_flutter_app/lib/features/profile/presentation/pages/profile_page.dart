@@ -40,109 +40,158 @@ class ProfilePage extends ConsumerWidget {
     );
   }
 
-  Widget _buildBody(BuildContext context, WidgetRef ref, ProfileState state, ThemeColors colors) {
+  Widget _buildBody(
+    BuildContext context,
+    WidgetRef ref,
+    ProfileState state,
+    ThemeColors colors,
+  ) {
     return switch (state) {
-      ProfileLoading() => Center(child: CircularProgressIndicator(color: colors.textBold)),
+      ProfileLoading() => Center(
+        child: CircularProgressIndicator(color: colors.textBold),
+      ),
       ProfileFailed(:final message) => Center(
-          child: ErrorState(
-            message: message,
-            onRetry: () => ref.read(profileControllerProvider.notifier).load(),
-          ),
+        child: ErrorState(
+          message: message,
+          onRetry: () => ref.read(profileControllerProvider.notifier).load(),
         ),
+      ),
       ProfileLoaded(:final profile) => RefreshIndicator(
-          onRefresh: () => ref.read(profileControllerProvider.notifier).refresh(),
-          child: ListView(
-            padding: const EdgeInsets.all(AppDimensions.md),
-            children: [
-              _ProfilePictureCard(profile: profile, colors: colors),
-              const SizedBox(height: AppDimensions.lg),
-              _SectionCard(
-                title: 'Academic Information',
-                colors: colors,
-                children: [
-                  _InfoRow('Student Number', profile.studentNumber, colors),
-                  _InfoRow('Program', _courseLabel(profile.course), colors),
-                  if (profile.major != null) _InfoRow('Major', profile.major!, colors),
-                  _InfoRow('Year Level', 'Year ${profile.yearLevel}', colors),
-                  if (profile.section != null) _InfoRow('Section', profile.section!, colors),
-                  if (profile.semester != null) _InfoRow('Semester', profile.semester!, colors),
-                  if (profile.schoolYear != null) _InfoRow('School Year', profile.schoolYear!, colors),
-                  if (profile.studentStatus != null)
-                    _InfoRowWithBadge('Student Status', profile.studentStatus!, _statusTone(profile.studentStatus!), colors),
-                  if (profile.enrollmentStatus != null)
-                    _InfoRow('Enrollment Status', profile.enrollmentStatus!, colors),
-                  if (profile.scholarship != null && profile.scholarship!.isNotEmpty)
-                    _InfoRow('Scholarship', profile.scholarship!, colors),
-                ],
-              ),
-              const SizedBox(height: AppDimensions.md),
-              _SectionCard(
-                title: 'Personal Information',
-                colors: colors,
-                children: [
-                  _InfoRow('Full Name', profile.fullName, colors),
-                  if (profile.birthDate != null)
-                    _InfoRow('Birth Date', DateFormat('MMM d, y').format(profile.birthDate!), colors),
-                  if (profile.birthPlace != null) _InfoRow('Birth Place', profile.birthPlace!, colors),
-                  if (profile.gender != null) _InfoRow('Gender', profile.gender!, colors),
-                  if (profile.civilStatus != null) _InfoRow('Civil Status', profile.civilStatus!, colors),
-                  if (profile.nationality != null) _InfoRow('Nationality', profile.nationality!, colors),
-                  if (profile.religion != null) _InfoRow('Religion', profile.religion!, colors),
-                ],
-              ),
-              const SizedBox(height: AppDimensions.md),
-              _SectionCard(
-                title: 'Contact Information',
-                colors: colors,
-                children: [
-                  _InfoRow('Email', profile.email, colors),
-                  if (profile.contactNumber != null) _InfoRow('Contact Number', profile.contactNumber!, colors),
-                  if (profile.address != null) _InfoRow('Address', profile.address!, colors),
-                  if (profile.permanentAddress != null) _InfoRow('Permanent Address', profile.permanentAddress!, colors),
-                ],
-              ),
-              if (profile.emergencyContact != null) ...[
-                const SizedBox(height: AppDimensions.md),
-                _SectionCard(
-                  title: 'Emergency Contact',
-                  colors: colors,
-                  children: [
-                    _InfoRow('Name', profile.emergencyContact!.name, colors),
-                    _InfoRow('Relationship', profile.emergencyContact!.relationship, colors),
-                    _InfoRow('Contact Number', profile.emergencyContact!.contactNumber, colors),
-                    if (profile.emergencyContact!.address != null)
-                      _InfoRow('Address', profile.emergencyContact!.address!, colors),
-                  ],
-                ),
+        onRefresh: () => ref.read(profileControllerProvider.notifier).refresh(),
+        child: ListView(
+          padding: const EdgeInsets.all(AppDimensions.md),
+          children: [
+            _ProfilePictureCard(profile: profile, colors: colors),
+            const SizedBox(height: AppDimensions.lg),
+            _SectionCard(
+              title: 'Academic Information',
+              colors: colors,
+              children: [
+                _InfoRow('Student Number', profile.studentNumber, colors),
+                _InfoRow('Program', _courseLabel(profile.course), colors),
+                if (profile.major != null)
+                  _InfoRow('Major', profile.major!, colors),
+                _InfoRow('Year Level', 'Year ${profile.yearLevel}', colors),
+                if (profile.section != null)
+                  _InfoRow('Section', profile.section!, colors),
+                if (profile.semester != null)
+                  _InfoRow('Semester', profile.semester!, colors),
+                if (profile.schoolYear != null)
+                  _InfoRow('School Year', profile.schoolYear!, colors),
+                if (profile.studentStatus != null)
+                  _InfoRowWithBadge(
+                    'Student Status',
+                    profile.studentStatus!,
+                    _statusTone(profile.studentStatus!),
+                    colors,
+                  ),
+                if (profile.enrollmentStatus != null)
+                  _InfoRow(
+                    'Enrollment Status',
+                    profile.enrollmentStatus!,
+                    colors,
+                  ),
+                if (profile.scholarship != null &&
+                    profile.scholarship!.isNotEmpty)
+                  _InfoRow('Scholarship', profile.scholarship!, colors),
               ],
-              const SizedBox(height: AppDimensions.lg),
-              _EditProfileButton(profile: profile, colors: colors),
+            ),
+            const SizedBox(height: AppDimensions.md),
+            _SectionCard(
+              title: 'Personal Information',
+              colors: colors,
+              children: [
+                _InfoRow('Full Name', profile.fullName, colors),
+                if (profile.birthDate != null)
+                  _InfoRow(
+                    'Birth Date',
+                    DateFormat('MMM d, y').format(profile.birthDate!),
+                    colors,
+                  ),
+                if (profile.birthPlace != null)
+                  _InfoRow('Birth Place', profile.birthPlace!, colors),
+                if (profile.gender != null)
+                  _InfoRow('Gender', profile.gender!, colors),
+                if (profile.civilStatus != null)
+                  _InfoRow('Civil Status', profile.civilStatus!, colors),
+                if (profile.nationality != null)
+                  _InfoRow('Nationality', profile.nationality!, colors),
+                if (profile.religion != null)
+                  _InfoRow('Religion', profile.religion!, colors),
+              ],
+            ),
+            const SizedBox(height: AppDimensions.md),
+            _SectionCard(
+              title: 'Contact Information',
+              colors: colors,
+              children: [
+                _InfoRow('Email', profile.email, colors),
+                if (profile.contactNumber != null)
+                  _InfoRow('Contact Number', profile.contactNumber!, colors),
+                if (profile.address != null)
+                  _InfoRow('Address', profile.address!, colors),
+                if (profile.permanentAddress != null)
+                  _InfoRow(
+                    'Permanent Address',
+                    profile.permanentAddress!,
+                    colors,
+                  ),
+              ],
+            ),
+            if (profile.emergencyContact != null) ...[
               const SizedBox(height: AppDimensions.md),
-              _SettingsButton(colors: colors),
-              const SizedBox(height: AppDimensions.lg),
-              _CorCard(profile: profile, colors: colors),
-              const SizedBox(height: AppDimensions.md),
-              _LogoutButton(colors: colors),
-              const SizedBox(height: AppDimensions.xl),
+              _SectionCard(
+                title: 'Emergency Contact',
+                colors: colors,
+                children: [
+                  _InfoRow('Name', profile.emergencyContact!.name, colors),
+                  _InfoRow(
+                    'Relationship',
+                    profile.emergencyContact!.relationship,
+                    colors,
+                  ),
+                  _InfoRow(
+                    'Contact Number',
+                    profile.emergencyContact!.contactNumber,
+                    colors,
+                  ),
+                  if (profile.emergencyContact!.address != null)
+                    _InfoRow(
+                      'Address',
+                      profile.emergencyContact!.address!,
+                      colors,
+                    ),
+                ],
+              ),
             ],
-          ),
+            const SizedBox(height: AppDimensions.lg),
+            _EditProfileButton(profile: profile, colors: colors),
+            const SizedBox(height: AppDimensions.md),
+            _SettingsButton(colors: colors),
+            const SizedBox(height: AppDimensions.lg),
+            _CorCard(profile: profile, colors: colors),
+            const SizedBox(height: AppDimensions.md),
+            _LogoutButton(colors: colors),
+            const SizedBox(height: AppDimensions.xl),
+          ],
         ),
+      ),
     };
   }
 
   String _courseLabel(int code) => switch (code) {
-        101 => 'BEED',
-        102 => 'BSEd-English',
-        103 => 'BSEd-Math',
-        201 => 'BSBA-HRM',
-        _ => 'Course $code',
-      };
+    101 => 'BEED',
+    102 => 'BSEd-English',
+    103 => 'BSEd-Math',
+    201 => 'BSBA-HRM',
+    _ => 'Course $code',
+  };
 
   StatusTone _statusTone(String status) => switch (status.toLowerCase()) {
-        'enrolled' => StatusTone.success,
-        'pending' => StatusTone.warning,
-        _ => StatusTone.neutral,
-      };
+    'enrolled' => StatusTone.success,
+    'pending' => StatusTone.warning,
+    _ => StatusTone.neutral,
+  };
 }
 
 /// Profile picture card. Students can upload or update their profile picture.
@@ -152,17 +201,18 @@ class _ProfilePictureCard extends ConsumerStatefulWidget {
   final ThemeColors colors;
 
   @override
-  ConsumerState<_ProfilePictureCard> createState() => _ProfilePictureCardState();
+  ConsumerState<_ProfilePictureCard> createState() =>
+      _ProfilePictureCardState();
 }
 
 class _ProfilePictureCardState extends ConsumerState<_ProfilePictureCard> {
   final ImagePicker _picker = ImagePicker();
 
   bool get _hasPicture =>
-      widget.profile.profilePictureUrl != null && widget.profile.profilePictureUrl!.isNotEmpty;
+      widget.profile.profilePictureUrl != null &&
+      widget.profile.profilePictureUrl!.isNotEmpty;
 
   Future<void> _pickAndUpload() async {
-
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
       builder: (ctx) => SafeArea(
@@ -266,11 +316,18 @@ class _ProfilePictureCardState extends ConsumerState<_ProfilePictureCard> {
         children: [
           Row(
             children: [
-              Icon(Icons.account_circle_outlined, color: colors.textBold, size: 20),
+              Icon(
+                Icons.account_circle_outlined,
+                color: colors.textBold,
+                size: 20,
+              ),
               const SizedBox(width: AppDimensions.sm),
               Text(
                 'Profile Picture',
-                style: AppTextStyles.headlineSmall.copyWith(fontSize: 15, color: colors.textBold),
+                style: AppTextStyles.headlineSmall.copyWith(
+                  fontSize: 15,
+                  color: colors.textBold,
+                ),
               ),
             ],
           ),
@@ -289,8 +346,12 @@ class _ProfilePictureCardState extends ConsumerState<_ProfilePictureCard> {
                 ),
                 const SizedBox(height: AppDimensions.md),
                 Text(
-                  hasPicture ? 'Tap to change your profile picture' : 'Tap to add a profile picture',
-                  style: AppTextStyles.bodyMedium.copyWith(color: colors.textPrimary),
+                  hasPicture
+                      ? 'Tap to change your profile picture'
+                      : 'Tap to add a profile picture',
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: colors.textPrimary,
+                  ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: AppDimensions.md),
@@ -299,7 +360,11 @@ class _ProfilePictureCardState extends ConsumerState<_ProfilePictureCard> {
                   child: FilledButton.icon(
                     onPressed: _pickAndUpload,
                     icon: const Icon(Icons.add_a_photo_outlined, size: 18),
-                    label: Text(hasPicture ? 'Change Profile Picture' : 'Add Profile Picture'),
+                    label: Text(
+                      hasPicture
+                          ? 'Change Profile Picture'
+                          : 'Add Profile Picture',
+                    ),
                   ),
                 ),
               ],
@@ -312,7 +377,11 @@ class _ProfilePictureCardState extends ConsumerState<_ProfilePictureCard> {
 }
 
 class _SectionCard extends StatelessWidget {
-  const _SectionCard({required this.title, required this.colors, required this.children});
+  const _SectionCard({
+    required this.title,
+    required this.colors,
+    required this.children,
+  });
   final String title;
   final ThemeColors colors;
   final List<Widget> children;
@@ -329,8 +398,19 @@ class _SectionCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(AppDimensions.md, AppDimensions.md, AppDimensions.md, AppDimensions.sm),
-            child: Text(title, style: AppTextStyles.headlineSmall.copyWith(fontSize: 15, color: colors.textBold)),
+            padding: const EdgeInsets.fromLTRB(
+              AppDimensions.md,
+              AppDimensions.md,
+              AppDimensions.md,
+              AppDimensions.sm,
+            ),
+            child: Text(
+              title,
+              style: AppTextStyles.headlineSmall.copyWith(
+                fontSize: 15,
+                color: colors.textBold,
+              ),
+            ),
           ),
           Divider(height: 1, color: colors.divider),
           ...children,
@@ -349,15 +429,28 @@ class _InfoRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppDimensions.md, vertical: AppDimensions.sm),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppDimensions.md,
+        vertical: AppDimensions.sm,
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
             width: 120,
-            child: Text(label, style: AppTextStyles.bodySmall.copyWith(color: colors.textMuted)),
+            child: Text(
+              label,
+              style: AppTextStyles.bodySmall.copyWith(color: colors.textMuted),
+            ),
           ),
-          Expanded(child: Text(value, style: AppTextStyles.bodyMedium.copyWith(color: colors.textPrimary))),
+          Expanded(
+            child: Text(
+              value,
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: colors.textPrimary,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -374,13 +467,19 @@ class _InfoRowWithBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppDimensions.md, vertical: AppDimensions.sm),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppDimensions.md,
+        vertical: AppDimensions.sm,
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           SizedBox(
             width: 120,
-            child: Text(label, style: AppTextStyles.bodySmall.copyWith(color: colors.textMuted)),
+            child: Text(
+              label,
+              style: AppTextStyles.bodySmall.copyWith(color: colors.textMuted),
+            ),
           ),
           StatusBadge(label: value, tone: tone),
         ],
@@ -420,16 +519,16 @@ class _CorCardState extends ConsumerState<_CorCard> {
       await file.writeAsBytes(bytes);
       if (mounted) {
         debugPrint('[COR] Opening share sheet');
-        await Share.shareXFiles(
-          [XFile(file.path)],
-          text: 'Certificate of Registration — ${widget.profile.fullName}',
-        );
+        await Share.shareXFiles([
+          XFile(file.path),
+        ], text: 'Certificate of Registration — ${widget.profile.fullName}');
       }
     } catch (e) {
       debugPrint('[COR] FAILED: $e');
       if (mounted) {
         setState(() {
-          _error = 'We couldn\'t fetch your COR. Please check your connection and try again.';
+          _error =
+              'We couldn\'t fetch your COR. Please check your connection and try again.';
         });
       }
     } finally {
@@ -456,9 +555,20 @@ class _CorCardState extends ConsumerState<_CorCard> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Certificate of Registration', style: AppTextStyles.bodyMedium.copyWith(fontWeight: FontWeight.w700, color: widget.colors.textPrimary)),
+                    Text(
+                      'Certificate of Registration',
+                      style: AppTextStyles.bodyMedium.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: widget.colors.textPrimary,
+                      ),
+                    ),
                     if (widget.profile.corStatus != null)
-                      Text('Status: ${widget.profile.corStatus}', style: AppTextStyles.caption.copyWith(color: widget.colors.textMuted)),
+                      Text(
+                        'Status: ${widget.profile.corStatus}',
+                        style: AppTextStyles.caption.copyWith(
+                          color: widget.colors.textMuted,
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -466,7 +576,10 @@ class _CorCardState extends ConsumerState<_CorCard> {
           ),
           if (_error != null) ...[
             const SizedBox(height: AppDimensions.sm),
-            Text(_error!, style: AppTextStyles.error.copyWith(color: widget.colors.error)),
+            Text(
+              _error!,
+              style: AppTextStyles.error.copyWith(color: widget.colors.error),
+            ),
           ],
           const SizedBox(height: AppDimensions.sm),
           SizedBox(
@@ -477,7 +590,10 @@ class _CorCardState extends ConsumerState<_CorCard> {
                   ? const SizedBox(
                       width: 16,
                       height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: _onPrimaryTint),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: _onPrimaryTint,
+                      ),
                     )
                   : const Icon(Icons.share_outlined, size: 18),
               label: Text(_busy ? 'Preparing…' : 'Share COR'),
@@ -506,6 +622,9 @@ class _LogoutButton extends ConsumerWidget {
         style: OutlinedButton.styleFrom(
           side: BorderSide(color: colors.error),
           padding: const EdgeInsets.symmetric(vertical: AppDimensions.sm),
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(2)),
+          ),
         ),
       ),
     );
@@ -518,13 +637,27 @@ class _LogoutButton extends ConsumerWidget {
         title: const Text('Log Out'),
         content: const Text('Are you sure you want to log out of WCConnect?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-          FilledButton(
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            style: TextButton.styleFrom(
+              shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.all(Radius.circular(2)),
+              ),
+            ),
+            child: const Text('Cancel'),
+          ),
+          OutlinedButton(
             onPressed: () {
               Navigator.pop(dialogContext);
               ref.read(logoutActionProvider)(ref);
             },
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: colors.error,
+              side: BorderSide(color: colors.error),
+              shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.all(Radius.circular(2)),
+              ),
+            ),
             child: const Text('Log Out'),
           ),
         ],
@@ -546,7 +679,9 @@ class _EditProfileButton extends StatelessWidget {
       child: OutlinedButton.icon(
         onPressed: () async {
           final result = await Navigator.of(context).push<bool>(
-            MaterialPageRoute(builder: (_) => EditProfilePage(profile: profile)),
+            MaterialPageRoute(
+              builder: (_) => EditProfilePage(profile: profile),
+            ),
           );
           if (result == true && context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -568,7 +703,9 @@ class _EditProfileButton extends StatelessWidget {
         ),
         style: OutlinedButton.styleFrom(
           side: BorderSide(color: colors.textBold),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppDimensions.radiusSmall)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
+          ),
         ),
       ),
     );
@@ -597,7 +734,9 @@ class _SettingsButton extends StatelessWidget {
         ),
         style: OutlinedButton.styleFrom(
           side: BorderSide(color: colors.textBold),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppDimensions.radiusSmall)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppDimensions.radiusSmall),
+          ),
         ),
       ),
     );

@@ -28,12 +28,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   Future<void> _submit() async {
     ref.read(authControllerProvider.notifier).clearError();
     if (!(_formKey.currentState?.validate() ?? false)) return;
-
     FocusScope.of(context).unfocus();
-    await ref.read(authControllerProvider.notifier).login(
-          _studentNumberController.text.trim(),
-          _passwordController.text,
-        );
+    await ref
+        .read(authControllerProvider.notifier)
+        .login(_studentNumberController.text.trim(), _passwordController.text);
   }
 
   @override
@@ -42,77 +40,52 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     final colors = ThemeColors.of(context);
 
     return Scaffold(
+      backgroundColor: colors.backgroundSoft,
       body: SafeArea(
         child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: AppDimensions.lg),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: IntrinsicHeight(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Spacer(flex: 2),
-                      _buildBrandHeader(colors),
-                      const SizedBox(height: AppDimensions.xl),
-                      _buildForm(authState, colors),
-                      const Spacer(flex: 3),
-                      _buildFooter(colors),
-                      const SizedBox(height: AppDimensions.md),
-                    ],
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.all(AppDimensions.lg),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  child: IntrinsicHeight(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Spacer(),
+                        _BrandHeader(colors: colors),
+                        const SizedBox(height: AppDimensions.lg),
+                        Container(
+                          padding: const EdgeInsets.all(AppDimensions.lg),
+                          decoration: BoxDecoration(
+                            color: colors.surface,
+                            borderRadius: BorderRadius.circular(
+                              AppDimensions.radiusLarge,
+                            ),
+                            border: Border.all(color: colors.border),
+                          ),
+                          child: _buildForm(authState, colors),
+                        ),
+                        const SizedBox(height: AppDimensions.lg),
+                        Text(
+                          "Need help signing in? Contact the Registrar's Office.",
+                          textAlign: TextAlign.center,
+                          style: AppTextStyles.caption.copyWith(
+                            color: colors.textMuted,
+                          ),
+                        ),
+                        const SizedBox(height: AppDimensions.sm),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  /// Hero-style header matching the landing page: dark navy gradient
-  /// background with the WCC logo and gold-accented title.
-  Widget _buildBrandHeader(ThemeColors colors) {
-    return Column(
-      children: [
-        // Logo image
-        ClipRRect(
-          borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
-          child: Image.asset(
-            'assets/images/logo.png',
-            width: 88,
-            height: 88,
-            fit: BoxFit.contain,
-            errorBuilder: (context, error, stackTrace) => Container(
-              width: 88,
-              height: 88,
-              decoration: BoxDecoration(
-                color: colors.primary,
-                borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
-              ),
-              child: Icon(Icons.school, size: 44, color: colors.onPrimary),
             ),
           ),
         ),
-        const SizedBox(height: AppDimensions.md),
-        // Kicker in gold (landing page style)
-        Text(
-          'WEST COAST COLLEGE',
-          textAlign: TextAlign.center,
-          style: AppTextStyles.labelSmall.copyWith(
-            color: colors.gold,
-            fontWeight: FontWeight.w900,
-            letterSpacing: 2.0,
-          ),
-        ),
-        const SizedBox(height: AppDimensions.xs),
-        Text(
-          'Official Student Portal',
-          textAlign: TextAlign.center,
-          style: AppTextStyles.bodySmall.copyWith(color: colors.textMuted),
-        ),
-      ],
+      ),
     );
   }
 
@@ -122,11 +95,26 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Text(
+            'Welcome back',
+            style: AppTextStyles.headlineSmall.copyWith(color: colors.textBold),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Sign in to view your academic information.',
+            style: AppTextStyles.bodySmall.copyWith(color: colors.textMuted),
+          ),
+          const SizedBox(height: AppDimensions.lg),
           if (authState.errorMessage != null) ...[
-            _buildErrorBanner(authState.errorMessage!, colors),
+            _ErrorBanner(message: authState.errorMessage!, colors: colors),
             const SizedBox(height: AppDimensions.md),
           ],
-          Text('Student Number', style: AppTextStyles.labelLarge.copyWith(color: colors.textSecondary)),
+          Text(
+            'Student number',
+            style: AppTextStyles.labelLarge.copyWith(
+              color: colors.textSecondary,
+            ),
+          ),
           const SizedBox(height: AppDimensions.xs),
           TextFormField(
             controller: _studentNumberController,
@@ -137,15 +125,17 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               hintText: 'e.g. 202610140200',
               prefixIcon: Icon(Icons.badge_outlined),
             ),
-            validator: (value) {
-              if (value == null || value.trim().isEmpty) {
-                return 'Enter your student number.';
-              }
-              return null;
-            },
+            validator: (value) => value == null || value.trim().isEmpty
+                ? 'Enter your student number.'
+                : null,
           ),
           const SizedBox(height: AppDimensions.md),
-          Text('Password', style: AppTextStyles.labelLarge.copyWith(color: colors.textSecondary)),
+          Text(
+            'Password',
+            style: AppTextStyles.labelLarge.copyWith(
+              color: colors.textSecondary,
+            ),
+          ),
           const SizedBox(height: AppDimensions.xs),
           TextFormField(
             controller: _passwordController,
@@ -156,39 +146,45 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               hintText: 'Enter your password',
               prefixIcon: const Icon(Icons.lock_outline),
               suffixIcon: IconButton(
-                icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
-                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                icon: Icon(
+                  _obscurePassword
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                ),
+                onPressed: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
               ),
             ),
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Enter your password.';
-              }
-              return null;
-            },
+            validator: (value) =>
+                value == null || value.isEmpty ? 'Enter your password.' : null,
             onFieldSubmitted: (_) => _submit(),
           ),
           const SizedBox(height: AppDimensions.lg),
-          // Gold button matching the landing page's .landing-gold-btn
           SizedBox(
             height: AppDimensions.buttonHeightLarge,
             child: FilledButton(
               onPressed: authState.isSubmitting ? null : _submit,
               style: FilledButton.styleFrom(
-                backgroundColor: colors.gold,
-                foregroundColor: Colors.white,
-                disabledBackgroundColor: colors.gold.withValues(alpha: 0.6),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(2)),
+                backgroundColor: colors.primary,
+                foregroundColor: colors.onPrimary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(
+                    AppDimensions.radiusMedium,
+                  ),
+                ),
               ),
               child: authState.isSubmitting
                   ? const SizedBox(
                       width: AppDimensions.progressIndicatorSize,
                       height: AppDimensions.progressIndicatorSize,
-                      child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.4,
+                        color: Colors.white,
+                      ),
                     )
                   : const Text(
-                      'LOG IN',
-                      style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.2),
+                      'Sign in',
+                      style: TextStyle(fontWeight: FontWeight.w700),
                     ),
             ),
           ),
@@ -196,30 +192,90 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       ),
     );
   }
+}
 
-  Widget _buildErrorBanner(String message, ThemeColors colors) {
+class _BrandHeader extends StatelessWidget {
+  const _BrandHeader({required this.colors});
+  final ThemeColors colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 56,
+          height: 56,
+          padding: const EdgeInsets.all(5),
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+            border: Border.all(color: colors.border),
+          ),
+          child: Image.asset(
+            'assets/images/logo.png',
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) =>
+                Icon(Icons.school, color: colors.primary),
+          ),
+        ),
+        const SizedBox(width: AppDimensions.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'WEST COAST COLLEGE',
+                style: AppTextStyles.labelSmall.copyWith(
+                  color: colors.gold,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.35,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                'Student Portal',
+                style: AppTextStyles.headlineMedium.copyWith(
+                  color: colors.textBold,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ErrorBanner extends StatelessWidget {
+  const _ErrorBanner({required this.message, required this.colors});
+  final String message;
+  final ThemeColors colors;
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(AppDimensions.sm),
       decoration: BoxDecoration(
-        color: colors.error.withValues(alpha: 0.08),
+        color: colors.error.withValues(alpha: .08),
         borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
-        border: Border.all(color: colors.error.withValues(alpha: 0.25)),
+        border: Border.all(color: colors.error.withValues(alpha: .25)),
       ),
       child: Row(
         children: [
-          Icon(Icons.error_outline, color: colors.error, size: AppDimensions.iconMedium),
+          Icon(
+            Icons.error_outline,
+            color: colors.error,
+            size: AppDimensions.iconMedium,
+          ),
           const SizedBox(width: AppDimensions.sm),
-          Expanded(child: Text(message, style: AppTextStyles.error.copyWith(color: colors.error))),
+          Expanded(
+            child: Text(
+              message,
+              style: AppTextStyles.error.copyWith(color: colors.error),
+            ),
+          ),
         ],
       ),
-    );
-  }
-
-  Widget _buildFooter(ThemeColors colors) {
-    return Text(
-      "Having trouble logging in? Contact the Registrar's Office.",
-      textAlign: TextAlign.center,
-      style: AppTextStyles.caption.copyWith(color: colors.textMuted),
     );
   }
 }

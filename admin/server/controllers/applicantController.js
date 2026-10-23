@@ -57,6 +57,13 @@ function validateGpa(value) {
   return !isNaN(num) && num >= GPA_MIN && num <= GPA_MAX;
 }
 
+function validateCollegeGpa(value) {
+  const v = cleanString(value);
+  if (!v) return true;
+  const num = parseFloat(v);
+  return !isNaN(num) && num >= 1 && num <= 5;
+}
+
 function validateSchoolName(value) {
   const v = cleanString(value);
   if (!v) return false;
@@ -108,26 +115,44 @@ function collectValidationErrors(body) {
   }
 
   const acad = body.academicDetails || {};
-  const elem = acad.elementary || {};
-  if (!validateSchoolName(elem.schoolName)) {
-    errors.push('Please enter a valid elementary school name (letters, numbers, spaces, and basic punctuation only, max 150 characters).');
-  }
-  if (!YEAR_RE.test(cleanString(elem.yearGraduated))) {
-    errors.push('Elementary year graduated must be a 4-digit year.');
-  }
-  if (cleanString(elem.generalAverage) && !validateGpa(elem.generalAverage)) {
-    errors.push(`Elementary general average must be a number between ${GPA_MIN} and ${GPA_MAX}.`);
-  }
+  const isTransferee = cleanString(body.applicantType) === 'Transferee';
 
-  const hs = acad.highSchool || {};
-  if (!validateSchoolName(hs.schoolName)) {
-    errors.push('Please enter a valid high school name (letters, numbers, spaces, and basic punctuation only, max 150 characters).');
-  }
-  if (!YEAR_RE.test(cleanString(hs.yearGraduated))) {
-    errors.push('High school year graduated must be a 4-digit year.');
-  }
-  if (cleanString(hs.generalAverage) && !validateGpa(hs.generalAverage)) {
-    errors.push(`High school general average must be a number between ${GPA_MIN} and ${GPA_MAX}.`);
+  if (isTransferee) {
+    const college = acad.college || {};
+    if (!validateSchoolName(college.schoolName)) {
+      errors.push('Please enter a valid college name (letters, numbers, spaces, and basic punctuation only, max 150 characters).');
+    }
+    if (!YEAR_RE.test(cleanString(college.yearGraduated))) {
+      errors.push('College year last attended must be a 4-digit year.');
+    }
+    if (!cleanString(college.generalAverage) || !validateCollegeGpa(college.generalAverage)) {
+      errors.push('College general average must be a number between 1.00 and 5.00.');
+    }
+    if (!cleanString(college.schoolAddress)) {
+      errors.push('College address is required for transferees.');
+    }
+  } else {
+    const elem = acad.elementary || {};
+    if (!validateSchoolName(elem.schoolName)) {
+      errors.push('Please enter a valid elementary school name (letters, numbers, spaces, and basic punctuation only, max 150 characters).');
+    }
+    if (!YEAR_RE.test(cleanString(elem.yearGraduated))) {
+      errors.push('Elementary year graduated must be a 4-digit year.');
+    }
+    if (cleanString(elem.generalAverage) && !validateGpa(elem.generalAverage)) {
+      errors.push(`Elementary general average must be a number between ${GPA_MIN} and ${GPA_MAX}.`);
+    }
+
+    const hs = acad.highSchool || {};
+    if (!validateSchoolName(hs.schoolName)) {
+      errors.push('Please enter a valid high school name (letters, numbers, spaces, and basic punctuation only, max 150 characters).');
+    }
+    if (!YEAR_RE.test(cleanString(hs.yearGraduated))) {
+      errors.push('High school year graduated must be a 4-digit year.');
+    }
+    if (cleanString(hs.generalAverage) && !validateGpa(hs.generalAverage)) {
+      errors.push(`High school general average must be a number between ${GPA_MIN} and ${GPA_MAX}.`);
+    }
   }
 
   const shs = acad.seniorHighSchool;
@@ -147,15 +172,15 @@ function collectValidationErrors(body) {
   }
 
   const college = acad.college;
-  if (college && cleanString(college.schoolName)) {
+  if (!isTransferee && college && cleanString(college.schoolName)) {
     if (!validateSchoolName(college.schoolName)) {
       errors.push('Please enter a valid college/university name.');
     }
     if (cleanString(college.yearGraduated) && !YEAR_RE.test(cleanString(college.yearGraduated))) {
       errors.push('College year graduated must be a 4-digit year.');
     }
-    if (cleanString(college.generalAverage) && !validateGpa(college.generalAverage)) {
-      errors.push(`College general average must be a number between ${GPA_MIN} and ${GPA_MAX}.`);
+    if (cleanString(college.generalAverage) && !validateCollegeGpa(college.generalAverage)) {
+      errors.push('College general average must be a number between 1.00 and 5.00.');
     }
   }
 
@@ -243,14 +268,17 @@ class ApplicantController {
       }
 
       const acad = body.academicDetails || {};
-      const academicDetails = {
-        elementary: cleanSchoolRecord(acad.elementary),
-        highSchool: cleanSchoolRecord(acad.highSchool)
-      };
-      if (acad.seniorHighSchool && cleanString(acad.seniorHighSchool.schoolName)) {
+      const isTransferee = cleanString(body.applicantType) === 'Transferee';
+      const academicDetails = isTransferee
+        ? { college: cleanSchoolRecord(acad.college) }
+        : {
+          elementary: cleanSchoolRecord(acad.elementary),
+          highSchool: cleanSchoolRecord(acad.highSchool)
+        };
+      if (!isTransferee && acad.seniorHighSchool && cleanString(acad.seniorHighSchool.schoolName)) {
         academicDetails.seniorHighSchool = cleanSchoolRecord(acad.seniorHighSchool);
       }
-      if (acad.college && cleanString(acad.college.schoolName)) {
+      if (!isTransferee && acad.college && cleanString(acad.college.schoolName)) {
         academicDetails.college = cleanSchoolRecord(acad.college);
       }
 

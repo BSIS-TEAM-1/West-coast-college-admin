@@ -21,7 +21,7 @@ import BlockOverviewDashboard from './registrar/BlockOverviewDashboard'
 import BlockAssignmentPage from './registrar/BlockAssignmentPage'
 import SchoolYearRollover from './registrar/SchoolYearRollover'
 import StudentHistoryPage from './registrar/StudentHistoryPage'
-import AssignSubjectPage from './registrar/AssignSubjectPage'
+// import AssignSubjectPage from './registrar/AssignSubjectPage' // Hidden - subjects auto-assigned from curriculum
 import SubjectManagementPage from './registrar/SubjectManagementPage'
 import CurriculumManagementLayout from './registrar/CurriculumManagementLayout'
 import CurriculumDetailsPage from './registrar/CurriculumDetailsPage'
@@ -40,7 +40,7 @@ type BlockWorkspaceSelection = {
   initialSectionId?: string | null
 }
 
-type RegistrarView = 'applicants' | 'students' | 'add-student' | 'courses' | 'course-workspace' | 'block-overview' | 'block-management' | 'assign-block' | 'view-blocks' | 'block-workspace' | 'school-year-rollover' | 'student-history' | 'subject-management' | 'add-subject' | 'assign-subject' | 'curriculum-management' | 'curriculum-overview' | 'curriculum-create' | 'curriculum-archived' | 'curriculum-details' | 'grade-submissions' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
+type RegistrarView = 'applicants' | 'students' | 'add-student' | 'courses' | 'course-workspace' | 'block-overview' | 'block-management' | 'assign-block' | 'view-blocks' | 'block-workspace' | 'school-year-rollover' | 'student-history' | 'subject-management' | 'add-subject' | /* 'assign-subject' | */ 'curriculum-management' | 'curriculum-overview' | 'curriculum-create' | 'curriculum-archived' | 'curriculum-details' | 'grade-submissions' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
 
 type RegistrarDashboardProps = {
   username: string
@@ -192,8 +192,9 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
         return <SubjectManagementPage mode="catalog" />
       case 'add-subject':
         return <SubjectManagementPage mode="add" />
-      case 'assign-subject':
-        return <AssignSubjectPage />
+      // Subject assignment UI hidden - subjects are auto-assigned from curriculum
+      // case 'assign-subject':
+      //   return <AssignSubjectPage />
       case 'curriculum-overview':
         return (
           <CurriculumManagementLayout
@@ -317,7 +318,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
               view === id
               || (id === 'courses' && view === 'course-workspace')
               || (id === 'block-overview' && (view === 'block-management' || view === 'assign-block' || view === 'view-blocks' || view === 'block-workspace' || view === 'school-year-rollover'))
-              || (id === 'subject-management' && (view === 'add-subject' || view === 'assign-subject'))
+              || (id === 'subject-management' && (view === 'add-subject' /* || view === 'assign-subject' */))
               || (id === 'curriculum-management' && (view === 'curriculum-details' || view === 'curriculum-overview' || view === 'curriculum-create' || view === 'curriculum-archived'))
               || (id === 'students' && view === 'add-student')
             )
@@ -336,7 +337,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
             const isAssignBlockActive = view === 'assign-block'
             const isRolloverActive = view === 'school-year-rollover'
             const isAddSubjectActive = view === 'add-subject'
-            const isSubjectAssignmentActive = view === 'assign-subject'
+            // const isSubjectAssignmentActive = false // Hidden - subjects auto-assigned from curriculum
             const isAddStudentActive = view === 'add-student'
             const isCurriculumOverviewActive = view === 'curriculum-overview'
             const isCurriculumListActive = view === 'curriculum-management'
@@ -432,7 +433,8 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
                       <Plus size={15} className="registrar-sidebar-icon" />
                       <span>Add Subject</span>
                     </button>
-                    <button
+                    {/* Subject Assignment UI hidden - subjects are auto-assigned from curriculum */}
+                    {/* <button
                       type="button"
                       className={`registrar-sidebar-sublink ${isSubjectAssignmentActive ? 'registrar-sidebar-sublink-active' : ''}`}
                       onClick={() => setView('assign-subject')}
@@ -440,7 +442,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
                     >
                       <Users size={15} className="registrar-sidebar-icon" />
                       <span>Subject Assignment</span>
-                    </button>
+                    </button> */}
                   </div>
                 )}
 

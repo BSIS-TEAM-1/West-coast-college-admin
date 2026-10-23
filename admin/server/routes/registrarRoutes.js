@@ -41,6 +41,7 @@ const courseLoadCachePrefixes = [
   '/registrar/sections/',
   '/api/registrar/sections/'
 ];
+const enrollmentCachePrefixes = ['/registrar/students', '/api/registrar/students'];
 
 // Student Routes
 router.get('/professors', cacheMiddleware({ ttlMs: 60 * 1000 }), StudentController.getProfessorAccounts);
@@ -59,11 +60,11 @@ router.get('/students/:id/cor', securityMiddleware.inputValidationMiddleware(sec
 router.post('/students/:id/enroll', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.enroll), invalidateCacheOnSuccess(...studentCachePrefixes, ...courseLoadCachePrefixes), StudentController.enrollStudent);
 router.get('/students/:id/current-enrollment', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.currentEnrollment), cacheMiddleware({ ttlMs: 15 * 1000 }), StudentController.getCurrentEnrollment);
 router.get('/students/:id/enrollments', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.idParam), cacheMiddleware({ ttlMs: 15 * 1000 }), StudentController.getEnrollmentHistory);
+router.post('/students/:id/sync-curriculum-subjects', invalidateCacheOnSuccess(...enrollmentCachePrefixes, ...courseLoadCachePrefixes), StudentController.syncCurriculumSubjects);
 
 // Subject-level enrollment management (add / drop / retake / progress).
 // These act on the subjects inside one term's enrollment record and always
 // leave the records they touch intact.
-const enrollmentCachePrefixes = ['/registrar/students', '/api/registrar/students'];
 router.get('/students/:id/academic-progress', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.idParam), EnrollmentManagementController.getAcademicProgress);
 router.post('/students/:id/retake', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.idParam), invalidateCacheOnSuccess(...enrollmentCachePrefixes), EnrollmentManagementController.retakeSubject);
 router.get('/curriculum-suggestions', cacheMiddleware({ ttlMs: 30 * 1000 }), EnrollmentManagementController.getSuggestedSubjects);
@@ -85,6 +86,7 @@ router.put('/curriculums/:id', invalidateCacheOnSuccess(...curriculumCachePrefix
 router.delete('/curriculums/:id', invalidateCacheOnSuccess(...curriculumCachePrefixes), CurriculumController.deleteCurriculum);
 router.patch('/curriculums/:id/status', invalidateCacheOnSuccess(...curriculumCachePrefixes), CurriculumController.patchStatus);
 router.post('/curriculums/:id/duplicate', invalidateCacheOnSuccess(...curriculumCachePrefixes), CurriculumController.duplicateCurriculum);
+router.post('/curriculums/:id/sync-block-subjects', invalidateCacheOnSuccess(...curriculumCachePrefixes, ...subjectAssignmentCachePrefixes, ...courseLoadCachePrefixes), CurriculumController.syncLinkedBlockSubjects);
 
 // Curriculum Subject Routes
 router.get('/curriculums/:id/subjects', cacheMiddleware({ ttlMs: 60 * 1000 }), CurriculumSubjectController.getSubjects);

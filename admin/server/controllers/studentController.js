@@ -19,6 +19,7 @@ const CurriculumSubject = require('../models/CurriculumSubject');
 const CorPdfService = require('../services/corPdfService');
 const { convertToSchoolYear, extractStartYear } = require('../services/dateUtils');
 const enrollmentGuard = require('../services/enrollmentGuard');
+const { autoAssignCurriculumSubjects } = require('../services/subjectEnrollmentService');
 
 const STUDENT_MUTABLE_FIELDS = [
   'firstName',
@@ -144,19 +145,20 @@ function normalizeEmergencyContact(emergencyContact) {
 }
 
 class StudentController {
-  static lifecycleStatuses = ['Pending', 'Enrolled', 'Not Enrolled', 'Dropped', 'Inactive', 'Graduated'];
+  static lifecycleStatuses = ['Pending', 'Enrolled', 'Not Enrolled', 'Irregular', 'Inactive', 'Graduated'];
 
   static deriveLifecycleStatus(student) {
     const explicit = String(student?.lifecycleStatus || '').trim();
     if (StudentController.lifecycleStatuses.includes(explicit)) {
       return explicit;
     }
+    if (explicit === 'Dropped') return 'Irregular';
 
     if (student?.isActive === false) return 'Inactive';
 
     const studentStatus = String(student?.studentStatus || '').trim();
 
-    if (studentStatus === 'Dropped') return 'Dropped';
+    if (studentStatus === 'Dropped' || studentStatus === 'Irregular') return 'Irregular';
     // NOTE: a Verified COR alone never implies ENROLLED here. The official
     // ENROLLED state requires a valid block assignment (see
     // services/enrollmentGuard.js) and is granted only by block-assignment
@@ -350,20 +352,46 @@ class StudentController {
 
       const blockGroupQuery = {};
       if (semesterFilter) blockGroupQuery.semester = semesterFilter;
-      if (yearFilter) blockGroupQuery.year = yearFilter;
+      if (yearFilter) blockGroupQuery.$or = [{ schoolYear: yearFilter }, { year: yearFilter }];
 
       const rawGroups = await BlockGroup.find(blockGroupQuery)
-        .select('_id name semester year')
-        .sort({ year: -1, semester: 1, name: 1 })
+        .select('_id name semester schoolYear year curriculumId yearLevel')
+        .sort({ schoolYear: -1, year: -1, semester: 1, name: 1 })
         .lean();
+
+      // Fetch curriculum details for all block groups
+      const curriculumIds = Array.from(new Set(
+        rawGroups.map((group) => String(group.curriculumId || '').trim()).filter(Boolean)
+      ));
+      const curriculumMap = new Map();
+      if (curriculumIds.length > 0) {
+        const curriculums = await Curriculum.find({ _id: { $in: curriculumIds } })
+          .select('_id programCode programName')
+          .lean();
+        curriculums.forEach((curriculum) => {
+          curriculumMap.set(String(curriculum._id), curriculum);
+        });
+      }
 
       const filterOptions = {
         semesters: Array.from(new Set(rawGroups.map((group) => String(group.semester || '').trim()).filter(Boolean))),
-        years: Array.from(new Set(rawGroups.map((group) => String(group.year || '').trim()).filter(Boolean))).sort((a, b) => b.localeCompare(a)),
+        years: Array.from(new Set(rawGroups.map((group) => String(group.schoolYear || group.year || '').trim()).filter(Boolean))).sort((a, b) => b.localeCompare(a)),
         courses: Array.from(
           new Map(
             rawGroups
-              .map((group) => StudentController.extractBlockGroupMeta(group.name))
+              .map((group) => {
+                // Use curriculum programCode if available, otherwise fall back to legacy parsing
+                if (group.curriculumId && curriculumMap.has(String(group.curriculumId))) {
+                  const curriculum = curriculumMap.get(String(group.curriculumId));
+                  const programCode = curriculum.programCode;
+                  return {
+                    courseCode: programCode,
+                    courseShortLabel: StudentController.courseCodeMap[programCode] || String(programCode),
+                    courseLabel: StudentController.courseLabelMap[programCode] || curriculum.programName || String(programCode)
+                  };
+                }
+                return StudentController.extractBlockGroupMeta(group.name);
+              })
               .filter((meta) => meta.courseCode)
               .map((meta) => [
                 String(meta.courseCode),
@@ -384,10 +412,26 @@ class StudentController {
       }
 
       const blockGroups = rawGroups
-        .map((group) => ({
-          ...group,
-          meta: StudentController.extractBlockGroupMeta(group.name)
-        }))
+        .map((group) => {
+          // Use curriculum programCode if available, otherwise fall back to legacy parsing
+          let meta;
+          if (group.curriculumId && curriculumMap.has(String(group.curriculumId))) {
+            const curriculum = curriculumMap.get(String(group.curriculumId));
+            const programCode = curriculum.programCode;
+            meta = {
+              courseCode: programCode,
+              courseShortLabel: StudentController.courseCodeMap[programCode] || String(programCode),
+              courseLabel: StudentController.courseLabelMap[programCode] || curriculum.programName || String(programCode),
+              yearLevel: group.yearLevel
+            };
+          } else {
+            meta = StudentController.extractBlockGroupMeta(group.name);
+          }
+          return {
+            ...group,
+            meta
+          };
+        })
         .filter((group) => {
           if (!Number.isFinite(courseFilter) || courseFilter <= 0) return true;
           return Number(group.meta.courseCode) === courseFilter;
@@ -401,11 +445,30 @@ class StudentController {
 
       const groupIds = blockGroups.map((group) => group._id);
       const groupById = new Map(blockGroups.map((group) => [String(group._id), group]));
+      const curriculumPlacements = curriculumIds.length > 0
+        ? await CurriculumSubject.find({ curriculumId: { $in: curriculumIds } })
+            .select('curriculumId subjectId yearLevel semester')
+            .lean()
+        : [];
+      const placementIdsByTerm = new Map();
+      curriculumPlacements.forEach((placement) => {
+        const key = `${String(placement.curriculumId)}|${Number(placement.yearLevel)}|${String(placement.semester || '').trim()}`;
+        const ids = placementIdsByTerm.get(key) || new Set();
+        ids.add(String(placement.subjectId));
+        placementIdsByTerm.set(key, ids);
+      });
+      const curriculumSubjectIdsByGroup = new Map(
+        blockGroups.map((group) => {
+          const yearLevel = Number(group.yearLevel) || group.meta.yearLevel;
+          const key = `${String(group.curriculumId || '')}|${yearLevel}|${String(group.semester || '').trim()}`;
+          return [String(group._id), placementIdsByTerm.get(key) || new Set()];
+        })
+      );
       const targetEnrollmentPairs = Array.from(
         new Set(
           blockGroups
             .map((group) => {
-              const schoolYear = String(group.year || '').trim();
+              const schoolYear = String(group.schoolYear || group.year || '').trim();
               const semester = String(group.semester || '').trim();
               return schoolYear && semester ? `${schoolYear}|${semester}` : '';
             })
@@ -430,7 +493,7 @@ class StudentController {
         sectionId: { $in: sections.map((section) => section._id) },
         status: 'ASSIGNED'
       })
-        .select('studentId sectionId semester year')
+        .select('studentId sectionId semester schoolYear year')
         .lean();
 
       const relevantAssignments = studentAssignments.filter((assignment) => {
@@ -438,8 +501,18 @@ class StudentController {
         if (!section) return false;
         const group = groupById.get(String(section.blockGroupId));
         if (!group) return false;
+        const assignmentSchoolYear = StudentController.toSchoolYearSafe(assignment.schoolYear || assignment.year);
+        const groupSchoolYear = StudentController.toSchoolYearSafe(group.schoolYear || group.year);
         return String(assignment.semester || '').trim() === String(group.semester || '').trim()
-          && String(assignment.year || '').trim() === String(group.year || '').trim();
+          && assignmentSchoolYear === groupSchoolYear;
+      });
+
+      const studentIdsBySection = new Map();
+      relevantAssignments.forEach((assignment) => {
+        const sectionId = String(assignment.sectionId);
+        const ids = studentIdsBySection.get(sectionId) || new Set();
+        ids.add(String(assignment.studentId));
+        studentIdsBySection.set(sectionId, ids);
       });
 
       const assignmentsByStudentId = new Map();
@@ -486,7 +559,7 @@ class StudentController {
         const schoolYear = schoolYearValue ? convertToSchoolYear(schoolYearValue) : '';
         const strictMatch = list.find((entry) => {
           const semesterMatch = String(entry.semester || '').trim() === semester;
-          const entryYear = String(entry.year || '').trim();
+          const entryYear = String(entry.schoolYear || entry.year || '').trim();
           const yearMatch =
             entryYear === schoolYear ||
             StudentController.toSchoolYearSafe(entryYear) === schoolYear;
@@ -524,10 +597,11 @@ class StudentController {
         });
       }
 
-      const enrollmentDocs = await Enrollment.find(enrollmentQuery)
-        .select('studentId schoolYear semester subjects isCurrent createdAt course')
+      const loadEnrollmentDocs = () => Enrollment.find(enrollmentQuery)
+        .select('_id studentId schoolYear semester subjects isCurrent createdAt course')
         .sort({ isCurrent: -1, createdAt: -1 })
         .lean();
+      const enrollmentDocs = await loadEnrollmentDocs();
 
       // Collect subjectIds referenced by enrollments so we can filter out
       // entries whose Subject was archived (isActive:false) or hard-deleted.
@@ -606,6 +680,8 @@ class StudentController {
           const instructorRaw = String(subjectEntry?.instructor || '').trim();
           const normalizedInstructor = StudentController.normalizeProfessorIdentifier(instructorRaw);
           const subjectId = String(subjectEntry?.subjectId || '').trim() || String(subjectEntry?.code || '').trim();
+          const curriculumSubjectIds = curriculumSubjectIdsByGroup.get(String(blockGroup._id)) || new Set();
+          if (!curriculumSubjectIds.has(subjectId)) return;
           const subjectCode = String(subjectEntry?.code || '').trim() || 'SUBJECT';
           const sectionSubjectKey = `${String(section._id)}|${subjectId}`;
           const basePayload = {
@@ -620,10 +696,10 @@ class StudentController {
             blockGroupId: String(blockGroup._id),
             blockGroupName: String(blockGroup.name || '').trim(),
             semester: String(blockGroup.semester || '').trim(),
-            schoolYear: String(blockGroup.year || '').trim(),
+            schoolYear: String(blockGroup.schoolYear || blockGroup.year || '').trim(),
             courseCode: blockGroup.meta.courseCode || null,
             courseShortLabel: blockGroup.meta.courseShortLabel || 'N/A',
-            courseLabel: blockGroup.meta.courseLabel || 'N/A',
+            courseLabel: blockGroup.meta.courseLabel || blockGroup.meta.courseShortLabel || 'N/A',
             yearLevel: blockGroup.meta.yearLevel || null,
             units: Number(subjectEntry?.units) || 0
           };
@@ -636,11 +712,10 @@ class StudentController {
               bucket = {
                 ...basePayload,
                 instructor: instructorRaw || 'TBA',
-                studentIds: new Set()
+                studentIds: new Set(studentIdsBySection.get(String(section._id)) || [])
               };
               unassignedBuckets.set(bucketKey, bucket);
             }
-            bucket.studentIds.add(studentId);
             return;
           }
 
@@ -649,11 +724,10 @@ class StudentController {
             loadBucket = {
               ...basePayload,
               professorId,
-              studentIds: new Set()
+              studentIds: new Set(studentIdsBySection.get(String(section._id)) || [])
             };
             loadBuckets.set(`${professorId}|${sectionSubjectKey}`, loadBucket);
           }
-          loadBucket.studentIds.add(studentId);
         });
       });
 
@@ -670,7 +744,7 @@ class StudentController {
         if (targetCourseCodes.size > 0 && !targetCourseCodes.has(courseCode)) return;
 
         const courseMeta = courseMetaByCode.get(String(courseCode));
-        const courseShortLabel = courseMeta?.label || courseCode || 'N/A';
+        const courseShortLabel = courseMeta?.label || courseMeta?.fullLabel || courseCode || 'N/A';
 
         enrollment.subjects.forEach((subjectEntry) => {
           const subjectStatus = String(subjectEntry?.status || '').toLowerCase();
@@ -1279,6 +1353,9 @@ class StudentController {
       set.lifecycleStatus = 'Pending';
     }
 
+    if (String(set.lifecycleStatus || '').trim() === 'Dropped') {
+      set.lifecycleStatus = 'Irregular';
+    }
     const requestedLifecycleStatus = String(set.lifecycleStatus || '').trim();
     if (requestedLifecycleStatus === 'Pending') {
       if (!set.enrollmentStatus) set.enrollmentStatus = 'Not Enrolled';
@@ -1290,8 +1367,9 @@ class StudentController {
     } else if (requestedLifecycleStatus === 'Not Enrolled') {
       // enrollmentStatus is deprecated - managed via Enrollment records
       if (set.isActive === undefined) set.isActive = true;
-    } else if (requestedLifecycleStatus === 'Dropped') {
-      set.studentStatus = 'Dropped';
+    } else if (requestedLifecycleStatus === 'Irregular') {
+      set.studentStatus = 'Irregular';
+      if (!set.classification) set.classification = 'Irregular';
       // enrollmentStatus is deprecated - managed via Enrollment records
       if (set.isActive === undefined) set.isActive = true;
     } else if (requestedLifecycleStatus === 'Inactive') {
@@ -1304,7 +1382,7 @@ class StudentController {
     }
 
     if (String(set.corStatus || '').trim() === 'Verified') {
-      if (requestedLifecycleStatus !== 'Dropped' && requestedLifecycleStatus !== 'Inactive' && requestedLifecycleStatus !== 'Graduated') {
+      if (requestedLifecycleStatus !== 'Inactive' && requestedLifecycleStatus !== 'Graduated') {
         // enrollmentStatus is deprecated - managed via Enrollment records
       }
       if (!requestedLifecycleStatus) {
@@ -1344,13 +1422,39 @@ class StudentController {
   };
 
   static async getCurrentEnrollmentRecord(studentId, schoolYear, semester) {
-    return Enrollment.findOne({
+    const enrollment = await Enrollment.findOne({
       studentId,
       schoolYear,
       semester,
       status: { $ne: 'Dropped' },
       isCurrent: true
-    }).populate('subjects.subjectId');
+    });
+    if (!enrollment || enrollment.lockedAt || (enrollment.subjects || []).length > 0) {
+      return enrollment ? enrollment.populate('subjects.subjectId') : null;
+    }
+
+    // Repair pre-existing empty enrollments the first time they are opened.
+    // New assignments populate subjects during block assignment; this branch
+    // is only for records created before that behavior existed.
+    const assignment = await StudentBlockAssignment.findOne({
+      studentId: String(studentId),
+      schoolYear,
+      semester,
+      status: 'ASSIGNED',
+    }).select('sectionId').lean();
+    const section = assignment?.sectionId
+      ? await BlockSection.findById(assignment.sectionId).select('blockGroupId').lean()
+      : null;
+    const group = section?.blockGroupId
+      ? await BlockGroup.findById(section.blockGroupId).select('curriculumId').lean()
+      : null;
+
+    await autoAssignCurriculumSubjects({
+      enrollmentId: enrollment._id,
+      curriculumId: group?.curriculumId || enrollment.curriculumId,
+    });
+
+    return Enrollment.findById(enrollment._id).populate('subjects.subjectId');
   }
 
   static async mapSubjectIdsToEnrollmentSubjects(subjectIds = []) {
@@ -1926,7 +2030,7 @@ class StudentController {
     }
 
     const blockGroup = section.blockGroupId
-      ? await BlockGroup.findById(section.blockGroupId).select('_id name semester year').lean()
+      ? await BlockGroup.findById(section.blockGroupId).select('_id name semester year curriculumId').lean()
       : null;
 
     const resolvedSemester = String(options.semester || blockGroup?.semester || '').trim();
@@ -2110,7 +2214,24 @@ class StudentController {
       const updatedEnrollmentIds = [];
       let matchedSubjects = 0;
 
-      for (const enrollment of context.enrollments) {
+      for (const currentEnrollment of context.enrollments) {
+        // A curriculum can gain a subject after students have already been
+        // enrolled in the section. Bring this enrollment up to date before
+        // assigning the instructor so the new subject is immediately usable.
+        let enrollment = currentEnrollment;
+        const hasSubject = (enrollment.subjects || []).some(
+          (entry) => String(entry?.subjectId || '') === normalizedSubjectId
+        );
+        if (!hasSubject) {
+          await autoAssignCurriculumSubjects({
+            enrollmentId: enrollment._id,
+            curriculumId: context.blockGroup?.curriculumId || enrollment.curriculumId,
+            actorId: req.adminId
+          });
+          enrollment = await Enrollment.findById(enrollment._id);
+          if (!enrollment) continue;
+        }
+
         let enrollmentChanged = false;
         enrollment.subjects.forEach((entry) => {
           if (String(entry?.subjectId || '') === normalizedSubjectId) {
@@ -2446,6 +2567,40 @@ class StudentController {
         return res.status(500).json({ success: false, message: error.message || 'Failed to generate COR' });
       }
       res.end();
+    }
+  }
+
+  static async syncCurriculumSubjects(req, res) {
+    try {
+      const { id: studentId } = req.params;
+      const { enrollmentId } = req.body;
+
+      // Find the enrollment
+      const enrollment = await Enrollment.findById(enrollmentId);
+      if (!enrollment) {
+        return res.status(404).json({ error: 'Enrollment not found.' });
+      }
+
+      // Verify enrollment belongs to this student
+      if (String(enrollment.studentId) !== String(studentId)) {
+        return res.status(403).json({ error: 'Enrollment does not belong to this student.' });
+      }
+
+      // Sync curriculum subjects
+      const result = await autoAssignCurriculumSubjects({
+        enrollmentId: enrollment._id,
+        curriculumId: enrollment.curriculumId,
+        actorId: req.adminId
+      });
+
+      return res.json({
+        success: true,
+        message: `Synced ${result.added.length} new subject(s) from curriculum. ${result.skipped.length} skipped.`,
+        data: result
+      });
+    } catch (error) {
+      console.error('Error syncing curriculum subjects:', error);
+      return res.status(500).json({ error: error.message || 'Failed to sync curriculum subjects.' });
     }
   }
 }

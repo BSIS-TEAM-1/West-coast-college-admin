@@ -200,7 +200,7 @@ async function seed() {
   await mkEnrollment(regular, { course: 'BEED', status: 'Enrolled', isCurrent: true })
 
   // 2. Dropped student - dropped last term, wants to come back.
-  const dropped = await mkStudent({ course: 101, yearLevel: 1, lifecycleStatus: 'Dropped', enrollmentStatus: 'Dropped', studentStatus: 'Dropped' })
+  const dropped = await mkStudent({ course: 101, yearLevel: 1, lifecycleStatus: 'Inactive', enrollmentStatus: 'Dropped', studentStatus: 'Irregular' })
   await mkEnrollment(dropped, { course: 'BEED', status: 'Dropped', isCurrent: true })
 
   // 3. Returning student - no current enrollment this term (had a locked one).
@@ -235,7 +235,7 @@ async function seed() {
   //    enrollment "unusable", so assign auto-creates a fresh enrollment from the
   //    student's CURRENT course (102 -> BSED) - they can then enroll into the
   //    BSED-English block.
-  const shifteeDropped = await mkStudent({ course: 102, yearLevel: 1, lifecycleStatus: 'Dropped', enrollmentStatus: 'Dropped', studentStatus: 'Transferee', classification: 'Transferee' })
+  const shifteeDropped = await mkStudent({ course: 102, yearLevel: 1, lifecycleStatus: 'Inactive', enrollmentStatus: 'Dropped', studentStatus: 'Transferee', classification: 'Transferee' })
   await mkEnrollment(shifteeDropped, { course: 'BEED', status: 'Dropped', isCurrent: true, yearLevel: 1 })
 
   // ─── Year 3 (upper-year) students for block 101-3-A ───
@@ -244,7 +244,7 @@ async function seed() {
   await mkEnrollment(y3Regular, { course: 'BEED', status: 'Enrolled', isCurrent: true, yearLevel: 3 })
 
   // 8. Dropped Year 3 - dropped mid-year, wants to re-enter the Y3 block.
-  const y3Dropped = await mkStudent({ course: 101, yearLevel: 3, lifecycleStatus: 'Dropped', enrollmentStatus: 'Dropped', studentStatus: 'Dropped' })
+  const y3Dropped = await mkStudent({ course: 101, yearLevel: 3, lifecycleStatus: 'Inactive', enrollmentStatus: 'Dropped', studentStatus: 'Irregular' })
   await mkEnrollment(y3Dropped, { course: 'BEED', status: 'Dropped', isCurrent: true, yearLevel: 3 })
 
   // 9. Returning Year 3 - no current enrollment this term (locked prior record).
@@ -273,7 +273,7 @@ async function seed() {
   await mkEnrollment(y4Regular, { course: 'BEED', status: 'Enrolled', isCurrent: true, yearLevel: 4 })
 
   // 12. Dropped Year 4 - re-entering the graduating block.
-  const y4Dropped = await mkStudent({ course: 101, yearLevel: 4, lifecycleStatus: 'Dropped', enrollmentStatus: 'Dropped', studentStatus: 'Dropped' })
+  const y4Dropped = await mkStudent({ course: 101, yearLevel: 4, lifecycleStatus: 'Inactive', enrollmentStatus: 'Dropped', studentStatus: 'Irregular' })
   await mkEnrollment(y4Dropped, { course: 'BEED', status: 'Dropped', isCurrent: true, yearLevel: 4 })
 
   // 13. Returning Year 4 - took a term off, coming back to graduate.

@@ -11,9 +11,11 @@ import './ApplicantOnboarding.css'
 
 type Props = {
   onBack: () => void
+  isTransferee?: boolean
 }
 
 const steps = ['Contact', 'Personal', 'Academic', 'Course']
+const transfereeSteps = ['Contact', 'Personal', 'College', 'Course']
 const suffixOptions = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV', 'V']
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -37,6 +39,13 @@ function isValidGpa(value: string): boolean {
   if (!v) return true
   const num = parseFloat(v)
   return !isNaN(num) && num >= GPA_MIN && num <= GPA_MAX
+}
+
+function isValidCollegeGpa(value: string): boolean {
+  const v = value.trim()
+  if (!v) return true
+  const num = parseFloat(v)
+  return !isNaN(num) && num >= 1 && num <= 5
 }
 
 function isValidSchoolName(value: string): boolean {
@@ -285,9 +294,14 @@ function SchoolSearchInput({
   )
 }
 
-export default function ApplicantOnboarding({ onBack }: Props) {
+export default function ApplicantOnboarding({ onBack, isTransferee = false }: Props) {
   const [stepIndex, setStepIndex] = useState(0)
-  const [form, setForm] = useState<ApplicantPayload>(initialForm)
+  const [form, setForm] = useState<ApplicantPayload>(() => ({
+    ...initialForm,
+    applicantType: isTransferee ? 'Transferee' : initialForm.applicantType
+  }))
+  const isTransfereeFlow = isTransferee || form.applicantType === 'Transferee'
+  const currentSteps = isTransfereeFlow ? transfereeSteps : steps
   const [courses, setCourses] = useState<CourseOption[]>([])
   const [loadingCourses, setLoadingCourses] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -299,6 +313,12 @@ export default function ApplicantOnboarding({ onBack }: Props) {
   const [emergencyRelIsOther, setEmergencyRelIsOther] = useState(false)
   const [emergencyRelOther, setEmergencyRelOther] = useState('')
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    if (isTransferee) {
+      setForm((previous) => ({ ...previous, applicantType: 'Transferee' }))
+    }
+  }, [isTransferee])
 
   useEffect(() => {
     let mounted = true
@@ -370,54 +390,82 @@ export default function ApplicantOnboarding({ onBack }: Props) {
     }
 
     if (stepIndex === 2) {
-      const elem = form.academicDetails.elementary
-      if (!isValidSchoolName(elem.schoolName)) {
-        errors.elemSchoolName = 'Please enter a valid elementary school name (letters, numbers, spaces, and basic punctuation only, max 150 characters).'
-      }
-      if (!YEAR_RE.test(elem.yearGraduated.trim())) {
-        errors.elemYear = 'Elementary year graduated must be a 4-digit year.'
-      }
-      if (elem.generalAverage?.trim() && !isValidGpa(elem.generalAverage)) {
-        errors.elemGpa = `Elementary general average must be a number between ${GPA_MIN} and ${GPA_MAX}.`
-      }
+      if (isTransfereeFlow) {
+        // Transferee: college is required
+        const college = form.academicDetails.college
+        if (!college) {
+          errors.collegeSchoolName = 'College information is required for transferees.'
+        } else {
+          if (!college.schoolName.trim()) {
+            errors.collegeSchoolName = 'College name is required for transferees.'
+          } else if (!isValidSchoolName(college.schoolName)) {
+            errors.collegeSchoolName = 'Please enter a valid college name (letters, numbers, spaces, and basic punctuation only, max 150 characters).'
+          }
+          if (!college.yearGraduated?.trim()) {
+            errors.collegeYear = 'College year last attended is required for transferees.'
+          } else if (!YEAR_RE.test(college.yearGraduated.trim())) {
+            errors.collegeYear = 'College year last attended must be a 4-digit year.'
+          }
+          if (!college.generalAverage?.trim()) {
+            errors.collegeGpa = 'College general average is required for transferees.'
+          } else if (!isValidCollegeGpa(college.generalAverage)) {
+            errors.collegeGpa = 'College general average must be a number between 1.00 and 5.00.'
+          }
+          if (!college.schoolAddress?.trim()) {
+            errors.collegeAddress = 'College address is required for transferees.'
+          }
+        }
+      } else {
+        // New applicant: validate elementary and high school
+        const elem = form.academicDetails.elementary
+        if (!isValidSchoolName(elem.schoolName)) {
+          errors.elemSchoolName = 'Please enter a valid elementary school name (letters, numbers, spaces, and basic punctuation only, max 150 characters).'
+        }
+        if (!YEAR_RE.test(elem.yearGraduated.trim())) {
+          errors.elemYear = 'Elementary year graduated must be a 4-digit year.'
+        }
+        if (elem.generalAverage?.trim() && !isValidGpa(elem.generalAverage)) {
+          errors.elemGpa = `Elementary general average must be a number between ${GPA_MIN} and ${GPA_MAX}.`
+        }
 
-      const hs = form.academicDetails.highSchool
-      if (!isValidSchoolName(hs.schoolName)) {
-        errors.hsSchoolName = 'Please enter a valid high school name (letters, numbers, spaces, and basic punctuation only, max 150 characters).'
-      }
-      if (!YEAR_RE.test(hs.yearGraduated.trim())) {
-        errors.hsYear = 'High school year graduated must be a 4-digit year.'
-      }
-      if (hs.generalAverage?.trim() && !isValidGpa(hs.generalAverage)) {
-        errors.hsGpa = `High school general average must be a number between ${GPA_MIN} and ${GPA_MAX}.`
-      }
+        const hs = form.academicDetails.highSchool
+        if (!isValidSchoolName(hs.schoolName)) {
+          errors.hsSchoolName = 'Please enter a valid high school name (letters, numbers, spaces, and basic punctuation only, max 150 characters).'
+        }
+        if (!YEAR_RE.test(hs.yearGraduated.trim())) {
+          errors.hsYear = 'High school year graduated must be a 4-digit year.'
+        }
+        if (hs.generalAverage?.trim() && !isValidGpa(hs.generalAverage)) {
+          errors.hsGpa = `High school general average must be a number between ${GPA_MIN} and ${GPA_MAX}.`
+        }
 
-      const shs = form.academicDetails.seniorHighSchool
-      if (shs && shs.schoolName.trim()) {
-        if (!isValidSchoolName(shs.schoolName)) {
-          errors.shsSchoolName = 'Please enter a valid senior high school name.'
+        const shs = form.academicDetails.seniorHighSchool
+        if (shs && shs.schoolName.trim()) {
+          if (!isValidSchoolName(shs.schoolName)) {
+            errors.shsSchoolName = 'Please enter a valid senior high school name.'
+          }
+          if (shs.yearGraduated.trim() && !YEAR_RE.test(shs.yearGraduated.trim())) {
+            errors.shsYear = 'Senior high school year graduated must be a 4-digit year.'
+          }
+          if (shs.generalAverage?.trim() && !isValidGpa(shs.generalAverage)) {
+            errors.shsGpa = `Senior high school general average must be a number between ${GPA_MIN} and ${GPA_MAX}.`
+          }
+          if (!shs.strandOrTrack?.trim()) {
+            errors.shsStrand = 'Senior high school strand / track is required.'
+          }
         }
-        if (shs.yearGraduated.trim() && !YEAR_RE.test(shs.yearGraduated.trim())) {
-          errors.shsYear = 'Senior high school year graduated must be a 4-digit year.'
-        }
-        if (shs.generalAverage?.trim() && !isValidGpa(shs.generalAverage)) {
-          errors.shsGpa = `Senior high school general average must be a number between ${GPA_MIN} and ${GPA_MAX}.`
-        }
-        if (!shs.strandOrTrack?.trim()) {
-          errors.shsStrand = 'Senior high school strand / track is required.'
-        }
-      }
 
-      const college = form.academicDetails.college
-      if (college && college.schoolName.trim()) {
-        if (!isValidSchoolName(college.schoolName)) {
-          errors.collegeSchoolName = 'Please enter a valid college/university name.'
-        }
-        if (college.yearGraduated.trim() && !YEAR_RE.test(college.yearGraduated.trim())) {
-          errors.collegeYear = 'College year graduated must be a 4-digit year.'
-        }
-        if (college.generalAverage?.trim() && !isValidGpa(college.generalAverage)) {
-          errors.collegeGpa = `College general average must be a number between ${GPA_MIN} and ${GPA_MAX}.`
+        const college = form.academicDetails.college
+        if (college && college.schoolName.trim()) {
+          if (!isValidSchoolName(college.schoolName)) {
+            errors.collegeSchoolName = 'Please enter a valid college/university name.'
+          }
+          if (college.yearGraduated.trim() && !YEAR_RE.test(college.yearGraduated.trim())) {
+            errors.collegeYear = 'College year graduated must be a 4-digit year.'
+          }
+          if (college.generalAverage?.trim() && !isValidCollegeGpa(college.generalAverage)) {
+            errors.collegeGpa = 'College general average must be a number between 1.00 and 5.00.'
+          }
         }
       }
     }
@@ -442,7 +490,7 @@ export default function ApplicantOnboarding({ onBack }: Props) {
 
   const goNext = () => {
     if (!validateStep()) return
-    setStepIndex((current) => Math.min(current + 1, steps.length - 1))
+    setStepIndex((current) => Math.min(current + 1, currentSteps.length - 1))
   }
 
   const goBack = () => {
@@ -512,7 +560,7 @@ export default function ApplicantOnboarding({ onBack }: Props) {
           <aside className="applicant-sidebar">
             <nav className="applicant-stepper">
               <ul>
-                {steps.map((step, index) => {
+                {currentSteps.map((step, index) => {
                   const isActive = index === stepIndex
                   const isDone = index < stepIndex
                   const itemClass = isActive
@@ -751,200 +799,201 @@ export default function ApplicantOnboarding({ onBack }: Props) {
 
               {stepIndex === 2 ? (
                 <>
-                  <h2 className="applicant-section-title">Academic Details</h2>
+                  <h2 className="applicant-section-title">{isTransfereeFlow ? 'College Education' : 'Academic Details'}</h2>
 
-                  <div className="academic-card">
-                    <div className="academic-card-header">
-                      <h3 className="academic-card-title">Elementary Education</h3>
-                    </div>
-                    <div className="academic-card-body">
-                      <div className="applicant-grid-2">
-                        <div className="applicant-col-span-2">
-                          <SchoolSearchInput
-                            value={form.academicDetails.elementary.schoolName}
-                            onChange={(value) => update('academicDetails.elementary.schoolName', value)}
-                            label={<RequiredLabel>School</RequiredLabel>}
-                            required
-                          />
-                          <FieldError message={fieldErrors.elemSchoolName} />
-                        </div>
-                        <div className="applicant-field">
-                          <label className="applicant-field-label"><RequiredLabel>Year graduated</RequiredLabel></label>
-                          <input className={`form-input${fieldErrors.elemYear ? ' form-input-error' : ''}`} value={form.academicDetails.elementary.yearGraduated} onChange={(e) => update('academicDetails.elementary.yearGraduated', e.target.value.replace(/[^0-9]/g, '').slice(0, 4))} required type="text" inputMode="numeric" placeholder="YYYY" maxLength={4} />
-                          <FieldError message={fieldErrors.elemYear} />
-                        </div>
-                        <div className="applicant-field">
-                          <label className="applicant-field-label">General average</label>
-                          <input className={`form-input${fieldErrors.elemGpa ? ' form-input-error' : ''}`} value={form.academicDetails.elementary.generalAverage} onChange={(e) => update('academicDetails.elementary.generalAverage', e.target.value.replace(/[^0-9.]/g, '').slice(0, 6))} type="text" inputMode="decimal" placeholder="e.g. 89.75" />
-                          <FieldError message={fieldErrors.elemGpa} />
-                        </div>
-                        <div className="applicant-col-span-2">
-                          <label className="applicant-field-label">School address</label>
-                          <textarea className="form-textarea" rows={2} value={form.academicDetails.elementary.schoolAddress} onChange={(e) => update('academicDetails.elementary.schoolAddress', e.target.value)} maxLength={255} />
+                  {isTransfereeFlow ? (
+                    <div className="academic-card">
+                      <div className="academic-card-header">
+                        <h3 className="academic-card-title">College (if transferee)</h3>
+                      </div>
+                      <div className="academic-card-body">
+                        <div className="applicant-grid-2">
+                          <div className="applicant-col-span-2">
+                            <SchoolSearchInput
+                              value={form.academicDetails.college?.schoolName || ''}
+                              onChange={(value) => update('academicDetails.college.schoolName', value)}
+                              label={<RequiredLabel>School</RequiredLabel>}
+                              required
+                            />
+                            <FieldError message={fieldErrors.collegeSchoolName} />
+                          </div>
+                          <div className="applicant-field">
+                            <label className="applicant-field-label"><RequiredLabel>Year last attended</RequiredLabel></label>
+                            <input className={`form-input${fieldErrors.collegeYear ? ' form-input-error' : ''}`} value={form.academicDetails.college?.yearGraduated || ''} onChange={(e) => update('academicDetails.college.yearGraduated', e.target.value)} required type="text" placeholder="YYYY" maxLength={4} />
+                            <FieldError message={fieldErrors.collegeYear} />
+                          </div>
+                          <div className="applicant-field">
+                            <label className="applicant-field-label"><RequiredLabel>General average</RequiredLabel></label>
+                            <input className={`form-input${fieldErrors.collegeGpa ? ' form-input-error' : ''}`} value={form.academicDetails.college?.generalAverage || ''} onChange={(e) => update('academicDetails.college.generalAverage', e.target.value)} required type="text" inputMode="decimal" placeholder="e.g. 1.75" />
+                            <FieldError message={fieldErrors.collegeGpa} />
+                          </div>
+                          <div className="applicant-col-span-2">
+                            <label className="applicant-field-label"><RequiredLabel>School address</RequiredLabel></label>
+                            <textarea className={`form-textarea${fieldErrors.collegeAddress ? ' form-input-error' : ''}`} rows={3} value={form.academicDetails.college?.schoolAddress || ''} onChange={(e) => update('academicDetails.college.schoolAddress', e.target.value)} required />
+                            <FieldError message={fieldErrors.collegeAddress} />
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-
-                  <div className="academic-card">
-                    <div className="academic-card-header">
-                      <h3 className="academic-card-title">Junior High School</h3>
-                    </div>
-                    <div className="academic-card-body">
-                      <div className="applicant-grid-2">
-                        <div className="applicant-col-span-2">
-                          <SchoolSearchInput
-                            value={form.academicDetails.highSchool.schoolName}
-                            onChange={(value) => update('academicDetails.highSchool.schoolName', value)}
-                            label={<RequiredLabel>School</RequiredLabel>}
-                            required
-                          />
-                          <FieldError message={fieldErrors.hsSchoolName} />
+                  ) : (
+                    <>
+                      <div className="academic-card">
+                        <div className="academic-card-header">
+                          <h3 className="academic-card-title">Elementary Education</h3>
                         </div>
-                        <div className="applicant-field">
-                          <label className="applicant-field-label"><RequiredLabel>Year graduated</RequiredLabel></label>
-                          <input className={`form-input${fieldErrors.hsYear ? ' form-input-error' : ''}`} value={form.academicDetails.highSchool.yearGraduated} onChange={(e) => update('academicDetails.highSchool.yearGraduated', e.target.value.replace(/[^0-9]/g, '').slice(0, 4))} required type="text" inputMode="numeric" placeholder="YYYY" maxLength={4} />
-                          <FieldError message={fieldErrors.hsYear} />
-                        </div>
-                        <div className="applicant-field">
-                          <label className="applicant-field-label">General average</label>
-                          <input className={`form-input${fieldErrors.hsGpa ? ' form-input-error' : ''}`} value={form.academicDetails.highSchool.generalAverage} onChange={(e) => update('academicDetails.highSchool.generalAverage', e.target.value.replace(/[^0-9.]/g, '').slice(0, 6))} type="text" inputMode="decimal" placeholder="e.g. 89.75" />
-                          <FieldError message={fieldErrors.hsGpa} />
-                        </div>
-                        <div className="applicant-col-span-2">
-                          <label className="applicant-field-label">School address</label>
-                          <textarea className="form-textarea" rows={2} value={form.academicDetails.highSchool.schoolAddress} onChange={(e) => update('academicDetails.highSchool.schoolAddress', e.target.value)} maxLength={255} />
+                        <div className="academic-card-body">
+                          <div className="applicant-grid-2">
+                            <div className="applicant-col-span-2">
+                              <SchoolSearchInput
+                                value={form.academicDetails.elementary.schoolName}
+                                onChange={(value) => update('academicDetails.elementary.schoolName', value)}
+                                label={<RequiredLabel>School</RequiredLabel>}
+                                required
+                              />
+                              <FieldError message={fieldErrors.elemSchoolName} />
+                            </div>
+                            <div className="applicant-field">
+                              <label className="applicant-field-label"><RequiredLabel>Year graduated</RequiredLabel></label>
+                              <input className={`form-input${fieldErrors.elemYear ? ' form-input-error' : ''}`} value={form.academicDetails.elementary.yearGraduated} onChange={(e) => update('academicDetails.elementary.yearGraduated', e.target.value)} required type="text" placeholder="YYYY" maxLength={4} />
+                              <FieldError message={fieldErrors.elemYear} />
+                            </div>
+                            <div className="applicant-field">
+                              <label className="applicant-field-label">General average</label>
+                              <input className={`form-input${fieldErrors.elemGpa ? ' form-input-error' : ''}`} value={form.academicDetails.elementary.generalAverage} onChange={(e) => update('academicDetails.elementary.generalAverage', e.target.value)} type="text" placeholder="e.g. 85" />
+                              <FieldError message={fieldErrors.elemGpa} />
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
 
-                  <div className="academic-card">
-                    <div className="academic-card-header">
-                      <h3 className="academic-card-title">Senior High School <span className="academic-card-optional">(optional)</span></h3>
-                    </div>
-                    <div className="academic-card-body">
-                      <div className="applicant-grid-2">
-                        <div className="applicant-col-span-2">
-                          <SchoolSearchInput
-                            value={form.academicDetails.seniorHighSchool?.schoolName || ''}
-                            onChange={(value) => update('academicDetails.seniorHighSchool.schoolName', value)}
-                            label={<span className="applicant-label-text">School</span>}
-                            placeholder="Search school name... (leave blank if not applicable)"
-                          />
-                          <FieldError message={fieldErrors.shsSchoolName} />
+                      <div className="academic-card">
+                        <div className="academic-card-header">
+                          <h3 className="academic-card-title">Junior High School</h3>
                         </div>
-                        <div className="applicant-field">
-                          <label className="applicant-field-label">Year graduated</label>
-                          <input className={`form-input${fieldErrors.shsYear ? ' form-input-error' : ''}`} value={form.academicDetails.seniorHighSchool?.yearGraduated || ''} onChange={(e) => update('academicDetails.seniorHighSchool.yearGraduated', e.target.value.replace(/[^0-9]/g, '').slice(0, 4))} type="text" inputMode="numeric" placeholder="YYYY" maxLength={4} />
-                          <FieldError message={fieldErrors.shsYear} />
-                        </div>
-                        <div className="applicant-field">
-                          <label className="applicant-field-label">General average</label>
-                          <input className={`form-input${fieldErrors.shsGpa ? ' form-input-error' : ''}`} value={form.academicDetails.seniorHighSchool?.generalAverage || ''} onChange={(e) => update('academicDetails.seniorHighSchool.generalAverage', e.target.value.replace(/[^0-9.]/g, '').slice(0, 6))} type="text" inputMode="decimal" placeholder="e.g. 89.75" />
-                          <FieldError message={fieldErrors.shsGpa} />
-                        </div>
-                        <div className="applicant-field">
-                          <label className="applicant-field-label"><RequiredLabel>Strand or track</RequiredLabel></label>
-                          <select className={`form-select${fieldErrors.shsStrand ? ' form-input-error' : ''}`} value={form.academicDetails.seniorHighSchool?.strandOrTrack || ''} onChange={(e) => update('academicDetails.seniorHighSchool.strandOrTrack', e.target.value)} required>
-                            <option value="">Select...</option>
-                            <option value="Science, Technology, Engineering and Mathematics">Science, Technology, Engineering and Mathematics</option>
-                            <option value="Accountancy, Business and Management">Accountancy, Business and Management</option>
-                            <option value="Humanities and Social Sciences">Humanities and Social Sciences</option>
-                            <option value="General Academic Strand">General Academic Strand</option>
-                            <option value="Technical-Vocational-Livelihood">Technical-Vocational-Livelihood</option>
-                            <option value="Arts and Design">Arts and Design</option>
-                            <option value="Sports">Sports</option>
-                            <option value="Not applicable">Not applicable</option>
-                          </select>
-                          <FieldError message={fieldErrors.shsStrand} />
-                        </div>
-                        <div className="applicant-col-span-2">
-                          <label className="applicant-field-label">School address</label>
-                          <textarea className="form-textarea" rows={2} value={form.academicDetails.seniorHighSchool?.schoolAddress || ''} onChange={(e) => update('academicDetails.seniorHighSchool.schoolAddress', e.target.value)} maxLength={255} />
+                        <div className="academic-card-body">
+                          <div className="applicant-grid-2">
+                            <div className="applicant-col-span-2">
+                              <SchoolSearchInput
+                                value={form.academicDetails.highSchool.schoolName}
+                                onChange={(value) => update('academicDetails.highSchool.schoolName', value)}
+                                label={<RequiredLabel>School</RequiredLabel>}
+                                required
+                              />
+                              <FieldError message={fieldErrors.hsSchoolName} />
+                            </div>
+                            <div className="applicant-field">
+                              <label className="applicant-field-label"><RequiredLabel>Year graduated</RequiredLabel></label>
+                              <input className={`form-input${fieldErrors.hsYear ? ' form-input-error' : ''}`} value={form.academicDetails.highSchool.yearGraduated} onChange={(e) => update('academicDetails.highSchool.yearGraduated', e.target.value.replace(/[^0-9]/g, '').slice(0, 4))} required type="text" inputMode="numeric" placeholder="YYYY" maxLength={4} />
+                              <FieldError message={fieldErrors.hsYear} />
+                            </div>
+                            <div className="applicant-field">
+                              <label className="applicant-field-label">General average</label>
+                              <input className={`form-input${fieldErrors.hsGpa ? ' form-input-error' : ''}`} value={form.academicDetails.highSchool.generalAverage} onChange={(e) => update('academicDetails.highSchool.generalAverage', e.target.value.replace(/[^0-9.]/g, '').slice(0, 6))} type="text" inputMode="decimal" placeholder="e.g. 89.75" />
+                              <FieldError message={fieldErrors.hsGpa} />
+                            </div>
+                            <div className="applicant-col-span-2">
+                              <label className="applicant-field-label">School address</label>
+                              <textarea className="form-textarea" rows={2} value={form.academicDetails.highSchool.schoolAddress} onChange={(e) => update('academicDetails.highSchool.schoolAddress', e.target.value)} maxLength={255} />
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
 
-                  <div className="academic-card">
-                    <div className="academic-card-header">
-                      <h3 className="academic-card-title">College <span className="academic-card-optional">(if transferee)</span></h3>
-                    </div>
-                    <div className="academic-card-body">
-                      <div className="applicant-grid-2">
-                        <div className="applicant-col-span-2">
-                          <SchoolSearchInput
-                            value={form.academicDetails.college?.schoolName || ''}
-                            onChange={(value) => update('academicDetails.college.schoolName', value)}
-                            label={<span className="applicant-label-text">School</span>}
-                            placeholder="Search school name... (leave blank if not applicable)"
-                          />
-                          <FieldError message={fieldErrors.collegeSchoolName} />
+                      <div className="academic-card">
+                        <div className="academic-card-header">
+                          <h3 className="academic-card-title">Senior High School <span className="academic-card-optional">(optional)</span></h3>
                         </div>
-                        <div className="applicant-field">
-                          <label className="applicant-field-label">Year graduated</label>
-                          <input className={`form-input${fieldErrors.collegeYear ? ' form-input-error' : ''}`} value={form.academicDetails.college?.yearGraduated || ''} onChange={(e) => update('academicDetails.college.yearGraduated', e.target.value.replace(/[^0-9]/g, '').slice(0, 4))} type="text" inputMode="numeric" placeholder="YYYY" maxLength={4} />
-                          <FieldError message={fieldErrors.collegeYear} />
-                        </div>
-                        <div className="applicant-field">
-                          <label className="applicant-field-label">General average</label>
-                          <input className={`form-input${fieldErrors.collegeGpa ? ' form-input-error' : ''}`} value={form.academicDetails.college?.generalAverage || ''} onChange={(e) => update('academicDetails.college.generalAverage', e.target.value.replace(/[^0-9.]/g, '').slice(0, 6))} type="text" inputMode="decimal" placeholder="e.g. 1.75" />
-                          <FieldError message={fieldErrors.collegeGpa} />
-                        </div>
-                        <div className="applicant-col-span-2">
-                          <label className="applicant-field-label">School address</label>
-                          <textarea className="form-textarea" rows={2} value={form.academicDetails.college?.schoolAddress || ''} onChange={(e) => update('academicDetails.college.schoolAddress', e.target.value)} maxLength={255} />
+                        <div className="academic-card-body">
+                          <div className="applicant-grid-2">
+                            <div className="applicant-col-span-2">
+                              <SchoolSearchInput
+                                value={form.academicDetails.seniorHighSchool?.schoolName || ''}
+                                onChange={(value) => update('academicDetails.seniorHighSchool.schoolName', value)}
+                                label={<span className="applicant-label-text">School</span>}
+                                placeholder="Search school name... (leave blank if not applicable)"
+                              />
+                              <FieldError message={fieldErrors.shsSchoolName} />
+                            </div>
+                            <div className="applicant-field">
+                              <label className="applicant-field-label">Year graduated</label>
+                              <input className={`form-input${fieldErrors.shsYear ? ' form-input-error' : ''}`} value={form.academicDetails.seniorHighSchool?.yearGraduated || ''} onChange={(e) => update('academicDetails.seniorHighSchool.yearGraduated', e.target.value.replace(/[^0-9]/g, '').slice(0, 4))} type="text" inputMode="numeric" placeholder="YYYY" maxLength={4} />
+                              <FieldError message={fieldErrors.shsYear} />
+                            </div>
+                            <div className="applicant-field">
+                              <label className="applicant-field-label">General average</label>
+                              <input className={`form-input${fieldErrors.shsGpa ? ' form-input-error' : ''}`} value={form.academicDetails.seniorHighSchool?.generalAverage || ''} onChange={(e) => update('academicDetails.seniorHighSchool.generalAverage', e.target.value.replace(/[^0-9.]/g, '').slice(0, 6))} type="text" inputMode="decimal" placeholder="e.g. 89.75" />
+                              <FieldError message={fieldErrors.shsGpa} />
+                            </div>
+                            <div className="applicant-field">
+                              <label className="applicant-field-label"><RequiredLabel>Strand or track</RequiredLabel></label>
+                              <select className={`form-select${fieldErrors.shsStrand ? ' form-input-error' : ''}`} value={form.academicDetails.seniorHighSchool?.strandOrTrack || ''} onChange={(e) => update('academicDetails.seniorHighSchool.strandOrTrack', e.target.value)} required>
+                                <option value="">Select...</option>
+                                <option value="Science, Technology, Engineering and Mathematics">Science, Technology, Engineering and Mathematics</option>
+                                <option value="Accountancy, Business and Management">Accountancy, Business and Management</option>
+                                <option value="Humanities and Social Sciences">Humanities and Social Sciences</option>
+                                <option value="General Academic Strand">General Academic Strand</option>
+                                <option value="Technical-Vocational-Livelihood">Technical-Vocational-Livelihood</option>
+                                <option value="Arts and Design">Arts and Design</option>
+                                <option value="Sports">Sports</option>
+                                <option value="Not applicable">Not applicable</option>
+                              </select>
+                              <FieldError message={fieldErrors.shsStrand} />
+                            </div>
+                            <div className="applicant-col-span-2">
+                              <label className="applicant-field-label">School address</label>
+                              <textarea className="form-textarea" rows={2} value={form.academicDetails.seniorHighSchool?.schoolAddress || ''} onChange={(e) => update('academicDetails.seniorHighSchool.schoolAddress', e.target.value)} maxLength={255} />
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
+                    </>
+                  )}
                 </>
               ) : null}
 
-              {stepIndex === 3 ? (
-                <>
-                  <h2 className="applicant-section-title">Course Selection</h2>
-                  <div className="applicant-grid-2 applicant-spacer">
-                    <div className="applicant-field">
-                      <label className="applicant-field-label"><RequiredLabel>Applicant type</RequiredLabel></label>
-                      <select className="form-select" value={form.applicantType} onChange={(e) => update('applicantType', e.target.value)} required>
-                        <option value="New">Freshman / New Student</option>
-                        <option value="Transferee">Transferee</option>
-                        <option value="Returnee">Returnee</option>
-                      </select>
-                    </div>
-                    <div className="applicant-field">
-                      <label className="applicant-field-label"><RequiredLabel>Course</RequiredLabel></label>
-                      <select className="form-select" value={form.selectedCourse} onChange={(e) => update('selectedCourse', Number(e.target.value))} disabled={loadingCourses} required>
-                        {courses.map((course) => (
-                          <option key={course.id} value={course.id}>{course.code} - {course.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="applicant-field">
-                      <label className="applicant-field-label"><RequiredLabel>Requested year level</RequiredLabel></label>
-                      <select className="form-select" value={form.requestedYearLevel} onChange={(e) => update('requestedYearLevel', Number(e.target.value))} required>
-                        <option value={1}>First Year</option>
-                        <option value={2}>Second Year</option>
-                        <option value={3}>Third Year</option>
-                        <option value={4}>Fourth Year</option>
-                      </select>
-                    </div>
-                    <div className="applicant-field">
-                      <label className="applicant-field-label"><RequiredLabel>Semester</RequiredLabel></label>
-                      <select className="form-select" value={form.semester} onChange={(e) => update('semester', e.target.value)} required>
-                        <option value="1st">1st Semester</option>
-                        <option value="2nd">2nd Semester</option>
-                        <option value="Summer">Summer</option>
-                      </select>
-                    </div>
-                    <div className="applicant-field">
-                      <label className="applicant-field-label"><RequiredLabel>School year</RequiredLabel></label>
-                      <input className="form-input" value={form.schoolYear} onChange={(e) => update('schoolYear', e.target.value)} required type="text" />
-                    </div>
-                  </div>
-                  <div className="applicant-review-box">
+          {stepIndex === 3 ? (
+            <>
+              <h2 className="applicant-section-title">Course Selection</h2>
+              <div className="applicant-grid-2 applicant-spacer">
+                <div className="applicant-field">
+                  <label className="applicant-field-label"><RequiredLabel>Applicant type</RequiredLabel></label>
+                  <select className="form-select" value={form.applicantType} onChange={(e) => update('applicantType', e.target.value)} disabled={isTransferee} required>
+                    <option value="New">Freshman / New Student</option>
+                    <option value="Transferee">Transferee</option>
+                    <option value="Returnee">Returnee</option>
+                  </select>
+                </div>
+                <div className="applicant-field">
+                  <label className="applicant-field-label"><RequiredLabel>Course</RequiredLabel></label>
+                  <select className="form-select" value={form.selectedCourse} onChange={(e) => update('selectedCourse', Number(e.target.value))} disabled={loadingCourses} required>
+                    {courses.map((course) => (
+                      <option key={course.id} value={course.id}>{course.code} - {course.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="applicant-field">
+                  <label className="applicant-field-label"><RequiredLabel>Requested year level</RequiredLabel></label>
+                  <select className="form-select" value={form.requestedYearLevel} onChange={(e) => update('requestedYearLevel', Number(e.target.value))} required>
+                    <option value={1}>First Year</option>
+                    <option value={2}>Second Year</option>
+                    <option value={3}>Third Year</option>
+                    <option value={4}>Fourth Year</option>
+                  </select>
+                </div>
+                <div className="applicant-field">
+                  <label className="applicant-field-label"><RequiredLabel>Semester</RequiredLabel></label>
+                  <select className="form-select" value={form.semester} onChange={(e) => update('semester', e.target.value)} required>
+                    <option value="1st">1st Semester</option>
+                    <option value="2nd">2nd Semester</option>
+                    <option value="Summer">Summer</option>
+                  </select>
+                </div>
+                <div className="applicant-field">
+                  <label className="applicant-field-label"><RequiredLabel>School year</RequiredLabel></label>
+                  <input className="form-input" value={form.schoolYear} onChange={(e) => update('schoolYear', e.target.value)} required type="text" />
+                </div>
+              </div>
+              <div className="applicant-review-box">
                     <span>Selected course</span>
                     <strong>{selectedCourse ? `${selectedCourse.code} - ${selectedCourse.name}` : 'Loading courses...'}</strong>
                   </div>
@@ -960,7 +1009,7 @@ export default function ApplicantOnboarding({ onBack }: Props) {
                 >
                   Previous
                 </button>
-                {stepIndex < steps.length - 1 ? (
+                {stepIndex < currentSteps.length - 1 ? (
                   <button
                     type="button"
                     onClick={goNext}

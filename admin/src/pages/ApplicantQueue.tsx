@@ -387,6 +387,7 @@ export default function ApplicantQueue() {
               <tr>
                 <th>Applicant</th>
                 <th>ID</th>
+                <th>Type</th>
                 <th>Program</th>
                 <th>Date</th>
                 <th>Status</th>
@@ -396,13 +397,13 @@ export default function ApplicantQueue() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     <p className="applicant-queue-empty">Loading applicants...</p>
                   </td>
                 </tr>
               ) : visibleApplicants.length === 0 ? (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     <p className="applicant-queue-empty">No applicants found.</p>
                   </td>
                 </tr>
@@ -422,6 +423,11 @@ export default function ApplicantQueue() {
                       </div>
                     </td>
                     <td className="applicant-muted-cell">{applicant.applicantNumber}</td>
+                    <td>
+                      <span className={`applicant-type-badge applicant-type-badge--${String(applicant.applicantType || 'New').toLowerCase()}`}>
+                        {applicant.applicantType === 'Transferee' ? 'Transferee' : applicant.applicantType === 'Returnee' ? 'Returnee' : 'Applicant'}
+                      </span>
+                    </td>
                     <td>
                       <strong className="applicant-program-name">{getCourseLabel(applicant)}</strong>
                       <span className="applicant-program-meta">Year {applicant.requestedYearLevel} - {applicant.semester}</span>
@@ -502,12 +508,22 @@ export default function ApplicantQueue() {
               <Detail label="Guardian" value={selected.guardianName || 'N/A'} />
               <Detail label="Guardian Contact" value={selected.guardianContactNumber} />
               <Detail label="Emergency Contact" value={`${selected.emergencyContact.name} (${selected.emergencyContact.relationship})`} />
-              <Detail label="Elementary" value={selected.academicDetails.elementary.schoolName} />
-              <Detail label="Elementary GPA" value={selected.academicDetails.elementary.generalAverage || 'N/A'} />
-              <Detail label="High School" value={selected.academicDetails.highSchool.schoolName} />
-              <Detail label="High School GPA" value={selected.academicDetails.highSchool.generalAverage || 'N/A'} />
-              <Detail label="Senior High School" value={selected.academicDetails.seniorHighSchool?.schoolName || 'N/A'} />
-              <Detail label="Strand / Track" value={selected.academicDetails.seniorHighSchool?.strandOrTrack || 'N/A'} />
+              {selected.applicantType === 'Transferee' ? (
+                <>
+                  <Detail label="Last College Attended" value={selected.academicDetails?.college?.schoolName || 'N/A'} />
+                  <Detail label="Year Last Attended" value={selected.academicDetails?.college?.yearGraduated || 'N/A'} />
+                  <Detail label="College General Average" value={selected.academicDetails?.college?.generalAverage || 'N/A'} />
+                </>
+              ) : (
+                <>
+                  <Detail label="Elementary" value={selected.academicDetails?.elementary?.schoolName || 'N/A'} />
+                  <Detail label="Elementary GPA" value={selected.academicDetails?.elementary?.generalAverage || 'N/A'} />
+                  <Detail label="High School" value={selected.academicDetails?.highSchool?.schoolName || 'N/A'} />
+                  <Detail label="High School GPA" value={selected.academicDetails?.highSchool?.generalAverage || 'N/A'} />
+                  <Detail label="Senior High School" value={selected.academicDetails?.seniorHighSchool?.schoolName || 'N/A'} />
+                  <Detail label="Strand / Track" value={selected.academicDetails?.seniorHighSchool?.strandOrTrack || 'N/A'} />
+                </>
+              )}
             </div>
 
             <div className="applicant-review-actions">

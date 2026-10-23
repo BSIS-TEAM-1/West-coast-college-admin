@@ -121,6 +121,73 @@ async function getSubmission(req, res) {
 }
 
 /**
+ * GET /registrar/grade-submissions/class
+ * Get all grade submissions for a class (by schoolYear, semester, course, yearLevel).
+ */
+async function getClassSubmissions(req, res) {
+  try {
+    const { schoolYear, semester, course, yearLevel, status } = req.query;
+    if (!schoolYear || !semester || !course || !yearLevel) {
+      return res.status(400).json({ error: 'Missing required filters: schoolYear, semester, course, yearLevel' });
+    }
+
+    const filter = {
+      schoolYear,
+      semester,
+      course,
+      yearLevel: Number(yearLevel)
+    };
+
+    const enrollments = await Enrollment.find(filter)
+      .populate('studentId', 'studentNumber firstName lastName suffix course yearLevel')
+      .lean();
+
+    // Split each enrollment into per-professor submission rows
+    const rows = [];
+    for (const enrollment of enrollments) {
+      const activeSubjects = (enrollment.subjects || []).filter(
+        s => s.status !== 'Dropped' && s.status !== 'Removed'
+      );
+      if (activeSubjects.length === 0) continue;
+
+      // Group subjects by instructor
+      const byInstructor = new Map();
+      for (const subject of activeSubjects) {
+        const instructor = subject.instructor || 'Unassigned';
+        if (!byInstructor.has(instructor)) byInstructor.set(instructor, []);
+        byInstructor.get(instructor).push(subject);
+      }
+
+      for (const [instructor, subjects] of byInstructor.entries()) {
+        const professorStatus = subjects[0]?.submissionStatus || 'Draft';
+        // If status filter is provided, only include rows matching that status
+        if (status && professorStatus !== status) continue;
+
+        rows.push({
+          _id: enrollment._id,
+          enrollmentId: enrollment._id,
+          instructor,
+          studentId: enrollment.studentId,
+          studentNumber: enrollment.studentId?.studentNumber,
+          schoolYear: enrollment.schoolYear,
+          semester: enrollment.semester,
+          yearLevel: enrollment.yearLevel,
+          course: enrollment.course,
+          subjects,
+          professorSubmissionStatus: professorStatus,
+          gradeSubmission: enrollment.gradeSubmission
+        });
+      }
+    }
+
+    return res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Error getting class grade submissions:', error);
+    return res.status(500).json({ error: 'Failed to get class grade submissions.' });
+  }
+}
+
+/**
  * POST /professor/grade-submissions/:enrollmentId/submit
  * Professor submits grades for an enrollment. All subjects must have a grade (or be dropped).
  * Ownership is verified by the inline route handler in index.js (getProfessorRouteAccess).
@@ -467,7 +534,9 @@ async function returnGrades(req, res) {
 
 /**
  * POST /registrar/grade-submissions/:enrollmentId/revert-to-draft
- * Revert a Returned/Rejected submission back to Draft (admin/registrar only).
+ * Reopen returned grades as a draft so the responsible professor can correct
+ * and resubmit them. When an instructor is supplied, only that professor's
+ * returned subjects are reopened.
  */
 async function revertToDraft(req, res) {
   try {
@@ -475,24 +544,33 @@ async function revertToDraft(req, res) {
     if (!enrollment) return res.status(404).json({ error: 'Enrollment not found.' });
     if (enrollment.lockedAt) return res.status(400).json({ error: 'Enrollment is locked.' });
 
-    const oldStatus = enrollment.gradeSubmission?.status || 'Draft';
-    if (oldStatus === 'Published' || oldStatus === 'Verified') {
-      return res.status(400).json({ error: `Cannot revert ${oldStatus} grades to draft.` });
+    const instructorFilter = req.body?.instructor || null;
+    const subjectsToReopen = enrollment.subjects.filter(subject =>
+      (subject.submissionStatus || 'Draft') === 'Returned'
+      && subject.status !== 'Dropped'
+      && subject.status !== 'Removed'
+      && (!instructorFilter || (subject.instructor || '') === instructorFilter)
+    );
+
+    if (subjectsToReopen.length === 0) {
+      return res.status(400).json({ error: 'No returned subjects found to reopen.' });
     }
 
+    subjectsToReopen.forEach(subject => {
+      subject.submissionStatus = 'Draft';
+      subject.dateModified = new Date();
+    });
+
+    const existingSubmission = enrollment.gradeSubmission || {};
     enrollment.gradeSubmission = {
-      status: 'Draft',
-      submittedAt: null,
-      submittedBy: null,
-      verifiedAt: null,
-      verifiedBy: null,
-      publishedAt: null,
-      publishedBy: null,
-      reviewedAt: null,
-      reviewedBy: null,
-      reviewRemarks: ''
+      ...existingSubmission,
+      status: Enrollment.computeAggregateSubmissionStatus(enrollment.subjects),
+      reviewedAt: new Date(),
+      reviewedBy: req.adminId,
+      reviewRemarks: 'Returned grades reopened as a draft for correction.'
     };
     enrollment.updatedBy = req.adminId;
+    enrollment.markModified('subjects');
     await enrollment.save();
 
     await GradeAuditLog.create({
@@ -506,11 +584,11 @@ async function revertToDraft(req, res) {
       changedByRole: req.accountType,
       schoolYear: enrollment.schoolYear,
       semester: enrollment.semester,
-      oldRemarks: oldStatus,
-      newRemarks: 'Reverted to Draft'
+      oldRemarks: 'Returned',
+      newRemarks: `Reopened ${subjectsToReopen.length} returned subject(s) as Draft`
     });
 
-    return res.json({ success: true, message: 'Grade submission reverted to draft.', data: enrollment });
+    return res.json({ success: true, message: 'Returned grades reopened as a draft.', data: enrollment });
   } catch (error) {
     console.error('Error reverting to draft:', error);
     return res.status(500).json({ error: 'Failed to revert to draft.' });
@@ -1008,6 +1086,7 @@ async function getSubjectsNeedingAttention(req, res) {
 module.exports = {
   listSubmissions,
   getSubmission,
+  getClassSubmissions,
   submitGrades,
   verifyGrades,
   publishGrades,

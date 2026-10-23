@@ -2858,28 +2858,26 @@
 }
 
 .block-workspace-hero {
-  border-radius: 0.95rem;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 28%, var(--color-border));
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
   padding: 1rem 1.1rem;
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--color-primary) 14%, white) 0%,
-    var(--color-surface) 58%
-  );
+  /* Tint toward the surface, never toward white: a white-based tint inverts
+     into a near-white panel in dark mode while the text stays light. */
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
 }
 
 .block-workspace-hero-badge {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 38%, var(--color-border));
   padding: 0.15rem 0.56rem;
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 9%, white);
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
 }
 
 .block-workspace-hero h2 {

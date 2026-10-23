@@ -87,15 +87,10 @@ class AcademicArchiveService {
       data: {
         initiatedBy: String(adminId),
         executedAt: new Date().toISOString(),
-        fromSchoolYear,
-        toSchoolYear,
-        semester: targetSemester,
-        rolloverBatchId,
         decisions: resolvedDecisions.map((decision) => ({
           studentId: String(decision.studentId),
           action: decision.action,
         })),
-        counts,
       },
     };
   }

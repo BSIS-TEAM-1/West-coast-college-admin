@@ -280,7 +280,7 @@
 .student-history-page__status-badge--success { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
 .student-history-page__status-badge--info { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
 .student-history-page__status-badge--accent { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
-.student-history-page__status-badge--warning { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+.student-history-page__status-badge--warning { background: rgba(245, 158, 11, 0.25); color: #b45309; }
 .student-history-page__status-badge--danger { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
 .student-history-page__status-badge--neutral { background: rgba(100, 116, 139, 0.15); color: #64748b; }
 

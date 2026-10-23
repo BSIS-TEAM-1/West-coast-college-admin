@@ -15,6 +15,7 @@ type LandingPageProps = {
   onOpenCookieSystem: () => void
   onOpenSignIn: () => void
   onOpenApplicantPortal: () => void
+  onOpenTransfereePortal: () => void
 }
 
 type LandingVideoItem = {
@@ -379,7 +380,8 @@ export default function LandingPage({
   onOpenCookiePolicy,
   onOpenCookieSystem,
   onOpenSignIn,
-  onOpenApplicantPortal
+  onOpenApplicantPortal,
+  onOpenTransfereePortal
 }: LandingPageProps) {
   const [theme, setTheme] = useState<ThemePreference>(() => getStoredTheme(null))
   const [isApplyModalOpen, setIsApplyModalOpen] = useState(false)
@@ -477,6 +479,11 @@ export default function LandingPage({
   const handleApplicantClick = () => {
     setIsApplyModalOpen(false)
     onOpenApplicantPortal()
+  }
+
+  const handleTransfereeClick = () => {
+    setIsApplyModalOpen(false)
+    onOpenTransfereePortal()
   }
 
   const triggerFooterContactHighlight = () => {
@@ -1020,9 +1027,23 @@ export default function LandingPage({
                   <span className="material-symbols-outlined">assignment</span>
                 </span>
                 <span className="landing-apply-choice-content">
-                  <span className="landing-apply-choice-title">Applicants</span>
+                  <span className="landing-apply-choice-title">New Applicant</span>
                   <span className="landing-apply-choice-meta">Online admissions onboarding</span>
                   <span className="landing-apply-choice-text">Submit your application details to the registrar</span>
+                </span>
+                <span className="landing-apply-choice-arrow material-symbols-outlined" aria-hidden="true">
+                  chevron_right
+                </span>
+              </button>
+
+              <button type="button" className="landing-apply-choice-card" onClick={handleTransfereeClick}>
+                <span className="landing-apply-choice-icon landing-apply-choice-icon-gold" aria-hidden="true">
+                  <span className="material-symbols-outlined">school</span>
+                </span>
+                <span className="landing-apply-choice-content">
+                  <span className="landing-apply-choice-title">Transferee</span>
+                  <span className="landing-apply-choice-meta">Transfer credit evaluation</span>
+                  <span className="landing-apply-choice-text">Submit your previous college records for evaluation</span>
                 </span>
                 <span className="landing-apply-choice-arrow material-symbols-outlined" aria-hidden="true">
                   chevron_right

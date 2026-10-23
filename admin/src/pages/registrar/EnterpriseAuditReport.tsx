@@ -94,7 +94,6 @@ export default function EnterpriseAuditReport() {
   })
   const [searchInput, setSearchInput] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [expandedSnapshots, setExpandedSnapshots] = useState<Set<string>>(new Set())
 
   const fetchReport = useCallback(async () => {
@@ -132,15 +131,6 @@ export default function EnterpriseAuditReport() {
     setSearchInput('')
     setSearchTerm('')
     setPage(1)
-  }
-
-  const toggleRow = (id: string) => {
-    setExpandedRows((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
   }
 
   const toggleSnapshot = (id: string) => {
@@ -441,7 +431,6 @@ export default function EnterpriseAuditReport() {
               <table className="audit-report__table">
                 <thead>
                   <tr>
-                    <th className="audit-report__th-expand"></th>
                     <th>Date / Time</th>
                     <th>Action</th>
                     <th>Resource</th>
@@ -453,7 +442,7 @@ export default function EnterpriseAuditReport() {
                 <tbody>
                   {filteredLogs.length === 0 && !loading && (
                     <tr>
-                      <td colSpan={7} className="audit-report__empty-row">
+                      <td colSpan={6} className="audit-report__empty-row">
                         <EmptyState
                           icon={<Search size={32} />}
                           title="No audit entries found"
@@ -462,19 +451,9 @@ export default function EnterpriseAuditReport() {
                       </td>
                     </tr>
                   )}
-                  {filteredLogs.map((log: AuditLogEntry) => {
-                    const isExpanded = expandedRows.has(log._id)
-                    const hasDetails = log.oldValue || log.newValue
-                    return (
-                      <AuditRow
-                        key={log._id}
-                        log={log}
-                        isExpanded={isExpanded}
-                        hasDetails={!!hasDetails}
-                        onToggle={() => toggleRow(log._id)}
-                      />
-                    )
-                  })}
+                  {filteredLogs.map((log: AuditLogEntry) => (
+                    <AuditRow key={log._id} log={log} />
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -677,80 +656,41 @@ export default function EnterpriseAuditReport() {
 
 function AuditRow({
   log,
-  isExpanded,
-  hasDetails,
-  onToggle,
 }: {
   log: AuditLogEntry
-  isExpanded: boolean
-  hasDetails: boolean
-  onToggle: () => void
 }) {
   const userDisplay = log.performedBy?.displayName || log.performedBy?.username || 'System'
 
   return (
-    <>
-      <tr
-        className={`audit-report__row ${isExpanded ? 'audit-report__row--expanded' : ''}`}
-        onClick={hasDetails ? onToggle : undefined}
-        style={{ cursor: hasDetails ? 'pointer' : 'default' }}
-      >
-        <td className="audit-report__td-expand">
-          {hasDetails && (
-            <button className="audit-report__expand-btn">
-              {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            </button>
-          )}
-        </td>
-        <td className="audit-report__td-date">
-          <span className="audit-report__date-full">{formatDate(log.createdAt)}</span>
-          <span className="audit-report__date-relative">{formatRelative(log.createdAt)}</span>
-        </td>
-        <td>
-          <span className="audit-report__action-tag">{ACTION_LABELS[log.action] || log.action}</span>
-        </td>
-        <td>
-          <div className="audit-report__resource">
-            <span className="audit-report__resource-type">{RESOURCE_LABELS[log.resourceType] || log.resourceType}</span>
-            <span className="audit-report__resource-name">{log.resourceName}</span>
-          </div>
-        </td>
-        <td className="audit-report__td-description" title={log.description}>
-          {log.description}
-        </td>
-        <td>
-          <div className="audit-report__user">
-            <span>{userDisplay}</span>
-            <span className="audit-report__user-role">({log.performedByRole})</span>
-          </div>
-        </td>
-        <td>
-          <div className="audit-report__status">
-            {getStatusIcon(log.status)}
-            <span>{log.status}</span>
-          </div>
-        </td>
-      </tr>
-      {isExpanded && hasDetails && (
-        <tr className="audit-report__detail-row">
-          <td colSpan={7}>
-            <div className="audit-report__detail-content">
-              <div className="audit-report__detail-section">
-                <h4>Old Value</h4>
-                <pre className="audit-report__json-block">
-                  {log.oldValue ? JSON.stringify(log.oldValue, null, 2) : '—'}
-                </pre>
-              </div>
-              <div className="audit-report__detail-section">
-                <h4>New Value</h4>
-                <pre className="audit-report__json-block">
-                  {log.newValue ? JSON.stringify(log.newValue, null, 2) : '—'}
-                </pre>
-              </div>
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
+    <tr className="audit-report__row">
+      <td className="audit-report__td-date">
+        <span className="audit-report__date-full">{formatDate(log.createdAt)}</span>
+        <span className="audit-report__date-relative">{formatRelative(log.createdAt)}</span>
+      </td>
+      <td>
+        <span className="audit-report__action-tag">{ACTION_LABELS[log.action] || log.action}</span>
+      </td>
+      <td>
+        <div className="audit-report__resource">
+          <span className="audit-report__resource-type">{RESOURCE_LABELS[log.resourceType] || log.resourceType}</span>
+          <span className="audit-report__resource-name">{log.resourceName}</span>
+        </div>
+      </td>
+      <td className="audit-report__td-description" title={log.description}>
+        {log.description}
+      </td>
+      <td>
+        <div className="audit-report__user">
+          <span>{userDisplay}</span>
+          <span className="audit-report__user-role">({log.performedByRole})</span>
+        </div>
+      </td>
+      <td>
+        <div className="audit-report__status">
+          {getStatusIcon(log.status)}
+          <span>{log.status}</span>
+        </div>
+      </td>
+    </tr>
   )
 }

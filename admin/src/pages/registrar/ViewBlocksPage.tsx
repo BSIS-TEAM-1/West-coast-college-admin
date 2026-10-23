@@ -13,6 +13,8 @@ import {
   getBlockGroupCompatibilityMeta,
   getCourseAbbreviation,
   parseBlockSlot,
+  schoolYearFromStartYear,
+  schoolYearStartYear,
   type Semester
 } from '../../lib/blockAssignmentShared'
 type ViewBlocksPageProps = {
@@ -137,7 +139,11 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
     .sort((a, b) => {
       const byName = compareBlockOrder(a.name, b.name)
       if (byName !== 0) return byName
-      if (Number(a.year) !== Number(b.year)) return Number(b.year) - Number(a.year)
+      // `year` is a school-year string ("2026-2027"), so Number() was NaN and
+      // this comparator returned NaN — an unstable, non-deterministic sort.
+      const aStart = schoolYearStartYear(a.schoolYear || a.year)
+      const bStart = schoolYearStartYear(b.schoolYear || b.year)
+      if (aStart !== bStart) return bStart - aStart
       return String(a.semester).localeCompare(String(b.semester))
     })
 
@@ -355,7 +361,9 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
       groupId: selectedGroup._id,
       groupName: selectedGroup.name,
       semester: selectedGroup.semester,
-      year: Number(selectedGroup.year),
+      // The API expects a numeric start year (2000..3000); `year` arrives as
+      // the school-year string "2026-2027", so Number() here was NaN.
+      year: schoolYearStartYear(selectedGroup.schoolYear || selectedGroup.year),
       initialSectionId: selectedTargetSection?._id || null
     })
   }
@@ -592,7 +600,7 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
                       <span className="block-detail-meta-dot" />
                       <span>{selectedGroup.semester === '1st' ? '1st Semester' : selectedGroup.semester === '2nd' ? '2nd Semester' : 'Summer'}</span>
                       <span className="block-detail-meta-dot" />
-                      <span>{`SY ${selectedGroup.year}\u2013${Number(selectedGroup.year) + 1}`}</span>
+                      <span>{`SY ${schoolYearFromStartYear(selectedGroup.schoolYear || selectedGroup.year) || '—'}`}</span>
                     </div>
                     {linkedCurriculumName && (
                       <div className="block-detail-group-curriculum">

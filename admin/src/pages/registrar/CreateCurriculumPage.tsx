@@ -1127,8 +1127,9 @@ function PlacementEditorModal({
               </label>
             </div>
 
-            {/* Prerequisites section */}
-            <div className="curriculum-prereq-section">
+            {/* Prerequisites section - hidden for Year 1 Semester 1 (base subjects) */}
+            {!(placement.yearLevel === 1 && placement.semester === '1st') && (
+              <div className="curriculum-prereq-section">
               <div className="curriculum-prereq-mode-toggle">
                 <label>
                   <input
@@ -1221,6 +1222,7 @@ function PlacementEditorModal({
                 </>
               )}
             </div>
+            )}
           </div>
 
           <div className="curriculum-modal-footer">

@@ -712,34 +712,42 @@
   min-width: 28px;
   padding: 2px 8px;
   border-radius: 9999px;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 700;
-  background: color-mix(in srgb, var(--color-warning, #f59e0b) 18%, transparent);
-  color: var(--color-warning, #f59e0b);
+  letter-spacing: 0.02em;
+  background: color-mix(in srgb, var(--color-warning, #f59e0b) 25%, transparent);
+  color: #b45309;
+  border: 1px solid color-mix(in srgb, var(--color-warning, #f59e0b) 35%, transparent);
 }
 
 .rollover-page__status-badge {
   display: inline-flex;
   align-items: center;
-  padding: 2px 10px;
+  padding: 3px 10px;
   border-radius: 9999px;
-  font-size: 0.72rem;
-  font-weight: 600;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
 }
 
 .rollover-page__status-badge--ok {
-  background: color-mix(in srgb, var(--color-success, #22c55e) 15%, transparent);
-  color: var(--color-success, #22c55e);
+  background: color-mix(in srgb, var(--color-success, #22c55e) 20%, transparent);
+  color: #15803d;
+  border-color: color-mix(in srgb, var(--color-success, #22c55e) 30%, transparent);
 }
 
 .rollover-page__status-badge--warn {
-  background: color-mix(in srgb, var(--color-warning, #f59e0b) 15%, transparent);
-  color: var(--color-warning, #f59e0b);
+  background: color-mix(in srgb, var(--color-warning, #f59e0b) 25%, transparent);
+  color: #b45309;
+  border-color: color-mix(in srgb, var(--color-warning, #f59e0b) 35%, transparent);
 }
 
 .rollover-page__status-badge--ready {
-  background: color-mix(in srgb, var(--color-primary, #2563eb) 12%, transparent);
-  color: var(--color-primary, #2563eb);
+  background: color-mix(in srgb, var(--color-primary, #2563eb) 18%, transparent);
+  color: #1d4ed8;
+  border-color: color-mix(in srgb, var(--color-primary, #2563eb) 28%, transparent);
 }
 
 /* ---- Action cell (select + approve button) ---- */
