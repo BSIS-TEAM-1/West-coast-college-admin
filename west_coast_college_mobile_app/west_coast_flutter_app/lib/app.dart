@@ -21,7 +21,7 @@ class AppView extends ConsumerWidget {
     final router = ref.watch(routerProvider);
     final settings = ref.watch(settingsControllerProvider);
     return MaterialApp.router(
-      title: 'WCConnect',
+      title: 'WccPortal',
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: settings.themeMode,

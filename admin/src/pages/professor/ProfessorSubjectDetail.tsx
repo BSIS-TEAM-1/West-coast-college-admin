@@ -5,6 +5,7 @@ import { fetchWithAutoReconnect, isAbortRequestError, isNetworkRequestError } fr
 import type { ProfessorAssignedStudent, ProfessorSubjectDetailState } from './professorTypes'
 import { buildReconnectMessage } from './professorUtils'
 import './ProfessorSubjectDetail.css'
+import './ProfessorShared.css'
 
 interface ProfessorSubjectDetailProps {
   detail: ProfessorSubjectDetailState | null

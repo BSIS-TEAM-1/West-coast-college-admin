@@ -56,6 +56,20 @@ class SettingsPage extends ConsumerWidget {
               ),
             ],
           ),
+          const SizedBox(height: AppDimensions.md),
+          _SectionCard(
+            title: 'Login',
+            colors: colors,
+            children: [
+              _SettingTile(
+                icon: Icons.email_outlined,
+                label: 'Make Google Email Primary',
+                value: state.googleEmail.isNotEmpty ? 'Set' : 'Not set',
+                onTap: () => _showSetGoogleEmailDialog(context, ref, state.googleEmail, colors),
+                colors: colors,
+              ),
+            ],
+          ),
           const SizedBox(height: AppDimensions.xl),
         ],
       ),
@@ -113,6 +127,53 @@ class SettingsPage extends ConsumerWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showSetGoogleEmailDialog(BuildContext context, WidgetRef ref, String currentEmail, ThemeColors colors) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Set Google Email as Primary Login'),
+        content: TextField(
+          decoration: const InputDecoration(hintText: 'Enter your Google email'),
+          onSubmitted: (_) => Navigator.pop(dialogContext),
+          controller: TextEditingController(text: currentEmail),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            style: TextButton.styleFrom(
+              shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.all(Radius.circular(2)),
+              ),
+            ),
+            child: const Text('Cancel'),
+          ),
+          OutlinedButton(
+            onPressed: () {
+              final email = currentEmail;
+              if (email.isNotEmpty && email.contains('@')) {
+                ref.read(settingsControllerProvider.notifier).setGoogleEmail(email);
+                Navigator.pop(dialogContext);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please enter a valid email address.'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+            style: OutlinedButton.styleFrom(
+              shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.all(Radius.circular(2)),
+              ),
+            ),
+            child: const Text('Set as Primary'),
+          ),
+        ],
       ),
     );
   }
@@ -175,7 +236,7 @@ class _SettingTile extends StatelessWidget {
               child: Text(label, style: AppTextStyles.bodyMedium.copyWith(color: colors.textPrimary)),
             ),
             Text(value, style: AppTextStyles.bodyMedium.copyWith(color: colors.textMuted)),
-            if (onTap != null) ...[
+            if (onTap != null)...[
               const SizedBox(width: AppDimensions.sm),
               Icon(Icons.chevron_right, size: 18, color: colors.textMuted),
             ],

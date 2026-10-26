@@ -14,13 +14,11 @@ import {
   IdCard,
   Layers3,
   Mail,
-  MapPin,
   MoreHorizontal,
   PencilLine,
   Phone,
   RefreshCw,
   Search,
-  ShieldCheck,
   Trash2,
   Upload,
   UserPlus,
@@ -36,6 +34,7 @@ import { validateStep } from './AddStudent/validation'
 import { buildStudentPayloadFromWizardForm, buildWizardFormData } from './AddStudent/formLogic'
 import StudentWizard from './AddStudent/StudentWizard'
 import BlockAssignmentModal from './BlockAssignmentModal'
+import StudentImportModal from './StudentImportModal'
 import NotificationToast from './NotificationToast'
 import SectionSkeleton from './SectionSkeleton'
 import './SectionSkeleton.css'
@@ -57,6 +56,7 @@ import {
   studentNumberDisplay,
   type Semester
 } from '../lib/blockAssignmentShared'
+import { downloadCsv } from '../lib/csv'
 import './StudentManagement.css'
 
 type LifecycleStatus = 'Pending' | 'Enrolled' | 'Not Enrolled' | 'Irregular' | 'Inactive' | 'Graduated' | 'Leave of Absence'
@@ -67,6 +67,7 @@ type StudentManagementMode = 'management' | 'assign-block'
 type StudentManagementProps = {
   mode?: StudentManagementMode
   onViewHistory?: (studentId: string) => void
+  onShiftStudent?: (studentId: string) => void
 }
 
 type ManagedStudent = StudentData & {
@@ -269,6 +270,64 @@ function normalizeLifecycleStatus(student: Partial<ManagedStudent>): LifecycleSt
   return 'Pending'
 }
 
+// Roster export uses the Student Management import columns (plus roster-only
+// context such as Block and COR Status) so an exported file can be edited and
+// imported again without rearranging columns.
+const STUDENT_SHEET_HEADERS = [
+  'Student Number',
+  'First Name',
+  'Middle Name',
+  'Last Name',
+  'Suffix',
+  'Name',
+  'Course',
+  'Year Level',
+  'Semester',
+  'School Year',
+  'Student Status',
+  'Lifecycle',
+  'COR Status',
+  'Email',
+  'Contact Number',
+  'Address',
+  'Permanent Address',
+  'Gender',
+  'Birth Date',
+  'Block'
+]
+
+function buildStudentSheetRow(student: ManagedStudent) {
+  const rawStatus = String(student.studentStatus || '').trim()
+  const studentStatus = ['Regular', 'Irregular', 'Returnee', 'Transferee'].includes(rawStatus)
+    ? rawStatus
+    : rawStatus === 'Returning' || rawStatus === 'Dropped'
+      ? 'Irregular'
+      : 'Regular'
+
+  return [
+    studentNumberDisplay(student),
+    student.firstName || '',
+    student.middleName || '',
+    student.lastName || '',
+    student.suffix || '',
+    studentDisplayName(student),
+    courseShortLabel(student.course),
+    formatYearLevel(student.yearLevel),
+    student.semester || '',
+    student.schoolYear || '',
+    studentStatus,
+    normalizeLifecycleStatus(student),
+    normalizeCorStatus(student.corStatus),
+    student.email || '',
+    student.contactNumber || '',
+    student.address || '',
+    student.permanentAddress || '',
+    student.gender || '',
+    student.birthDate ? String(student.birthDate).slice(0, 10) : '',
+    student.section || ''
+  ]
+}
+
 function buildStudentFormState(student?: ManagedStudent): StudentFormState {
   const wizardData = buildWizardFormData(student)
 
@@ -368,22 +427,6 @@ async function fetchStudentNumberPreview(course: string, schoolYear: string) {
   return String(payload?.data?.studentNumber || '').trim()
 }
 
-function escapeCsv(value: unknown) {
-  const text = String(value ?? '')
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
-}
-
-function downloadCsv(filename: string, rows: string[][]) {
-  const csv = rows.map((row) => row.map(escapeCsv).join(',')).join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = window.URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  link.click()
-  window.URL.revokeObjectURL(url)
-}
-
 function ToneBadge({
   label,
   tone
@@ -407,6 +450,7 @@ function StudentProfileDrawer({
   onArchive,
   onDelete,
   onViewHistory,
+  onShiftStudent,
   showBlockAssignmentAction = false
 }: {
   profileState: { student: ManagedStudent; tab: ProfileTab } | null
@@ -420,6 +464,7 @@ function StudentProfileDrawer({
   onArchive: (student: ManagedStudent) => void
   onDelete: (student: ManagedStudent) => void
   onViewHistory?: (studentId: string) => void
+  onShiftStudent?: (studentId: string) => void
   showBlockAssignmentAction?: boolean
 }) {
   const [activeTab, setActiveTab] = useState<ProfileTab>(profileState?.tab || 'profile')
@@ -752,6 +797,12 @@ function StudentProfileDrawer({
                     </button>
                     <div className="sd-menu-divider" aria-hidden="true" />
                     <p className="sd-menu-label">Manage</p>
+                    {(activeStudent.yearLevel === 1 || !activeStudent.yearLevel) && onShiftStudent ? (
+                      <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onShiftStudent(String(activeStudent._id)) }}>
+                        <Layers3 size={15} />
+                        Shift course/block
+                      </button>
+                    ) : null}
                     <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onArchive(activeStudent) }}>
                       <Archive size={15} />
                       Archive student
@@ -1572,7 +1623,7 @@ function EnrollmentModal({
 }
 
 
-export default function StudentManagement({ mode = 'management', onViewHistory }: StudentManagementProps = {}) {
+export default function StudentManagement({ mode = 'management', onViewHistory, onShiftStudent }: StudentManagementProps = {}) {
   const isAssignBlockMode = mode === 'assign-block'
   const headerCheckboxRef = useRef<HTMLInputElement | null>(null)
   const [students, setStudents] = useState<ManagedStudent[]>([])
@@ -1592,6 +1643,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
   const [formModal, setFormModal] = useState<{ mode: 'create' | 'edit'; student?: ManagedStudent } | null>(null)
   const [enrollmentStudents, setEnrollmentStudents] = useState<ManagedStudent[] | null>(null)
   const [blockAssignmentStudents, setBlockAssignmentStudents] = useState<ManagedStudent[] | null>(null)
+  const [showImportModal, setShowImportModal] = useState(false)
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'warning'; title: string; message: string } | null>(null)
   const [busyStudentIds, setBusyStudentIds] = useState<string[]>([])
   const deferredSearch = useDeferredValue(searchTerm)
@@ -1977,20 +2029,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
       return
     }
 
-    const rows = [
-      ['Student Number', 'Name', 'Course', 'Year Level', 'Block', 'Lifecycle', 'COR Status', 'Email', 'Contact'],
-      ...selectedStudents.map((student) => [
-        studentNumberDisplay(student),
-        studentDisplayName(student),
-        courseShortLabel(student.course),
-        formatYearLevel(student.yearLevel),
-        student.section || '',
-        normalizeLifecycleStatus(student),
-        student.corStatus || 'Pending',
-        student.email || '',
-        student.contactNumber || ''
-      ])
-    ]
+    const rows = [STUDENT_SHEET_HEADERS, ...selectedStudents.map(buildStudentSheetRow)]
 
     downloadCsv(`student-management-${new Date().toISOString().slice(0, 10)}.csv`, rows)
     setNotification({ type: 'success', title: 'Export Complete', message: `Exported ${selectedStudents.length} selected student(s).` })
@@ -2003,23 +2042,10 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
       return
     }
 
-    const rows = [
-      ['Student Number', 'Name', 'Course', 'Year Level', 'Block', 'Lifecycle', 'COR Status', 'Email', 'Contact'],
-      ...source.map((student) => [
-        studentNumberDisplay(student),
-        studentDisplayName(student),
-        courseShortLabel(student.course),
-        formatYearLevel(student.yearLevel),
-        student.section || '',
-        normalizeLifecycleStatus(student),
-        normalizeCorStatus(student.corStatus),
-        student.email || '',
-        student.contactNumber || ''
-      ])
-    ]
+    const rows = [STUDENT_SHEET_HEADERS, ...source.map(buildStudentSheetRow)]
 
     downloadCsv(`student-registry-${new Date().toISOString().slice(0, 10)}.csv`, rows)
-    setNotification({ type: 'success', title: 'Export Complete', message: `Exported ${source.length} student record(s).` })
+    setNotification({ type: 'success', title: 'Export Complete', message: `Exported ${source.length} student record(s), ready to re-import if needed.` })
   }
 
   return (
@@ -2181,7 +2207,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
                 <button
                   type="button"
                   className="student-workspace__secondary-button"
-                  onClick={() => setNotification({ type: 'error', title: 'Not Available', message: 'Import workflow is not connected yet.' })}
+                  onClick={() => setShowImportModal(true)}
                 >
                   <Upload size={16} />
                   Import
@@ -2426,6 +2452,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
         onArchive={handleArchiveStudent}
         onDelete={handleDeleteStudent}
         onViewHistory={onViewHistory}
+        onShiftStudent={onShiftStudent}
         showBlockAssignmentAction={isAssignBlockMode}
       />
 
@@ -2498,6 +2525,20 @@ export default function StudentManagement({ mode = 'management', onViewHistory }
             await loadStudents('refresh')
             setSelectedStudentIds([])
             setNotification({ type: 'success', title: 'Success', message: text || 'Block assignment completed successfully.' })
+          }}
+        />
+      ) : null}
+
+      {showImportModal ? (
+        <StudentImportModal
+          onClose={() => setShowImportModal(false)}
+          onImported={async (count) => {
+            await loadStudents('refresh')
+            setNotification({
+              type: 'success',
+              title: 'Import Complete',
+              message: `Imported ${count.toLocaleString()} student${count === 1 ? '' : 's'} into the registry.`
+            })
           }}
         />
       ) : null}

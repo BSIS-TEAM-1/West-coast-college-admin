@@ -47,7 +47,7 @@ const TERM_ORDER = { '1st': 0, '2nd': 1, Summer: 2 };
 /** Statuses that mean "this subject is currently being taken". */
 const LIVE_STATUSES = ['Enrolled', 'Incomplete'];
 /** Statuses that mean "this attempt was stopped and may be retaken". */
-const PRIOR_ATTEMPT_STATUSES = ['Dropped', 'Removed'];
+const PRIOR_ATTEMPT_STATUSES = ['Dropped', 'Removed', 'Failed'];
 /** Lifecycle states that make a student non-enrollable. */
 const NON_ENROLLABLE_LIFECYCLE = ['Graduated'];
 
@@ -108,9 +108,118 @@ function isRequirementSatisfied(entry) {
 /** An attempt that can be retaken: stopped early, or graded as a failure. */
 function isRetakeableAttempt(entry) {
   if (!entry) return false;
-  if (PRIOR_ATTEMPT_STATUSES.includes(entry.status)) return true;
+  // Dropped or Removed status is always retakeable regardless of grade
+  const status = String(entry.status || '').trim().toLowerCase();
+  if (status === 'dropped' || status === 'removed') return true;
   if (entry.gradeMark === 'FA') return true;
   return typeof entry.grade === 'number' && entry.grade > PASSING_GRADE;
+}
+
+/**
+ * A retakeOf snapshot is only evidence of a genuine retake when it carries the
+ * complete pointer back to the attempt it replaces: the enrollment header, the
+ * exact subject entry inside it, and the term of that attempt. Empty
+ * subdocuments or partial rows (older data wrote less than this) are not
+ * evidence and must never render as "Retake of …".
+ */
+function hasCompleteRetakeSnapshot(retakeOf) {
+  return Boolean(
+    retakeOf &&
+    typeof retakeOf === 'object' &&
+    String(retakeOf.enrollmentId || '').trim() &&
+    String(retakeOf.subjectEntryId || '').trim() &&
+    String(retakeOf.schoolYear || '').trim() &&
+    String(retakeOf.semester || '').trim()
+  );
+}
+
+/**
+ * Verify every retakeOf snapshot in a student's enrollment history against the
+ * history itself. A snapshot counts as a genuine retake only when:
+ *   1. it is complete (see hasCompleteRetakeSnapshot);
+ *   2. the enrollment it points at (retakeOf.enrollmentId) exists inside this
+ *      student's history;
+ *   3. the exact subject entry it points at (retakeOf.subjectEntryId) exists
+ *      inside that enrollment;
+ *   4. that referenced attempt belongs to the same subject (subjectIds match,
+ *      or the code matches only when legacy rows carry no subjectId — the code
+ *      is a corroborating check on top of resolvable ids, never the basis for
+ *      claiming a retake);
+ *   5. the referenced attempt happened strictly earlier than the entry that
+ *      claims to retake it.
+ *
+ * Snapshots that fail any check are cleared on the in-memory view
+ * (entry.retakeOf = null) so neither the UI note nor the evaluation can treat
+ * the subject as a retake. An enrollment record is never merely "assumed to be
+ * a retake" because of a status, grade, or duplicate subject — re-enrollment
+ * without an explicit retake record stays a regular attempt. Nothing is
+ * written back to the database and no reference is ever fabricated.
+ *
+ * @param {Array<Object>} enrollments - one student's enrollment history
+ *   (mongoose documents or lean objects; documents are mutated in memory only)
+ * @returns {{ verified: number, stripped: number, reasons: string[] }}
+ */
+function verifyRetakeReferences(enrollments) {
+  const list = Array.isArray(enrollments) ? enrollments : [];
+  const enrollmentById = new Map();
+  for (const enrollment of list) {
+    if (enrollment && enrollment._id !== undefined) {
+      enrollmentById.set(String(enrollment._id), enrollment);
+    }
+  }
+
+  let verified = 0;
+  let stripped = 0;
+  const reasons = [];
+
+  for (const enrollment of list) {
+    for (const entry of enrollment?.subjects || []) {
+      const retakeOf = entry?.retakeOf;
+      if (!retakeOf || typeof retakeOf !== 'object') continue;
+
+      let problem = null;
+      if (!hasCompleteRetakeSnapshot(retakeOf)) {
+        problem = 'incomplete retake snapshot';
+      } else {
+        const referencedEnrollment = enrollmentById.get(String(retakeOf.enrollmentId));
+        if (!referencedEnrollment) {
+          problem = 'referenced enrollment is not in this student history';
+        } else {
+          const referencedEntry = (referencedEnrollment.subjects || [])
+            .find((subject) => String(subject?._id || '') === String(retakeOf.subjectEntryId));
+          if (!referencedEntry) {
+            problem = 'referenced subject entry was not found in the referenced enrollment';
+          } else {
+            const currentSubjectId = String(entry.subjectId || '').trim();
+            const referencedSubjectId = String(referencedEntry.subjectId || '').trim();
+            const sameSubject = currentSubjectId && referencedSubjectId
+              ? currentSubjectId === referencedSubjectId
+              : String(entry.code || '').trim().toUpperCase() === String(referencedEntry.code || '').trim().toUpperCase();
+            if (!sameSubject) {
+              problem = 'referenced attempt belongs to a different subject';
+            } else if (!isLaterTerm(
+              enrollment.schoolYear, enrollment.semester,
+              retakeOf.schoolYear, retakeOf.semester
+            )) {
+              problem = 'referenced attempt is not in an earlier term than the retaking entry';
+            }
+          }
+        }
+      }
+
+      if (problem) {
+        entry.retakeOf = null;
+        stripped++;
+        reasons.push(
+          `${entry.code || 'subject'} (${String(enrollment.schoolYear || '')} ${enrollment.semester}): ${problem}`
+        );
+      } else {
+        verified++;
+      }
+    }
+  }
+
+  return { verified, stripped, reasons };
 }
 
 /**
@@ -187,10 +296,12 @@ async function loadOwnSectionIds(studentId, schoolYear, semester) {
  * @param {string|null} [params.curriculumVersion]
  * @param {number} params.yearLevel
  * @param {string} params.semester
+ * @param {string|null} [params.studentId]
+ * @param {boolean} [params.isIrregular]
  * @param {import('mongoose').ClientSession|null} [params.session]
  * @returns {Promise<{curriculumId: *, curriculum: Object|null, source: string|null, reason: string|null, subjects: Object[]}>}
  */
-async function resolveSuggestedSubjects({ programCode, curriculumVersion, yearLevel, semester, session }) {
+async function resolveSuggestedSubjects({ programCode, curriculumVersion, yearLevel, semester, studentId, isIrregular, session }) {
   const empty = { curriculumId: null, curriculum: null, source: null, reason: null, subjects: [] };
   if (!programCode || !SEMESTERS.includes(semester)) return empty;
 
@@ -204,9 +315,20 @@ async function resolveSuggestedSubjects({ programCode, curriculumVersion, yearLe
   const Curriculum = require('../models/Curriculum');
   const curriculumQuery = Curriculum.findById(curriculumId)
     .select('_id name code programCode programName version status effectiveSchoolYear');
-  const placementQuery = CurriculumSubject.find({ curriculumId, yearLevel: Number(yearLevel), semester })
-    .sort({ displayOrder: 1, courseNo: 1 })
-    .populate({ path: 'subjectId', select: '_id code title units isActive status prerequisiteSubjectIds' });
+
+  // For irregular students, get all curriculum subjects from all semesters
+  // For regular students, only get subjects for the current semester
+  let placementQuery;
+  if (isIrregular) {
+    placementQuery = CurriculumSubject.find({ curriculumId })
+      .sort({ yearLevel: 1, semester: 1, displayOrder: 1, courseNo: 1 })
+      .populate({ path: 'subjectId', select: '_id code title units isActive status prerequisiteSubjectIds' });
+  } else {
+    placementQuery = CurriculumSubject.find({ curriculumId, yearLevel: Number(yearLevel), semester })
+      .sort({ displayOrder: 1, courseNo: 1 })
+      .populate({ path: 'subjectId', select: '_id code title units isActive status prerequisiteSubjectIds' });
+  }
+
   if (session) {
     curriculumQuery.session(session);
     placementQuery.session(session);
@@ -214,8 +336,30 @@ async function resolveSuggestedSubjects({ programCode, curriculumVersion, yearLe
 
   const [curriculum, placements] = await Promise.all([curriculumQuery.lean(), placementQuery.lean()]);
 
+  // If studentId is provided for irregular students, get their enrollment history
+  // to exclude subjects they've already completed
+  let completedSubjectIds = new Set();
+  if (isIrregular && studentId) {
+    const history = await loadEnrollmentHistory(studentId);
+    history.forEach(enrollment => {
+      (enrollment.subjects || []).forEach(subject => {
+        // Exclude subjects that were completed or passed
+        if (subject.status === 'Completed' || (typeof subject.grade === 'number' && subject.grade <= PASSING_GRADE)) {
+          completedSubjectIds.add(String(subject.subjectId));
+        }
+      });
+    });
+  }
+
   const subjects = placements
     .filter((placement) => Boolean(placement.subjectId))
+    .filter((placement) => {
+      // For irregular students, exclude already completed subjects
+      if (isIrregular && completedSubjectIds.has(String(placement.subjectId._id))) {
+        return false;
+      }
+      return true;
+    })
     .map((placement) => {
       const subject = placement.subjectId;
       return {
@@ -243,7 +387,7 @@ async function resolveSuggestedSubjects({ programCode, curriculumVersion, yearLe
  * block. Existing subject entries are deliberately preserved: this fills an
  * incomplete enrollment without recreating dropped, graded, or manual rows.
  */
-async function autoAssignCurriculumSubjects({ enrollmentId, curriculumId, actorId, session }) {
+async function autoAssignCurriculumSubjects({ enrollmentId, curriculumId, actorId, session, pruneForeign = false }) {
   const enrollmentQuery = Enrollment.findById(enrollmentId);
   const enrollment = session ? await enrollmentQuery.session(session) : await enrollmentQuery;
   if (!enrollment) {
@@ -253,7 +397,37 @@ async function autoAssignCurriculumSubjects({ enrollmentId, curriculumId, actorI
 
   const effectiveCurriculumId = curriculumId || enrollment.curriculumId;
   if (!effectiveCurriculumId) {
-    return { added: [], skipped: [], reason: 'No curriculum is linked to this enrollment' };
+    return { added: [], skipped: [], pruned: [], reason: 'No curriculum is linked to this enrollment' };
+  }
+
+  const pruned = [];
+  if (pruneForeign) {
+    const allPlacementsQuery = CurriculumSubject.find({ curriculumId: effectiveCurriculumId })
+      .select('subjectId courseNo yearLevel semester');
+    if (session) allPlacementsQuery.session(session);
+    const allPlacements = await allPlacementsQuery.lean();
+
+    const allowedSubjectIds = new Set(allPlacements.map((p) => String(p.subjectId)));
+    const allowedCodes = new Set(allPlacements.map((p) => String(p.courseNo).trim().toUpperCase()));
+
+    const initialLength = (enrollment.subjects || []).length;
+    enrollment.subjects = (enrollment.subjects || []).filter((entry) => {
+      const idStr = String(entry.subjectId || '');
+      const codeStr = String(entry.code || '').trim().toUpperCase();
+
+      if (allowedSubjectIds.has(idStr) || allowedCodes.has(codeStr)) {
+        return true;
+      }
+      if (entry.grade != null || entry.gradeMark != null) {
+        return true;
+      }
+      pruned.push(entry.code || idStr);
+      return false;
+    });
+
+    if (enrollment.subjects.length !== initialLength) {
+      enrollment.markModified('subjects');
+    }
   }
 
   const placementQuery = CurriculumSubject.find({
@@ -268,65 +442,210 @@ async function autoAssignCurriculumSubjects({ enrollmentId, curriculumId, actorI
   const missingPlacements = placements.filter((placement) =>
     placement.subjectId && !existingSubjectIds.has(String(placement.subjectId))
   );
-  if (missingPlacements.length === 0) {
-    return { added: [], skipped: [], reason: null };
-  }
-
-  const subjectQuery = Subject.find({
-    _id: { $in: missingPlacements.map((placement) => placement.subjectId) },
-  }).select('_id code title units isActive status');
-  if (session) subjectQuery.session(session);
-  const subjects = await subjectQuery.lean();
-  const subjectById = new Map(subjects.map((subject) => [String(subject._id), subject]));
 
   const now = new Date();
   const added = [];
   const skipped = [];
-  for (const placement of missingPlacements) {
-    const subject = subjectById.get(String(placement.subjectId));
-    if (!subject || subject.isActive === false || subject.status === 'Inactive') {
-      skipped.push(String(placement.subjectId));
-      continue;
-    }
+  if (missingPlacements.length > 0) {
+    const subjectQuery = Subject.find({
+      _id: { $in: missingPlacements.map((placement) => placement.subjectId) },
+    }).select('_id code title units isActive status');
+    if (session) subjectQuery.session(session);
+    const subjects = await subjectQuery.lean();
+    const subjectById = new Map(subjects.map((subject) => [String(subject._id), subject]));
 
-    enrollment.subjects.push({
-      subjectId: subject._id,
-      code: subject.code || placement.courseNo,
-      title: subject.title || placement.descriptiveTitle,
-      units: Number(placement.units ?? subject.units) || 3,
-      schedule: 'TBA',
-      room: 'TBA',
-      instructor: 'TBA',
-      status: 'Enrolled',
-      dateEnrolled: now,
-      dateModified: now,
-      ...(actorId ? { addedBy: actorId } : {}),
-    });
-    added.push({ subjectId: String(subject._id), code: subject.code || placement.courseNo });
+    for (const placement of missingPlacements) {
+      const subject = subjectById.get(String(placement.subjectId));
+      if (!subject || subject.isActive === false || subject.status === 'Inactive') {
+        skipped.push(String(placement.subjectId));
+        continue;
+      }
+
+      enrollment.subjects.push({
+        subjectId: subject._id,
+        code: subject.code || placement.courseNo,
+        title: subject.title || placement.descriptiveTitle,
+        units: Number(placement.units ?? subject.units) || 3,
+        schedule: 'TBA',
+        room: 'TBA',
+        instructor: 'TBA',
+        status: 'Enrolled',
+        dateEnrolled: now,
+        dateModified: now,
+        ...(actorId ? { addedBy: actorId } : {}),
+      });
+      added.push({ subjectId: String(subject._id), code: subject.code || placement.courseNo });
+    }
   }
 
-  if (added.length > 0) {
+  if (added.length > 0 || pruned.length > 0) {
     if (curriculumId && String(enrollment.curriculumId || '') !== String(curriculumId)) {
       enrollment.curriculumId = curriculumId;
     }
     enrollment.markModified('subjects');
     if (actorId) enrollment.updatedBy = actorId;
     await enrollment.save({ session, validateBeforeSave: false });
+
+    // New curriculum subjects start as TBA. If the student's section already
+    // has schedules stamped into its other students' enrollments, inherit
+    // them so the fresh entries show the same time/room/instructor.
+    await applySectionScheduleDefaults({ enrollment, session });
     await recordAudit({
-      action: 'CREATE',
+      action: 'UPDATE',
       resourceType: 'ENROLLMENT',
       resourceId: String(enrollment._id),
       resourceName: `${enrollment.studentNumber || ''} — ${enrollment.schoolYear} ${enrollment.semester}`.trim(),
-      description: `Automatically assigned ${added.length} curriculum subject(s): ${added.map((entry) => entry.code).join(', ')}`,
+      description: `Curriculum subjects synchronized: ${added.length} added, ${pruned.length} foreign removed`,
       performedBy: actorId,
       performedByRole: auditRole(),
-      newValue: { enrollmentId: String(enrollment._id), curriculumId: String(effectiveCurriculumId), subjects: added },
+      newValue: { enrollmentId: String(enrollment._id), curriculumId: String(effectiveCurriculumId), subjects: added, pruned },
       status: 'SUCCESS',
       severity: 'MEDIUM',
     });
   }
 
-  return { added, skipped, reason: null };
+  return { added, skipped, pruned, reason: null };
+}
+
+const SCHEDULE_PLACEHOLDER = 'TBA';
+
+function isSchedulePlaceholder(value) {
+  const raw = String(value ?? '').trim();
+  return raw === '' || raw.toUpperCase() === SCHEDULE_PLACEHOLDER;
+}
+
+function pickDominantValue(counts) {
+  if (!counts || counts.size === 0) return null;
+  let bestKey = null;
+  let bestCount = -1;
+  for (const [value, count] of counts.entries()) {
+    if (count > bestCount || (count === bestCount && bestKey !== null && String(value) < String(bestKey))) {
+      bestKey = value;
+      bestCount = count;
+    }
+  }
+  return bestCount > 0 ? bestKey : null;
+}
+
+/**
+ * Fill TBA schedule/room/instructor entries on an enrollment's subjects from
+ * the section the student is assigned to.
+ *
+ * Schedules live on the ENROLLMENT subject rows of the students already in the
+ * section (registrar stamps them there via the section-subject assignments),
+ * so the only source for a freshly assigned student's schedule is the peers:
+ * per subject, the most frequent non-TBA value among the section's other
+ * students wins. Missing time stays 'TBA', missing room stays 'TBA' — a
+ * section's schedule is never shown as an empty string.
+ *
+ * Best-effort by design: with no section, no peers, or a lookup failure, the
+ * entries simply remain TBA and nothing else is affected.
+ *
+ * @param {Object} params
+ * @param {Object} params.enrollment - mongoose Enrollment document (mutable)
+ * @param {string|null} [params.sectionId] - the section the student was just assigned to
+ * @param {import('mongoose').ClientSession} [params.session]
+ */
+async function applySectionScheduleDefaults({ enrollment, sectionId = null, session = null }) {
+  try {
+    if (!enrollment || !Array.isArray(enrollment.subjects) || enrollment.subjects.length === 0) return;
+    const fillable = enrollment.subjects.filter((entry) =>
+      isSchedulePlaceholder(entry.schedule) || isSchedulePlaceholder(entry.room) || isSchedulePlaceholder(entry.instructor)
+    );
+    if (fillable.length === 0) return;
+
+    const termSchoolYear = enrollment.schoolYear;
+    let resolvedSectionId = sectionId;
+    if (!resolvedSectionId) {
+      const assignmentQuery = StudentBlockAssignment.findOne({
+        studentId: enrollment.studentId,
+        semester: enrollment.semester,
+        status: 'ASSIGNED',
+        $or: [{ schoolYear: termSchoolYear }, { year: termSchoolYear }],
+      }).sort({ assignedAt: -1 });
+      const assignment = session
+        ? await assignmentQuery.session(session).lean()
+        : await assignmentQuery.lean();
+      resolvedSectionId = assignment?.sectionId || null;
+    }
+    if (!resolvedSectionId) return;
+
+    const peerAssignmentQuery = StudentBlockAssignment.find({
+      sectionId: resolvedSectionId,
+      semester: enrollment.semester,
+      status: 'ASSIGNED',
+      $or: [{ schoolYear: termSchoolYear }, { year: termSchoolYear }],
+    }).select('studentId');
+    const peerAssignments = session ? await peerAssignmentQuery.session(session) : await peerAssignmentQuery;
+    const excludeStudentId = String(enrollment.studentId);
+    const peerStudentIds = [...new Set(
+      (Array.isArray(peerAssignments) ? peerAssignments : [])
+        .map((assignment) => String(assignment.studentId))
+        .filter(Boolean)
+        .filter((studentId) => studentId !== excludeStudentId)
+    )];
+    if (peerStudentIds.length === 0) return;
+
+    const peerEnrollmentQuery = Enrollment.find({
+      studentId: { $in: peerStudentIds },
+      semester: enrollment.semester,
+      schoolYear: termSchoolYear,
+      isCurrent: true,
+    }).select('subjects');
+    const peerEnrollments = session ? await peerEnrollmentQuery.session(session) : await peerEnrollmentQuery;
+
+    // Aggregate the peers' values per subject (subjectId preferred, code as a
+    // stable fallback when an id is missing on either side).
+    const scheduleCounts = new Map();
+    const roomCounts = new Map();
+    const instructorCounts = new Map();
+    const bump = (map, key, value) => {
+      if (!key) return;
+      const raw = String(value ?? '').trim();
+      if (isSchedulePlaceholder(raw)) return;
+      const normalized = map.get(key) || new Map();
+      normalized.set(raw, (normalized.get(raw) || 0) + 1);
+      map.set(key, normalized);
+    };
+    for (const peer of (Array.isArray(peerEnrollments) ? peerEnrollments : [])) {
+      for (const entry of (Array.isArray(peer.subjects) ? peer.subjects : [])) {
+        const key = String(entry?.subjectId || '') || String(entry?.code || '').trim().toUpperCase();
+        bump(scheduleCounts, key, entry?.schedule);
+        bump(roomCounts, key, entry?.room);
+        bump(instructorCounts, key, entry?.instructor);
+      }
+    }
+
+    let changed = false;
+    for (const entry of enrollment.subjects) {
+      const key = String(entry?.subjectId || '') || String(entry?.code || '').trim().toUpperCase();
+      if (!key || !scheduleCounts.has(key) && !roomCounts.has(key) && !instructorCounts.has(key)) continue;
+      const dominantSchedule = pickDominantValue(scheduleCounts.get(key));
+      const dominantRoom = pickDominantValue(roomCounts.get(key));
+      const dominantInstructor = pickDominantValue(instructorCounts.get(key));
+      if (isSchedulePlaceholder(entry.schedule) && dominantSchedule) {
+        entry.schedule = dominantSchedule;
+        changed = true;
+      }
+      if (isSchedulePlaceholder(entry.room) && dominantRoom) {
+        entry.room = dominantRoom;
+        changed = true;
+      }
+      if (isSchedulePlaceholder(entry.instructor) && dominantInstructor) {
+        entry.instructor = dominantInstructor;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      enrollment.markModified('subjects');
+      await enrollment.save({ session, validateBeforeSave: false });
+    }
+  } catch (error) {
+    // Schedule inheritance is a convenience layer: if the section has no
+    // schedule data yet (or the lookup fails), the entries simply stay TBA.
+    console.warn('Section schedule inheritance skipped:', error?.message || error);
+  }
 }
 
 /**
@@ -789,16 +1108,22 @@ async function retakeSubject({ student, subjectId, schoolYear, semester, actorId
     throw Object.assign(new Error(`semester must be one of ${SEMESTERS.join(', ')}`), { statusCode: 400 });
   }
 
+  // Normalize subjectId to string
+  const normalizedSubjectId = String(subjectId).trim();
+
   const history = await loadEnrollmentHistory(student._id);
+  
   const attempts = [];
   for (const enrollment of history) {
     for (const entry of enrollment.subjects || []) {
-      if (String(entry.subjectId) !== String(subjectId)) continue;
+      const entrySubjectId = String(entry.subjectId || '').trim();
+      if (entrySubjectId !== normalizedSubjectId) continue;
       attempts.push({ enrollment, entry });
     }
   }
 
   const eligible = attempts.filter(({ entry }) => isRetakeableAttempt(entry));
+
   if (eligible.length === 0) {
     throw Object.assign(
       new Error('No dropped or failed attempt exists for this subject, so there is nothing to retake'),
@@ -930,12 +1255,15 @@ module.exports = {
   PRIOR_ATTEMPT_STATUSES,
   isRequirementSatisfied,
   isRetakeableAttempt,
+  hasCompleteRetakeSnapshot,
+  verifyRetakeReferences,
   isLaterTerm,
   loadEnrollmentHistory,
   loadTermSections,
   checkAcademicStanding,
   resolveSuggestedSubjects,
   autoAssignCurriculumSubjects,
+  applySectionScheduleDefaults,
   validateSubjectSelection,
   addSubjectsToEnrollment,
   dropSubjectFromEnrollment,

@@ -1,6 +1,6 @@
 class AppConstants {
   // App Information
-  static const String appName = 'WCC Student Portal';
+  static const String appName = 'WccPortal';
   static const String appTagline = 'Your Academic Journey, One Tap Away';
   static const String appVersion = '1.0.0';
   

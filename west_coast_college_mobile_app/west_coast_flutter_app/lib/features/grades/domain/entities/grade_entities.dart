@@ -1,3 +1,5 @@
+import '../../../../core/utils/grade_format.dart';
+
 class GradeEntry {
   final String subjectCode;
   final String subjectTitle;
@@ -24,7 +26,7 @@ class GradeEntry {
   bool get hasGradeMark => gradeMark != null && gradeMark!.isNotEmpty;
 
   /// Display string for the grade: numerical grade, grade mark, or em dash.
-  String get displayGrade => hasGradeMark ? gradeMark! : (grade > 0 ? grade.toStringAsFixed(2) : '—');
+  String get displayGrade => hasGradeMark ? gradeMark! : formatGrade(grade);
 }
 
 class GradePeriod {

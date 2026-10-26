@@ -53,6 +53,33 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
   const [addSubjectConfigs, setAddSubjectConfigs] = useState<Record<string, { type: string; isRequired: boolean; displayOrder: string }>>({})
   const [saving, setSaving] = useState(false)
   const [syncing, setSyncing] = useState(false)
+
+  // ─── Copy-from-another-curriculum (same program, full years) ─────────────
+  type CopyCandidate = { _id: string; name?: string; version: string; status: string; programName?: string }
+  const [copyCandidates, setCopyCandidates] = useState<CopyCandidate[]>([])
+  const [copyPreview, setCopyPreview] = useState<{
+    source: CopyCandidate
+    loading: boolean
+    structure: CurriculumStructure | null
+    error: string
+  } | null>(null)
+  const [copying, setCopying] = useState(false)
+  const structureProgramCode = structure?.curriculum?.programCode ?? null
+
+  useEffect(() => {
+    if (!structureProgramCode) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const data = await authorizedFetch(`/api/registrar/curriculums?programCode=${structureProgramCode}`)
+        const rows = (Array.isArray(data?.data) ? data.data : []) as CopyCandidate[]
+        if (!cancelled) setCopyCandidates(rows.filter((c) => c._id !== curriculumId))
+      } catch {
+        if (!cancelled) setCopyCandidates([])
+      }
+    })()
+    return () => { cancelled = true }
+  }, [structureProgramCode, curriculumId])
   const [prereqPicker, setPrereqPicker] = useState<{
     curriculumSubjectId: string
     subjectId: string
@@ -165,8 +192,49 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
     }
   }
 
-  const toggleAddSubjectSelection = (subjectId: string) => {
-    setAddSelectedIds((prev) => {
+  // Copy the FULL subject set (all subjects with their year & semester
+  // placement and prerequisites) from another same-program curriculum into
+  // this one. Picking a source opens the preview card below so the registrar
+  // sees the year-by-year structure before anything is copied.
+  const openCopyPreview = async (sourceId: string) => {
+    const source = copyCandidates.find((c) => c._id === sourceId)
+    if (!source || copying) return
+    setError('')
+    setCopyPreview({ source, loading: true, structure: null, error: '' })
+    try {
+      const data = await authorizedFetch(`/api/registrar/curriculums/${sourceId}/structure`)
+      setCopyPreview({ source, loading: false, structure: data?.data || null, error: '' })
+    } catch (err) {
+      setCopyPreview({ source, loading: false, structure: null, error: err instanceof Error ? err.message : 'Failed to load the year structure of the copy source' })
+    }
+  }
+
+  const executeCopy = async (mode: 'replace' | 'append') => {
+    if (!copyPreview?.source || copying) return
+    if (mode === 'replace') {
+      const existing = structure?.summary?.totalSubjects ?? 0
+      if (existing > 0 && !window.confirm(`Replace the ${existing} subject(s) currently in this curriculum with the full copy? This cannot be undone.`)) return
+    }
+    setCopying(true)
+    setError('')
+    setSuccess('')
+    try {
+      const data = await authorizedFetch(`/api/registrar/curriculums/${curriculumId}/copy-subjects-from`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceCurriculumId: copyPreview.source._id, mode }),
+      })
+      setSuccess(data?.message || 'Subjects copied into this curriculum')
+      setCopyPreview(null)
+      await fetchStructure()
+    } catch (err) {
+      setCopyPreview((prev) => prev ? { ...prev, error: err instanceof Error ? err.message : 'Failed to copy curriculum subjects' } : prev)
+    } finally {
+      setCopying(false)
+    }
+  }
+
+  const toggleAddSubjectSelection = (subjectId: string) => {    setAddSelectedIds((prev) => {
       const next = new Set(prev)
       if (next.has(subjectId)) {
         next.delete(subjectId)
@@ -448,6 +516,26 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
               <Copy size={16} />
               Duplicate
             </button>
+            {!isArchived && copyCandidates.length > 0 && (
+              <select
+                className="curriculum-copy-select"
+                value=""
+                disabled={copying}
+                onChange={(e) => {
+                  const value = e.target.value
+                  e.target.value = ''
+                  if (value) void openCopyPreview(value)
+                }}
+                aria-label="Copy subjects from another same-program curriculum"
+              >
+                <option value="">{copying ? 'Copying subjects…' : 'Copy subjects from…'}</option>
+                {copyCandidates.map((c) => (
+                  <option key={c._id} value={c._id}>
+                    {c.name || `${c.programName || programLabel} ${c.version}`} (version {c.version}, {c.status})
+                  </option>
+                ))}
+              </select>
+            )}
             {!isActive && (
               <button className="registrar-btn registrar-btn-primary" type="button" onClick={handleActivate}>
                 <CheckCircle size={16} />
@@ -983,6 +1071,126 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
                 >
                   {saving ? 'Saving...' : `Add Prerequisites (${selectedCount})`}
                 </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {copyPreview && copyPreview.source && (() => {
+        const preview = copyPreview
+        const previewStructure = preview.structure
+        const previewSummary = previewStructure?.summary
+        const targetTotal = structure?.summary?.totalSubjects ?? 0
+        const previewYears = (previewStructure?.years || []).filter((y) =>
+          y.semesters.some((s) => s.subjects.length > 0)
+        )
+        return (
+          <div className="block-assignment-modal-overlay" onClick={() => !copying && setCopyPreview(null)}>
+            <div className="block-assignment-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="block-assignment-modal-header">
+                <h3>Preview Copy — {preview.source.name || `Curriculum ${preview.source.version}`}</h3>
+                <p>
+                  {preview.source.version ? `Version ${preview.source.version}` : ''} {preview.source.status} — this copy carries every subject with its year &amp; semester placement.
+                </p>
+              </div>
+
+              <div className="block-assignment-modal-body">
+                {preview.error && <p className="registrar-alert registrar-alert-error">{preview.error}</p>}
+
+                {preview.loading && <p className="assignment-empty-copy" style={{ padding: '12px 0' }}>Loading year structure…</p>}
+
+                {!preview.loading && previewSummary && (
+                  <>
+                    <div className="curriculum-copy-preview-stats">
+                      <span><BookOpen size={14} /> {previewSummary.totalSubjects} subjects</span>
+                      <span><GraduationCap size={14} /> {previewSummary.totalUnits} units</span>
+                      <span>{previewSummary.yearsCovered} year(s) covered</span>
+                    </div>
+
+                    {previewYears.length === 0 ? (
+                      <p className="assignment-empty-copy" style={{ padding: '8px 0' }}>
+                        This curriculum has no subjects to copy.
+                      </p>
+                    ) : (
+                      <div className="curriculum-copy-preview-years">
+                        {previewYears.map((year) => (
+                          <div key={year.yearLevel} className="curriculum-copy-preview-year">
+                            <div className="curriculum-copy-preview-year-head">
+                              <strong>Year {year.yearLevel}</strong>
+                              <span>{year.totalUnits} units</span>
+                            </div>
+                            {year.semesters.filter((s) => s.subjects.length > 0).map((sem) => (
+                              <div key={sem.semester} className="curriculum-copy-preview-sem">
+                                <div className="curriculum-copy-preview-sem-head">
+                                  <span>{sem.semester === '1st' ? '1st Sem' : sem.semester === '2nd' ? '2nd Sem' : 'Summer'}</span>
+                                  <small>{sem.subjects.length} subject(s) · {sem.totalUnits} units</small>
+                                </div>
+                                <div className="curriculum-copy-preview-chips">
+                                  {sem.subjects.map((cs) => (
+                                    <span key={cs._id} className="curriculum-copy-preview-chip" title={cs.descriptiveTitle || cs.courseNo}>
+                                      {cs.courseNo || '—'}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {targetTotal > 0 && (
+                      <p className="curriculum-copy-preview-note">
+                        This curriculum currently has <strong>{targetTotal}</strong> subject(s). Replacing keeps the copy exactly as previewed above.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="block-assignment-modal-footer" style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                <button
+                  className="registrar-btn registrar-btn-secondary"
+                  type="button"
+                  onClick={() => setCopyPreview(null)}
+                  disabled={copying}
+                >
+                  Cancel
+                </button>
+                {!preview.loading && previewSummary && previewSummary.totalSubjects > 0 && (
+                  targetTotal > 0 ? (
+                    <>
+                      <button
+                        className="registrar-btn registrar-btn-secondary"
+                        type="button"
+                        onClick={() => void executeCopy('append')}
+                        disabled={copying}
+                      >
+                        Append missing subjects
+                      </button>
+                      <button
+                        className="registrar-btn"
+                        type="button"
+                        onClick={() => void executeCopy('replace')}
+                        disabled={copying}
+                      >
+                        <Copy size={16} />
+                        {copying ? 'Copying…' : 'Replace with previewed copy'}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="registrar-btn"
+                      type="button"
+                      onClick={() => void executeCopy('replace')}
+                      disabled={copying}
+                    >
+                      <Copy size={16} />
+                      {copying ? 'Copying…' : 'Copy all subjects'}
+                    </button>
+                  )
+                )}
               </div>
             </div>
           </div>

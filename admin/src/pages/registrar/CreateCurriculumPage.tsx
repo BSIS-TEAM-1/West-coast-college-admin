@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, BookOpen, CheckCircle, GraduationCap, Plus, Search, Trash2, X, Settings2, Pencil } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BookOpen, CheckCircle, Copy, GraduationCap, Plus, Search, Trash2, X, Settings2, Pencil } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import { StudentWorkspaceOverlay, isStudentWorkspaceBackdropTarget } from '../../components/shared/StudentWorkspaceOverlay'
 import type { Semester, SubjectItem } from './registrarBlockTypes'
@@ -96,6 +96,26 @@ type DraftPlacement = {
   prereqMode: 'default' | 'custom'
 }
 
+// A curriculum of the SAME program that can seed the draft (copy starter).
+type CopyCandidate = {
+  _id: string
+  name?: string
+  version: string
+  status: string
+  programName?: string
+}
+
+// One subject-placement row of the copy source's /curriculums/:id/subjects
+// response (subjectId and prerequisiteSubjectIds may be populated docs).
+type CopiedPlacementRow = {
+  subjectId: SubjectItem | string
+  yearLevel: number
+  semester: Semester
+  type?: string
+  isRequired?: boolean
+  prerequisiteSubjectIds?: unknown
+}
+
 let placementIdCounter = 0
 const nextLocalId = () => `place-${++placementIdCounter}`
 
@@ -130,6 +150,11 @@ export default function CreateCurriculumPage({ onBack, onCreated }: CreateCurric
 
   // ─── Individual placement editor modal ────────────────────────────────
   const [editingLocalId, setEditingLocalId] = useState<string | null>(null)
+
+  // ─── Copy-from-existing-curriculum state (same-course convenience) ────
+  const [copyCandidates, setCopyCandidates] = useState<CopyCandidate[]>([])
+  const [copySourceId, setCopySourceId] = useState('')
+  const [copyingPlacements, setCopyingPlacements] = useState(false)
 
   // ─── Subject cache: holds all subjects we've fetched (search results +
   // placed subjects + their prereqs) so we can display codes/titles without
@@ -199,6 +224,24 @@ export default function CreateCurriculumPage({ onBack, onCreated }: CreateCurric
     }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nameOptions, selectedProgram])
+
+  // Load the SAME-program curricula that can seed this draft. Grouping by
+  // course matters: a BEED draft should not copy a BSBA curriculum's
+  // subjects.
+  useEffect(() => {
+    if (step !== 2 || !selectedProgram) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const data = await authorizedFetch(`/api/registrar/curriculums?programCode=${selectedProgram.value}`)
+        const rows = (Array.isArray(data?.data) ? data.data : []) as CopyCandidate[]
+        if (!cancelled) setCopyCandidates(rows)
+      } catch {
+        if (!cancelled) setCopyCandidates([])
+      }
+    })()
+    return () => { cancelled = true }
+  }, [step, selectedProgram, authorizedFetch])
 
   // ─── Subject search (debounced, server-side, paginated) ───────────────
   const fetchSubjectSearch = useCallback(async (query: string) => {
@@ -314,6 +357,66 @@ export default function CreateCurriculumPage({ onBack, onCreated }: CreateCurric
     setPlacements((prev) => prev.filter((p) => p.localId !== localId))
     setDraftSelectedIds((prev) => { const next = new Set(prev); next.delete(localId); return next })
   }, [])
+
+  // Copy starter: adopt the subject placements of another curriculum of the
+  // same program so the registrar starts from a real skeleton instead of
+  // typing ~20 subjects by hand. The copy lands in the normal editable draft,
+  // so any tweak afterwards (add / remove / reconfigure / prereqs) works as
+  // it does for manually added subjects and is reviewed before submit.
+  const handleCopyFrom = useCallback(async (sourceId: string) => {
+    if (!sourceId) return
+    const source = copyCandidates.find((c) => c._id === sourceId)
+    if (placements.length > 0) {
+      const proceed = window.confirm(
+        `Replace the ${placements.length} subject(s) already in this draft with the subjects of "${source?.name || source?.version || 'the selected curriculum'}"?`
+      )
+      if (!proceed) {
+        setCopySourceId('')
+        return
+      }
+    }
+    setCopySourceId(sourceId)
+    setError('')
+    setCopyingPlacements(true)
+    try {
+      const data = await authorizedFetch(`/api/registrar/curriculums/${sourceId}/subjects`)
+      const rows = (Array.isArray(data?.data) ? data.data : []) as CopiedPlacementRow[]
+      // Cache the copied subject docs (populated with the Subject snapshot
+      // fields) plus their prerequisite subjects so the draft table renders.
+      cacheSubjects(rows.map((r) => r.subjectId).filter(Boolean))
+      cacheSubjects(rows.flatMap((r) => (Array.isArray(r.prerequisiteSubjectIds)
+        ? r.prerequisiteSubjectIds.filter((p) => p && typeof p === 'object')
+        : [])))
+      const copied: DraftPlacement[] = rows
+        .map((r, index) => {
+          const prereqIds = normalizePrereqIds(r.prerequisiteSubjectIds)
+          return {
+            localId: nextLocalId(),
+            subjectId: String(r.subjectId?._id ?? r.subjectId ?? ''),
+            yearLevel: r.yearLevel,
+            semester: r.semester,
+            type: r.type || 'General',
+            isRequired: r.isRequired !== false,
+            displayOrder: index,
+            prerequisiteSubjectIds: prereqIds,
+            prereqMode: prereqIds.length > 0 ? 'custom' : 'default',
+          }
+        })
+        .filter((p) => p.subjectId)
+      if (copied.length === 0) {
+        setError('The selected curriculum has no subjects to copy')
+        return
+      }
+      setPlacements(copied)
+      setBulkSelectedIds(new Set())
+      setDraftSelectedIds(new Set())
+      setSubjectSearch('') // refreshes the picker with the new placed ids
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to copy curriculum subjects')
+    } finally {
+      setCopyingPlacements(false)
+    }
+  }, [copyCandidates, placements.length, authorizedFetch, cacheSubjects])
 
   // Update a single placement (used by the individual editor modal)
   const updatePlacement = useCallback((localId: string, changes: Partial<DraftPlacement>) => {
@@ -649,6 +752,29 @@ export default function CreateCurriculumPage({ onBack, onCreated }: CreateCurric
           <p className="curriculum-section-desc" style={{ marginBottom: '12px' }}>
             Search for subjects to add to this curriculum. You can add subjects one at a time or in bulk, then configure placements and prerequisites. You can also skip this step and add subjects later from the curriculum details page.
           </p>
+
+          {/* ─── Copy starter: adopt another same-course curriculum's subjects ─── */}
+          {copyCandidates.length > 0 && (
+            <div className="curriculum-copy-bar">
+              <label className="curriculum-copy-label">
+                <Copy size={14} aria-hidden="true" />
+                Copy subjects from an existing {selectedProgram?.label} curriculum:
+                <select
+                  value={copySourceId}
+                  onChange={(e) => void handleCopyFrom(e.target.value)}
+                  aria-label="Copy subjects from an existing curriculum"
+                >
+                  <option value="">— Start with an empty draft —</option>
+                  {copyCandidates.map((c) => (
+                    <option key={c._id} value={c._id}>
+                      {c.name || `${c.programName || 'Curriculum'} ${c.version}`} (version {c.version}, {c.status})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {copyingPlacements && <span className="curriculum-copy-status">Copying subjects…</span>}
+            </div>
+          )}
 
           {/* ─── Search bar + mode toggle ─── */}
           <div className="curriculum-search-bar">

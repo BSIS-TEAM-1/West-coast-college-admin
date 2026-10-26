@@ -1,0 +1,541 @@
+/* ScheduleCalendar: fixed-size month grid, hover popovers, agenda side panel */
+
+/* ─── View switcher ─── */
+.professor-schedule-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.professor-schedule-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.professor-view-switch {
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border-radius: 12px;
+  background: var(--color-bg-soft);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.professor-view-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: none;
+  background: transparent;
+  padding: 0.45rem 0.85rem;
+  border-radius: 9px;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+  position: relative;
+}
+
+.professor-view-switch button:hover {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
+
+/* Active pill state — fills the button with subtle surface, no floating rectangle */
+.professor-view-switch button.is-active {
+  background: var(--color-surface);
+  color: var(--color-primary);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08), 0 0 0 1px color-mix(in srgb, var(--color-primary) 15%, transparent);
+}
+
+/* ─── Weekly class timeline ─── */
+.professor-tl {
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  background: var(--color-bg-soft);
+  padding: 0.85rem;
+  min-width: 0;
+}
+
+.professor-tl-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.professor-tl-head h4 { margin: 0; font-size: 1rem; }
+.professor-tl-head p { margin: 0.15rem 0 0; font-size: 0.78rem; color: var(--color-text-muted); }
+
+.professor-tl-today-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.professor-tl-empty {
+  margin: 0;
+  padding: 1.5rem 0.5rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.professor-tl-scroll { overflow-x: auto; }
+
+.professor-tl-grid {
+  display: grid;
+  grid-auto-rows: 0.875rem;
+  min-width: 42rem;
+}
+
+.professor-tl-corner,
+.professor-tl-day {
+  padding: 0.15rem 0.35rem 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.professor-tl-corner { text-align: left; }
+.professor-tl-day {
+  text-align: center;
+  border-left: 1px solid var(--color-border);
+}
+.professor-tl-day.is-today { color: var(--color-primary); }
+.professor-tl-day.is-today::after {
+  content: '';
+  display: block;
+  width: 1.5rem;
+  height: 2px;
+  margin: 0.25rem auto 0;
+  border-radius: 999px;
+  background: var(--color-primary);
+}
+
+.professor-tl-hourline {
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+  pointer-events: none;
+}
+
+.professor-tl-hour {
+  padding-top: 0.1rem;
+  font-size: 0.68rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* ─── Class event card with color-filled background ─── */
+.professor-tl-block {
+  box-sizing: border-box;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  overflow: visible;
+  margin: 0.1rem 0;
+  padding: 0.35rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--tl-accent, #8b5cf6);
+  background: var(--tl-accent, #8b5cf6);
+  color: #fff;
+  font-size: 0.78rem;
+  line-height: 1.3;
+  transition: opacity 0.15s, box-shadow 0.15s;
+  position: relative;
+}
+
+.professor-tl-block:hover {
+  opacity: 0.9;
+  box-shadow: 0 2px 4px color-mix(in srgb, var(--tl-accent, #8b5cf6) 30%, transparent);
+}
+
+.professor-tl-block-code {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+  margin-bottom: 0.1rem;
+}
+
+.professor-tl-block-time {
+  font-size: 0.7rem;
+  color: color-mix(in srgb, #ffffff 75%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+  margin-bottom: 0.05rem;
+}
+
+.professor-tl-block-title {
+  font-size: 0.72rem;
+  color: #fff;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  flex-shrink: 0;
+  margin-bottom: 0.05rem;
+  line-height: 1.3;
+}
+
+.professor-tl-block-meta {
+  font-size: 0.68rem;
+  color: color-mix(in srgb, #ffffff 65%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+
+.professor-tl-unscheduled {
+  margin-top: 0.85rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px dashed var(--color-border);
+  border-radius: 0.6rem;
+  background: var(--color-surface);
+}
+
+.professor-tl-unscheduled > strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.78rem;
+}
+
+.professor-tl-unscheduled-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
+}
+
+.professor-tl-unscheduled-item {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-bg-soft);
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 560px) {
+  .professor-tl { padding: 0.6rem; }
+  .professor-tl-grid { min-width: 36rem; grid-auto-rows: 0.8rem; }
+}
+
+.professor-cal-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.professor-cal {
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  background: var(--color-bg-soft);
+  padding: 0.85rem;
+  min-width: 0;
+}
+
+.professor-cal-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.7rem;
+}
+
+.professor-cal-nav { display: flex; gap: 0.35rem; }
+
+.professor-cal-title {
+  flex: 1;
+  font-size: 1rem;
+  /* fixed width box so the buttons never shift when the month name changes */
+  min-width: 9rem;
+}
+
+.professor-cal-nav-btn,
+.professor-cal-today-btn {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.professor-cal-nav-btn { width: 30px; height: 30px; border-radius: 999px; }
+.professor-cal-today-btn { padding: 0.35rem 0.8rem; border-radius: 999px; font-weight: 600; }
+.professor-cal-nav-btn:hover,
+.professor-cal-today-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.professor-cal-weekdays,
+.professor-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+.professor-cal-weekdays {
+  margin-bottom: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+.professor-cal-grid { gap: 0.3rem; }
+
+/* Fixed cell height: month length never changes the layout. */
+.professor-cal-cell {
+  position: relative;
+  box-sizing: border-box;
+  height: 6.25rem;
+  padding: 0.35rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  cursor: pointer;
+  min-width: 0;
+}
+.professor-cal-cell:hover { border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border)); }
+.professor-cal-cell.is-outside { opacity: 0.45; }
+.professor-cal-cell.is-active {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary);
+}
+
+.professor-cal-cell.is-active .professor-cal-date {
+  color: var(--color-primary);
+  background: transparent;
+}
+
+.professor-cal-date {
+  align-self: flex-start;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.3rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.professor-cal-cell.is-today .professor-cal-date {
+  background: var(--color-primary);
+  color: var(--color-on-primary, #fff);
+}
+
+.professor-cal-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.professor-cal-chip {
+  width: 100%;
+  border: none;
+  border-left: 3px solid var(--chip-color, var(--color-primary));
+  border-radius: 0.25rem;
+  padding: 0.1rem 0.3rem;
+  background: color-mix(in srgb, var(--chip-color, var(--color-primary)) 16%, var(--color-surface));
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: left;
+  cursor: pointer;
+}
+
+.professor-cal-chip-text {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.professor-cal-more {
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+/* Colours per category */
+.professor-cal .tag-academic, .professor-cal-agenda .tag-academic { --chip-color: #8b5cf6; }
+.professor-cal .tag-exam,     .professor-cal-agenda .tag-exam     { --chip-color: #f59e0b; }
+.professor-cal .tag-holiday,  .professor-cal-agenda .tag-holiday  { --chip-color: #16a34a; }
+.professor-cal .tag-meeting,  .professor-cal-agenda .tag-meeting  { --chip-color: #0ea5e9; }
+.professor-cal .tag-deadline, .professor-cal-agenda .tag-deadline { --chip-color: #ef4444; }
+.professor-cal .tag-general,  .professor-cal-agenda .tag-general  { --chip-color: #64748b; }
+
+/* Hover / focus popover: absolutely positioned, so it never moves other content. */
+.professor-cal-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 250px;
+  max-height: 320px;
+  overflow: hidden;
+  padding: 0.65rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.65rem;
+  background: var(--color-surface);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.22);
+  display: none;
+  flex-direction: column;
+  gap: 0.5rem;
+  cursor: default;
+  pointer-events: none;
+}
+.professor-cal-popover.align-center { left: 50%; transform: translateX(-50%); }
+.professor-cal-popover.align-right { left: auto; right: 0; }
+.professor-cal-popover.is-above { top: auto; bottom: calc(100% + 6px); }
+
+.professor-cal-cell:hover > .professor-cal-popover,
+.professor-cal-cell:focus-within > .professor-cal-popover { display: flex; }
+
+.professor-cal-popover-title {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+
+.professor-cal-popover-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding-left: 0.5rem;
+  border-left: 3px solid var(--chip-color, var(--color-primary));
+}
+
+.professor-cal-popover-tag {
+  align-self: flex-start;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--chip-color) 18%, var(--color-surface));
+  color: var(--color-text);
+  font-size: 0.64rem;
+  font-weight: 700;
+}
+
+.professor-cal-popover-item strong { font-size: 0.82rem; color: var(--color-text); }
+.professor-cal-popover-item small { font-size: 0.72rem; color: var(--color-text-muted); }
+.professor-cal-popover-item p {
+  margin: 0;
+  font-size: 0.74rem;
+  line-height: 1.35;
+  color: var(--color-text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.professor-cal-popover-more { font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted); }
+
+.professor-cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+  margin-top: 0.75rem;
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+}
+.professor-cal-legend span::before {
+  content: '';
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-right: 0.3rem;
+  border-radius: 999px;
+  background: var(--chip-color);
+}
+.professor-cal-legend .tag-academic { --chip-color: #8b5cf6; }
+.professor-cal-legend .tag-exam     { --chip-color: #f59e0b; }
+.professor-cal-legend .tag-holiday  { --chip-color: #16a34a; }
+.professor-cal-legend .tag-meeting  { --chip-color: #0ea5e9; }
+.professor-cal-legend .tag-deadline { --chip-color: #ef4444; }
+.professor-cal-legend .tag-general  { --chip-color: #64748b; }
+
+/* Agenda: height follows the calendar and scrolls, so it never stretches the page. */
+.professor-cal-agenda {
+  position: relative;
+  min-height: 320px;
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  background: var(--color-bg-soft);
+}
+.professor-cal-agenda-inner {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: 0.85rem;
+}
+.professor-cal-agenda-inner h4 { margin: 0 0 0.7rem; font-size: 0.95rem; }
+.professor-cal-agenda-inner ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.professor-cal-agenda-empty { margin: 0; font-size: 0.82rem; color: var(--color-text-muted); }
+
+.professor-cal-agenda-item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--chip-color, var(--color-primary));
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.professor-cal-agenda-item:hover { border-color: var(--chip-color, var(--color-primary)); }
+.professor-cal-agenda-item strong { font-size: 0.84rem; }
+.professor-cal-agenda-item small,
+.professor-cal-agenda-date { font-size: 0.72rem; color: var(--color-text-muted); }
+
+@media (max-width: 1100px) {
+  .professor-cal-layout { grid-template-columns: 1fr; }
+  .professor-cal-agenda { min-height: 0; height: 280px; }
+}
+
+@media (max-width: 560px) {
+  .professor-cal-cell { height: 4.6rem; padding: 0.25rem; }
+  .professor-cal-chip { font-size: 0.6rem; }
+  .professor-cal-chips .professor-cal-chip:nth-child(n+2) { display: none; }
+  .professor-cal-popover { width: 210px; }
+}

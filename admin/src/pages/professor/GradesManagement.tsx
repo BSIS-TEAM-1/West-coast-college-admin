@@ -1,11 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Download, Search, Edit3, Send, FileText, ChevronLeft, ChevronRight, X, Info, AlertCircle } from 'lucide-react'
+import { Download, Search, Edit3, Send, FileText, ChevronLeft, ChevronRight, X, Info, AlertCircle, MoreVertical, Save, AlertTriangle, Eye } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import { fetchWithAutoReconnect, isAbortRequestError, isNetworkRequestError } from '../../lib/network'
 import type { ProfessorAssignedCourse, ProfessorRosterClassOption, ProfessorRosterStudent } from './professorTypes'
 import { buildReconnectMessage } from './professorUtils'
+import {
+  describeGradeScale,
+  formatGrade,
+  formatGradeInput,
+  isInvalidGradeInput,
+  isPassingGrade,
+  listAllowedGrades,
+  useGradeScale
+} from '../../lib/gradingScale'
 import GradeChangeRequestModal from '../../components/GradeChangeRequestModal'
 import './GradesManagement.css'
+import './ProfessorShared.css'
+
+// Grade input normalisation now follows the institution's configured scale
+// (0.1 steps by default: 1.0, 1.1, 1.2 … 5.0) instead of snapping every entry
+// to quarter points. Exported because the grade change request modal shares it.
+export const formatChedGrade = (val: string | number | null | undefined): string => formatGradeInput(val)
+
+export const isInvalidGrade = (val: string | number | null | undefined): boolean => isInvalidGradeInput(val)
 
 interface GradesManagementProps {
   courses: ProfessorAssignedCourse[]
@@ -34,9 +51,24 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
   const [messageTone, setMessageTone] = useState<'info' | 'error'>('info')
   const [pendingFocusStudentId, setPendingFocusStudentId] = useState('')
   const [submittingGrades, setSubmittingGrades] = useState(false)
+  const [showSubmitPreview, setShowSubmitPreview] = useState(false)
+  const [savingAll, setSavingAll] = useState(false)
   const [gradeSubmissionStatus, setGradeSubmissionStatus] = useState<string>('Draft')
   const [changeRequestStudent, setChangeRequestStudent] = useState<ProfessorRosterStudent | null>(null)
+  const [openActionMenu, setOpenActionMenu] = useState<string | null>(null)
   const gradeInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const gradeScale = useGradeScale()
+  const gradeScaleLegend = [
+    `${formatGrade(gradeScale.min)} – ${formatGrade(gradeScale.passingGrade)} = Passed`,
+    `${formatGrade(gradeScale.max)} = Failed`,
+    describeGradeScale(gradeScale),
+    'INC = Incomplete',
+    'DRP = Dropped',
+    'W = Withdrawn',
+    'FA = Failure due to Absences',
+    'NG = No Grade'
+  ].join('\n')
+  const allowedGradeHint = listAllowedGrades(gradeScale).join(', ')
 
   const formatCourseLabel = (value: string | number) => {
     const text = String(value || '').trim()
@@ -244,7 +276,9 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
             studentStatus: raw?.studentStatus || raw?.status || 'Active',
             course: raw?.course || selectedClass.courseCode,
             corStatus: raw?.corStatus || 'Pending',
-            currentGrade: raw?.currentGrade ?? '',
+            // Stored grades are displayed as-is (legacy quarter-point values keep
+            // their two decimals); only typed input is normalised to the scale.
+            currentGrade: raw?.currentGrade !== undefined && raw?.currentGrade !== null && raw?.currentGrade !== '' ? formatGrade(raw.currentGrade) : '',
             currentGradeMark: raw?.currentGradeMark ?? null,
             remarks: raw?.remarks || '',
             classBlockCode: selectedClass.blockCode,
@@ -307,7 +341,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
           student._id,
           student.currentGrade === undefined || student.currentGrade === null || student.currentGrade === ''
             ? ''
-            : String(student.currentGrade)
+            : formatGrade(student.currentGrade)
         ])
       )
     )
@@ -402,8 +436,24 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
     setPendingFocusStudentId('')
   }, [currentPageStudents, pendingFocusStudentId])
 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (openActionMenu && !(event.target as Element).closest('.gm-action-dropdown-container')) {
+        setOpenActionMenu(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [openActionMenu])
+
   const gradeValues = students
-    .map((student) => Number(student.currentGrade))
+    .map((student) => {
+      if (student.currentGrade === '' || student.currentGrade === null || student.currentGrade === undefined) return NaN
+      const num = Number(student.currentGrade)
+      return Number.isFinite(num) && num > 0 ? num : NaN
+    })
     .filter((value) => Number.isFinite(value))
 
   const gradedCount = students.filter(s =>
@@ -413,7 +463,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
   const pendingCount = Math.max(students.length - gradedCount, 0)
   const averageGrade = gradeValues.length > 0
     ? (gradeValues.reduce((sum, value) => sum + value, 0) / gradeValues.length).toFixed(2)
-    : 'N/A'
+    : 'No Grade'
 
   const canEditGrades = gradeSubmissionStatus === 'Draft' || gradeSubmissionStatus === 'Returned'
   const isPublished = gradeSubmissionStatus === 'Published'
@@ -424,27 +474,156 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
     return Number.isNaN(date.getTime()) ? 'Not graded' : date.toLocaleString()
   }
 
+  // Stored grades are shown exactly as recorded; only typed edits are snapped
+  // to the configured scale. This keeps legacy quarter-point grades intact.
+  const gradeDisplayValue = (value: string | number | null | undefined) =>
+    value === null || value === undefined || value === '' ? '' : formatGrade(value)
+
+  const normalizeDraftForStudent = (student: ProfessorRosterStudent, raw: string | number | null | undefined) => {
+    const text = String(raw ?? '').trim()
+    if (!text) return ''
+    const stored = gradeDisplayValue(student.currentGrade)
+    if (stored && text === stored) return stored
+    return formatChedGrade(text)
+  }
+
   const hasDraftChanges = (student: ProfessorRosterStudent) => {
-    const gradeDraft = String(gradeDrafts[student._id] ?? '')
-    const currentGrade = student.currentGrade === undefined || student.currentGrade === null ? '' : String(student.currentGrade)
-    const gradeMarkDraft = String(gradeMarkDrafts[student._id] ?? '')
-    const currentGradeMark = String(student.currentGradeMark ?? '')
-    const remarkDraft = String(remarkDrafts[student._id] ?? '')
-    const currentRemark = String(student.remarks || '')
+    const gradeDraft = normalizeDraftForStudent(student, gradeDrafts[student._id])
+    const currentGrade = gradeDisplayValue(student.currentGrade)
+    const gradeMarkDraft = String(gradeMarkDrafts[student._id] ?? '').trim()
+    const currentGradeMark = String(student.currentGradeMark ?? '').trim()
+    const remarkDraft = String(remarkDrafts[student._id] ?? '').trim()
+    const currentRemark = String(student.remarks || '').trim()
     return gradeDraft !== currentGrade || gradeMarkDraft !== currentGradeMark || remarkDraft !== currentRemark
   }
 
-  const saveGrade = async (student: ProfessorRosterStudent) => {
-    if (!selectedClass) return
+  const unsavedCount = useMemo(() => {
+    return students.filter((student) => hasDraftChanges(student)).length
+  }, [students, gradeDrafts, gradeMarkDrafts, remarkDrafts])
+
+  const goToNextGrade = (student: ProfessorRosterStudent) => {
+    const currentIndex = filteredStudents.findIndex((entry) => entry._id === student._id)
+    if (currentIndex < 0) return
+
+    const nextStudent = filteredStudents[currentIndex + 1]
+    if (!nextStudent) return
+
+    const nextPage = Math.floor((currentIndex + 1) / 10) + 1
+    if (nextPage !== currentPage) {
+      setCurrentPage(nextPage)
+      setPendingFocusStudentId(nextStudent._id)
+    } else {
+      const target = gradeInputRefs.current[nextStudent._id]
+      if (target) {
+        target.focus()
+        target.select()
+      } else {
+        setPendingFocusStudentId(nextStudent._id)
+      }
+    }
+  }
+
+  const goToPrevGrade = (student: ProfessorRosterStudent) => {
+    const currentIndex = filteredStudents.findIndex((entry) => entry._id === student._id)
+    if (currentIndex <= 0) return
+
+    const prevStudent = filteredStudents[currentIndex - 1]
+    if (!prevStudent) return
+
+    const prevPage = Math.floor((currentIndex - 1) / 10) + 1
+    if (prevPage !== currentPage) {
+      setCurrentPage(prevPage)
+      setPendingFocusStudentId(prevStudent._id)
+    } else {
+      const target = gradeInputRefs.current[prevStudent._id]
+      if (target) {
+        target.focus()
+        target.select()
+      } else {
+        setPendingFocusStudentId(prevStudent._id)
+      }
+    }
+  }
+
+  const handleGradeChange = (studentId: string, value: string) => {
+    // Only allow digits and a single optional decimal point
+    if (value !== '' && !/^\d*\.?\d*$/.test(value)) return
+
+    setGradeDrafts((current) => ({
+      ...current,
+      [studentId]: value
+    }))
+    // Clear grade mark when typing a numerical grade
+    if (value) {
+      setGradeMarkDrafts((current) => ({ ...current, [studentId]: '' }))
+    }
+  }
+
+  const handleGradeBlur = (student: ProfessorRosterStudent) => {
+    const raw = gradeDrafts[student._id]
+    if (raw !== undefined && raw !== null && raw.trim() !== '') {
+      const formatted = normalizeDraftForStudent(student, raw)
+      if (formatted !== raw) {
+        setGradeDrafts((current) => ({
+          ...current,
+          [student._id]: formatted
+        }))
+      }
+    }
+  }
+
+  const handleGradeKeyDown = (event: React.KeyboardEvent<HTMLInputElement>, student: ProfessorRosterStudent) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      const raw = gradeDrafts[student._id]
+      if (raw !== undefined && raw !== null && raw.trim() !== '') {
+        const formatted = normalizeDraftForStudent(student, raw)
+        setGradeDrafts((current) => ({
+          ...current,
+          [student._id]: formatted
+        }))
+        if (formatted) {
+          setGradeMarkDrafts((current) => ({ ...current, [student._id]: '' }))
+        }
+      }
+      if (event.shiftKey) {
+        goToPrevGrade(student)
+      } else {
+        goToNextGrade(student)
+      }
+    } else if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      const raw = gradeDrafts[student._id]
+      if (raw !== undefined && raw !== null && raw.trim() !== '') {
+        const formatted = normalizeDraftForStudent(student, raw)
+        setGradeDrafts((current) => ({ ...current, [student._id]: formatted }))
+      }
+      goToNextGrade(student)
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      const raw = gradeDrafts[student._id]
+      if (raw !== undefined && raw !== null && raw.trim() !== '') {
+        const formatted = normalizeDraftForStudent(student, raw)
+        setGradeDrafts((current) => ({ ...current, [student._id]: formatted }))
+      }
+      goToPrevGrade(student)
+    }
+  }
+
+  const saveGrade = async (student: ProfessorRosterStudent, options: { silent?: boolean } = {}) => {
+    if (!selectedClass) return false
 
     const rawGrade = String(gradeDrafts[student._id] ?? '').trim()
     const rawGradeMark = String(gradeMarkDrafts[student._id] ?? '').trim()
-    const nextGrade = rawGrade === '' ? null : Number(rawGrade)
+    const formattedGrade = normalizeDraftForStudent(student, rawGrade)
+    const nextGrade = formattedGrade === '' ? null : Number(formattedGrade)
 
     if (nextGrade !== null && (!Number.isFinite(nextGrade) || nextGrade < 1 || nextGrade > 5)) {
-      setMessageTone('error')
-      setMessage(`Invalid grade for ${getName(student)}. Use 1.0 to 5.0, a grade mark, or leave both blank.`)
-      return
+      if (!options.silent) {
+        setMessageTone('error')
+        setMessage(`Invalid grade for ${getName(student)}. Use 1.0 to 5.0, a grade mark, or leave both blank.`)
+      }
+      return false
     }
 
     const nextGradeMark = rawGradeMark || null
@@ -490,7 +669,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
           ...entry,
           enrollmentId: updated?.enrollmentId ? String(updated.enrollmentId) : entry.enrollmentId,
           subjectEntryId: updated?.subjectEntryId ? String(updated.subjectEntryId) : entry.subjectEntryId,
-          currentGrade: updated?.currentGrade ?? '',
+          currentGrade: updated?.currentGrade !== undefined && updated?.currentGrade !== null ? formatGrade(updated.currentGrade) : '',
           currentGradeMark: updated?.currentGradeMark ?? null,
           remarks: updated?.remarks || '',
           subjectStatus: updated?.subjectStatus || entry.subjectStatus,
@@ -499,7 +678,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
       }))
       setGradeDrafts((current) => ({
         ...current,
-        [student._id]: updated?.currentGrade === undefined || updated?.currentGrade === null ? '' : String(updated.currentGrade)
+        [student._id]: updated?.currentGrade === undefined || updated?.currentGrade === null ? '' : formatGrade(updated.currentGrade)
       }))
       setGradeMarkDrafts((current) => ({
         ...current,
@@ -512,54 +691,178 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
       if (updated?.gradeSubmissionStatus) {
         setGradeSubmissionStatus(updated.gradeSubmissionStatus)
       }
-      setMessageTone('info')
-      setMessage(`Published grade for ${getName(student)}.`)
+      if (!options.silent) {
+        setMessageTone('info')
+        setMessage(`Saved grade for ${getName(student)}.`)
+      }
+      return true
     } catch (saveError) {
-      setMessageTone('error')
-      setMessage(
-        isNetworkRequestError(saveError)
-          ? buildReconnectMessage('the grade update')
-          : (saveError instanceof Error ? saveError.message : 'Failed to save grade.')
-      )
+      if (!options.silent) {
+        setMessageTone('error')
+        setMessage(
+          isNetworkRequestError(saveError)
+            ? buildReconnectMessage('the grade update')
+            : (saveError instanceof Error ? saveError.message : 'Failed to save grade.')
+        )
+      }
+      return false
     } finally {
       setSavingStudentIds((current) => current.filter((value) => value !== student._id))
     }
   }
 
-  const submitGradesForReview = async () => {
-    if (!selectedClass || students.length === 0) return
+  const saveAllGrades = async () => {
+    if (!selectedClass || students.length === 0 || savingAll || submittingGrades) return
 
-    // First, save all pending grade drafts to ensure backend has the latest data
-    const studentsWithPendingDrafts = students.filter(s =>
-      gradeDrafts[s._id] !== undefined
-      || gradeMarkDrafts[s._id] !== undefined
-      || remarkDrafts[s._id] !== undefined
-    )
+    const studentsToSave = students.filter((student) => hasDraftChanges(student))
 
-    if (studentsWithPendingDrafts.length > 0) {
-      setSubmittingGrades(true)
-      try {
-        setMessageTone('info')
-        setMessage('Saving pending grades before submission...')
-        
-        // Save all pending grades in parallel and wait for all to complete
-        await Promise.all(studentsWithPendingDrafts.map(student => saveGrade(student)))
-        
-        // Clear the drafts after successful save
-        setGradeDrafts({})
-        setGradeMarkDrafts({})
-        setRemarkDrafts({})
-      } catch (saveError) {
+    if (studentsToSave.length === 0) {
+      setMessageTone('info')
+      setMessage('All student grades are already saved. No unsaved changes.')
+      return
+    }
+
+    // Pre-validate and normalize all student drafts before sending requests
+    for (const student of studentsToSave) {
+      const rawGrade = String(gradeDrafts[student._id] ?? '').trim()
+      const formatted = normalizeDraftForStudent(student, rawGrade)
+      const nextGrade = formatted === '' ? null : Number(formatted)
+
+      if (nextGrade !== null && (!Number.isFinite(nextGrade) || nextGrade < 1 || nextGrade > 5)) {
         setMessageTone('error')
-        setMessage(
-          isNetworkRequestError(saveError)
-            ? buildReconnectMessage('saving pending grades')
-            : (saveError instanceof Error ? saveError.message : 'Failed to save pending grades.')
-        )
-        setSubmittingGrades(false)
+        setMessage(`Invalid grade for ${getName(student)}. Use 1.0 to 5.0, a grade mark, or leave both blank.`)
         return
       }
     }
+
+    // Immediately normalize displayed inputs to the configured grade format
+    setGradeDrafts((current) => {
+      const updated = { ...current }
+      for (const student of studentsToSave) {
+        if (updated[student._id]) {
+          updated[student._id] = normalizeDraftForStudent(student, updated[student._id])
+        }
+      }
+      return updated
+    })
+
+    setSavingAll(true)
+    setMessageTone('info')
+    setMessage(`Saving grades for ${studentsToSave.length} student(s)...`)
+
+    try {
+      const results = await Promise.all(
+        studentsToSave.map((student) => saveGrade(student, { silent: true }))
+      )
+      const successCount = results.filter(Boolean).length
+
+      if (successCount === studentsToSave.length) {
+        setMessageTone('info')
+        setMessage(`Successfully saved grades for all ${successCount} student(s).`)
+      } else {
+        setMessageTone('error')
+        setMessage(`Saved ${successCount} of ${studentsToSave.length} student grade(s). Please review any errors.`)
+      }
+    } catch (saveError) {
+      setMessageTone('error')
+      setMessage(
+        isNetworkRequestError(saveError)
+          ? buildReconnectMessage('saving all grades')
+          : (saveError instanceof Error ? saveError.message : 'Failed to save all grades.')
+      )
+    } finally {
+      setSavingAll(false)
+    }
+  }
+
+  const previewStats = useMemo(() => {
+    let passed = 0
+    let failed = 0
+    let marks = 0
+    let missing = 0
+
+    students.forEach((s) => {
+      const mark = s.currentGradeMark || gradeMarkDrafts[s._id]
+      const rawGrade = gradeDrafts[s._id] !== undefined && gradeDrafts[s._id] !== ''
+        ? gradeDrafts[s._id]
+        : s.currentGrade
+
+      if (mark) {
+        if (mark === 'FA') failed++
+        else marks++
+      } else if (rawGrade !== null && rawGrade !== undefined && String(rawGrade).trim() !== '') {
+        const num = Number(rawGrade)
+        if (Number.isFinite(num)) {
+          if (isPassingGrade(num)) passed++
+          else failed++
+        } else {
+          missing++
+        }
+      } else {
+        missing++
+      }
+    })
+
+    return { passed, failed, marks, missing, total: students.length }
+  }, [students, gradeDrafts, gradeMarkDrafts])
+
+  const getGradePreviewStatus = (grade: string | number | null | undefined, gradeMark?: string | null) => {
+    if (gradeMark) {
+      switch (gradeMark.toUpperCase()) {
+        case 'INC': return { label: 'Incomplete', variant: 'warning' }
+        case 'DRP': return { label: 'Dropped', variant: 'purple' }
+        case 'W': return { label: 'Withdrawn', variant: 'neutral' }
+        case 'FA': return { label: 'Failed (FA)', variant: 'danger' }
+        case 'NG': return { label: 'No Grade', variant: 'neutral' }
+        default: return { label: gradeMark, variant: 'neutral' }
+      }
+    }
+    if (grade === null || grade === undefined || String(grade).trim() === '') {
+      return { label: 'No Grade', variant: 'missing' }
+    }
+    const num = Number(grade)
+    if (!Number.isFinite(num)) {
+      return { label: 'Invalid', variant: 'danger' }
+    }
+    if (isPassingGrade(num)) {
+      return { label: 'Passed', variant: 'success' }
+    }
+    if (num === 4.0) {
+      return { label: 'Conditional', variant: 'warning' }
+    }
+    return { label: 'Failed', variant: 'danger' }
+  }
+
+  const openSubmitPreview = async () => {
+    if (!selectedClass || students.length === 0 || submittingGrades || savingAll) return
+
+    for (const student of students) {
+      const raw = gradeDrafts[student._id]
+      if (raw && isInvalidGrade(raw)) {
+        setMessageTone('error')
+        setMessage(`Cannot preview for submission: ${getName(student)} has an invalid grade (${raw}). Grades must be between 1.00 and 5.00.`)
+        return
+      }
+    }
+
+    const studentsWithPendingDrafts = students.filter(s => hasDraftChanges(s))
+    if (studentsWithPendingDrafts.length > 0) {
+      try {
+        setMessageTone('info')
+        setMessage('Saving pending draft changes before preview...')
+        await Promise.all(studentsWithPendingDrafts.map(s => saveGrade(s, { silent: true })))
+      } catch (saveError) {
+        setMessageTone('error')
+        setMessage('Failed to save pending changes before opening preview.')
+        return
+      }
+    }
+
+    setShowSubmitPreview(true)
+  }
+
+  const submitGradesForReview = async () => {
+    if (!selectedClass || students.length === 0) return
 
     // Collect all unique enrollment IDs from students in this class
     const enrollmentIds = [...new Set(
@@ -568,7 +871,6 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
     if (enrollmentIds.length === 0) {
       setMessageTone('error')
       setMessage('No enrollment found for this class.')
-      setSubmittingGrades(false)
       return
     }
     const ungraded = students.filter(s =>
@@ -579,15 +881,10 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
     if (ungraded.length > 0) {
       setMessageTone('error')
       setMessage(`${ungraded.length} student(s) still need a grade or grade mark (INC, DRP, W, FA, NG). Enter grades before submitting.`)
-      setSubmittingGrades(false)
-      return
-    }
-    const confirmMessage = 'Submit all grades for this class for registrar review? You will not be able to edit grades after submission.'
-    if (!confirm(confirmMessage)) {
-      setSubmittingGrades(false)
       return
     }
 
+    setSubmittingGrades(true)
     try {
       const token = await getStoredToken()
       if (!token) throw new Error('You are not logged in.')
@@ -599,7 +896,15 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
       for (const enrollmentId of enrollmentIds) {
         const response = await fetchWithAutoReconnect(
           `${API_URL}/api/professor/grade-submissions/${enrollmentId}/submit`,
-          { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } }
+          {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              subjectId: selectedClass.subjectId,
+              semester: selectedClass.semester,
+              schoolYear: selectedClass.schoolYear
+            })
+          }
         )
         const payload = await response.json().catch(() => ({}))
         if (!response.ok) {
@@ -612,12 +917,22 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
 
       if (succeeded > 0 && failed === 0) {
         setGradeSubmissionStatus('Submitted')
+        setStudents((current) => current.map((s) => ({
+          ...s,
+          gradeSubmissionStatus: 'Submitted'
+        })))
         setMessageTone('info')
         setMessage(`Grades submitted for registrar review (${succeeded} enrollment${succeeded !== 1 ? 's' : ''}).`)
+        setShowSubmitPreview(false)
       } else if (succeeded > 0 && failed > 0) {
         setGradeSubmissionStatus('Submitted')
+        setStudents((current) => current.map((s) => ({
+          ...s,
+          gradeSubmissionStatus: 'Submitted'
+        })))
         setMessageTone('error')
         setMessage(`${succeeded} submitted, ${failed} failed: ${errors[0]}`)
+        setShowSubmitPreview(false)
       } else {
         setMessageTone('error')
         setMessage(errors[0] || 'Failed to submit grades.')
@@ -630,18 +945,6 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
     }
   }
 
-  const goToNextGrade = (student: ProfessorRosterStudent) => {
-    const currentIndex = filteredStudents.findIndex((entry) => entry._id === student._id)
-    if (currentIndex < 0) return
-
-    const nextStudent = filteredStudents[currentIndex + 1]
-    if (!nextStudent) return
-
-    const nextPage = Math.floor((currentIndex + 1) / 10) + 1
-    setCurrentPage(nextPage)
-    setPendingFocusStudentId(nextStudent._id)
-  }
-
   const exportGrades = () => {
     if (!selectedClass || students.length === 0) return
 
@@ -651,7 +954,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
       getStudentCourseDisplay(student),
       String(student.yearLevel ?? ''),
       student.studentStatus || 'Active',
-      String(student.currentGrade ?? ''),
+      student.currentGradeMark || (student.currentGrade ? formatGrade(student.currentGrade) : ''),
       student.remarks || '',
       String(student.subjectStatus || ''),
       formatGradeUpdatedAt(student.gradeUpdatedAt)
@@ -779,6 +1082,18 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
             </select>
           </div>
           <div className="gm-tool-actions">
+            {canEditGrades && students.length > 0 && (
+              <button
+                type="button"
+                className="gm-btn gm-btn--save-all"
+                onClick={() => void saveAllGrades()}
+                disabled={savingAll || submittingGrades}
+                title="Save all pending grade changes"
+              >
+                <Save size={16} />
+                {savingAll ? 'Saving All...' : unsavedCount > 0 ? `Save All (${unsavedCount})` : 'Save All'}
+              </button>
+            )}
             <button type="button" className="gm-btn" onClick={exportGrades} disabled={students.length === 0}>
               <Download size={16} /> Export Grades
             </button>
@@ -908,17 +1223,30 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
 
           {/* Action Bar */}
           <div className="gm-action-bar">
-            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+              {canEditGrades && students.length > 0 && (
+                <button
+                  type="button"
+                  className="gm-save-all-btn"
+                  onClick={() => void saveAllGrades()}
+                  disabled={savingAll || submittingGrades}
+                  title="Save all pending grade changes"
+                >
+                  <Save size={16} />
+                  {savingAll ? 'Saving All...' : unsavedCount > 0 ? `Save All (${unsavedCount})` : 'Save All'}
+                </button>
+              )}
               {(gradeSubmissionStatus === 'Draft' || gradeSubmissionStatus === 'Returned') && students.length > 0 && (
                 <>
                   <button
                     type="button"
                     className="gm-submit-btn"
-                    onClick={() => void submitGradesForReview()}
-                    disabled={submittingGrades}
+                    onClick={() => void openSubmitPreview()}
+                    disabled={submittingGrades || savingAll}
+                    title="Review all student grades before final submission to registrar"
                   >
-                    <Send size={18} />
-                    {submittingGrades ? 'Submitting...' : 'Submit Grades for Review'}
+                    <Eye size={18} />
+                    {submittingGrades ? 'Submitting...' : 'Review & Submit Grades'}
                   </button>
                   {pendingCount > 0 && (
                     <span className="gm-submit-hint gm-submit-hint--warning">
@@ -972,14 +1300,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                     <th>Status</th>
                     <th className="gm-grade-header">
                       Grade
-                      <span className="gm-grade-info-icon" title="Grade Scale:
-1.00 - 3.00 = Passed
-5.00 = Failed
-INC = Incomplete
-DRP = Dropped
-W = Withdrawn
-FA = Failure due to Absences
-NG = No Grade">
+                      <span className="gm-grade-info-icon" title={`Grade Scale:\n${gradeScaleLegend}`}>
                         <Info size={13} />
                       </span>
                     </th>
@@ -1019,23 +1340,16 @@ NG = No Grade">
                                 ref={(element) => {
                                   gradeInputRefs.current[student._id] = element
                                 }}
-                                type="number"
-                                min="1"
-                                max="5"
-                                step="0.25"
-                                className="gm-grade-input"
+                                type="text"
+                                inputMode="decimal"
+                                className={`gm-grade-input ${isInvalidGrade(gradeDrafts[student._id]) ? 'gm-grade-input--invalid' : ''}`}
+                                style={isInvalidGrade(gradeDrafts[student._id]) ? { color: '#dc2626' } : undefined}
                                 value={gradeDrafts[student._id] ?? ''}
-                                onChange={(event) => {
-                                  setGradeDrafts((current) => ({
-                                    ...current,
-                                    [student._id]: event.target.value
-                                  }))
-                                  // Clear grade mark when typing a numerical grade
-                                  if (event.target.value) {
-                                    setGradeMarkDrafts((current) => ({ ...current, [student._id]: '' }))
-                                  }
-                                }}
-                                placeholder="1.00"
+                                onChange={(event) => handleGradeChange(student._id, event.target.value)}
+                                onBlur={() => handleGradeBlur(student)}
+                                onKeyDown={(event) => handleGradeKeyDown(event, student)}
+                                placeholder={formatGrade(gradeScale.min)}
+                                title={isInvalidGrade(gradeDrafts[student._id]) ? `Invalid grade: must be between ${formatGrade(gradeScale.min)} and ${formatGrade(gradeScale.max)}` : allowedGradeHint ? `Allowed grades: ${allowedGradeHint}` : undefined}
                                 disabled={!canEditGrades || !!gradeMarkDrafts[student._id]}
                               />
                               <select
@@ -1080,41 +1394,55 @@ NG = No Grade">
                           <td className="gm-muted gm-text-xs">{formatGradeUpdatedAt(student.gradeUpdatedAt)}</td>
                           <td>
                             <div className="gm-row-actions">
-                              {canEditGrades ? (
-                                <>
-                                  <button
-                                    type="button"
-                                    className="gm-action-btn gm-action-btn--primary"
-                                    onClick={() => void saveGrade(student)}
-                                    disabled={isSaving || !hasDraftChanges(student)}
-                                  >
-                                    {isSaving ? 'Saving...' : 'Save'}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="gm-action-btn"
-                                    onClick={() => goToNextGrade(student)}
-                                    disabled={isSaving || filteredStudents[filteredStudents.length - 1]?._id === student._id}
-                                  >
-                                    Next
-                                  </button>
-                                </>
-                              ) : isPublished && student.currentGrade !== '' && student.currentGrade !== null && student.currentGrade !== undefined ? (
+                              <div className="gm-action-dropdown-container">
                                 <button
                                   type="button"
-                                  className="gm-action-btn gm-action-btn--warning"
-                                  onClick={() => setChangeRequestStudent(student)}
+                                  className="gm-action-dropdown-btn"
+                                  onClick={() => setOpenActionMenu(openActionMenu === student._id ? null : student._id)}
                                 >
-                                  <Edit3 size={14} /> Request Change
+                                  <MoreVertical size={16} />
                                 </button>
-                              ) : null}
-                              <button
-                                type="button"
-                                className="gm-action-btn"
-                                onClick={() => setSelectedStudent(student)}
-                              >
-                                Profile
-                              </button>
+                                {openActionMenu === student._id && (
+                                  <div className="gm-action-dropdown-menu">
+                                    {canEditGrades ? (
+                                      <>
+                                        <button
+                                          type="button"
+                                          className="gm-action-dropdown-item gm-action-dropdown-item--primary"
+                                          onClick={() => {
+                                            void saveGrade(student)
+                                            setOpenActionMenu(null)
+                                          }}
+                                          disabled={isSaving || !hasDraftChanges(student)}
+                                        >
+                                          {isSaving ? 'Saving...' : 'Save'}
+                                        </button>
+                                      </>
+                                    ) : (!canEditGrades && (gradeSubmissionStatus === 'Submitted' || gradeSubmissionStatus === 'Verified' || isPublished || student.gradeSubmissionStatus === 'Submitted' || student.gradeSubmissionStatus === 'Verified' || student.gradeSubmissionStatus === 'Published') && student.currentGrade !== '' && student.currentGrade !== null && student.currentGrade !== undefined) ? (
+                                      <button
+                                        type="button"
+                                        className="gm-action-dropdown-item gm-action-dropdown-item--warning"
+                                        onClick={() => {
+                                          setChangeRequestStudent(student)
+                                          setOpenActionMenu(null)
+                                        }}
+                                      >
+                                        <Edit3 size={14} /> Request Change
+                                      </button>
+                                    ) : null}
+                                    <button
+                                      type="button"
+                                      className="gm-action-dropdown-item"
+                                      onClick={() => {
+                                        setSelectedStudent(student)
+                                        setOpenActionMenu(null)
+                                      }}
+                                    >
+                                      Profile
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </td>
                         </tr>
@@ -1163,6 +1491,143 @@ NG = No Grade">
                 <div><strong>Subject:</strong> {selectedStudent.classSubjectCode ? `${selectedStudent.classSubjectCode} - ${selectedStudent.classSubjectTitle || 'Untitled subject'}` : (selectedClass ? `${selectedClass.subjectCode} - ${selectedClass.subjectTitle}` : 'N/A')}</div>
                 <div><strong>Enrollment Status:</strong> {selectedStudent.studentStatus || selectedStudent.status || 'Active'}</div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Grade Submission Preview Modal */}
+      {showSubmitPreview && selectedClass && (
+        <div className="gm-modal-backdrop" onClick={() => !submittingGrades && setShowSubmitPreview(false)}>
+          <div className="gm-modal gm-preview-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="gm-modal-header gm-preview-modal-header">
+              <div>
+                <h3>Grade Submission Preview</h3>
+                <p className="gm-preview-subtitle">
+                  {selectedClass.subjectCode} - {selectedClass.subjectTitle} &bull; {selectedClass.blockCode || selectedClass.sectionCode} &bull; {selectedClass.semester} Term {selectedClass.schoolYear}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="gm-modal-close"
+                onClick={() => setShowSubmitPreview(false)}
+                disabled={submittingGrades}
+                title="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="gm-modal-body gm-preview-modal-body">
+              {/* Summary stat cards */}
+              <div className="gm-preview-stats">
+                <div className="gm-preview-stat-card">
+                  <span className="gm-preview-stat-label">Total Enrolled</span>
+                  <span className="gm-preview-stat-val">{previewStats.total}</span>
+                </div>
+                <div className="gm-preview-stat-card">
+                  <span className="gm-preview-stat-label">Passed ({formatGrade(gradeScale.min)}–{formatGrade(gradeScale.passingGrade)})</span>
+                  <span className="gm-preview-stat-val gm-text-success">{previewStats.passed}</span>
+                </div>
+                <div className="gm-preview-stat-card">
+                  <span className="gm-preview-stat-label">Failed ({formatGrade(gradeScale.max)})</span>
+                  <span className="gm-preview-stat-val gm-text-danger">{previewStats.failed}</span>
+                </div>
+                <div className="gm-preview-stat-card">
+                  <span className="gm-preview-stat-label">Marks (INC/DRP/W)</span>
+                  <span className="gm-preview-stat-val gm-text-amber">{previewStats.marks}</span>
+                </div>
+                <div className="gm-preview-stat-card">
+                  <span className="gm-preview-stat-label">Class Average</span>
+                  <span className="gm-preview-stat-val">{averageGrade}</span>
+                </div>
+              </div>
+
+              {/* Status Notice */}
+              {previewStats.missing > 0 ? (
+                <div className="gm-preview-notice gm-preview-notice--warning">
+                  <AlertTriangle size={18} />
+                  <div>
+                    <strong>Action Required: {previewStats.missing} student(s) still need a grade.</strong>
+                    <p>All active students must have a grade (1.00 to 5.00) or grade mark (INC, DRP, W, FA, NG) before submission.</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="gm-preview-notice gm-preview-notice--info">
+                  <Info size={18} />
+                  <div>
+                    <strong>Ready for Registrar Submission</strong>
+                    <p>Please review each student's final grade and remarks below. Once submitted, editing will be locked and sent to the Registrar for verification.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Student roster review table */}
+              <div className="gm-preview-table-container">
+                <table className="gm-preview-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: '40px' }}>#</th>
+                      <th>Student ID</th>
+                      <th>Student Name</th>
+                      <th>Program &amp; Year</th>
+                      <th>Final Grade</th>
+                      <th>Status</th>
+                      <th>Remarks</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {students.map((student, index) => {
+                      const mark = student.currentGradeMark || gradeMarkDrafts[student._id]
+                      const rawGrade = gradeDrafts[student._id] !== undefined && gradeDrafts[student._id] !== ''
+                        ? gradeDrafts[student._id]
+                        : student.currentGrade
+                      const gradeDisplay = mark || (rawGrade ? formatGrade(rawGrade) : null)
+                      const status = getGradePreviewStatus(rawGrade, mark)
+                      const remarks = remarkDrafts[student._id] !== undefined ? remarkDrafts[student._id] : (student.remarks || '')
+
+                      return (
+                        <tr key={student._id} className={!gradeDisplay ? 'gm-preview-row--missing' : ''}>
+                          <td className="gm-muted">{index + 1}</td>
+                          <td className="gm-student-id">{student.studentNumber}</td>
+                          <td className="gm-student-name">{getName(student)}</td>
+                          <td className="gm-muted">{getStudentCourseDisplay(student)} - Y{student.yearLevel ?? 1}</td>
+                          <td className="gm-preview-grade-cell">
+                            <strong>{gradeDisplay || '—'}</strong>
+                          </td>
+                          <td>
+                            <span className={`gm-badge gm-badge--${status.variant}`}>
+                              {status.label}
+                            </span>
+                          </td>
+                          <td className="gm-muted gm-text-xs">{remarks || '—'}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="gm-preview-modal-footer">
+              <button
+                type="button"
+                className="gm-btn gm-btn--secondary"
+                onClick={() => setShowSubmitPreview(false)}
+                disabled={submittingGrades}
+              >
+                Back to Edit
+              </button>
+              <button
+                type="button"
+                className="gm-btn gm-btn--primary gm-preview-submit-btn"
+                onClick={() => void submitGradesForReview()}
+                disabled={submittingGrades || previewStats.missing > 0}
+                title={previewStats.missing > 0 ? 'All students must be graded before submission' : undefined}
+              >
+                <Send size={16} />
+                {submittingGrades ? 'Submitting to Registrar...' : 'Confirm & Submit to Registrar'}
+              </button>
             </div>
           </div>
         </div>

@@ -1,0 +1,294 @@
+.student-import__intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--student-border);
+  border-radius: 8px;
+  background: var(--student-surface-soft);
+}
+
+.student-import__intro h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+}
+
+.student-import__intro p {
+  margin: 0;
+  color: var(--student-text-soft);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.student-import__template-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 0 0 auto;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--student-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.student-import__template-button:hover {
+  border-color: var(--student-accent-base, var(--color-primary));
+}
+
+.student-import__format {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--student-border);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: var(--student-text-soft);
+}
+
+.student-import__format strong {
+  color: var(--color-text);
+}
+
+.student-import__format-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.student-import__format-list li {
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--student-border);
+  border-radius: 999px;
+  background: var(--student-surface);
+  color: var(--color-text);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.student-import__file-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.student-import__file-input {
+  display: none;
+}
+
+.student-import__file-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border: 1px dashed color-mix(in srgb, var(--student-border) 80%, transparent);
+  border-radius: 8px;
+  background: var(--student-surface);
+  color: var(--color-text);
+  font-size: 0.82rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.student-import__file-label:hover {
+  border-color: var(--student-accent-base, var(--color-primary));
+}
+
+.student-import__file-name {
+  color: var(--student-text-soft);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.student-import__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.student-import__chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--student-border);
+  font-size: 0.75rem;
+  font-weight: 650;
+  background: var(--student-surface);
+  color: var(--color-text);
+}
+
+.student-import__chip--ok {
+  border-color: color-mix(in srgb, #16a34a 40%, transparent);
+  background: color-mix(in srgb, #16a34a 10%, transparent);
+  color: #15803d;
+}
+
+.student-import__chip--bad {
+  border-color: color-mix(in srgb, #dc2626 40%, transparent);
+  background: color-mix(in srgb, #dc2626 8%, transparent);
+  color: #b91c1c;
+}
+
+.student-import__error-box,
+.student-import__result-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid color-mix(in srgb, #dc2626 32%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, #dc2626 8%, transparent);
+  color: #b91c1c;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.student-import__preview {
+  max-height: 16rem;
+  overflow: auto;
+  border: 1px solid var(--student-border);
+  border-radius: 8px;
+}
+
+.student-import__preview table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.student-import__preview th,
+.student-import__preview td {
+  padding: 0.45rem 0.65rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid color-mix(in srgb, var(--student-border) 65%, transparent);
+}
+
+.student-import__preview th {
+  position: sticky;
+  top: 0;
+  background: var(--student-surface-strong, var(--student-surface));
+  color: var(--student-text-soft);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.student-import__preview tr:last-child td {
+  border-bottom: 0;
+}
+
+.student-import__preview-row--error td {
+  background: color-mix(in srgb, #dc2626 5%, transparent);
+}
+
+.student-import__row-error {
+  color: #b91c1c;
+}
+
+.student-import__row-ok {
+  color: #15803d;
+  font-weight: 650;
+}
+
+.student-import__error-list {
+  margin: 0.3rem 0 0;
+  padding-left: 1rem;
+  color: #b91c1c;
+}
+
+.student-import__note {
+  margin: 0;
+  color: var(--student-text-soft);
+  font-size: 0.75rem;
+}
+
+.student-import__spin {
+  animation: student-import-spin 0.9s linear infinite;
+}
+
+@keyframes student-import-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.student-import__result {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.student-import__result-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--student-border);
+  border-radius: 10px;
+  background: var(--student-surface-soft);
+}
+
+.student-import__result-card h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.student-import__result-card p {
+  margin: 0;
+  color: var(--student-text-soft);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.student-import__result-ok {
+  color: #16a34a;
+}
+
+.student-import__failure-list {
+  display: grid;
+  gap: 0.4rem;
+  max-height: 15rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8rem;
+}
+
+.student-import__failure-list li {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid color-mix(in srgb, #dc2626 26%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, #dc2626 6%, transparent);
+}
+
+.student-import__failure-list strong {
+  color: var(--color-text);
+}
+
+.student-import__failure-list span {
+  color: #b91c1c;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .student-import__intro {
+    flex-direction: column;
+  }
+
+  .student-import__template-button {
+    width: 100%;
+    justify-content: center;
+  }
+}

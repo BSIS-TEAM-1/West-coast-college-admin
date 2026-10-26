@@ -1,4 +1,35 @@
 const TransmutationTable = require('../models/TransmutationTable');
+const gradingScaleService = require('../services/gradingScaleService');
+
+/**
+ * Validate a transmutation table's brackets.
+ * - each bracket must be a numeric range within 0–100
+ * - each bracket grade must sit on the institution's configured grade scale
+ * - brackets must not overlap (the first match wins, so overlaps are ambiguous)
+ * Returns an error message, or null when the brackets are valid.
+ */
+function validateBrackets(brackets, gradeScale) {
+  for (const b of brackets) {
+    if (typeof b.minRaw !== 'number' || typeof b.maxRaw !== 'number' || typeof b.grade !== 'number') {
+      return 'Each bracket must have minRaw, maxRaw, and grade as numbers.';
+    }
+    if (b.minRaw < 0 || b.maxRaw > 100 || b.minRaw > b.maxRaw) {
+      return `Invalid bracket range: ${b.minRaw}-${b.maxRaw}.`;
+    }
+    if (!gradingScaleService.isOnScale(b.grade, gradeScale)) {
+      return `Bracket grade ${b.grade} is not on the configured ${gradingScaleService.describeScale(gradeScale)} scale.`;
+    }
+  }
+
+  const ordered = [...brackets].sort((a, b) => a.minRaw - b.minRaw);
+  for (let i = 1; i < ordered.length; i += 1) {
+    if (ordered[i].minRaw <= ordered[i - 1].maxRaw) {
+      return `Bracket ranges overlap: ${ordered[i - 1].minRaw}-${ordered[i - 1].maxRaw} and ${ordered[i].minRaw}-${ordered[i].maxRaw}.`;
+    }
+  }
+
+  return null;
+}
 
 /**
  * GET /registrar/transmutation-tables
@@ -60,17 +91,11 @@ async function createTable(req, res) {
       return res.status(400).json({ error: 'At least one bracket is required.' });
     }
 
-    // Validate brackets
-    for (const b of brackets) {
-      if (typeof b.minRaw !== 'number' || typeof b.maxRaw !== 'number' || typeof b.grade !== 'number') {
-        return res.status(400).json({ error: 'Each bracket must have minRaw, maxRaw, and grade as numbers.' });
-      }
-      if (b.minRaw < 0 || b.maxRaw > 100 || b.minRaw > b.maxRaw) {
-        return res.status(400).json({ error: `Invalid bracket range: ${b.minRaw}-${b.maxRaw}.` });
-      }
-      if (b.grade < 1.0 || b.grade > 5.0) {
-        return res.status(400).json({ error: `Grade ${b.grade} must be between 1.0 and 5.0.` });
-      }
+    // Validate brackets against the configured grading scale
+    const gradeScale = await gradingScaleService.loadGradeScale();
+    const bracketError = validateBrackets(brackets, gradeScale);
+    if (bracketError) {
+      return res.status(400).json({ error: bracketError });
     }
 
     const table = await TransmutationTable.create({
@@ -116,16 +141,10 @@ async function updateTable(req, res) {
       if (!Array.isArray(brackets) || brackets.length === 0) {
         return res.status(400).json({ error: 'At least one bracket is required.' });
       }
-      for (const b of brackets) {
-        if (typeof b.minRaw !== 'number' || typeof b.maxRaw !== 'number' || typeof b.grade !== 'number') {
-          return res.status(400).json({ error: 'Each bracket must have minRaw, maxRaw, and grade as numbers.' });
-        }
-        if (b.minRaw < 0 || b.maxRaw > 100 || b.minRaw > b.maxRaw) {
-          return res.status(400).json({ error: `Invalid bracket range: ${b.minRaw}-${b.maxRaw}.` });
-        }
-        if (b.grade < 1.0 || b.grade > 5.0) {
-          return res.status(400).json({ error: `Grade ${b.grade} must be between 1.0 and 5.0.` });
-        }
+      const gradeScale = await gradingScaleService.loadGradeScale();
+      const bracketError = validateBrackets(brackets, gradeScale);
+      if (bracketError) {
+        return res.status(400).json({ error: bracketError });
       }
       update.brackets = brackets.map(b => ({
         minRaw: b.minRaw,

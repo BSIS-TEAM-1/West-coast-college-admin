@@ -2,6 +2,40 @@ const mongoose = require('mongoose');
 const PDFDocument = require('pdfkit');
 const Enrollment = require('../models/Enrollment');
 const Student = require('../models/Student');
+const gradingScaleService = require('../services/gradingScaleService');
+
+/** True when a subject entry carries a usable numeric grade. */
+function hasGrade(value) {
+  if (value === null || value === undefined || String(value).trim() === '') return false;
+  return Number.isFinite(Number(value));
+}
+
+/** Subjects that count toward GWA / units. */
+function isCounted(subject) {
+  return Boolean(subject) && subject.status !== 'Dropped' && subject.status !== 'Removed';
+}
+
+/** Render a grade in the institution's configured format (1.0, 1.1 …). */
+function formatGrade(value, fallback = '') {
+  return hasGrade(value) ? gradingScaleService.formatGrade(Number(value)) : fallback;
+}
+
+/** Single-line text cell used by the tabular PDF exports. */
+function textLine(doc, text, x, y, width) {
+  doc.text(text === null || text === undefined ? '' : String(text), x, y, { width, lineBreak: false });
+}
+
+function createPdf(options) {
+  return { doc: new PDFDocument(options) };
+}
+
+async function sendPdf(res, pdf, filename) {
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  pdf.doc.pipe(res);
+  pdf.doc.end();
+  await new Promise((resolve) => res.on('finish', resolve));
+}
 
 // Course code maps (mirrors studentController for consistency)
 const COURSE_LABEL_MAP = {
@@ -116,7 +150,7 @@ async function generateReportCard(req, res) {
     
     if (enrollment.subjects && enrollment.subjects.length > 0) {
       enrollment.subjects.forEach((subject, index) => {
-        doc.text(`${index + 1}. ${subject.code || 'N/A'} - ${subject.title || 'N/A'}: ${subject.grade !== null && subject.grade !== undefined ? subject.grade : 'N/A'}`);
+        doc.text(`${index + 1}. ${subject.code || 'N/A'} - ${subject.title || 'N/A'}: ${formatGrade(subject.grade, subject.gradeMark || 'N/A')}`);
       });
     } else {
       doc.text('No subjects found.');
@@ -196,7 +230,7 @@ async function generateTranscript(req, res) {
         textLine(doc, s.code, 50, rowY, 55);
         textLine(doc, s.title, 110, rowY, 205);
         textLine(doc, s.units, 320, rowY, 55);
-        textLine(doc, formatGrade(s.grade, 'INC'), 380, rowY, 75);
+        textLine(doc, formatGrade(s.grade, s.gradeMark || 'INC'), 380, rowY, 75);
         const remarks = s.status === 'Dropped' ? 'Dropped' : (s.remarks || (hasGrade(s.grade) ? '' : 'Incomplete'));
         textLine(doc, remarks, 460, rowY, 100);
         doc.y = rowY + 14;
@@ -336,11 +370,12 @@ async function generateClassGradeSheet(req, res) {
     const graded = enrollments.flatMap((e) =>
       e.subjects.filter((s) => isThisSubject(s) && hasGrade(s.grade) && isCounted(s))
     );
+    const gradeScale = await gradingScaleService.loadGradeScale();
     const classAvg = graded.length > 0
       ? (graded.reduce((sum, s) => sum + Number(s.grade), 0) / graded.length).toFixed(2)
       : 'N/A';
-    const passingCount = graded.filter((s) => Number(s.grade) <= 3.0).length;
-    const failingCount = graded.filter((s) => Number(s.grade) > 3.0).length;
+    const passingCount = graded.filter((s) => gradingScaleService.isPassingGrade(s.grade, gradeScale)).length;
+    const failingCount = graded.length - passingCount;
 
     if (y > doc.page.height - 110) { doc.addPage(); y = 50; }
     doc.font('Helvetica-Bold').fontSize(10);

@@ -209,6 +209,55 @@ describe('Test 4 — Correct curriculumId is stored', () => {
     expect(result.enrollment.curriculumId).toBe('curr-version-2026');
     expect(result.curriculumSource).toBe('version');
   });
+
+  test('a bare-year student version resolves to the range-form curriculum (e.g. "2026" → "2026-2029")', async () => {
+    mockEnrollmentFindOne(null);
+    // Call 1: exact match for "2026" misses. Call 2: the range form "2026-2029" hits.
+    Curriculum.findOne
+      .mockReturnValueOnce(mockChain(null))
+      .mockReturnValueOnce(mockChain({ _id: 'curr-range-2026-2029', programCode: 101 }));
+    Enrollment.create.mockResolvedValue([{ _id: 'enr1', curriculumId: 'curr-range-2026-2029' }]);
+
+    const result = await createOrReactivateEnrollment({
+      studentId: 'stu1',
+      createdBy: 'admin1',
+      studentNumber: 'sn1',
+      programCode: 101,
+      yearLevel: 1,
+      semester: '1st',
+      schoolYear: '2026-2027',
+      curriculumVersion: '2026',
+    });
+
+    expect(result.enrollment.curriculumId).toBe('curr-range-2026-2029');
+    expect(result.curriculumSource).toBe('version');
+
+    // First lookup: exact string. Second: the version-range fallback.
+    expect(Curriculum.findOne.mock.calls[0][0]).toMatchObject({ programCode: 101, version: '2026' });
+    const secondFilter = Curriculum.findOne.mock.calls[1][0];
+    expect(String(secondFilter.version)).toBe('/^2026(-\\d{4})?$/');
+  });
+
+  test('a range-form student version ("2027-2032") matches its curriculum exactly', async () => {
+    mockEnrollmentFindOne(null);
+    mockCurriculumFindOne({ _id: 'curr-range-2027-2032', programCode: 201, version: '2027-2032' });
+    Enrollment.create.mockResolvedValue([{ _id: 'enr1', curriculumId: 'curr-range-2027-2032' }]);
+
+    const result = await createOrReactivateEnrollment({
+      studentId: 'stu1',
+      createdBy: 'admin1',
+      studentNumber: 'sn1',
+      programCode: 201,
+      yearLevel: 1,
+      semester: '1st',
+      schoolYear: '2027-2028',
+      curriculumVersion: '2027-2032',
+    });
+
+    expect(result.enrollment.curriculumId).toBe('curr-range-2027-2032');
+    expect(result.curriculumSource).toBe('version');
+    expect(Curriculum.findOne).toHaveBeenCalledTimes(1); // exact hit — no fallback needed
+  });
 });
 
 describe('Test 5 — Incorrect/missing curriculum is rejected', () => {

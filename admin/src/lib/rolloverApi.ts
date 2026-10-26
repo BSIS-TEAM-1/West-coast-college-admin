@@ -48,6 +48,7 @@ export type RolloverSummaryPreview = {
   fromSchoolYear: string
   toSchoolYear: string
   semester: string
+  mode?: 'year' | 'semester'
   totalStudents: number
   summary: {
     promote: number
@@ -87,6 +88,7 @@ export type RolloverResult = {
   fromSchoolYear: string
   toSchoolYear: string
   semester: string
+  mode?: 'year' | 'semester'
   promoted: RolloverResultEntry[]
   retained: RolloverResultEntry[]
   graduated: RolloverResultEntry[]
@@ -154,6 +156,7 @@ export function previewRolloverSummary(body: { fromSchoolYear: string; toSchoolY
 
 export function previewRolloverStudents(body: {
   fromSchoolYear: string
+  toSchoolYear?: string
   semester?: string
   course?: number
   yearLevel?: number
@@ -171,6 +174,7 @@ export function previewRolloverStudents(body: {
 
 export function previewRolloverExceptions(body: {
   fromSchoolYear: string
+  toSchoolYear?: string
   semester?: string
   page?: number
   limit?: number
@@ -204,6 +208,7 @@ export type RolloverBatchSummary = {
   fromSchoolYear: string
   toSchoolYear: string
   semester: string
+  mode?: 'year' | 'semester'
   status: 'applied' | 'reverted'
   executedAt: string
   executedBy?: { _id?: string; username?: string; displayName?: string } | null
@@ -246,6 +251,95 @@ export function revertRollover(body: { batchId: string }) {
     method: 'POST',
     body: JSON.stringify(body)
   })
+}
+
+export type RolloverBatchListItem = {
+  batchId: string
+  fromSchoolYear: string
+  toSchoolYear: string
+  semester: string
+  mode?: 'year' | 'semester'
+  status: 'applied' | 'reverted'
+  executedAt: string
+  executedBy?: { _id?: string; username?: string; displayName?: string } | null
+  revertedAt?: string | null
+  revertedBy?: { _id?: string; username?: string; displayName?: string } | null
+  counts?: {
+    total: number
+    promoted: number
+    retained: number
+    graduated: number
+    skipped: number
+  }
+  snapshotIds?: string[]
+}
+
+export type RolloverStudentReportRow = {
+  studentId: string
+  studentNumber: string
+  name: string
+  firstName: string
+  middleName: string
+  lastName: string
+  suffix: string
+  course: number | null
+  yearLevel: number | null
+  section: string
+  semester: string
+  schoolYear: string
+  action: RolloverAction | ''
+  newYearLevel: number | null
+  newSection: string
+  newSemester: string
+  newSchoolYear: string
+  latestGrade: number | null
+  gradeProfessor: string
+  gradeDate: string | null
+  lifecycleBefore: string
+  lifecycleAfter: string
+  studentStatus: string
+  scholarship: string
+  email: string
+  contactNumber: string
+  address: string
+  permanentAddress: string
+  gender: string
+  birthDate: string | null
+}
+
+export type RolloverGradeEntry = {
+  subjectCode: string
+  subjectTitle: string
+  units: number | null
+  grade: number | null
+  gradeMark: string
+  subjectStatus: string
+  instructor: string
+  semester: string
+  enrollmentStatus: string
+}
+
+export type RolloverSchoolYearStudent = RolloverStudentReportRow & {
+  batchId: string
+  rolloverStatus: 'applied' | 'reverted'
+  rolledOverAt: string
+  grades: RolloverGradeEntry[]
+}
+
+export type RolloverSchoolYearReport = {
+  schoolYear: string
+  batches: RolloverBatchListItem[]
+  students: RolloverSchoolYearStudent[]
+}
+
+export function listRolloverBatches() {
+  return authorizedRequest<RolloverBatchListItem[]>('/api/rollover/batches')
+}
+
+export function getSchoolYearRolloverReport(schoolYear: string) {
+  return authorizedRequest<RolloverSchoolYearReport>(
+    `/api/rollover/school-years/${encodeURIComponent(schoolYear)}/students`
+  )
 }
 
 export function listRolloverSnapshots(params: { schoolYear?: string; type?: string } = {}) {

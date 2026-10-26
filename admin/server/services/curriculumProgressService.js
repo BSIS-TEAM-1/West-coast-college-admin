@@ -22,7 +22,7 @@ const Enrollment = require('../models/Enrollment');
 const Curriculum = require('../models/Curriculum');
 const CurriculumSubject = require('../models/CurriculumSubject');
 const { resolveCurriculum } = require('./enrollmentService');
-const { loadEnrollmentHistory, isRequirementSatisfied, PASSING_GRADE } = require('./subjectEnrollmentService');
+const { loadEnrollmentHistory, isRequirementSatisfied, PASSING_GRADE, hasCompleteRetakeSnapshot, verifyRetakeReferences } = require('./subjectEnrollmentService');
 
 const MAX_YEAR_LEVEL = 6;
 
@@ -120,6 +120,10 @@ function indexAttemptsBySubject(enrollments) {
  * @returns {Object} progress report
  */
 function evaluateProgress({ curriculum, placements, enrollments, student }) {
+  // Only retakeOf snapshots that resolve to a real, earlier attempt of the same
+  // subject in the student's own history may mark an attempt as a retake;
+  // everything else is treated as a regular attempt.
+  verifyRetakeReferences(enrollments);
   const attemptsBySubject = indexAttemptsBySubject(enrollments);
   const placementSubjectIds = new Set((placements || []).map((p) => String(p.subjectId)));
 
@@ -145,7 +149,7 @@ function evaluateProgress({ curriculum, placements, enrollments, student }) {
         grade: typeof entry.grade === 'number' ? entry.grade : null,
         gradeMark: entry.gradeMark || null,
         locked: entry.locked,
-        isRetake: Boolean(entry.retakeOf && entry.retakeOf.enrollmentId),
+        isRetake: hasCompleteRetakeSnapshot(entry.retakeOf),
       })),
     };
   });

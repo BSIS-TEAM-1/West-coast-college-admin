@@ -1,10 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../../../../core/errors/failure.dart';
 import '../../domain/entities/student_entity.dart';
 import '../../domain/repositories/auth_repository.dart';
 import '../../domain/usecases/login_usecase.dart';
 import '../../domain/usecases/logout_usecase.dart';
-import '../../domain/usecases/restore_session_usecase.dart';
 import 'auth_providers.dart';
 
 enum AuthStatus { checking, authenticated, unauthenticated }
@@ -45,23 +45,23 @@ class AuthState {
 /// the student.
 class AuthController extends StateNotifier<AuthState> {
   final LoginUseCase _loginUseCase;
+  final AuthRepository _authRepository;
   final LogoutUseCase _logoutUseCase;
-  final RestoreSessionUseCase _restoreSessionUseCase;
 
   AuthController({
     required LoginUseCase loginUseCase,
+    required AuthRepository authRepository,
     required LogoutUseCase logoutUseCase,
-    required RestoreSessionUseCase restoreSessionUseCase,
   })  : _loginUseCase = loginUseCase,
+        _authRepository = authRepository,
         _logoutUseCase = logoutUseCase,
-        _restoreSessionUseCase = restoreSessionUseCase,
         super(const AuthState()) {
     restoreSession();
   }
 
   Future<void> restoreSession() async {
     state = state.copyWith(status: AuthStatus.checking);
-    final result = await _restoreSessionUseCase();
+    final result = await _authRepository.restoreSession();
 
     if (result == null) {
       state = state.copyWith(status: AuthStatus.unauthenticated);
@@ -99,8 +99,30 @@ class AuthController extends StateNotifier<AuthState> {
     }
   }
 
+  Future<void> loginWithGoogle() async {
+    final result = await _authRepository.loginWithGoogle();
+
+    switch (result) {
+      case AuthSuccess<StudentEntity>(:final data):
+        state = state.copyWith(
+          status: AuthStatus.authenticated,
+          student: data,
+          isSubmitting: false,
+          clearError: true,
+        );
+        return;
+      case AuthError<StudentEntity>(:final failure):
+        state = state.copyWith(
+          status: AuthStatus.unauthenticated,
+          isSubmitting: false,
+          errorMessage: _messageFor(failure),
+        );
+    }
+  }
+
   Future<void> logout() async {
     await _logoutUseCase();
+    await _authRepository.logout();
     state = const AuthState(status: AuthStatus.unauthenticated);
   }
 
@@ -118,9 +140,10 @@ class AuthController extends StateNotifier<AuthState> {
 }
 
 final authControllerProvider = StateNotifierProvider<AuthController, AuthState>((ref) {
+  final authRepository = ref.read(authRepositoryProvider);
   return AuthController(
     loginUseCase: ref.watch(loginUseCaseProvider),
+    authRepository: authRepository,
     logoutUseCase: ref.watch(logoutUseCaseProvider),
-    restoreSessionUseCase: ref.watch(restoreSessionUseCaseProvider),
   );
 });

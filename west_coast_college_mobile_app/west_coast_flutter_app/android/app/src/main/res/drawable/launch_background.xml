@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
+<!-- WccPortal launch splash: solid brand navy so the app never flashes
+     white/black before the Flutter UI draws its first frame. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
+    <item android:drawable="@color/wcc_navy" />
 
     <!-- You can insert your own image assets here -->
     <!-- <item>

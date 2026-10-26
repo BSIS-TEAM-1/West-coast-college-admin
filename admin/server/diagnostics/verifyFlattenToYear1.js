@@ -2,7 +2,7 @@
 require('dotenv').config({ path: '../.env' });
 const mongoose = require('mongoose');
 
-const TARGET_SCHOOL_YEAR = '2026-2027';
+const TARGET_SCHOOL_YEAR = '2021-2022';
 
 (async () => {
   try {

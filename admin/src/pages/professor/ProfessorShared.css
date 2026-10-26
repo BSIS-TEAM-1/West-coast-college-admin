@@ -1,0 +1,807 @@
+/* Professor Shared Styles - Common components used across professor pages */
+
+/* Buttons */
+.professor-btn {
+  padding: 0.625rem 1rem;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.professor-btn:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.professor-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.professor-btn-secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+
+.professor-btn-secondary:hover:not(:disabled) {
+  background: var(--color-bg-soft);
+}
+
+.professor-btn-xs {
+  border: none;
+  padding: 0.33rem 0.58rem;
+  border-radius: 0.45rem;
+  font-size: 0.74rem;
+  font-weight: 500;
+  cursor: pointer;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.professor-btn-xs.professor-btn-secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+
+.professor-btn-xs:hover {
+  filter: brightness(0.98);
+}
+
+.professor-btn-xs:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Empty State */
+.professor-empty-state {
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  background: var(--color-surface);
+  padding: 1.5rem;
+}
+
+.professor-empty-state h3 {
+  margin: 0 0 0.4rem;
+  font-size: 1rem;
+}
+
+.professor-empty-state p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+/* Data Error */
+.professor-data-error {
+  margin: 0 0 1rem;
+  color: #dc2626;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+/* Summary Cards */
+.professor-summary-grid {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.professor-summary-card {
+  border: 1px solid var(--color-border);
+  border-radius: 0.65rem;
+  background: var(--color-surface);
+  padding: 0.95rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.professor-summary-card span {
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.professor-summary-card strong {
+  font-size: 1.2rem;
+  color: var(--color-text);
+}
+
+.professor-summary-card small {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}
+
+/* Class Overview */
+.professor-class-overview {
+  background: linear-gradient(145deg, var(--color-surface), var(--color-bg-soft));
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.6rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.professor-overview-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.professor-overview-row strong {
+  font-size: 0.92rem;
+  color: var(--color-text);
+}
+
+/* Tables */
+.professor-table-wrap {
+  border: 1px solid var(--color-border);
+  border-radius: 0.65rem;
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.professor-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+  color: var(--color-text);
+}
+
+.professor-table th,
+.professor-table td {
+  text-align: left;
+  padding: 0.7rem;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+}
+
+.professor-table thead th {
+  background: var(--color-bg-soft);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.professor-table tbody tr:hover {
+  background: color-mix(in srgb, var(--color-bg-soft) 48%, transparent);
+}
+
+.professor-table input[type='number'],
+.professor-table input[type='text'] {
+  width: 100%;
+  min-width: 120px;
+  border: 1px solid var(--color-border);
+  border-radius: 0.45rem;
+  padding: 0.45rem 0.55rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.82rem;
+}
+
+.professor-table input[type='number'] {
+  min-width: 84px;
+}
+
+.professor-grade-cell {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 170px;
+}
+
+.professor-grade-cell-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.professor-table-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+/* Pagination */
+.professor-pagination {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+  color: var(--color-text);
+  font-size: 0.86rem;
+}
+
+.professor-pagination button {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-radius: 0.45rem;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.professor-pagination button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Modals */
+.professor-student-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.52);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 120;
+  padding: 1rem;
+}
+
+.professor-student-modal {
+  width: min(820px, 100%);
+  max-height: 90vh;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.8rem;
+  overflow: auto;
+  padding: 1rem;
+}
+
+[data-theme='dark'] .professor-student-modal {
+  background:
+    linear-gradient(145deg, rgba(37, 99, 235, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.98));
+  border-color: rgba(148, 163, 184, 0.24);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  color: #e5e7eb;
+}
+
+.professor-student-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.85rem;
+  gap: 1rem;
+}
+
+.professor-student-modal-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+[data-theme='dark'] .professor-student-modal-header h3 {
+  color: #f8fafc;
+}
+
+.professor-student-modal-content {
+  display: grid;
+  gap: 1rem;
+}
+
+/* Event Modal */
+.professor-event-modal {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.8rem;
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.28);
+  padding: 1.25rem;
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
+[data-theme='dark'] .professor-event-modal {
+  background:
+    linear-gradient(145deg, rgba(37, 99, 235, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.98));
+  border-color: rgba(148, 163, 184, 0.24);
+  color: #e5e7eb;
+}
+
+.professor-event-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.professor-event-modal-title {
+  display: grid;
+  gap: 0.45rem;
+  justify-items: start;
+  min-width: 0;
+}
+
+.professor-event-modal-title h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-text-bold, var(--color-text));
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.professor-event-modal-title p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.professor-event-modal-facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.6rem 1rem;
+}
+
+.professor-event-modal-facts > div {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.professor-event-modal-facts dt {
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.professor-event-modal-facts dd {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.professor-student-academic p {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  color: var(--color-text);
+}
+
+.professor-student-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  font-size: 0.9rem;
+  color: var(--color-text);
+}
+
+@media (max-width: 600px) {
+  .professor-student-modal-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.professor-student-modal-grid > div {
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  background: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.professor-student-modal-grid > div strong {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+[data-theme='dark'] .professor-student-modal-grid {
+  color: #e5e7eb;
+}
+
+[data-theme='dark'] .professor-student-modal-grid > div {
+  background: rgba(30, 41, 59, 0.72);
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+[data-theme='dark'] .professor-student-modal-grid > div strong {
+  color: #94a3b8;
+}
+
+.professor-student-academic {
+  background: var(--color-bg-soft);
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  padding: 0.85rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+[data-theme='dark'] .professor-student-academic {
+  background: rgba(15, 23, 42, 0.58);
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+.professor-student-academic h4 {
+  margin: 0 0 0.25rem;
+  font-size: 0.95rem;
+}
+
+.professor-student-academic ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.professor-student-academic li {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+/* Toolbar & Controls */
+.professor-roster-controls {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.professor-roster-class-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 280px;
+  flex: 1;
+}
+
+.professor-roster-class-select label {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.professor-roster-class-select select {
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.85rem;
+}
+
+.professor-tool-actions {
+  display: inline-flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.professor-tool-actions .professor-btn,
+.professor-tool-actions .professor-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.professor-roster-toolbar {
+  display: grid;
+  grid-template-columns: 1.2fr 180px 190px;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  align-items: end;
+}
+
+.professor-roster-search {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+.professor-roster-search input {
+  border: none;
+  outline: none;
+  width: 100%;
+  font-size: 0.875rem;
+  background: transparent;
+  color: var(--color-text);
+}
+
+/* The global form reset in index.css draws its own bordered input inside
+   search wrappers (border + background + min-height with !important),
+   producing a doubled border. Neutralize it here so only the wrapper
+   border shows. */
+.professor-roster-search input,
+.professor-roster-search input:focus {
+  border: none !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  min-height: 0 !important;
+}
+
+.professor-roster-search input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.professor-roster-toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  color: var(--color-text-muted);
+  font-size: 0.74rem;
+}
+
+.professor-roster-toolbar select {
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.55rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.85rem;
+}
+
+/* Layout Toggle */
+.professor-layout-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: transparent;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.2rem;
+  flex-shrink: 0;
+}
+
+.professor-layout-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.3rem 0.55rem;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.professor-layout-btn:hover {
+  color: var(--color-text);
+  background: var(--color-bg-soft);
+}
+
+.professor-layout-btn.is-active {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+/* Course Controls */
+.professor-course-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.professor-course-toolbar-start {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.professor-course-sort {
+  min-width: 165px;
+}
+
+.professor-course-results {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+/* Course Stats */
+.professor-course-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.professor-course-stat {
+  padding: 0.85rem 0.95rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.professor-course-stat span {
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.professor-course-stat strong {
+  font-size: 1.25rem;
+  line-height: 1.1;
+  color: var(--color-text);
+}
+
+.professor-course-stat small {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.professor-course-controls {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.professor-course-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 420px;
+  border: 1px solid var(--color-border);
+  border-radius: 0.625rem;
+  padding: 0.55rem 0.65rem;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+.professor-course-search:focus-within {
+  border-color: color-mix(in srgb, var(--color-primary) 46%, var(--color-border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 16%, transparent);
+}
+
+.professor-course-search input {
+  border: none;
+  outline: none;
+  width: 100%;
+  font-size: 0.86rem;
+  color: var(--color-text);
+  background: transparent;
+}
+
+/* The global form reset in index.css draws its own bordered input inside
+   search wrappers (border + background + min-height with !important),
+   producing a doubled border. Neutralize it here so only the wrapper
+   border shows. */
+.professor-course-search input,
+.professor-course-search input:focus {
+  border: none !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  min-height: 0 !important;
+}
+
+.professor-course-search input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.professor-course-filter-group {
+  display: inline-flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.professor-course-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-height: 2.1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+  padding: 0.38rem 0.6rem;
+  font-size: 0.78rem;
+  color: var(--color-text);
+}
+
+.professor-course-toggle input {
+  margin: 0;
+}
+
+.professor-course-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.professor-course-select span {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.professor-course-select select {
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  padding: 0.44rem 0.55rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.84rem;
+}
+
+.professor-course-select select:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--color-primary) 46%, var(--color-border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 16%, transparent);
+}
+
+.professor-active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: -0.3rem 0 0.8rem;
+}
+
+.professor-filter-chip {
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  color: var(--color-text);
+  border-radius: 999px;
+  padding: 0.2rem 0.58rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.professor-filter-chip:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 44%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 16%, var(--color-surface));
+}
+
+/* Apple-like refinement for shared components */
+.professor-btn,
+.section-action-btn {
+  border-radius: 999px;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.18);
+}
+
+.professor-btn-secondary {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(15, 23, 42, 0.08);
+  box-shadow: none;
+}
+
+/* Dark mode overrides for shared components */
+[data-theme='dark'] .professor-btn-secondary {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.08);
+}

@@ -245,7 +245,7 @@ class CurriculumController {
 
   static async createCurriculum(req, res) {
     try {
-      const { programCode, name, code, version, effectiveSchoolYear, description, subjects } = req.body;
+      const { programCode, name, code, version, effectiveSchoolYear, description, subjects, copyFromCurriculumId } = req.body;
 
       if (!programCode) {
         return res.status(400).json({ success: false, message: 'Program code is required' });
@@ -285,6 +285,33 @@ class CurriculumController {
         placements = validation.placements;
       }
 
+      // Optional convenience: start the new curriculum from another
+      // curriculum of the SAME program. The source's subject placements are
+      // copied inside the transaction below (academic snapshot included).
+      // Mutually exclusive with an inline subjects array — mixing them would
+      // make placement precedence ambiguous.
+      let copiedPlacements = [];
+      let copySource = null;
+      if (copyFromCurriculumId !== undefined && copyFromCurriculumId !== null && String(copyFromCurriculumId).trim() !== '') {
+        if (placements.length > 0) {
+          return res.status(400).json({ success: false, message: 'Provide either inline subjects or copyFromCurriculumId, not both' });
+        }
+        if (!mongoose.Types.ObjectId.isValid(String(copyFromCurriculumId).trim())) {
+          return res.status(400).json({ success: false, message: 'copyFromCurriculumId must be a valid curriculum id' });
+        }
+        const source = await Curriculum.findById(String(copyFromCurriculumId).trim()).select('_id programCode version').lean();
+        if (!source) {
+          return res.status(404).json({ success: false, message: 'Copy source curriculum not found' });
+        }
+        if (Number(source.programCode) !== parsedProgramCode) {
+          return res.status(400).json({ success: false, message: 'Copy source must belong to the same program' });
+        }
+        copySource = source;
+        copiedPlacements = await CurriculumSubject.find({ curriculumId: source._id })
+          .sort({ yearLevel: 1, semester: 1, displayOrder: 1 })
+          .lean();
+      }
+
       // ATOMICITY: wrap curriculum + CurriculumSubject creation in a single
       // MongoDB transaction so that a failure during placement creation
       // rolls back the curriculum shell too — no partial curriculum can
@@ -309,12 +336,29 @@ class CurriculumController {
           }], { session });
           curriculum = curriculum[0];
 
-          // Create CurriculumSubject records with snapshot fields copied
-          // from each referenced Subject at placement time — same snapshot
-          // pattern as CurriculumSubjectController.addSubject. These become
-          // immutable with respect to future Subject edits.
-          if (placements.length > 0) {
-            const docs = placements.map((p) => ({
+          let docs = [];
+          if (copiedPlacements.length > 0) {
+            // Copy from the source curriculum. The placement rows already
+            // carry the approved academic snapshot, so it is copied forward
+            // as-is (same fields duplicateCurriculum uses).
+            docs = copiedPlacements.map((s) => ({
+              curriculumId: curriculum._id,
+              subjectId: s.subjectId,
+              yearLevel: s.yearLevel,
+              semester: s.semester,
+              type: s.type,
+              isRequired: s.isRequired,
+              courseNo: s.courseNo,
+              descriptiveTitle: s.descriptiveTitle,
+              units: s.units,
+              lecturePeriods: s.lecturePeriods || 0,
+              labPeriods: s.labPeriods || 0,
+              prerequisiteSubjectIds: s.prerequisiteSubjectIds || [],
+              displayOrder: s.displayOrder,
+              createdBy: req.adminId,
+            }));
+          } else if (placements.length > 0) {
+            docs = placements.map((p) => ({
               curriculumId: curriculum._id,
               subjectId: p.subject._id,
               yearLevel: p.yearLevel,
@@ -330,6 +374,8 @@ class CurriculumController {
               displayOrder: p.displayOrder,
               createdBy: req.adminId,
             }));
+          }
+          if (docs.length > 0) {
             await CurriculumSubject.insertMany(docs, { session });
             createdCount = docs.length;
           }
@@ -341,7 +387,9 @@ class CurriculumController {
       res.status(201).json({
         success: true,
         data: { ...curriculum.toObject(), subjectCount: createdCount },
-        message: `Curriculum created successfully${createdCount > 0 ? ` with ${createdCount} subject(s)` : ''}`,
+        message: copySource
+          ? `Curriculum created successfully with ${createdCount} subject(s) copied from version "${copySource.version}"`
+          : `Curriculum created successfully${createdCount > 0 ? ` with ${createdCount} subject(s)` : ''}`,
       });
     } catch (error) {
       console.error('Error creating curriculum:', error);
@@ -443,6 +491,130 @@ class CurriculumController {
     }
   }
 
+  /**
+   * Copy the FULL subject set of another same-program curriculum into this
+   * one — every subject keeps its year level, semester, type, unit snapshot
+   * and prerequisite list, so the target gets the complete year-by-year
+   * structure rather than a flat list.
+   *
+   *   mode 'replace' — wipe the target's placements, then insert the copy.
+   *   mode 'append'  — keep the target, skip subjects it already has.
+   *
+   * Both run in one transaction: a failed copy never leaves a half-wiped
+   * curriculum.
+   */
+  static async copySubjectsFrom(req, res) {
+    try {
+      const { id } = req.params;
+      const { sourceCurriculumId, mode } = req.body;
+      const copyMode = mode === 'replace' ? 'replace' : 'append';
+
+      if (!sourceCurriculumId || String(sourceCurriculumId).trim() === '') {
+        return res.status(400).json({ success: false, message: 'sourceCurriculumId is required' });
+      }
+      if (String(sourceCurriculumId).trim() === String(id).trim()) {
+        return res.status(400).json({ success: false, message: 'A curriculum cannot copy from itself' });
+      }
+      if (!mongoose.Types.ObjectId.isValid(String(sourceCurriculumId).trim())) {
+        return res.status(400).json({ success: false, message: 'sourceCurriculumId must be a valid curriculum id' });
+      }
+
+      const target = await Curriculum.findById(id).select('_id programCode status version').lean();
+      if (!target) {
+        return res.status(404).json({ success: false, message: 'Curriculum not found' });
+      }
+      if (target.status === 'Archived') {
+        return res.status(403).json({ success: false, message: 'Archived curricula are read-only' });
+      }
+
+      const source = await Curriculum.findById(String(sourceCurriculumId).trim()).select('_id programCode version').lean();
+      if (!source) {
+        return res.status(404).json({ success: false, message: 'Copy source curriculum not found' });
+      }
+      if (Number(source.programCode) !== Number(target.programCode)) {
+        return res.status(400).json({ success: false, message: 'Copy source must belong to the same program' });
+      }
+
+      const sourcePlacements = await CurriculumSubject.find({ curriculumId: source._id })
+        .sort({ yearLevel: 1, semester: 1, displayOrder: 1 })
+        .lean();
+      if (!sourcePlacements || sourcePlacements.length === 0) {
+        return res.status(200).json({
+          success: true,
+          data: { copied: 0, skipped: 0 },
+          message: 'The source curriculum has no subjects to copy',
+        });
+      }
+
+      // Append mode: skip subjects this curriculum already places, and
+      // continue the display order after them.
+      let skipIds = new Set();
+      let displayOrderOffset = 0;
+      if (copyMode === 'append') {
+        const existing = await CurriculumSubject.find({ curriculumId: target._id })
+          .select('subjectId displayOrder')
+          .lean();
+        displayOrderOffset = (existing || []).reduce(
+          (max, row) => Math.max(max, Number(row.displayOrder) || 0),
+          0
+        ) + 1;
+        skipIds = new Set((existing || []).map((row) => String(row.subjectId)));
+      }
+      const toCopy = sourcePlacements.filter((p) => !skipIds.has(String(p.subjectId)));
+      if (toCopy.length === 0) {
+        return res.status(200).json({
+          success: true,
+          data: { copied: 0, skipped: sourcePlacements.length },
+          message: 'All subjects of the copy source are already placed in this curriculum',
+        });
+      }
+
+      const session = await mongoose.startSession();
+      let createdCount = 0;
+      try {
+        await session.withTransaction(async () => {
+          if (copyMode === 'replace') {
+            await CurriculumSubject.deleteMany({ curriculumId: target._id }, { session });
+          }
+          const docs = toCopy.map((s) => ({
+            curriculumId: target._id,
+            subjectId: s.subjectId,
+            // Years and semesters carry over exactly as they are in the source
+            // — the whole point is the full year-by-year structure.
+            yearLevel: s.yearLevel,
+            semester: s.semester,
+            type: s.type,
+            isRequired: s.isRequired,
+            courseNo: s.courseNo,
+            descriptiveTitle: s.descriptiveTitle,
+            units: s.units,
+            lecturePeriods: s.lecturePeriods || 0,
+            labPeriods: s.labPeriods || 0,
+            prerequisiteSubjectIds: s.prerequisiteSubjectIds || [],
+            displayOrder: copyMode === 'append' ? (Number(s.displayOrder) || 0) + displayOrderOffset : (Number(s.displayOrder) || 0),
+            createdBy: req.adminId,
+          }));
+          await CurriculumSubject.insertMany(docs, { session });
+          createdCount = docs.length;
+        });
+      } finally {
+        await session.endSession();
+      }
+
+      res.json({
+        success: true,
+        data: { copied: createdCount, skipped: sourcePlacements.length - createdCount },
+        message:
+          copyMode === 'replace'
+            ? `Replaced this curriculum's subjects with ${createdCount} copied from version "${source.version}" (year & semester placement preserved)`
+            : `Added ${createdCount} subject(s) from version "${source.version}" (skipped ${sourcePlacements.length - createdCount} already placed)`,
+      });
+    } catch (error) {
+      console.error('Error copying curriculum subjects:', error);
+      res.status(500).json({ success: false, message: error.message || 'Failed to copy curriculum subjects' });
+    }
+  }
+
   static async patchStatus(req, res) {
     try {
       const { id } = req.params;
@@ -502,6 +674,24 @@ class CurriculumController {
     }
   }
 
+  /**
+   * Suggest a version label for a new curriculum version of the same program.
+   * The school versions curricula as school-year ranges ("2026-2029"), so
+   * Number(version)+1 (the old default) produced "NaN" for ranges. Ranges
+   * suggest the next year window by stepping the whole range one year
+   * forward; bare years suggest the next plain year.
+   */
+  static suggestNextVersion(version) {
+    const match = /^(\d{4})(?:-(\d{4}))?$/.exec(String(version || '').trim());
+    if (!match) return String(new Date().getFullYear());
+    const start = Number(match[1]);
+    if (match[2]) {
+      const end = Number(match[2]);
+      return `${start + 1}-${end + 1}`;
+    }
+    return String(start + 1);
+  }
+
   static async duplicateCurriculum(req, res) {
     try {
       const { id } = req.params;
@@ -512,7 +702,7 @@ class CurriculumController {
         return res.status(404).json({ success: false, message: 'Curriculum not found' });
       }
 
-      const newVersion = String(version || String(Number(source.version) + 1)).trim();
+      const newVersion = String(version || CurriculumController.suggestNextVersion(source.version)).trim();
 
       const existing = await Curriculum.findOne({
         programCode: source.programCode,

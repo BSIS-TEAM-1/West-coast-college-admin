@@ -19,7 +19,7 @@ const CurriculumSubject = require('../models/CurriculumSubject');
 const CorPdfService = require('../services/corPdfService');
 const { convertToSchoolYear, extractStartYear } = require('../services/dateUtils');
 const enrollmentGuard = require('../services/enrollmentGuard');
-const { autoAssignCurriculumSubjects } = require('../services/subjectEnrollmentService');
+const { autoAssignCurriculumSubjects, verifyRetakeReferences } = require('../services/subjectEnrollmentService');
 
 const STUDENT_MUTABLE_FIELDS = [
   'firstName',
@@ -913,16 +913,18 @@ class StudentController {
     }
   }
 
-  static async cleanupBlockMembershipForStudent(studentId) {
+  static async cleanupBlockMembershipForStudent(studentId, { session = null } = {}) {
     const normalizedStudentId = String(studentId || '').trim();
     if (!normalizedStudentId) return;
 
-    const assignments = await StudentBlockAssignment.find({ studentId: normalizedStudentId })
-      .select('sectionId')
-      .lean();
-    const waitlists = await SectionWaitlist.find({ studentId: normalizedStudentId })
-      .select('sectionId')
-      .lean();
+    const scoped = (query) => (session ? query.session(session) : query);
+
+    const assignments = await scoped(
+      StudentBlockAssignment.find({ studentId: normalizedStudentId }).select('sectionId')
+    ).lean();
+    const waitlists = await scoped(
+      SectionWaitlist.find({ studentId: normalizedStudentId }).select('sectionId')
+    ).lean();
 
     const affectedSectionIds = Array.from(
       new Set(
@@ -933,10 +935,10 @@ class StudentController {
     );
 
     if (assignments.length > 0) {
-      await StudentBlockAssignment.deleteMany({ studentId: normalizedStudentId });
+      await scoped(StudentBlockAssignment.deleteMany({ studentId: normalizedStudentId }));
     }
     if (waitlists.length > 0) {
-      await SectionWaitlist.deleteMany({ studentId: normalizedStudentId });
+      await scoped(SectionWaitlist.deleteMany({ studentId: normalizedStudentId }));
     }
 
     if (affectedSectionIds.length === 0) return;
@@ -945,7 +947,7 @@ class StudentController {
       .filter((sectionId) => mongoose.Types.ObjectId.isValid(sectionId))
       .map((sectionId) => new mongoose.Types.ObjectId(sectionId));
 
-    const assignedCounts = await StudentBlockAssignment.aggregate([
+    let countAggregate = StudentBlockAssignment.aggregate([
       {
         $match: {
           sectionId: { $in: sectionObjectIds },
@@ -959,6 +961,8 @@ class StudentController {
         }
       }
     ]);
+    if (session) countAggregate = countAggregate.session(session);
+    const assignedCounts = await countAggregate;
 
     const countMap = new Map(
       assignedCounts.map((item) => [String(item._id), Number(item.total) || 0])
@@ -966,9 +970,11 @@ class StudentController {
 
     await Promise.all(
       sectionObjectIds.map((sectionId) =>
-        BlockSection.findByIdAndUpdate(sectionId, {
-          $set: { currentPopulation: countMap.get(String(sectionId)) || 0 }
-        })
+        scoped(
+          BlockSection.findByIdAndUpdate(sectionId, {
+            $set: { currentPopulation: countMap.get(String(sectionId)) || 0 }
+          })
+        )
       )
     );
   }
@@ -1022,6 +1028,24 @@ class StudentController {
       throw err;
     }
 
+    // Imported records may carry the registrar's existing student number.
+    // When it is omitted the model generates one on validate, as before.
+    const requestedStudentNumber = String(studentData?.studentNumber ?? '').trim();
+    if (requestedStudentNumber) {
+      if (!/^\d{12}$/.test(requestedStudentNumber)) {
+        const err = new Error('Student number must be a 12-digit value (YYYY + course code + sequence)');
+        err.statusCode = 400;
+        throw err;
+      }
+      const existingNumber = await Student.findOne({ studentNumber: requestedStudentNumber });
+      if (existingNumber) {
+        const err = new Error('A student with this student number already exists');
+        err.statusCode = 409;
+        throw err;
+      }
+      set.studentNumber = requestedStudentNumber;
+    }
+
     if (set.email) {
       const existingStudent = await Student.findOne({ email: set.email });
       if (existingStudent) {
@@ -1044,6 +1068,482 @@ class StudentController {
     
     await student.save();
     return student;
+  }
+
+  /**
+   * Block groups for the requested program, by courseId or (legacy) by the
+   * program code derived from courseCode/name. Shared by the strict and
+   * fallback term passes of resolveShiftSection.
+   */
+  static filterShiftGroupsForProgram(groups, programCode) {
+    return groups.filter((group) => {
+      const structuredCourse = Number(group.courseId);
+      if (Number.isFinite(structuredCourse) && structuredCourse > 0) {
+        return structuredCourse === programCode;
+      }
+      const derivedCourse = Number(
+        StudentController.courseCodeFromValue(group.courseCode || group.name)
+      );
+      return Number.isFinite(derivedCourse) && derivedCourse === programCode;
+    });
+  }
+
+  /**
+   * Term stamp start year of a block group ("2026-2027" -> 2026) from either
+   * schoolYear or year, whichever shape the record carries.
+   */
+  static blockGroupTermStart(group) {
+    for (const value of [group.schoolYear, group.year]) {
+      const match = String(value ?? '').match(/(\d{4})/);
+      if (match) return Number(match[1]);
+    }
+    return 0;
+  }
+
+  /**
+   * Tiered label matching for the shift form, shared by resolveShiftSection
+   * (kept as a pure, synchronous helper so it can be unit-tested offline).
+   *
+   * Depending on the school's block naming convention, the shift form may
+   * submit any of these shapes:
+   *   - the real section code            ("102-1-A", "BSIT-1A")
+   *   - a trailing fragment of it        ("1-A", "A")
+   *   - the block group's display name   ("BSED-ENG-1-A") or its tail ("ENG-1-A")
+   *
+   * Tiers run in order and the first tier that matches wins, so a full
+   * section code always beats a group-name guess, and a group-name guess
+   * beats a bare-letter guess. Sections are deduped by id; an empty list
+   * means nothing matched.
+   */
+  static pickShiftSectionCandidates(token, sections, groupById) {
+    const normalize = StudentController.normalizeSectionLabel;
+    const unique = (list) =>
+      Array.from(new Map(list.map((section) => [String(section._id), section])).values());
+
+    const tiers = [
+      // 1) Exact section code.
+      () => sections.filter((section) => normalize(section.sectionCode) === token),
+      // 2) Section code ending with "-{token}" ("1-A" matching "102-1-A").
+      () => sections.filter((section) => normalize(section.sectionCode).endsWith(`-${token}`)),
+      // 3) Group display name equality / dash-boundary tail ("ENG-1-A" or
+      //    "BSED-ENG-1-A"), the label shape the shift form derives from
+      //    BlockGroup.name when real section codes are not listed yet.
+      () => sections.filter((section) => {
+        const groupName = normalize(groupById.get(String(section.blockGroupId))?.name);
+        return groupName === token || groupName.endsWith(`-${token}`);
+      }),
+    ];
+
+    // 4) Bare letter ("A") matched against the group's section letter — only
+    //    meaningful when the token itself is dash-free.
+    if (!token.includes('-')) {
+      tiers.push(() => sections.filter((section) => {
+        const group = groupById.get(String(section.blockGroupId));
+        return normalize(group?.section) === token;
+      }));
+    }
+
+    for (const tier of tiers) {
+      const found = unique(tier());
+      if (found.length > 0) return found;
+    }
+    return [];
+  }
+
+  /**
+   * Resolve a block label chosen in the shift form ("1-A", "BEED-1-A", a
+   * full section code such as "101-1-A", or a block-group display name such
+   * as "BSED-ENG-1-A") to one open BlockSection belonging to the requested
+   * program and term.
+   *
+   * Returns { section: null, reason } when nothing matches, so the caller can
+   * reject the shift instead of inventing an assignment.
+   */
+  static async resolveShiftSection({ course, semester, schoolYear, selection }) {
+    const token = StudentController.normalizeSectionLabel(selection);
+    const programCode = Number(course);
+    if (!token) return { section: null, reason: 'No section selected.' };
+
+    const groups = await BlockGroup.find({
+      semester,
+      $or: [{ schoolYear }, { year: schoolYear }],
+    }).lean();
+
+    let candidateGroups = StudentController.filterShiftGroupsForProgram(groups, programCode);
+
+    // Fallback for the term-stamp mismatch: freshly created students carry
+    // the current-date school year, while the school's block groups can be
+    // stamped with the term they were created under (e.g. all groups on
+    // "2021-2022"). The assignment pipeline itself — performAssignment, its
+    // eligibility check and the auto-created enrollment — keys everything to
+    // the BLOCK group's term and imposes no student school-year restriction,
+    // so the real blocks remain assignable. Offer the most recent matching
+    // term among the semester's groups instead of failing the whole shift.
+    if (candidateGroups.length === 0) {
+      const looseGroups = StudentController.filterShiftGroupsForProgram(
+        await BlockGroup.find({ semester }).lean(),
+        programCode
+      );
+      if (looseGroups.length > 0) {
+        const latestTermStart = Math.max(
+          ...looseGroups.map((group) => StudentController.blockGroupTermStart(group))
+        );
+        candidateGroups =
+          latestTermStart > 0
+            ? looseGroups.filter(
+                (group) => StudentController.blockGroupTermStart(group) === latestTermStart
+              )
+            : looseGroups;
+      }
+    }
+
+    if (candidateGroups.length === 0) {
+      return {
+        section: null,
+        reason: `No ${semester} block exists for the selected course. Create the block first, or shift the student without a block.`,
+      };
+    }
+
+    const sections = await BlockSection.find({
+      blockGroupId: { $in: candidateGroups.map((group) => group._id) },
+      status: 'OPEN',
+    }).lean();
+
+    if (sections.length === 0) {
+      return {
+        section: null,
+        reason: `The ${semester} blocks for the selected course have no open section. Open one, or shift the student without a block.`,
+      };
+    }
+
+    const groupById = new Map(candidateGroups.map((group) => [String(group._id), group]));
+
+    const candidates = StudentController.pickShiftSectionCandidates(token, sections, groupById);
+
+    if (candidates.length === 0) {
+      const openCodes = sections
+        .map((section) => String(section.sectionCode || '').trim())
+        .filter(Boolean)
+        .sort();
+      return {
+        section: null,
+        reason:
+          `No open section matches "${selection}" for the selected course and term.` +
+          (openCodes.length > 0 ? ` Open sections: ${openCodes.join(', ')}.` : ''),
+      };
+    }
+
+    // Deterministic pick: a slot-bearing section first, then the emptiest.
+    // Capacity is still enforced by performAssignment.
+    candidates.sort((left, right) => {
+      const leftFree = (Number(left.capacity) || 0) - (Number(left.currentPopulation) || 0);
+      const rightFree = (Number(right.capacity) || 0) - (Number(right.currentPopulation) || 0);
+      if ((leftFree > 0) !== (rightFree > 0)) return leftFree > 0 ? -1 : 1;
+      if (rightFree !== leftFree) return rightFree - leftFree;
+      return String(left.sectionCode).localeCompare(String(right.sectionCode));
+    });
+
+    return { section: candidates[0], candidates };
+  }
+
+  static normalizeSectionLabel(value) {
+    return String(value ?? '')
+      .trim()
+      .toUpperCase()
+      .replace(/\u2013/g, '-')
+      .replace(/\s+/g, '');
+  }
+
+  /**
+   * Shift a student to a different program.
+   *
+   * Rules this enforces:
+   *  - Only 1st-year students may shift (registrar policy).
+   *  - The new program needs an Active curriculum; otherwise the shift cannot
+   *    be represented academically and is rejected before any write.
+   *  - The old enrollment is CLOSED, never deleted: it is marked Dropped,
+   *    taken out of `isCurrent`, and stamped with `shiftedTo`. Subjects,
+   *    grades and drop history stay readable, and dropping it is what stops
+   *    blockEligibilityService from pinning the student to the old program
+   *    (that service treats a live enrollment as authoritative).
+   *  - The block assignment, when a section is chosen, goes through
+   *    BlockController.performAssignment — the same capacity / program /
+   *    enrollment checks as POST /api/blocks/assign-student — inside this
+   *    transaction, so a rejected block rolls the entire shift back.
+   */
+  static async shiftStudent(req, res) {
+    const { id: studentId } = req.params;
+    const { course, section, semester, overrideReason, effectiveTerm } = req.body;
+    const actorId = req.adminId;
+    const actorRole = req.accountType === 'admin' ? 'admin' : 'registrar';
+
+    const newCourse = Number(course);
+    if (!course || !Number.isFinite(newCourse)) {
+      return res.status(400).json({ success: false, message: 'Course is required' });
+    }
+    if (![101, 102, 103, 201].includes(newCourse)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid course value. Must be 101, 102, 103, or 201.',
+      });
+    }
+
+    const session = await mongoose.startSession();
+
+    try {
+      // ── Pre-flight: every rejection below happens before the first write. ──
+      const student = await Student.findById(studentId).lean();
+      if (!student) {
+        return res.status(404).json({ success: false, message: 'Student not found' });
+      }
+      if (student.yearLevel && Number(student.yearLevel) > 1) {
+        return res.status(409).json({
+          success: false,
+          message: `Course shift is only allowed for 1st year students. This student is currently in Year ${student.yearLevel}.`,
+        });
+      }
+
+      const newCurriculum = await Curriculum.findOne({
+        programCode: newCourse,
+        status: 'Active',
+      }).sort({ version: -1 }).lean();
+      if (!newCurriculum) {
+        return res.status(409).json({
+          success: false,
+          message: 'No active curriculum found for the selected course. Please create a curriculum for this program first.',
+        });
+      }
+
+      const targetSemester = String(semester || student.semester || '').trim();
+      const targetSchoolYear = convertToSchoolYear(student.schoolYear || '');
+      if (!targetSemester || !targetSchoolYear) {
+        return res.status(409).json({
+          success: false,
+          message: 'The student has no valid school year/semester on record. Set the academic term before shifting.',
+        });
+      }
+
+      // Resolve the picked block to a real section of the NEW program before
+      // any write, so an invalid selection cannot half-apply the shift.
+      let targetSection = null;
+      if (String(section || '').trim()) {
+        const resolution = await StudentController.resolveShiftSection({
+          course: newCourse,
+          semester: targetSemester,
+          schoolYear: targetSchoolYear,
+          selection: section,
+        });
+        if (!resolution.section) {
+          return res.status(400).json({
+            success: false,
+            message: resolution.reason,
+            reasons: [resolution.reason],
+          });
+        }
+        targetSection = resolution.section;
+      }
+
+      const previousCourse = Number(student.course);
+      const previousSection = student.section || null;
+      const previousCurriculumVersion = student.curriculumVersion || null;
+      const programChanged = previousCourse !== newCourse;
+      const previousProgramLabel = StudentController.courseLabelMap[previousCourse] || String(previousCourse);
+      const newProgramLabel = StudentController.courseLabelMap[newCourse] || String(newCourse);
+
+      // Snapshot of the enrollment eligibility trusts — taken before anything
+      // is touched, so the audit trail keeps the old subjects and grades.
+      const previousEnrollment = await Enrollment.findOne({
+        studentId,
+        isCurrent: true,
+        status: { $in: ['Enrolled', 'Pending'] },
+      }).lean();
+      const previousSubjects = (previousEnrollment?.subjects || []).map((entry) => ({
+        code: entry.code || null,
+        title: entry.title || null,
+        units: entry.units ?? null,
+        status: entry.status || null,
+        grade: typeof entry.grade === 'number' ? entry.grade : null,
+        gradeMark: entry.gradeMark || null,
+      }));
+
+      const priorAssignmentCount = await StudentBlockAssignment.countDocuments({ studentId });
+      const priorEnrollmentCount = await Enrollment.countDocuments({ studentId });
+
+      // ── All-or-nothing from here. ──
+      session.startTransaction();
+
+      // 1. Close the old enrollment (no deletes): it stops being the
+      //    authoritative program source, but every record survives.
+      let retiredEnrollmentId = null;
+      if (programChanged) {
+        const liveEnrollment = await Enrollment.findOne({
+          studentId,
+          isCurrent: true,
+          status: { $in: ['Enrolled', 'Pending'] },
+        }).session(session);
+
+        if (liveEnrollment) {
+          liveEnrollment.status = 'Dropped';
+          liveEnrollment.isCurrent = false;
+          liveEnrollment.shiftedTo = {
+            course: newCourse,
+            programLabel: newProgramLabel,
+            shiftedAt: new Date(),
+            reason: overrideReason
+              ? String(overrideReason).trim()
+              : `Program shift to ${newProgramLabel}`,
+          };
+          liveEnrollment.remarks = [
+            liveEnrollment.remarks,
+            `Closed by program shift: ${previousProgramLabel} → ${newProgramLabel} (${targetSemester} ${targetSchoolYear})`,
+          ].filter(Boolean).join(' | ');
+          if (actorId) liveEnrollment.updatedBy = actorId;
+          await liveEnrollment.save({ session });
+          retiredEnrollmentId = liveEnrollment._id;
+        }
+      }
+
+      // 2. The previous program's block membership cannot survive the shift.
+      const clearedBlockAssignment = programChanged && priorAssignmentCount > 0;
+      if (clearedBlockAssignment) {
+        await StudentController.cleanupBlockMembershipForStudent(studentId, { session });
+      }
+
+      // 3. Move the student record itself.
+      const updates = {
+        course: newCourse,
+        curriculumVersion: newCurriculum.version,
+        semester: targetSemester,
+        schoolYear: targetSchoolYear,
+      };
+      if (programChanged) {
+        updates.section = null;
+        // ENROLLED requires a live enrollment plus a valid block; both were
+        // just closed, so the lifecycle has to follow.
+        if (String(student.lifecycleStatus || '') === 'Enrolled') {
+          updates.lifecycleStatus = 'Pending';
+        }
+      }
+      if (actorId) updates.updatedBy = actorId;
+
+      await Student.findByIdAndUpdate(
+        studentId,
+        { $set: updates },
+        { session, new: true, runValidators: false }
+      );
+
+      // 4. Optional block assignment, through the shared assignment core.
+      let blockResult = null;
+      if (targetSection) {
+        // blockController exports a ready instance, not the class.
+        const blockController = require('./blockController');
+        blockResult = await blockController.performAssignment({
+          studentId,
+          sectionId: String(targetSection._id),
+          semester: targetSemester,
+          year: targetSchoolYear,
+          actorId,
+          session,
+        });
+
+        if (!blockResult.ok) {
+          await session.abortTransaction();
+          return res.status(blockResult.httpStatus || 400).json({
+            success: false,
+            message: blockResult.error || 'Could not assign the selected block',
+            reasons: blockResult.reasons || [],
+            ...(blockResult.checks ? { checks: blockResult.checks } : {}),
+          });
+        }
+      }
+
+      const finalStudent = await Student.findById(studentId).session(session).lean();
+      const newSectionCode = blockResult?.data?.sectionCode || finalStudent?.section || null;
+
+      // 5. Audit trail (oldValue carries the old subjects snapshot).
+      if (actorId && mongoose.Types.ObjectId.isValid(String(actorId))) {
+        await AuditLog.create([{
+          action: 'SHIFT',
+          resourceType: 'STUDENT',
+          resourceId: String(studentId),
+          resourceName: `${student.studentNumber || ''} — ${student.lastName || ''}, ${student.firstName || ''}`
+            .trim()
+            .slice(0, 200) || 'Student',
+          description: `Program shift: ${previousCourse} → ${newCourse} (${targetSemester} ${targetSchoolYear}) | block: ${clearedBlockAssignment ? 'cleared' : 'unchanged'}${newSectionCode ? ` → ${newSectionCode}` : ''} | enrollment: ${retiredEnrollmentId ? 'closed as Dropped' : 'none open'}${overrideReason ? ` | Override: ${overrideReason}` : ''}`
+            .slice(0, 500),
+          performedBy: actorId,
+          performedByRole: actorRole,
+          status: 'SUCCESS',
+          severity: 'HIGH',
+          oldValue: {
+            course: previousCourse,
+            section: previousSection,
+            curriculumVersion: previousCurriculumVersion,
+            enrollmentId: previousEnrollment ? String(previousEnrollment._id) : null,
+            enrollmentStatus: previousEnrollment?.status || null,
+            subjects: previousSubjects,
+          },
+          newValue: {
+            course: newCourse,
+            section: newSectionCode,
+            semester: targetSemester,
+            schoolYear: targetSchoolYear,
+            curriculumVersion: newCurriculum.version,
+            effectiveTerm: effectiveTerm || 'Immediate',
+            blockAssigned: Boolean(blockResult?.data?.sectionCode),
+          },
+        }], { session });
+      }
+
+      await session.commitTransaction();
+
+      return res.json({
+        success: true,
+        message: 'Student shifted successfully',
+        data: {
+          student: finalStudent,
+          previousCourse,
+          newCourse,
+          previousSection,
+          newSection: newSectionCode,
+          semester: targetSemester,
+          previousCurriculumVersion,
+          newCurriculumVersion: newCurriculum.version,
+          clearedBlockAssignment,
+          blockAssigned: Boolean(blockResult?.data?.sectionCode),
+          block: blockResult?.data || null,
+          previousSubjects,
+          previousEnrollment: previousEnrollment
+            ? {
+                _id: String(previousEnrollment._id),
+                status: 'Dropped',
+                course: previousEnrollment.course,
+                schoolYear: previousEnrollment.schoolYear,
+                semester: previousEnrollment.semester,
+                subjectCount: previousSubjects.length,
+              }
+            : null,
+          totals: {
+            enrollmentsBefore: priorEnrollmentCount,
+            enrollmentsAfter: await Enrollment.countDocuments({ studentId }),
+          },
+        },
+      });
+    } catch (error) {
+      try {
+        if (session.inTransaction()) await session.abortTransaction();
+      } catch (abortError) {
+        console.error('Shift rollback error:', abortError);
+      }
+      console.error('Error shifting student:', error);
+      const status = Number(error?.statusCode) || 500;
+      return res.status(status).json({
+        success: false,
+        message: error.message || 'Failed to shift student',
+      });
+    } finally {
+      session.endSession();
+    }
   }
 
   static async getStudentsRecord(params = {}) {
@@ -1402,9 +1902,15 @@ class StudentController {
   }
 
   static async getEnrollmentHistoryRecord(studentId) {
-    return Enrollment.find({ studentId })
+    const enrollments = await Enrollment.find({ studentId })
       .sort({ schoolYear: -1, semester: -1 })
       .populate('subjects.subjectId');
+    // A "Retake of …" note may only reach the UI when the retakeOf snapshot
+    // resolves to a real, earlier attempt of the same subject in this
+    // student's history. Stale/partial snapshots are dropped from the served
+    // view; nothing is persisted and no reference is fabricated.
+    verifyRetakeReferences(enrollments);
+    return enrollments;
   }
 
   static courseLabelMap = {

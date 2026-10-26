@@ -10,7 +10,7 @@ const auditLogSchema = new mongoose.Schema({
       'REJECT', 'ARCHIVE', 'RESTORE', 'BAN', 'UNBAN',
       'SECURITY_SCAN', 'SECURITY_HEADERS_SCAN',
       'BLOCK_IP', 'UNBLOCK_IP', 'VERIFY',
-      'DROP', 'RETAKE', 'OVERRIDE'
+      'DROP', 'RETAKE', 'OVERRIDE', 'SHIFT'
     ]
   },
   resourceType: {

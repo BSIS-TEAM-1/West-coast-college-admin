@@ -45,16 +45,35 @@ async function resolveCurriculum({ programCode, curriculumVersion, explicitCurri
     return { curriculumId: null, source: null, reason: 'Explicit curriculumId does not match program or does not exist' };
   }
 
-  // 2. Match by Student.curriculumVersion
+  // 2. Match by Student.curriculumVersion. Versions may be a plain start year
+  //    ("2026") or a range ("2026-2029"), so fall back to matching the range
+  //    form when the exact string misses:
+  //      student "2026"     → curriculum "2026"      (exact)
+  //      student "2026"     → curriculum "2026-2029" (range)
+  //      student "2026-2029" → curriculum "2026-2029" (exact)
   if (curriculumVersion && String(curriculumVersion).trim()) {
+    const version = String(curriculumVersion).trim();
     const matched = await query(
       Curriculum.findOne({
         programCode: Number(programCode),
-        version: String(curriculumVersion).trim(),
+        version,
       }).select('_id status').lean()
     );
     if (matched) {
       return { curriculumId: matched._id, source: 'version', reason: null };
+    }
+
+    const startYear = (version.match(/\d{4}/) || [])[0];
+    if (startYear) {
+      const rangeMatched = await query(
+        Curriculum.findOne({
+          programCode: Number(programCode),
+          version: new RegExp(`^${startYear}(-\\d{4})?$`),
+        }).select('_id status').lean()
+      );
+      if (rangeMatched) {
+        return { curriculumId: rangeMatched._id, source: 'version', reason: null };
+      }
     }
   }
 

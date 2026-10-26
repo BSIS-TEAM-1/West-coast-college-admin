@@ -6,6 +6,7 @@ const TransmutationTable = require('../models/TransmutationTable');
 const StudentBlockAssignment = require('../models/StudentBlockAssignment');
 const BlockSection = require('../models/BlockSection');
 const Student = require('../models/Student');
+const gradingScaleService = require('../services/gradingScaleService');
 
 /**
  * GET /registrar/grade-submissions
@@ -19,8 +20,14 @@ async function listSubmissions(req, res) {
     if (semester) filter.semester = semester;
     if (course) filter.course = course;
     if (yearLevel) filter.yearLevel = Number(yearLevel);
+    if (status) {
+      filter.$or = [
+        { 'subjects.submissionStatus': status },
+        { 'gradeSubmission.status': status }
+      ];
+    }
 
-    // Fetch enrollments that have at least one non-draft subject
+    // Fetch enrollments
     const skip = (Math.max(1, Number(page)) - 1) * Number(limit);
     const enrollments = await Enrollment.find(filter)
       .sort({ 'gradeSubmission.submittedAt': -1, updatedAt: -1 })
@@ -29,9 +36,8 @@ async function listSubmissions(req, res) {
       .populate('studentId', 'studentNumber firstName lastName suffix course yearLevel')
       .lean();
 
-    // Split each enrollment into per-professor submission rows.
-    // Each row = one professor's subjects within one enrollment, with its own
-    // submission status derived from the per-subject submissionStatus values.
+    // Split each enrollment into per-subject submission rows so each subject
+    // accurately displays its own status and is independently reviewable.
     const rows = [];
     for (const enrollment of enrollments) {
       const activeSubjects = (enrollment.subjects || []).filter(
@@ -39,37 +45,19 @@ async function listSubmissions(req, res) {
       );
       if (activeSubjects.length === 0) continue;
 
-      // Group subjects by instructor
-      const byInstructor = new Map();
       for (const subject of activeSubjects) {
+        const subStatus = subject.submissionStatus !== undefined && subject.submissionStatus !== null
+          ? subject.submissionStatus
+          : (enrollment.gradeSubmission?.status || 'Draft');
+
+        if (status && subStatus !== status) continue;
+        if (!status && subStatus === 'Draft') continue;
+
         const instructor = subject.instructor || 'Unassigned';
-        if (!byInstructor.has(instructor)) byInstructor.set(instructor, []);
-        byInstructor.get(instructor).push(subject);
-      }
-
-      for (const [instructor, subjects] of byInstructor.entries()) {
-        const statuses = subjects.map(s => s.submissionStatus || 'Draft');
-        // Derive this professor's submission status from their subjects only
-        let profStatus = 'Draft';
-        if (statuses.includes('Returned')) profStatus = 'Returned';
-        else if (statuses.includes('Submitted')) profStatus = 'Submitted';
-        else if (statuses.every(s => s === 'Verified')) profStatus = 'Verified';
-        else if (statuses.every(s => s === 'Published')) profStatus = 'Published';
-        else {
-          const nonDraft = statuses.filter(s => s !== 'Draft');
-          if (nonDraft.length > 0) profStatus = nonDraft[0];
-        }
-
-        // Filter by requested status
-        if (status && profStatus !== status) continue;
-
-        const graded = subjects.filter(s => s.grade !== null && s.grade !== undefined || s.gradeMark).length;
-        const subjectCodes = subjects.map(s => s.code).join(', ');
-        const submittedSubject = subjects.find(s => s.dateModified);
-        const submittedAt = submittedSubject?.dateModified || enrollment.gradeSubmission?.submittedAt || null;
+        const isGraded = (subject.grade !== null && subject.grade !== undefined) || !!subject.gradeMark;
 
         rows.push({
-          _id: `${enrollment._id}_${instructor}`,
+          _id: `${enrollment._id}_${instructor}_${subject.subjectId || subject.code}`,
           enrollmentId: enrollment._id,
           instructor,
           studentId: enrollment.studentId,
@@ -78,12 +66,14 @@ async function listSubmissions(req, res) {
           semester: enrollment.semester,
           yearLevel: enrollment.yearLevel,
           course: enrollment.course,
-          subjects,
-          subjectCodes,
-          gradedCount: graded,
-          totalCount: subjects.length,
-          professorSubmissionStatus: profStatus,
-          submittedAt,
+          subjectId: subject.subjectId,
+          subjectCode: subject.code,
+          subjects: [subject],
+          subjectCodes: subject.code,
+          gradedCount: isGraded ? 1 : 0,
+          totalCount: 1,
+          professorSubmissionStatus: subStatus,
+          submittedAt: subject.dateModified || enrollment.gradeSubmission?.submittedAt || null,
           gradeSubmission: enrollment.gradeSubmission
         });
       }
@@ -126,7 +116,7 @@ async function getSubmission(req, res) {
  */
 async function getClassSubmissions(req, res) {
   try {
-    const { schoolYear, semester, course, yearLevel, status } = req.query;
+    const { schoolYear, semester, course, yearLevel, status, instructor, subjectId, subjectCode } = req.query;
     if (!schoolYear || !semester || !course || !yearLevel) {
       return res.status(400).json({ error: 'Missing required filters: schoolYear, semester, course, yearLevel' });
     }
@@ -139,10 +129,9 @@ async function getClassSubmissions(req, res) {
     };
 
     const enrollments = await Enrollment.find(filter)
-      .populate('studentId', 'studentNumber firstName lastName suffix course yearLevel')
+      .populate('studentId', 'studentNumber firstName lastName suffix course yearLevel section')
       .lean();
 
-    // Split each enrollment into per-professor submission rows
     const rows = [];
     for (const enrollment of enrollments) {
       const activeSubjects = (enrollment.subjects || []).filter(
@@ -150,31 +139,41 @@ async function getClassSubmissions(req, res) {
       );
       if (activeSubjects.length === 0) continue;
 
-      // Group subjects by instructor
-      const byInstructor = new Map();
-      for (const subject of activeSubjects) {
-        const instructor = subject.instructor || 'Unassigned';
-        if (!byInstructor.has(instructor)) byInstructor.set(instructor, []);
-        byInstructor.get(instructor).push(subject);
-      }
+      const studentSection = enrollment.studentId?.section || '';
 
-      for (const [instructor, subjects] of byInstructor.entries()) {
-        const professorStatus = subjects[0]?.submissionStatus || 'Draft';
-        // If status filter is provided, only include rows matching that status
-        if (status && professorStatus !== status) continue;
+      for (const subject of activeSubjects) {
+        if (instructor && (subject.instructor || 'Unassigned') !== instructor) continue;
+        if (subjectId && String(subject.subjectId) !== String(subjectId)) continue;
+        if (subjectCode && subject.code !== subjectCode) continue;
+
+        const subStatus = subject.submissionStatus !== undefined && subject.submissionStatus !== null
+          ? subject.submissionStatus
+          : (enrollment.gradeSubmission?.status || 'Draft');
+
+        if (status && subStatus !== status) continue;
+
+        const isGraded = (subject.grade !== null && subject.grade !== undefined) || !!subject.gradeMark;
+
+        const sectionCode = subject.sectionCode || enrollment.sectionCode || studentSection;
 
         rows.push({
-          _id: enrollment._id,
+          _id: `${enrollment._id}_${subject.instructor || 'Unassigned'}_${subject.subjectId || subject.code}`,
           enrollmentId: enrollment._id,
-          instructor,
+          instructor: subject.instructor || 'Unassigned',
+          subjectId: subject.subjectId,
+          subjectCode: subject.code,
           studentId: enrollment.studentId,
-          studentNumber: enrollment.studentId?.studentNumber,
+          studentNumber: enrollment.studentId?.studentNumber || enrollment.studentNumber,
           schoolYear: enrollment.schoolYear,
           semester: enrollment.semester,
           yearLevel: enrollment.yearLevel,
           course: enrollment.course,
-          subjects,
-          professorSubmissionStatus: professorStatus,
+          subjects: [{ ...subject, sectionCode }],
+          subjectCodes: subject.code,
+          gradedCount: isGraded ? 1 : 0,
+          totalCount: 1,
+          professorSubmissionStatus: subStatus,
+          submittedAt: subject.dateModified || enrollment.gradeSubmission?.submittedAt || null,
           gradeSubmission: enrollment.gradeSubmission
         });
       }
@@ -198,19 +197,28 @@ async function submitGrades(req, res) {
     if (!enrollment) return res.status(404).json({ error: 'Enrollment not found.' });
     if (enrollment.lockedAt) return res.status(400).json({ error: 'Enrollment is locked.' });
 
-    // Per-subject submission: only submit subjects owned by THIS professor.
-    // Other professors' subjects remain in their own submission status.
-    const professorSubjectIds = req.professorSubjectIds || null
-    const subjectsToSubmit = professorSubjectIds
-      ? enrollment.subjects.filter(s =>
-          professorSubjectIds.includes(String(s.subjectId))
-          && s.status !== 'Dropped'
-          && s.status !== 'Removed'
-        )
-      : enrollment.subjects.filter(s => s.status !== 'Dropped' && s.status !== 'Removed')
+    // Per-subject submission: only submit subjects targeted by THIS submission.
+    // If targetSubjectId or req.body.subjectId is specified, submit ONLY that subject.
+    const targetSubjectId = req.targetSubjectId || req.body?.subjectId || req.query?.subjectId || null;
+    let subjectsToSubmit;
+    if (targetSubjectId) {
+      subjectsToSubmit = enrollment.subjects.filter(s =>
+        String(s.subjectId) === String(targetSubjectId)
+        && s.status !== 'Dropped'
+        && s.status !== 'Removed'
+      );
+    } else if (req.professorSubjectIds && Array.isArray(req.professorSubjectIds)) {
+      subjectsToSubmit = enrollment.subjects.filter(s =>
+        req.professorSubjectIds.includes(String(s.subjectId))
+        && s.status !== 'Dropped'
+        && s.status !== 'Removed'
+      );
+    } else {
+      subjectsToSubmit = enrollment.subjects.filter(s => s.status !== 'Dropped' && s.status !== 'Removed');
+    }
 
     if (subjectsToSubmit.length === 0) {
-      return res.status(400).json({ error: 'No assignable subjects found for your account in this enrollment.' })
+      return res.status(400).json({ error: 'No assignable subjects found for this submission.' });
     }
 
     // Check if any of the professor's subjects are already submitted/verified/published
@@ -286,14 +294,16 @@ async function submitGrades(req, res) {
       enrollmentId: enrollment._id,
       studentId: enrollment.studentId,
       studentNumber: enrollment.studentNumber,
-      subjectId: null,
-      subjectCode: 'ALL',
+      subjectId: subjectsToSubmit.length === 1 ? subjectsToSubmit[0].subjectId : null,
+      subjectCode: subjectsToSubmit.length === 1 ? subjectsToSubmit[0].code : 'ALL',
       action: 'submission',
       changedBy: req.adminId,
       changedByRole: req.accountType,
       schoolYear: enrollment.schoolYear,
       semester: enrollment.semester,
-      newRemarks: 'Grades submitted for review'
+      newRemarks: subjectsToSubmit.length === 1
+        ? `Grades submitted for ${subjectsToSubmit[0].code}`
+        : 'Grades submitted for review'
     });
 
     return res.json({
@@ -325,12 +335,15 @@ async function verifyGrades(req, res) {
 
     // Verify all subjects with submissionStatus='Submitted'
     // If instructor is provided, only verify that professor's subjects.
+    // If subjectId is provided, only verify that specific subject.
     const instructorFilter = req.body?.instructor || null;
+    const subjectIdFilter = req.body?.subjectId || null;
     const subjectsToVerify = enrollment.subjects.filter(s =>
       (s.submissionStatus || 'Draft') === 'Submitted'
       && s.status !== 'Dropped'
       && s.status !== 'Removed'
       && (!instructorFilter || (s.instructor || '') === instructorFilter)
+      && (!subjectIdFilter || String(s.subjectId) === String(subjectIdFilter))
     );
     if (subjectsToVerify.length === 0) {
       return res.status(400).json({
@@ -393,12 +406,15 @@ async function publishGrades(req, res) {
 
     // Publish all subjects with submissionStatus='Verified'
     // If instructor is provided, only publish that professor's subjects.
+    // If subjectId is provided, only publish that specific subject.
     const instructorFilter = req.body?.instructor || null;
+    const subjectIdFilter = req.body?.subjectId || null;
     const subjectsToPublish = enrollment.subjects.filter(s =>
       (s.submissionStatus || 'Draft') === 'Verified'
       && s.status !== 'Dropped'
       && s.status !== 'Removed'
       && (!instructorFilter || (s.instructor || '') === instructorFilter)
+      && (!subjectIdFilter || String(s.subjectId) === String(subjectIdFilter))
     );
     if (subjectsToPublish.length === 0) {
       return res.status(400).json({
@@ -478,12 +494,15 @@ async function returnGrades(req, res) {
 
     // Return all subjects with submissionStatus='Submitted' or 'Verified'
     // If instructor is provided, only return that professor's subjects.
+    // If subjectId is provided, only return that specific subject.
+    const subjectIdFilter = req.body?.subjectId || null;
     const subjectsToReturn = enrollment.subjects.filter(s =>
       ((s.submissionStatus || 'Draft') === 'Submitted'
        || (s.submissionStatus || 'Draft') === 'Verified')
       && s.status !== 'Dropped'
       && s.status !== 'Removed'
       && (!instructorFilter || (s.instructor || '') === instructorFilter)
+      && (!subjectIdFilter || String(s.subjectId) === String(subjectIdFilter))
     );
     if (subjectsToReturn.length === 0) {
       return res.status(400).json({
@@ -545,11 +564,13 @@ async function revertToDraft(req, res) {
     if (enrollment.lockedAt) return res.status(400).json({ error: 'Enrollment is locked.' });
 
     const instructorFilter = req.body?.instructor || null;
+    const subjectIdFilter = req.body?.subjectId || null;
     const subjectsToReopen = enrollment.subjects.filter(subject =>
       (subject.submissionStatus || 'Draft') === 'Returned'
       && subject.status !== 'Dropped'
       && subject.status !== 'Removed'
       && (!instructorFilter || (subject.instructor || '') === instructorFilter)
+      && (!subjectIdFilter || String(subject.subjectId) === String(subjectIdFilter))
     );
 
     if (subjectsToReopen.length === 0) {
@@ -610,19 +631,15 @@ async function createGradeChangeRequest(req, res) {
       return res.status(400).json({ error: 'enrollmentId, studentId, subjectId, requestedGrade, and reason are required.' });
     }
 
-    const newGrade = Number(requestedGrade);
-    if (!Number.isFinite(newGrade) || newGrade < 1.0 || newGrade > 5.0) {
-      return res.status(400).json({ error: 'Requested grade must be a number from 1.0 to 5.0.' });
+    const gradeScale = await gradingScaleService.loadGradeScale();
+    const parsedGrade = gradingScaleService.parseGradeInput(requestedGrade, gradeScale);
+    if (parsedGrade.error) {
+      return res.status(400).json({ error: `Requested grade is invalid. ${parsedGrade.error}` });
     }
+    const newGrade = parsedGrade.value;
 
     const enrollment = await Enrollment.findById(enrollmentId);
     if (!enrollment) return res.status(404).json({ error: 'Enrollment not found.' });
-
-    if (enrollment.gradeSubmission?.status !== 'Published') {
-      return res.status(400).json({
-        error: `Grade change requests can only be made for published grades. Current status: ${enrollment.gradeSubmission?.status || 'Draft'}.`
-      });
-    }
 
     // Find the subject entry
     const subjectEntry = enrollment.subjects.find(
@@ -630,6 +647,14 @@ async function createGradeChangeRequest(req, res) {
     );
     if (!subjectEntry) {
       return res.status(404).json({ error: 'Subject not found in this enrollment.' });
+    }
+
+    const effectiveStatus = subjectEntry.submissionStatus || enrollment.gradeSubmission?.status || 'Draft';
+    const allowedStatuses = ['Submitted', 'Verified', 'Published'];
+    if (!allowedStatuses.includes(effectiveStatus) && !allowedStatuses.includes(enrollment.gradeSubmission?.status)) {
+      return res.status(400).json({
+        error: `Grade change requests can only be made for submitted, verified, or published grades. Current status: ${effectiveStatus}.`
+      });
     }
 
     const currentGrade = subjectEntry.grade ?? null;
@@ -681,7 +706,7 @@ async function createGradeChangeRequest(req, res) {
       newGrade: newGrade,
       reason: reason.trim(),
       gradeChangeRequestId: changeRequest._id,
-      newRemarks: `Grade change requested: ${currentGrade?.toFixed(2)} → ${newGrade.toFixed(2)}`
+      newRemarks: `Grade change requested: ${gradingScaleService.formatGrade(currentGrade, gradeScale)} → ${gradingScaleService.formatGrade(newGrade, gradeScale)}`
     });
 
     return res.json({ success: true, message: 'Grade change request submitted for registrar review.', data: changeRequest });
@@ -808,7 +833,7 @@ async function reviewGradeChangeRequest(req, res) {
         newGrade: request.requestedGrade,
         reason: request.reason,
         gradeChangeRequestId: request._id,
-        newRemarks: reviewRemarksText || `Grade change approved: ${oldGrade?.toFixed(2)} → ${request.requestedGrade.toFixed(2)}`
+        newRemarks: reviewRemarksText || `Grade change approved: ${gradingScaleService.formatGrade(oldGrade)} → ${gradingScaleService.formatGrade(request.requestedGrade)}`
       });
 
       return res.json({ success: true, message: 'Grade change approved and applied.', data: request });

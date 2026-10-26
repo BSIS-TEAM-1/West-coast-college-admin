@@ -13,7 +13,10 @@ export interface GradeSubmissionSummary {
   semester: string
   yearLevel: number
   course: string
+  subjectId?: string
+  subjectCode?: string
   subjectCodes?: string
+  subjects?: Array<{ subjectId?: string; sectionCode?: string }>
   gradedCount?: number
   totalCount?: number
   professorSubmissionStatus?: GradeSubmissionStatus
@@ -41,6 +44,7 @@ export interface GradeSubmissionSummary {
     remarks?: string
     instructor?: string
     submissionStatus?: string
+    sectionCode?: string | null
   }>
 }
 
@@ -111,49 +115,52 @@ export async function getGradeSubmission(enrollmentId: string): Promise<GradeSub
   return res.data
 }
 
-export async function verifyGradeSubmission(enrollmentId: string, remarks?: string, instructor?: string): Promise<GradeSubmissionSummary> {
+export async function verifyGradeSubmission(enrollmentId: string, remarks?: string, instructor?: string, subjectId?: string): Promise<GradeSubmissionSummary> {
   const res = await authorizedFetch<{ success: boolean; data: GradeSubmissionSummary }>(`/api/registrar/grade-submissions/${enrollmentId}/verify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ remarks, instructor })
+    body: JSON.stringify({ remarks, instructor, subjectId })
   })
   return res.data
 }
 
-export async function publishGradeSubmission(enrollmentId: string, remarks?: string, instructor?: string): Promise<GradeSubmissionSummary> {
+export async function publishGradeSubmission(enrollmentId: string, remarks?: string, instructor?: string, subjectId?: string): Promise<GradeSubmissionSummary> {
   const res = await authorizedFetch<{ success: boolean; data: GradeSubmissionSummary }>(`/api/registrar/grade-submissions/${enrollmentId}/publish`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ remarks, instructor })
+    body: JSON.stringify({ remarks, instructor, subjectId })
   })
   return res.data
 }
 
-export async function returnGradeSubmission(enrollmentId: string, remarks: string, instructor?: string): Promise<GradeSubmissionSummary> {
+export async function returnGradeSubmission(enrollmentId: string, remarks: string, instructor?: string, subjectId?: string): Promise<GradeSubmissionSummary> {
   const res = await authorizedFetch<{ success: boolean; data: GradeSubmissionSummary }>(`/api/registrar/grade-submissions/${enrollmentId}/return`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ remarks, instructor })
+    body: JSON.stringify({ remarks, instructor, subjectId })
   })
   return res.data
 }
 
-export async function revertGradeSubmissionToDraft(enrollmentId: string, instructor?: string): Promise<GradeSubmissionSummary> {
+export async function revertGradeSubmissionToDraft(enrollmentId: string, instructor?: string, subjectId?: string): Promise<GradeSubmissionSummary> {
   const res = await authorizedFetch<{ success: boolean; data: GradeSubmissionSummary }>(`/api/registrar/grade-submissions/${enrollmentId}/revert-to-draft`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ instructor })
+    body: JSON.stringify({ instructor, subjectId })
   })
   return res.data
 }
 
-export async function getClassGradeSubmissions(filters: { schoolYear: string; semester: string; course: string; yearLevel: number; status?: GradeSubmissionStatus }): Promise<GradeSubmissionSummary[]> {
+export async function getClassGradeSubmissions(filters: { schoolYear: string; semester: string; course: string; yearLevel: number; status?: GradeSubmissionStatus; instructor?: string; subjectId?: string; subjectCode?: string }): Promise<GradeSubmissionSummary[]> {
   const params = new URLSearchParams()
   params.set('schoolYear', filters.schoolYear)
   params.set('semester', filters.semester)
   params.set('course', filters.course)
   params.set('yearLevel', String(filters.yearLevel))
   if (filters.status) params.set('status', filters.status)
+  if (filters.instructor) params.set('instructor', filters.instructor)
+  if (filters.subjectId) params.set('subjectId', filters.subjectId)
+  if (filters.subjectCode) params.set('subjectCode', filters.subjectCode)
   const res = await authorizedFetch<{ success: boolean; data: GradeSubmissionSummary[] }>(`/api/registrar/grade-submissions/class?${params.toString()}`)
   return res.data
 }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Award, BookOpen, CalendarDays, ChevronRight, Clock, Eye, GraduationCap, Grid3X3, Info, List, MapPin, MoreHorizontal, Search } from 'lucide-react'
 import type { ProfessorAssignedBlock, ProfessorAssignedCourse, ProfessorAssignedSubject, ProfessorSubjectDetailState } from './professorTypes'
 import './CourseManagement.css'
+import './ProfessorShared.css'
 
 interface CourseManagementProps {
   professorName: string
@@ -22,7 +23,7 @@ function CourseManagement({
   onOpenRosterClass,
   onOpenGradesView
 }: CourseManagementProps) {
-  const [layoutMode, setLayoutMode] = useState<'grid' | 'list'>('grid')
+  const [layoutMode, setLayoutMode] = useState<'grid' | 'list'>('list')
   const [searchQuery, setSearchQuery] = useState('')
   const [courseFilter, setCourseFilter] = useState('all')
   const [semesterFilter, setSemesterFilter] = useState('all')

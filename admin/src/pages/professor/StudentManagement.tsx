@@ -5,6 +5,8 @@ import { API_URL, getStoredToken } from '../../lib/authApi'
 import { fetchWithAutoReconnect, isAbortRequestError, isNetworkRequestError } from '../../lib/network'
 import type { ProfessorAssignedCourse, ProfessorRosterClassOption, ProfessorRosterSectionOption, ProfessorRosterStudent, RosterSortBy } from './professorTypes'
 import { buildReconnectMessage } from './professorUtils'
+import { formatGrade } from '../../lib/gradingScale'
+import './ProfessorShared.css'
 
 interface StudentManagementProps {
   courses: ProfessorAssignedCourse[]
@@ -13,6 +15,7 @@ interface StudentManagementProps {
   onRefresh: () => Promise<void>
   initialClassKey?: string
   entryMode?: 'students' | 'attendance'
+  onShiftStudent?: (studentId: string) => void
 }
 
 function StudentManagement({ courses, loading, error, onRefresh, initialClassKey = '', entryMode = 'students' }: StudentManagementProps) {
@@ -247,30 +250,23 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
           return
         }
 
-        const responses = await Promise.all(rosterTargets.flatMap((target) => {
+        const targetContexts = rosterTargets.flatMap((target) => {
           const matchedSubjectContext = selectedClass?.sectionId === target.sectionId ? selectedClass : null
           const subjectContexts = matchedSubjectContext
             ? [matchedSubjectContext]
-            : target.subjects.map((subject) => ({
-                key: `${target.courseCode}|${target.sectionId}|${subject.subjectId}`,
-                courseCode: target.courseCode,
-                blockCode: target.blockCode,
-                sectionId: target.sectionId,
-                sectionCode: target.sectionCode,
-                semester: target.semester,
-                schoolYear: target.schoolYear,
-                yearLevel: target.yearLevel,
-                subjectId: subject.subjectId,
-                subjectCode: subject.subjectCode,
-                subjectTitle: subject.subjectTitle,
-                schedule: subject.schedule,
-                room: subject.room
-              }))
+            : (target.subjects.length > 0 ? [target.subjects[0]] : [])
 
-          return subjectContexts.map(async (subjectContext) => {
+          return subjectContexts.map((subjectContext) => ({
+            target,
+            subjectContext
+          }))
+        })
+
+        const settled = await Promise.allSettled(
+          targetContexts.map(async ({ target, subjectContext }) => {
             const query = new URLSearchParams({
-              semester: subjectContext.semester,
-              schoolYear: subjectContext.schoolYear
+              semester: target.semester || '',
+              schoolYear: target.schoolYear || ''
             })
             const endpoint = `${API_URL}/api/professor/sections/${target.sectionId}/subjects/${subjectContext.subjectId}/students?${query.toString()}`
 
@@ -283,16 +279,26 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
             })
 
             if (!response.ok) {
-              throw new Error(`Failed to fetch students: ${response.status}`)
+              const errPayload = await response.json().catch(() => null)
+              throw new Error(errPayload?.error || `Unable to load students (HTTP ${response.status})`)
             }
 
             const payload = await response.json().catch(() => ({}))
             const rosterRows = Array.isArray(payload?.data?.students) ? payload.data.students : []
             return { target, subjectContext, rosterRows }
           })
-        }))
+        )
 
-        const normalized = responses.flatMap(({ target, subjectContext, rosterRows }) => {
+        const successful = settled
+          .filter((res): res is PromiseFulfilledResult<{ target: ProfessorRosterSectionOption; subjectContext: any; rosterRows: any[] }> => res.status === 'fulfilled')
+          .map((res) => res.value)
+
+        if (successful.length === 0 && settled.length > 0) {
+          const firstRejection = settled.find((res): res is PromiseRejectedResult => res.status === 'rejected')
+          throw firstRejection?.reason || new Error('Failed to load students for selected class.')
+        }
+
+        const normalized = successful.flatMap(({ target, subjectContext, rosterRows }) => {
           return rosterRows.map((raw: any, index: number) => {
             const yearLevel = typeof raw?.yearLevel === 'number' ? raw.yearLevel : Number(raw?.yearLevel)
             const rawId = String(raw?._id || raw?.id || raw?.studentNumber || raw?.studentId || index)
@@ -434,19 +440,45 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
     }
   }, [currentPage, totalPages])
 
+  const formatStudentGrade = (currentGrade?: number | string | null, latestGrade?: number | string | null) => {
+    const rawValue = (currentGrade !== null && currentGrade !== undefined && currentGrade !== '')
+      ? currentGrade
+      : latestGrade
+
+    if (rawValue === null || rawValue === undefined || rawValue === '') {
+      return 'No Grade'
+    }
+
+    const numeric = Number(rawValue)
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      return 'No Grade'
+    }
+
+    return formatGrade(numeric)
+  }
+
   const totalStudents = students.length
-  const hasGrades = students.some((student) => student.currentGrade || student.latestGrade)
   const rosterScopeLabel = selectedSection ? selectedSection.blockCode : 'All assigned classes'
   const rosterProgramCount = new Set(rosterTargets.map((target) => String(target.courseCode || '').trim()).filter(Boolean)).size
   const rosterClassCount = rosterTargets.length
 
   const gradeTotals = students
-    .map((student) => Number(student.currentGrade ?? student.latestGrade))
+    .map((student) => {
+      const raw = (student.currentGrade !== null && student.currentGrade !== undefined && student.currentGrade !== '')
+        ? student.currentGrade
+        : student.latestGrade
+      if (raw === null || raw === undefined || raw === '') return NaN
+      const num = Number(raw)
+      return Number.isFinite(num) && num > 0 ? num : NaN
+    })
     .filter((value) => Number.isFinite(value))
 
-  const classAverageGrade = gradeTotals.length > 0
-    ? (gradeTotals.reduce((sum, value) => sum + value, 0) / gradeTotals.length).toFixed(2)
-    : 'N/A'
+  const hasGrades = gradeTotals.length > 0
+  const classAverageNum = gradeTotals.length > 0
+    ? gradeTotals.reduce((sum, value) => sum + value, 0) / gradeTotals.length
+    : 0
+
+  const classAverageGrade = classAverageNum > 0 ? classAverageNum.toFixed(2) : 'No Grade'
 
   const exportRoster = () => {
     if (students.length === 0) {
@@ -458,7 +490,7 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
       getStudentCourseDisplay(student),
       String(student.classBlockCode || selectedSection?.blockCode || selectedClass?.blockCode || 'N/A'),
       String(student.yearLevel ?? ''),
-      String(student.currentGrade ?? student.latestGrade ?? ''),
+      formatStudentGrade(student.currentGrade, student.latestGrade),
       student.studentStatus || 'Active'
     ])
     const header = ['Student ID', 'Full Name', 'Program/Course', 'Block / Section', 'Year Level', 'Current Grade', 'Status']
@@ -685,7 +717,7 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
                     <td>{getStudentCourseDisplay(student)}</td>
                     <td>{student.classBlockCode || selectedSection?.blockCode || selectedClass?.blockCode || 'N/A'}</td>
                     <td>{student.yearLevel ?? 'N/A'}</td>
-                    <td>{student.currentGrade ?? student.latestGrade ?? 'N/A'}</td>
+                    <td>{formatStudentGrade(student.currentGrade, student.latestGrade)}</td>
                     <td>{student.studentStatus || student.status || 'Active'}</td>
                     <td className="professor-table-actions">
                       <button type="button" className="professor-btn-xs" onClick={() => setSelectedStudent(student)}>
@@ -729,6 +761,7 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
                 <div><strong>Year Level:</strong> {selectedStudent.yearLevel ?? 'N/A'}</div>
                 <div><strong>Block / Section:</strong> {selectedStudent.classBlockCode || selectedSection?.blockCode || selectedClass?.blockCode || 'N/A'}</div>
                 <div><strong>Subject:</strong> {selectedStudent.classSubjectCode ? `${selectedStudent.classSubjectCode} - ${selectedStudent.classSubjectTitle || 'Untitled subject'}` : 'Multiple subjects in view'}</div>
+                <div><strong>Current Grade:</strong> {formatStudentGrade(selectedStudent.currentGrade, selectedStudent.latestGrade)}</div>
                 <div><strong>Enrollment Status:</strong> {selectedStudent.studentStatus || selectedStudent.status || 'Active'}</div>
               </div>
             </div>

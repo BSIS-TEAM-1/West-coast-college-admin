@@ -67,6 +67,7 @@ const gradeSubmissionController = require('./controllers/gradeSubmissionControll
 const gradeReportController = require('./controllers/gradeReportController')
 const blockController = require('./controllers/blockController')
 const settingsController = require('./controllers/settingsController')
+const gradingScaleService = require('./services/gradingScaleService')
 const StudentController = require('./controllers/studentController')
 const AcademicYearRolloverService = require('./services/academicYearRolloverService')
 const BlockSubjectAssignmentController = require('./controllers/blockSubjectAssignmentController')
@@ -502,7 +503,7 @@ app.post('/api/professor/grade-submissions/:enrollmentId/submit', authMiddleware
   }
 
   // Verify the professor owns at least one subject in this enrollment.
-  // Collect the professor's subject IDs so submitGrades only validates those.
+  // If a specific subjectId is provided in body or query, scope ONLY to that subject.
   try {
     if (!dbReady) {
       return res.status(503).json({ error: 'Database unavailable.' })
@@ -512,13 +513,30 @@ app.post('/api/professor/grade-submissions/:enrollmentId/submit', authMiddleware
       return res.status(404).json({ error: 'Enrollment not found.' })
     }
     const access = await getProfessorRouteAccess(req.adminId)
-    const professorSubjectIds = enrollment.subjects
-      .filter((s) => s.status !== 'Dropped' && s.status !== 'Removed' && access.instructorMatchesProfessor(s.instructor))
-      .map((s) => String(s.subjectId))
-    if (professorSubjectIds.length === 0) {
-      return res.status(403).json({ error: 'You are not assigned to any subject in this enrollment.' })
+    const targetSubjectId = req.body?.subjectId ? String(req.body.subjectId).trim() : (req.query?.subjectId ? String(req.query.subjectId).trim() : null)
+
+    if (targetSubjectId) {
+      const subjectList = Array.isArray(enrollment.subjects) ? enrollment.subjects : []
+      const targetSubject = subjectList.find(
+        (s) => String(s.subjectId) === targetSubjectId && s.status !== 'Dropped' && s.status !== 'Removed'
+      )
+      if (!targetSubject) {
+        return res.status(404).json({ error: 'Subject not found in this enrollment.' })
+      }
+      if (!access.instructorMatchesProfessor(targetSubject.instructor)) {
+        return res.status(403).json({ error: 'You are not assigned to this subject.' })
+      }
+      req.professorSubjectIds = [targetSubjectId]
+      req.targetSubjectId = targetSubjectId
+    } else {
+      const professorSubjectIds = (Array.isArray(enrollment.subjects) ? enrollment.subjects : [])
+        .filter((s) => s.status !== 'Dropped' && s.status !== 'Removed' && access.instructorMatchesProfessor(s.instructor))
+        .map((s) => String(s.subjectId))
+      if (professorSubjectIds.length === 0) {
+        return res.status(403).json({ error: 'You are not assigned to any subject in this enrollment.' })
+      }
+      req.professorSubjectIds = professorSubjectIds
     }
-    req.professorSubjectIds = professorSubjectIds
     next()
   } catch (error) {
     return res.status(error.statusCode || 500).json({ error: error.message || 'Ownership verification failed.' })
@@ -910,7 +928,9 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
     })
   } catch (error) {
     console.error('Error fetching professor assigned blocks:', error)
-    res.status(500).json({ error: 'Failed to fetch professor assigned blocks.' })
+    if (!res.headersSent && !res.destroyed && !res.writableEnded) {
+      res.status(500).json({ error: 'Failed to fetch professor assigned blocks.' })
+    }
   }
 })
 
@@ -1151,9 +1171,11 @@ app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authM
     })
   } catch (error) {
     console.error('Error fetching professor subject roster:', error)
-    return res.status(error.statusCode || 500).json({
-      error: error.message || 'Failed to fetch subject roster.'
-    })
+    if (!res.headersSent && !res.destroyed && !res.writableEnded) {
+      return res.status(error.statusCode || 500).json({
+        error: error.message || 'Failed to fetch subject roster.'
+      })
+    }
   }
 })
 
@@ -1191,9 +1213,7 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
     return res.status(400).json({ error: 'Invalid section id, subject id, or student id.' })
   }
 
-  if (normalizedGrade !== null && (!Number.isFinite(normalizedGrade) || normalizedGrade < 1 || normalizedGrade > 5)) {
-    return res.status(400).json({ error: 'Grade must be a number from 1.0 to 5.0, or blank.' })
-  }
+
 
   // A grade mark (INC/DRP/W/FA/NG) and a numerical grade are mutually exclusive.
   // If a gradeMark is provided, clear the numerical grade.
@@ -1312,6 +1332,25 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
     const oldGrade = matchedEntry.grade ?? null
     const oldGradeMark = matchedEntry.gradeMark || null
     const oldRemarks = matchedEntry.remarks || ''
+
+    if (normalizedGrade !== null) {
+      // Validate against the institution's configured scale (decimal steps such
+      // as 0.1 by default) instead of hard-coding the quarter-point format.
+      const gradeScale = await gradingScaleService.loadGradeScale()
+      const parsedGrade = gradingScaleService.parseGradeInput(normalizedGrade, gradeScale)
+      if (parsedGrade.error) {
+        // A legacy grade (e.g. 1.25) may be re-saved unchanged — for example when
+        // only the remarks are edited — so historical records are never forced
+        // onto the new scale. Any actual change must use the configured scale.
+        const unchangedLegacy = oldGrade !== null
+          && Math.abs(Number(normalizedGrade) - Number(oldGrade)) < 1e-9
+        if (!unchangedLegacy) {
+          return res.status(400).json({ error: parsedGrade.error })
+        }
+      } else {
+        normalizedGrade = parsedGrade.value
+      }
+    }
 
     matchedEntry.grade = normalizedGrade
     matchedEntry.gradeMark = normalizedGradeMark
@@ -3714,6 +3753,7 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
 
       // Only show grades to the student if the SPECIFIC SUBJECT's submissionStatus is Published.
       // Per-subject publishing means some subjects may be published while others are still in draft.
+      const gradeScale = await gradingScaleService.loadGradeScale()
       latestGrades = activeSubjects
         .filter((subject) =>
           (subject.submissionStatus || 'Draft') === 'Published'
@@ -3727,7 +3767,7 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
           subjectTitle: subject.title,
           units: subject.units,
           grade: subject.grade,
-          remarks: subject.remarks || (Number(subject.grade) <= 3.0 ? 'PASSED' : 'FAILED'),
+          remarks: subject.remarks || (gradingScaleService.isPassingGrade(subject.grade, gradeScale) ? 'PASSED' : 'FAILED'),
           status: subject.status
         }))
     }
@@ -3801,6 +3841,8 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
       status: { $ne: 'Dropped' }
     }).sort({ isCurrent: -1, createdAt: -1 })
 
+    const gradeScale = await gradingScaleService.loadGradeScale()
+
     const periods = enrollments
       .map((enrollment) => {
         // For the current term, show ALL active subjects so students can see
@@ -3824,7 +3866,7 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
               units: subject.units,
               grade: isPublished && subject.grade != null ? subject.grade : 0,
               gradeMark: isPublished ? (subject.gradeMark || null) : null,
-              remarks: isPublished ? (subject.remarks || (subject.gradeMark ? subject.gradeMark : (subject.grade != null && Number(subject.grade) <= 3.0 ? 'PASSED' : 'FAILED'))) : '',
+              remarks: isPublished ? (subject.remarks || (subject.gradeMark ? subject.gradeMark : (subject.grade != null && gradingScaleService.isPassingGrade(subject.grade, gradeScale) ? 'PASSED' : 'FAILED'))) : '',
               status: subject.status || 'Enrolled'
             }
           })
@@ -7766,6 +7808,34 @@ app.put('/api/settings/academic-term', authMiddleware, requireBlockManagementRol
   }
 });
 
+// GET /api/settings/grade-scale
+// The configured numeric grade scale (step, passing grade) used by grade entry,
+// validation and display. Readable by every signed-in role.
+app.get('/api/settings/grade-scale', authMiddleware, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await settingsController.getGradeScale(req, res);
+  } catch (error) {
+    console.error('Get grade scale error:', error);
+    res.status(500).json({ error: 'Failed to get grade scale setting.' });
+  }
+});
+
+// PUT /api/settings/grade-scale
+app.put('/api/settings/grade-scale', authMiddleware, requireBlockManagementRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await settingsController.updateGradeScale(req, res);
+  } catch (error) {
+    console.error('Update grade scale error:', error);
+    res.status(500).json({ error: 'Failed to update grade scale setting.' });
+  }
+});
+
 // ==================== ACADEMIC YEAR ROLLOVER ====================
 
 // POST /api/rollover/preview - dry-run evaluation of the closing school year (read-only)
@@ -7804,8 +7874,8 @@ app.post('/api/rollover/preview-students', authMiddleware, requireBlockManagemen
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
-    const { fromSchoolYear, semester, course, yearLevel, block, page, limit, search, filter } = req.body || {}
-    const result = await AcademicYearRolloverService.previewStudents({ fromSchoolYear, semester, course, yearLevel, block, page, limit, search, filter })
+    const { fromSchoolYear, toSchoolYear, semester, course, yearLevel, block, page, limit, search, filter } = req.body || {}
+    const result = await AcademicYearRolloverService.previewStudents({ fromSchoolYear, toSchoolYear, semester, course, yearLevel, block, page, limit, search, filter })
     res.json({ success: true, data: result })
   } catch (error) {
     console.error('Rollover preview-students error:', error)
@@ -7819,8 +7889,8 @@ app.post('/api/rollover/preview-exceptions', authMiddleware, requireBlockManagem
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
-    const { fromSchoolYear, semester, page, limit, search, course, yearLevel, block } = req.body || {}
-    const result = await AcademicYearRolloverService.previewExceptions({ fromSchoolYear, semester, page, limit, search, course, yearLevel, block })
+    const { fromSchoolYear, toSchoolYear, semester, page, limit, search, course, yearLevel, block } = req.body || {}
+    const result = await AcademicYearRolloverService.previewExceptions({ fromSchoolYear, toSchoolYear, semester, page, limit, search, course, yearLevel, block })
     res.json({ success: true, data: result })
   } catch (error) {
     console.error('Rollover preview-exceptions error:', error)
@@ -7886,6 +7956,37 @@ app.post('/api/rollover/revert', authMiddleware, requireBlockManagementRole, inv
     console.error('Rollover revert error:', error)
     res.status(error.statusCode || 500).json({
       error: error.message || 'Failed to revert rollover. All changes were rolled back.'
+    })
+  }
+});
+
+// GET /api/rollover/batches - rollover runs available for export
+app.get('/api/rollover/batches', authMiddleware, requireBlockManagementRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const { limit } = req.query || {}
+    const batches = await AcademicYearRolloverService.listRolloverBatches({ limit })
+    res.json({ success: true, data: batches })
+  } catch (error) {
+    console.error('List rollover batches error:', error)
+    res.status(500).json({ error: 'Failed to list rollover batches.' })
+  }
+});
+
+// GET /api/rollover/school-years/:schoolYear/students - students and grades for one closing school year
+app.get('/api/rollover/school-years/:schoolYear/students', authMiddleware, requireBlockManagementRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const report = await AcademicYearRolloverService.getSchoolYearRolloverReport(req.params.schoolYear)
+    res.json({ success: true, data: report })
+  } catch (error) {
+    console.error('School year rollover report error:', error)
+    res.status(error.statusCode || 500).json({
+      error: error.message || 'Failed to build the school year student report.'
     })
   }
 });
@@ -8240,6 +8341,19 @@ app.get('/api/blocks/groups', authMiddleware, requireBlockManagementRole, cacheM
   } catch (error) {
     console.error('Get block groups error:', error);
     res.status(500).json({ error: 'Failed to get block groups.' });
+  }
+});
+
+// GET /api/blocks/shift-options — real open sections for the registrar shift form
+app.get('/api/blocks/shift-options', authMiddleware, requireBlockManagementRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    await blockController.getShiftSectionOptions(req, res);
+  } catch (error) {
+    console.error('Get shift section options error:', error.message);
+    res.status(500).json({ error: 'Failed to get shift section options.' });
   }
 });
 

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../core/animations/entrance.dart';
+import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_dimensions.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/theme_colors.dart';
+import '../../../../core/widgets/depth.dart';
 import '../../../../core/widgets/empty_state.dart';
 import '../../../../core/widgets/error_state.dart';
 import '../../../../core/widgets/section_header.dart';
@@ -42,11 +45,33 @@ class _GradesPageState extends ConsumerState<GradesPage> with SingleTickerProvid
       backgroundColor: colors.backgroundSoft,
       appBar: AppBar(
         title: const Text('Grades'),
-        backgroundColor: colors.primary,
+        backgroundColor: AppColors.primary,
         foregroundColor: colors.onPrimary,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [AppColors.primaryHover, AppColors.primary],
+            ),
+          ),
+        ),
+        leading: Padding(
+          padding: const EdgeInsets.only(left: AppDimensions.md),
+          child: Center(
+            child: DepthIconTile(
+              icon: Icons.school_rounded,
+              tone: DepthTone.gold,
+              size: 36,
+              radius: 11,
+            ),
+          ),
+        ),
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: colors.onPrimary,
+          // Restrained gold accent for the active tab, matching Schedule.
+          indicatorColor: AppColors.goldLight,
+          indicatorWeight: 3,
           labelColor: colors.onPrimary,
           unselectedLabelColor: colors.onPrimary.withValues(alpha: 0.7),
           tabs: const [Tab(text: 'Current'), Tab(text: 'History')],
@@ -103,11 +128,25 @@ class _CurrentTab extends StatelessWidget {
               padding: const EdgeInsets.all(AppDimensions.md),
               children: [
                 if (currentPeriods.first.termGpa != null)
-                  _GpaCard(label: 'Current Term GPA', gpa: currentPeriods.first.termGpa!, colors: colors),
+                  Entrance(
+                    child: _GpaCard(
+                      label: 'Current Term GPA',
+                      gpa: currentPeriods.first.termGpa!,
+                      colors: colors,
+                    ),
+                  ),
                 if (currentPeriods.first.termGpa != null) const SizedBox(height: AppDimensions.lg),
-                SectionHeader(title: currentPeriods.first.label),
-                const SizedBox(height: AppDimensions.sm),
-                _PeriodSection(period: currentPeriods.first, colors: colors),
+                Entrance(
+                  order: 2,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SectionHeader(title: currentPeriods.first.label),
+                      const SizedBox(height: AppDimensions.sm),
+                      _PeriodSection(period: currentPeriods.first, colors: colors),
+                    ],
+                  ),
+                ),
               ],
             ),
     );
@@ -147,12 +186,18 @@ class _HistoryTab extends StatelessWidget {
                   _GpaCard(label: 'Cumulative GPA', gpa: data.summary.cumulativeGpa!, colors: colors),
                   const SizedBox(height: AppDimensions.lg),
                 ],
-                for (final period in historicalPeriods) ...[
-                  SectionHeader(title: period.label),
-                  const SizedBox(height: AppDimensions.sm),
-                  _PeriodSection(period: period, colors: colors),
-                  const SizedBox(height: AppDimensions.lg),
-                ],
+                for (final (i, period) in historicalPeriods.indexed) Entrance(
+                  order: i + 1,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SectionHeader(title: period.label),
+                      const SizedBox(height: AppDimensions.sm),
+                      _PeriodSection(period: period, colors: colors),
+                      const SizedBox(height: AppDimensions.lg),
+                    ],
+                  ),
+                ),
               ],
             ),
     );
@@ -170,26 +215,47 @@ class _GpaCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(AppDimensions.cardPadding),
       decoration: BoxDecoration(
-        color: colors.primarySubtle,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppColors.primaryHover, AppColors.primary],
+        ),
         borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+        border: Border.all(color: Colors.white.withValues(alpha: .08)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.shadow.withValues(alpha: .25),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+          BoxShadow(
+            color: Colors.white.withValues(alpha: .05),
+            blurRadius: 2,
+            offset: const Offset(0, -1),
+          ),
+        ],
       ),
       child: Row(
         children: [
-          Icon(Icons.school, color: colors.textBold, size: 32),
+          DepthIconTile(
+            icon: Icons.workspace_premium_rounded,
+            tone: DepthTone.gold,
+            size: 46,
+          ),
           const SizedBox(width: AppDimensions.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: AppTextStyles.bodySmall.copyWith(color: colors.textSecondary)),
+                Text(label, style: AppTextStyles.bodySmall.copyWith(color: AppColors.goldLight)),
                 Text(
                   gpa.toStringAsFixed(2),
-                  style: AppTextStyles.headlineLarge.copyWith(color: colors.textBold),
+                  style: AppTextStyles.headlineLarge.copyWith(color: Colors.white),
                 ),
               ],
             ),
           ),
-          Text('$gpa GPA', style: AppTextStyles.caption.copyWith(color: colors.textMuted)),
+          Text('$gpa GPA', style: AppTextStyles.caption.copyWith(color: Colors.white.withValues(alpha: .7))),
         ],
       ),
     );

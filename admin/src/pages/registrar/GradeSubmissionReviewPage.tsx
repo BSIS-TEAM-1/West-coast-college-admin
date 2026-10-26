@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { Fragment, useState, useEffect, useCallback } from 'react'
 import { Check, X, RotateCcw, AlertCircle, FileText, Clock, ChevronDown, ChevronLeft } from 'lucide-react'
 import {
   listGradeSubmissions,
@@ -16,6 +16,7 @@ import {
 } from '../../lib/gradingApi'
 import { COURSE_OPTIONS } from '../../lib/blockAssignmentShared'
 import { getAcademicTerm } from '../../lib/settingsApi'
+import { describeGradeScale, formatGrade, useGradeScale } from '../../lib/gradingScale'
 import './GradeSubmissionReviewPage.css'
 
 interface GradeSubmissionReviewPageProps {
@@ -62,6 +63,7 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
   const [reviewingChangeRequest, setReviewingChangeRequest] = useState<GradeChangeRequest | null>(null)
   const [changeRequestRemarks, setChangeRequestRemarks] = useState('')
   const [classViewContext, setClassViewContext] = useState<{ schoolYear: string; semester: string; course: string; yearLevel: number } | null>(null)
+  const gradeScale = useGradeScale()
 
   // Default filters to the current academic term so legacy enrollments don't appear
   useEffect(() => {
@@ -104,7 +106,7 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
   useEffect(() => { load() }, [load])
 
   const handleView = async (submission: GradeSubmissionSummary) => {
-    // Rows in the main table use a compound ID (enrollment + instructor). Resolve
+    // Rows in the main table use a compound ID (enrollment + instructor + subject). Resolve
     // the matching class row first so every review action receives the real
     // enrollment ID, then open the dialog with that row selected.
     setSelected(null)
@@ -113,6 +115,8 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
     setLoadingClass(true)
     setError('')
     try {
+      const targetSubjectId = submission.subjectId || submission.subjects?.[0]?.subjectId
+      const targetSubjectCode = submission.subjectCode || submission.subjects?.[0]?.code
       // Store class context for refreshing after actions
       setClassViewContext({
         schoolYear: submission.schoolYear,
@@ -120,17 +124,26 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
         course: String(submission.studentId?.course || submission.course),
         yearLevel: submission.studentId?.yearLevel || submission.yearLevel
       })
-      // Fetch all students in the same class/section
+      // Fetch all students in the same class/section for this subject
       const classData = await getClassGradeSubmissions({
         schoolYear: submission.schoolYear,
         semester: submission.semester,
         course: String(submission.studentId?.course || submission.course),
         yearLevel: submission.studentId?.yearLevel || submission.yearLevel,
-        status: undefined // Show all students regardless of status
+        status: undefined, // Show all students regardless of status
+        instructor: submission.instructor,
+        subjectId: targetSubjectId,
+        subjectCode: targetSubjectCode
       })
       setClassSubmissions(classData)
       setSelected(
         classData.find(
+          (classSubmission) =>
+            classSubmission.enrollmentId === submission.enrollmentId &&
+            classSubmission.instructor === submission.instructor &&
+            (String(classSubmission.subjectId || '') === String(targetSubjectId || '') ||
+             classSubmission.subjects?.[0]?.code === targetSubjectCode)
+        ) ?? classData.find(
           (classSubmission) =>
             classSubmission.enrollmentId === submission.enrollmentId &&
             classSubmission.instructor === submission.instructor
@@ -157,7 +170,8 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
     setActionLoading(true)
     setError('')
     try {
-      await verifyGradeSubmission(selected.enrollmentId, reviewRemarks, selected.instructor)
+      const targetSubjectId = selected.subjectId || selected.subjects?.[0]?.subjectId
+      await verifyGradeSubmission(selected.enrollmentId, reviewRemarks, selected.instructor, targetSubjectId)
       await load()
       // Refresh class submissions to show updated status
       if (classViewContext) {
@@ -166,7 +180,9 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
           semester: classViewContext.semester,
           course: classViewContext.course,
           yearLevel: classViewContext.yearLevel,
-          status: undefined
+          status: undefined,
+          instructor: selected.instructor,
+          subjectId: targetSubjectId
         })
         setClassSubmissions(classData)
       }
@@ -184,7 +200,8 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
     if (!selected || !selected.enrollmentId) return
     setActionLoading(true)
     try {
-      await publishGradeSubmission(selected.enrollmentId, reviewRemarks, selected.instructor)
+      const targetSubjectId = selected.subjectId || selected.subjects?.[0]?.subjectId
+      await publishGradeSubmission(selected.enrollmentId, reviewRemarks, selected.instructor, targetSubjectId)
       await load()
       // Refresh class submissions to show updated status
       if (classViewContext) {
@@ -193,7 +210,9 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
           semester: classViewContext.semester,
           course: classViewContext.course,
           yearLevel: classViewContext.yearLevel,
-          status: undefined
+          status: undefined,
+          instructor: selected.instructor,
+          subjectId: targetSubjectId
         })
         setClassSubmissions(classData)
       }
@@ -214,7 +233,8 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
     }
     setActionLoading(true)
     try {
-      await returnGradeSubmission(selected.enrollmentId, reviewRemarks, selected.instructor)
+      const targetSubjectId = selected.subjectId || selected.subjects?.[0]?.subjectId
+      await returnGradeSubmission(selected.enrollmentId, reviewRemarks, selected.instructor, targetSubjectId)
       await load()
       // Refresh class submissions to show updated status
       if (classViewContext) {
@@ -223,7 +243,9 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
           semester: classViewContext.semester,
           course: classViewContext.course,
           yearLevel: classViewContext.yearLevel,
-          status: undefined
+          status: undefined,
+          instructor: selected.instructor,
+          subjectId: targetSubjectId
         })
         setClassSubmissions(classData)
       }
@@ -260,12 +282,13 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
     setOpenActionMenuId(null)
     setError('')
     try {
+      const targetSubjectId = submission.subjectId || submission.subjects?.[0]?.subjectId
       if (action === 'reject') {
-        await returnGradeSubmission(submission.enrollmentId, remarks, submission.instructor)
+        await returnGradeSubmission(submission.enrollmentId, remarks, submission.instructor, targetSubjectId)
       } else if (isPublishing) {
-        await publishGradeSubmission(submission.enrollmentId, '', submission.instructor)
+        await publishGradeSubmission(submission.enrollmentId, '', submission.instructor, targetSubjectId)
       } else {
-        await verifyGradeSubmission(submission.enrollmentId, '', submission.instructor)
+        await verifyGradeSubmission(submission.enrollmentId, '', submission.instructor, targetSubjectId)
       }
       await load()
     } catch (e: any) {
@@ -302,7 +325,8 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
     setActionLoading(true)
     setError('')
     try {
-      await revertGradeSubmissionToDraft(submission.enrollmentId, submission.instructor)
+      const targetSubjectId = submission.subjectId || submission.subjects?.[0]?.subjectId
+      await revertGradeSubmissionToDraft(submission.enrollmentId, submission.instructor, targetSubjectId)
       await load()
       setSelected(null)
       setSuccess('Returned grades reopened as a draft for the professor.')
@@ -322,6 +346,53 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
     if (!d) return 'N/A'
     return new Date(d).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
   }
+
+  // Compact date for the list rows; the full timestamp stays in the cell tooltip.
+  const formatShortDate = (d?: string | null) => {
+    if (!d) return '—'
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
+  // Each row is one subject submission, so label every row with the block the
+  // student actually sits in for that subject.
+  const blockLabelFor = (submission: GradeSubmissionSummary) => {
+    const course = courseLabel(submission.studentId?.course || submission.course)
+    const sectionCode = String(submission.subjects?.[0]?.sectionCode || '').trim()
+    return sectionCode ? `${course} ${sectionCode}`.trim() : course
+  }
+
+  // Group the rows by block so the registrar reviews one block at a time
+  // instead of a flat mix of students from different blocks.
+  const submissionGroups = (() => {
+    const groups = new Map<string, { label: string; rows: GradeSubmissionSummary[] }>()
+    submissions.forEach((submission) => {
+      const label = blockLabelFor(submission)
+      const existing = groups.get(label)
+      if (existing) {
+        existing.rows.push(submission)
+      } else {
+        groups.set(label, { label, rows: [submission] })
+      }
+    })
+
+    const studentName = (submission: GradeSubmissionSummary) =>
+      `${submission.studentId?.lastName || ''}, ${submission.studentId?.firstName || ''}`
+
+    return [...groups.values()]
+      .sort((a, b) => {
+        const aNoBlock = a.label.endsWith('No block')
+        const bNoBlock = b.label.endsWith('No block')
+        if (aNoBlock !== bNoBlock) return aNoBlock ? 1 : -1
+        return a.label.localeCompare(b.label)
+      })
+      .map((group) => ({
+        ...group,
+        rows: [...group.rows].sort(
+          (a, b) => studentName(a).localeCompare(studentName(b)) || String(a.subjectCode || '').localeCompare(String(b.subjectCode || ''))
+        ),
+        studentCount: new Set(group.rows.map((s) => String(s.studentId?._id || s.studentNumber || ''))).size
+      }))
+  })()
 
   // Verification checklist for the detail view
   return (
@@ -420,8 +491,8 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
                   <tr key={cr._id}>
                     <td><strong>{cr.studentNumber}</strong></td>
                     <td>{cr.subjectCode}</td>
-                    <td style={{ fontWeight: 600 }}>{cr.currentGrade.toFixed(2)}</td>
-                    <td style={{ fontWeight: 600 }}>{cr.requestedGrade.toFixed(2)}</td>
+                    <td style={{ fontWeight: 600 }}>{formatGrade(cr.currentGrade)}</td>
+                    <td style={{ fontWeight: 600 }}>{formatGrade(cr.requestedGrade)}</td>
                     <td style={{ fontSize: '0.8125rem', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cr.reason}</td>
                     <td style={{ fontSize: '0.8125rem' }}>{typeof cr.requestedBy === 'object' ? cr.requestedBy.displayName || cr.requestedBy.username : '—'}</td>
                     <td style={{ fontSize: '0.8125rem' }}>{formatDate(cr.requestedAt)}</td>
@@ -490,51 +561,72 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
             </div>
           )}
           <div className="grade-submission-list">
-          <table className="grade-submission-table">
+          <table className="grade-submission-table grade-submission-table--compact">
             <thead>
               <tr>
                 <th>Student</th>
                 <th>Professor</th>
-                <th>Course</th>
-                <th>Year</th>
-                <th>Semester</th>
-                <th>School Year</th>
-                <th>Subjects with Grades</th>
-                <th>Graded</th>
+                <th>Term</th>
+                <th>Subjects &amp; Grades</th>
                 <th>Status</th>
-                <th>Submitted</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {submissions.map((s) => {
+              {submissionGroups.map((group) => (
+                <Fragment key={group.label}>
+                  <tr className="gs-block-row">
+                    <td colSpan={6}>
+                      <div className="gs-block-row-inner">
+                        <span className="gs-block-label">{group.label}</span>
+                        <span className="gs-block-count">
+                          {group.rows.length} submission{group.rows.length === 1 ? '' : 's'}
+                          {' · '}{group.studentCount} student{group.studentCount === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                  {group.rows.map((s) => {
                 const profStatus = s.professorSubmissionStatus || s.gradeSubmission?.status || 'Draft'
                 const status = STATUS_LABELS[profStatus]
                 const activeSubjects = s.subjects?.filter(sub => sub.status !== 'Dropped' && sub.status !== 'Removed') || []
                 const subjectGrades = activeSubjects.map(sub => {
-                  const grade = sub.grade !== null && sub.grade !== undefined ? sub.grade.toFixed(2) : sub.gradeMark || '—'
+                  const grade = sub.grade !== null && sub.grade !== undefined ? formatGrade(sub.grade) : sub.gradeMark || '—'
                   return `${sub.code}: ${grade}`
                 }).join(', ') || '—'
                 const graded = s.gradedCount ?? activeSubjects.filter(sub => sub.grade !== null && sub.grade !== undefined || sub.gradeMark).length ?? 0
                 const total = s.totalCount ?? activeSubjects.length ?? 0
+                const submittedAt = s.submittedAt || s.gradeSubmission?.submittedAt
+                const yearLevel = s.studentId?.yearLevel || s.yearLevel
+                const course = courseLabel(s.studentId?.course || s.course)
                 return (
-                  <tr key={s._id} style={{ cursor: 'pointer' }} onClick={() => void handleView(s)}>
-                    <td>
+                  <tr key={s._id} className="gs-row" onClick={() => void handleView(s)}>
+                    <td className="gs-col-student">
                       <div className="gs-student-name">{s.studentId?.lastName}, {s.studentId?.firstName}</div>
-                      <div className="gs-student-number">{s.studentId?.studentNumber}</div>
+                      <div className="gs-student-number">
+                        {s.studentId?.studentNumber}
+                        {' · '}{course}
+                        {yearLevel ? ` · Year ${yearLevel}` : ''}
+                      </div>
                     </td>
-                    <td style={{ fontSize: '0.8125rem', fontWeight: 600 }}>{s.instructor || 'Unassigned'}</td>
-                    <td>{courseLabel(s.studentId?.course || s.course)}</td>
-                    <td>{s.studentId?.yearLevel || s.yearLevel}</td>
-                    <td>{s.semester}</td>
-                    <td>{s.schoolYear}</td>
-                    <td style={{ fontSize: '0.8125rem', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={subjectGrades}>{subjectGrades}</td>
-                    <td>{graded}/{total}</td>
-                    <td>
+                    <td className="gs-col-professor">
+                      <span className="gs-professor-name" title={s.instructor || 'Unassigned'}>{s.instructor || 'Unassigned'}</span>
+                    </td>
+                    <td className="gs-col-term">
+                      <span>{String(s.semester || '').replace(/\s*semester/i, ' Sem')}</span>
+                      <span className="gs-cell-sub">{s.schoolYear}</span>
+                    </td>
+                    <td className="gs-col-subjects" title={subjectGrades}>
+                      <span className="gs-subject-grades">{subjectGrades}</span>
+                      <span className="gs-cell-sub">{graded}/{total} graded</span>
+                    </td>
+                    <td className="gs-col-status">
                       <span className="status-badge" style={{ color: status.color, background: status.bg }}>{status.label}</span>
+                      <span className="gs-cell-sub" title={`Submitted ${formatDate(submittedAt)}`}>
+                        {formatShortDate(submittedAt)}
+                      </span>
                     </td>
-                    <td style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted, #6b7280)' }}>{formatDate(s.submittedAt || s.gradeSubmission?.submittedAt)}</td>
-                    <td>
+                    <td className="gs-col-actions">
                       <div className="gs-table-actions" onClick={(event) => event.stopPropagation()}>
                         {(profStatus === 'Submitted' || profStatus === 'Verified') && (
                           <div className="gs-action-dropdown">
@@ -573,7 +665,9 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
                     </td>
                   </tr>
                 )
-              })}
+                  })}
+                </Fragment>
+              ))}
             </tbody>
           </table>
           </div>
@@ -686,12 +780,12 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
                       {classSubmissions.map((s) => {
                         const profStatus = s.professorSubmissionStatus || s.gradeSubmission?.status || 'Draft'
                         const status = STATUS_LABELS[profStatus]
-                        const submittedSubjects = s.subjects?.filter(sub => sub.status !== 'Dropped' && sub.status !== 'Removed' && sub.submissionStatus === 'Submitted') || []
-                        const subjectGrades = submittedSubjects.map(sub => {
-                          const grade = sub.grade !== null && sub.grade !== undefined ? sub.grade.toFixed(2) : sub.gradeMark || '—'
+                        const activeSubjects = s.subjects?.filter(sub => sub.status !== 'Dropped' && sub.status !== 'Removed') || []
+                        const subjectGrades = activeSubjects.map(sub => {
+                          const grade = sub.grade !== null && sub.grade !== undefined ? formatGrade(sub.grade) : sub.gradeMark || '—'
                           return `${sub.code}: ${grade}`
                         }).join(', ') || '—'
-                        const graded = submittedSubjects.filter(s => (s.grade !== null && s.grade !== undefined) || s.gradeMark).length
+                        const graded = activeSubjects.filter(s => (s.grade !== null && s.grade !== undefined) || s.gradeMark).length
                         return (
                           <tr key={s._id} style={{ cursor: 'pointer' }} onClick={() => setSelected(s)}>
                             <td>
@@ -699,7 +793,7 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
                             </td>
                             <td className="gs-student-number">{s.studentId?.studentNumber}</td>
                             <td style={{ fontSize: '0.8125rem', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={subjectGrades}>{subjectGrades}</td>
-                            <td>{graded}/{submittedSubjects.length}</td>
+                            <td>{graded}/{activeSubjects.length}</td>
                             <td>
                               <span className="status-badge" style={{ color: status.color, background: status.bg }}>{status.label}</span>
                             </td>
@@ -840,11 +934,15 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
               <div className="gs-change-request-details">
                 <div className="gs-change-request-row">
                   <span>Current Grade:</span>
-                  <strong>{reviewingChangeRequest.currentGrade.toFixed(2)}</strong>
+                  <strong>{formatGrade(reviewingChangeRequest.currentGrade)}</strong>
                 </div>
                 <div className="gs-change-request-row">
                   <span>Requested Grade:</span>
-                  <strong>{reviewingChangeRequest.requestedGrade.toFixed(2)}</strong>
+                  <strong>{formatGrade(reviewingChangeRequest.requestedGrade)}</strong>
+                </div>
+                <div className="gs-change-request-row">
+                  <span>Grade scale:</span>
+                  <span>{describeGradeScale(gradeScale)}</span>
                 </div>
                 <div className="gs-change-request-row">
                   <span>Requested By:</span>

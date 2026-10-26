@@ -11,7 +11,8 @@ import {
   type ThemeAccentColor,
   type ThemePreference,
 } from '../lib/theme';
-import { getAcademicTerm, updateAcademicTerm, type AcademicSemester } from '../lib/settingsApi';
+import { getAcademicTerm, getGradeScaleSetting, updateAcademicTerm, updateGradeScaleSetting, type AcademicSemester } from '../lib/settingsApi';
+import { formatGrade, listAllowedGrades, setGradeScale as applyGradeScale } from '../lib/gradingScale';
 import './Settings.css';
 
 type Theme = ThemePreference;
@@ -52,6 +53,13 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
   const [academicTermLoading, setAcademicTermLoading] = useState(true);
   const [academicTermSaving, setAcademicTermSaving] = useState(false);
   const [academicTermStatus, setAcademicTermStatus] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
+
+  // Grading scale (numeric format + passing grade) state
+  const [gradeScale, setGradeScaleState] = useState<{ min: number; max: number; step: number; passingGrade: number } | null>(null);
+  const [gradeScaleDraft, setGradeScaleDraft] = useState({ step: '0.1', passingGrade: '3' });
+  const [gradeScaleLoading, setGradeScaleLoading] = useState(true);
+  const [gradeScaleSaving, setGradeScaleSaving] = useState(false);
+  const [gradeScaleStatus, setGradeScaleStatus] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
 
   useEffect(() => {
     getAcademicTerm()
@@ -99,6 +107,73 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
       });
     } finally {
       setAcademicTermSaving(false);
+    }
+  };
+
+  // Grading scale: load once, keep the draft in sync with the saved policy.
+  useEffect(() => {
+    getGradeScaleSetting()
+      .then((scale) => {
+        setGradeScaleState({ min: scale.min, max: scale.max, step: scale.step, passingGrade: scale.passingGrade });
+        setGradeScaleDraft({ step: String(scale.step), passingGrade: String(scale.passingGrade) });
+        applyGradeScale(scale);
+      })
+      .catch((err) => {
+        setGradeScaleStatus({
+          type: 'error',
+          message: err instanceof Error ? err.message : 'Failed to load grading scale setting.',
+        });
+      })
+      .finally(() => setGradeScaleLoading(false));
+  }, []);
+
+  const gradeScaleDirty = Boolean(
+    gradeScale &&
+    (Number(gradeScaleDraft.step) !== gradeScale.step || Number(gradeScaleDraft.passingGrade) !== gradeScale.passingGrade)
+  );
+
+  const gradeScalePreviewScale = useMemo(
+    () => ({
+      min: gradeScale?.min ?? 1,
+      max: gradeScale?.max ?? 5,
+      step: Number(gradeScaleDraft.step) || 0.1,
+      passingGrade: Number(gradeScaleDraft.passingGrade) || 3,
+    }),
+    [gradeScale, gradeScaleDraft]
+  );
+
+  const gradeScalePreview = useMemo(() => {
+    const grades = listAllowedGrades(gradeScalePreviewScale);
+    if (grades.length === 0) return '';
+    const label = (value: number) => formatGrade(value, '', gradeScalePreviewScale);
+    if (grades.length <= 8) return grades.map(label).join(', ');
+    return `${label(grades[0])}, ${label(grades[1])}, ${label(grades[2])} … ${label(grades[grades.length - 1])}`;
+  }, [gradeScalePreviewScale]);
+
+  const handleGradeScaleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!gradeScaleDirty) return;
+
+    setGradeScaleSaving(true);
+    setGradeScaleStatus(null);
+    try {
+      const updated = await updateGradeScaleSetting({
+        min: gradeScale?.min ?? 1,
+        max: gradeScale?.max ?? 5,
+        step: Number(gradeScaleDraft.step),
+        passingGrade: Number(gradeScaleDraft.passingGrade),
+      });
+      setGradeScaleState({ min: updated.min, max: updated.max, step: updated.step, passingGrade: updated.passingGrade });
+      setGradeScaleDraft({ step: String(updated.step), passingGrade: String(updated.passingGrade) });
+      applyGradeScale(updated);
+      setGradeScaleStatus({ type: 'success', message: 'Grading scale updated successfully.' });
+    } catch (err) {
+      setGradeScaleStatus({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Failed to update grading scale setting.',
+      });
+    } finally {
+      setGradeScaleSaving(false);
     }
   };
 
@@ -433,6 +508,76 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
                   disabled={academicTermLoading || academicTermSaving || !academicTermDirty}
                 >
                   {academicTermSaving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </form>
+          ) : null}
+
+          {/* Grading Scale — half width */}
+          {profile?.accountType !== 'professor' ? (
+            <form className="settings-card" onSubmit={handleGradeScaleSubmit}>
+              <div className="settings-card-header">
+                <h4 className="settings-card-header-title">Grading Scale</h4>
+              </div>
+
+              <div className="settings-card-body">
+                {gradeScaleStatus && (
+                  <p className={`settings-status ${gradeScaleStatus.type === 'error' ? 'settings-error' : 'settings-success'}`} role="alert">
+                    {gradeScaleStatus.message}
+                  </p>
+                )}
+                <div className="settings-card-body-grid">
+                  <div className="form-group">
+                    <label htmlFor="gradeScaleStep" className="settings-field-label">Grade Step</label>
+                    <input
+                      id="gradeScaleStep"
+                      name="gradeScaleStep"
+                      type="number"
+                      className="settings-input"
+                      min="0.01"
+                      max="1"
+                      step="any"
+                      inputMode="decimal"
+                      value={gradeScaleDraft.step}
+                      onChange={(event) => setGradeScaleDraft((prev) => ({ ...prev, step: event.target.value }))}
+                      disabled={gradeScaleLoading}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="gradeScalePassing" className="settings-field-label">Passing Grade</label>
+                    <input
+                      id="gradeScalePassing"
+                      name="gradeScalePassing"
+                      type="number"
+                      className="settings-input"
+                      min={gradeScale?.min ?? 1}
+                      max={gradeScale?.max ?? 5}
+                      step="any"
+                      inputMode="decimal"
+                      value={gradeScaleDraft.passingGrade}
+                      onChange={(event) => setGradeScaleDraft((prev) => ({ ...prev, passingGrade: event.target.value }))}
+                      disabled={gradeScaleLoading}
+                      required
+                    />
+                  </div>
+                </div>
+                <p className="settings-card-hint">
+                  Grades: {gradeScalePreview}. A grade of {formatGrade(gradeScalePreviewScale.passingGrade, '', gradeScalePreviewScale)} or better
+                  passes; anything above it fails. Existing recorded grades keep their original values.
+                </p>
+              </div>
+
+              <div className="settings-card-footer">
+                <span className="settings-card-footer-status">
+                  {gradeScaleDirty ? 'Review and save changes' : 'No pending changes'}
+                </span>
+                <button
+                  type="submit"
+                  className="settings-card-save-btn"
+                  disabled={gradeScaleLoading || gradeScaleSaving || !gradeScaleDirty}
+                >
+                  {gradeScaleSaving ? 'Saving...' : 'Save'}
                 </button>
               </div>
             </form>

@@ -32,7 +32,7 @@ const DOCUMENT_FOLDER_SEGMENT_TYPES = ['DOCUMENT_TYPE', 'DEPARTMENT', 'DATE', 'C
 const STUDENT_COURSES = [101, 102, 103, 201];
 const STUDENT_SEMESTERS = ['1st', '2nd', 'Summer'];
 const STUDENT_STATUSES = ['Regular', 'Irregular', 'Dropped', 'Returnee', 'Transferee'];
-const STUDENT_LIFECYCLE_STATUSES = ['Pending', 'Enrolled', 'Not Enrolled', 'Dropped', 'Inactive', 'Graduated'];
+const STUDENT_LIFECYCLE_STATUSES = ['Pending', 'Enrolled', 'Not Enrolled', 'Dropped', 'Irregular', 'Inactive', 'Graduated'];
 const ENROLLMENT_STATUSES = ['Enrolled', 'Not Enrolled', 'On Leave', 'Dropped'];
 const STUDENT_COR_STATUSES = ['Pending', 'Received', 'Verified'];
 const SCHOLARSHIP_OPTIONS = [
@@ -736,9 +736,13 @@ const schemas = {
     create: {
       body: Joi.object({
         ...studentMutationFields
-      }).keys({
+      })      .keys({
+        // Imported records may carry the registrar's existing 12-digit number;
+        // when omitted the model generates the next one.
+        studentNumber: studentNumberSchema.optional(),
         firstName: studentMutationFields.firstName.required(),
         lastName: studentMutationFields.lastName.required(),
+
         course: studentMutationFields.course.required(),
         yearLevel: studentMutationFields.yearLevel.required(),
         semester: studentMutationFields.semester.required(),

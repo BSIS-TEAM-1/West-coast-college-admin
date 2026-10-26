@@ -96,6 +96,38 @@ class AcademicArchiveService {
   }
 
   /**
+   * Group graduate report entries by their course/block label so the report
+   * reads "BEED — Block BEED-1A: 5 graduates" instead of a flat list.
+   */
+  static groupGraduatesByCourseBlock(graduates) {
+    const grouped = new Map();
+    for (const graduate of graduates || []) {
+      const key = `${graduate.courseLabel} — Block ${graduate.blockLabel}`;
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          label: key,
+          course: graduate.course,
+          courseLabel: graduate.courseLabel,
+          block: graduate.block ?? null,
+          blockLabel: graduate.blockLabel,
+          count: 0,
+          students: [],
+        });
+      }
+      const group = grouped.get(key);
+      group.count += 1;
+      group.students.push({
+        studentId: graduate.studentId,
+        studentNumber: graduate.studentNumber,
+        name: graduate.name,
+        latestGrade: graduate.latestGrade ?? null,
+      });
+    }
+    return Array.from(grouped.values()).sort((a, b) =>
+      String(a.courseLabel).localeCompare(String(b.courseLabel)) || String(a.blockLabel).localeCompare(String(b.blockLabel)));
+  }
+
+  /**
    * Build the complete set of archive snapshots for a rollover run.
    */
   static createSnapshotsForRollover({
@@ -105,6 +137,7 @@ class AcademicArchiveService {
     counts,
     blockSnapshotData,
     blocksCreated,
+    graduates = [],
     context,
   }) {
     const { fromSchoolYear, toSchoolYear, targetSemester, adminId, rolloverBatchId } = context;
@@ -141,7 +174,30 @@ class AcademicArchiveService {
         title: `Graduation Report - SY ${fromSchoolYear}`,
         data: {
           schoolYear: fromSchoolYear,
+          newSchoolYear: toSchoolYear,
+          semester: targetSemester,
           students: counts.graduated,
+          // Full graduate roster, every graduate labeled by course and block.
+          graduates: (graduates || []).map((graduate) => ({
+            studentId: graduate.studentId,
+            studentNumber: graduate.studentNumber,
+            name: graduate.name,
+            firstName: graduate.firstName,
+            middleName: graduate.middleName,
+            lastName: graduate.lastName,
+            suffix: graduate.suffix,
+            course: graduate.course,
+            courseLabel: graduate.courseLabel,
+            block: graduate.block ?? null,
+            blockLabel: graduate.blockLabel,
+            label: graduate.label,
+            yearLevel: graduate.yearLevel,
+            schoolYear: graduate.schoolYear,
+            semester: graduate.semester,
+            latestGrade: graduate.latestGrade ?? null,
+          })),
+          // Course/block roll: one group per label with its graduate names.
+          groupedByCourseBlock: this.groupGraduatesByCourseBlock(graduates),
         },
       },
       {

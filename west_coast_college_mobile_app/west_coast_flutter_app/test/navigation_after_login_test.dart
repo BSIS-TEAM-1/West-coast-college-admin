@@ -94,25 +94,25 @@ Future<void> _pumpApp(WidgetTester tester) async {
 Future<void> _login(WidgetTester tester) async {
   await tester.enterText(find.byType(TextFormField).at(0), '202410140200');
   await tester.enterText(find.byType(TextFormField).at(1), 'password123');
-  await tester.tap(find.text('LOG IN'));
+  await tester.tap(find.text('Sign in'));
   await tester.pumpAndSettle();
 }
 
 void main() {
   testWidgets('login lands on dashboard', (WidgetTester tester) async {
     await _pumpApp(tester);
-    expect(find.text('LOG IN'), findsOneWidget);
+    expect(find.text('Sign in'), findsOneWidget);
 
     await _login(tester);
 
     // Dashboard scaffold (app bar title) is shown after login redirect.
-    expect(find.text('WCConnect'), findsWidgets);
+    expect(find.text('WccPortal'), findsWidgets);
   });
 
   testWidgets('bottom nav reaches every destination after login', (WidgetTester tester) async {
     await _pumpApp(tester);
     await _login(tester);
-    expect(find.text('WCConnect'), findsWidgets);
+    expect(find.text('WccPortal'), findsWidgets);
 
     // Regression test: the '/' parent route redirect used to bounce every
     // in-app navigation back to /dashboard, making the bottom nav appear
@@ -136,6 +136,6 @@ void main() {
     // And back home.
     await tester.tap(find.byIcon(Icons.home_outlined));
     await tester.pumpAndSettle();
-    expect(find.widgetWithText(AppBar, 'WCConnect'), findsOneWidget);
+    expect(find.widgetWithText(AppBar, 'WccPortal'), findsOneWidget);
   });
 }

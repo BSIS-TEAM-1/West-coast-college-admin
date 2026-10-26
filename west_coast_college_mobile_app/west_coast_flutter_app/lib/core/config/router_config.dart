@@ -37,23 +37,60 @@ class _GoRouterRefreshNotifier extends ChangeNotifier {
   }
 }
 
+/// Fade-through + slight rise: the mobile-standard page transition that
+/// respects both light and dark themes. Uses a single implicit-style tween
+/// on opacity and translateY, so it stays cheap even on low-end devices.
+CustomTransitionPage<void> _fadeThroughPage({
+  required Widget child,
+  required GoRouterState state,
+}) {
+  return CustomTransitionPage(
+    key: state.pageKey,
+    child: child,
+    transitionDuration: const Duration(milliseconds: 320),
+    reverseTransitionDuration: const Duration(milliseconds: 260),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+      return FadeTransition(
+        opacity: Tween<double>(begin: 0, end: 1).animate(curved),
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.035),
+            end: Offset.zero,
+          ).animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
+}
+
 final routerProvider = Provider<GoRouter>((ref) {
   final refreshNotifier = _GoRouterRefreshNotifier(ref);
   ref.onDispose(refreshNotifier.dispose);
 
   return GoRouter(
-    initialLocation: '/login',
+    // The splash route is the genuine initialization screen: it is shown only
+    // while AuthController restores the session from Secure Storage, then the
+    // redirect below sends the student to /dashboard or /login.
+    initialLocation: '/splash',
     refreshListenable: refreshNotifier,
     routes: [
       GoRoute(
         path: '/splash',
         name: AppRoute.splash.name,
-        builder: (context, state) => const AppSplashPage(),
+        pageBuilder: (context, state) => _fadeThroughPage(
+          child: const AppSplashPage(),
+          state: state,
+        ),
       ),
       GoRoute(
         path: '/login',
         name: AppRoute.login.name,
-        builder: (context, state) => const LoginPage(),
+        pageBuilder: (context, state) => _fadeThroughPage(
+          child: const LoginPage(),
+          state: state,
+        ),
       ),
       GoRoute(
         path: '/',
@@ -64,6 +101,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           // so matchedLocation is '/' for every sub-route navigation.
           if (state.uri.path != '/') return null;
           final authState = ref.read(authControllerProvider);
+          // While the session is still being restored the splash screen is
+          // the initialization view for any entry point.
+          if (authState.status == AuthStatus.checking) {
+            return '/splash';
+          }
           if (authState.status == AuthStatus.authenticated) {
             return '/dashboard';
           }
@@ -73,32 +115,50 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: 'dashboard',
             name: AppRoute.dashboard.name,
-            builder: (context, state) => const DashboardPage(),
+            pageBuilder: (context, state) => _fadeThroughPage(
+              child: const DashboardPage(),
+              state: state,
+            ),
           ),
           GoRoute(
             path: 'schedule',
             name: AppRoute.schedule.name,
-            builder: (context, state) => const SchedulePage(),
+            pageBuilder: (context, state) => _fadeThroughPage(
+              child: const SchedulePage(),
+              state: state,
+            ),
           ),
           GoRoute(
             path: 'grades',
             name: AppRoute.grades.name,
-            builder: (context, state) => const GradesPage(),
+            pageBuilder: (context, state) => _fadeThroughPage(
+              child: const GradesPage(),
+              state: state,
+            ),
           ),
           GoRoute(
             path: 'announcements',
             name: AppRoute.announcements.name,
-            builder: (context, state) => const AnnouncementsPage(),
+            pageBuilder: (context, state) => _fadeThroughPage(
+              child: const AnnouncementsPage(),
+              state: state,
+            ),
           ),
           GoRoute(
             path: 'profile',
             name: AppRoute.profile.name,
-            builder: (context, state) => const ProfilePage(),
+            pageBuilder: (context, state) => _fadeThroughPage(
+              child: const ProfilePage(),
+              state: state,
+            ),
           ),
           GoRoute(
             path: 'settings',
             name: AppRoute.settings.name,
-            builder: (context, state) => const SettingsPage(),
+            pageBuilder: (context, state) => _fadeThroughPage(
+              child: const SettingsPage(),
+              state: state,
+            ),
           ),
         ],
       ),
@@ -107,14 +167,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       final authState = ref.read(authControllerProvider);
       final isAuthRoute = _authRoutes.contains(state.matchedLocation);
 
-      // Still checking Secure Storage — stay on login if already there,
-      // otherwise go to login (not splash).
+      // Still checking Secure Storage — the splash screen is the loading
+      // surface for every entry point while initialization is running.
       if (authState.status == AuthStatus.checking) {
-        return state.matchedLocation == '/login' ? null : '/login';
+        return state.matchedLocation == '/splash' ? null : '/splash';
       }
 
-      if (authState.status == AuthStatus.unauthenticated && !isAuthRoute) {
-        return '/login';
+      if (authState.status == AuthStatus.unauthenticated) {
+        return state.matchedLocation == '/login' ? null : '/login';
       }
 
       if (authState.status == AuthStatus.authenticated && isAuthRoute) {

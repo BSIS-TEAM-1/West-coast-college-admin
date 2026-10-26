@@ -39,6 +39,13 @@ const rolloverBatchSchema = new mongoose.Schema({
     enum: ['1st', '2nd', 'Summer'],
     required: true,
   },
+  // 'year' = school-year rollover (year levels promoted).
+  // 'semester' = same-school-year semester rollover ("sem promote").
+  mode: {
+    type: String,
+    enum: ['year', 'semester'],
+    default: 'year',
+  },
   status: {
     type: String,
     enum: ['applied', 'reverted'],

@@ -61,6 +61,7 @@ class EnrollmentManagementController {
   /**
    * GET /api/registrar/curriculum-suggestions
    * The subjects the student's curriculum expects for a year level + semester.
+   * For irregular students, also includes subjects from all curriculum semesters.
    */
   static async getSuggestedSubjects(req, res) {
     try {
@@ -68,6 +69,8 @@ class EnrollmentManagementController {
       const yearLevel = Number(req.query.yearLevel);
       const semester = String(req.query.semester || '').trim();
       const curriculumVersion = String(req.query.curriculumVersion || '').trim() || null;
+      const studentId = String(req.query.studentId || '').trim() || null;
+      const isIrregular = String(req.query.isIrregular || 'false').toLowerCase() === 'true';
 
       if (!Number.isFinite(programCode) || !Number.isFinite(yearLevel)) {
         return res.status(400).json({
@@ -87,6 +90,8 @@ class EnrollmentManagementController {
         yearLevel,
         semester,
         curriculumVersion,
+        studentId,
+        isIrregular,
       });
 
       res.json({ success: true, data: result });
@@ -232,12 +237,29 @@ class EnrollmentManagementController {
       }
 
       const { subjectId, schoolYear, semester } = req.body || {};
+      
       if (!subjectId || !schoolYear || !semester) {
         return res.status(400).json({
           success: false,
           message: 'subjectId, schoolYear, and semester are required',
         });
       }
+      
+      // Handle if subjectId is an object (extract _id if present)
+      let normalizedSubjectId = subjectId;
+      if (typeof subjectId === 'object' && subjectId !== null) {
+        normalizedSubjectId = subjectId._id || subjectId.subjectId;
+      }
+      
+      if (!normalizedSubjectId) {
+        return res.status(400).json({
+          success: false,
+          message: 'subjectId is required and must be a valid identifier',
+        });
+      }
+      
+      normalizedSubjectId = String(normalizedSubjectId);
+      
       if (!SCHOOL_YEAR_PATTERN.test(String(schoolYear))) {
         return res.status(400).json({ success: false, message: 'schoolYear must be in YYYY-YYYY format' });
       }
@@ -247,7 +269,7 @@ class EnrollmentManagementController {
 
       const outcome = await subjectEnrollmentService.retakeSubject({
         student,
-        subjectId,
+        subjectId: normalizedSubjectId,
         schoolYear,
         semester,
         actorId: req.adminId,

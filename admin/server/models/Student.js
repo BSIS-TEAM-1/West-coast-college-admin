@@ -420,21 +420,16 @@ studentSchema.methods.comparePassword = async function(candidatePassword) {
 
 // Method to generate default password
 studentSchema.methods.generateDefaultPassword = function() {
-  const firstName = this.firstName || '';
-  const middleName = this.middleName || '';
-  const lastName = this.lastName || '';
-  const studentNumber = this.studentNumber || '';
-  
-  // Get first letter of each name part (lowercase)
-  const firstInitial = firstName.charAt(0).toLowerCase();
-  const middleInitial = middleName.charAt(0).toLowerCase();
-  const lastInitial = lastName.charAt(0).toLowerCase();
-  
-  // Get last 4 digits of student number
-  const lastFourDigits = studentNumber.slice(-4);
-  
-  // Format: first + middle + last initials + last 4 digits
-  return `${firstInitial}${middleInitial}${lastInitial}${lastFourDigits}`;
+  // Delegate to the system's canonical format (initials + last 5 digits of the
+  // student number) so the login fallback, the Add Student flow, and the
+  // addStudentPasswords migration all agree on one credential format.
+  const StudentPasswordService = require('../services/studentPasswordService');
+  return StudentPasswordService.generateDefaultPassword({
+    firstName: this.firstName,
+    middleName: this.middleName,
+    lastName: this.lastName,
+    studentNumber: this.studentNumber,
+  });
 };
 
 const Student = mongoose.model('Student', studentSchema);

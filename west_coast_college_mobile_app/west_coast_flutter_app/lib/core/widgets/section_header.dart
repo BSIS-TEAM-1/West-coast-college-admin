@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../theme/app_dimensions.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/theme_colors.dart';
 
@@ -24,16 +23,38 @@ class SectionHeader extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(title, style: AppTextStyles.headlineSmall.copyWith(color: colors.textBold)),
+        Expanded(
+          child: Text(title, style: AppTextStyles.headlineSmall.copyWith(color: colors.textBold)),
+        ),
         if (actionLabel != null)
-          TextButton(
-            onPressed: onAction,
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: AppDimensions.sm),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          // Small navy pill with a gold chevron — a real, tappable button
+          // that still reads as a restrained highlight.
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: colors.primarySubtle,
+              borderRadius: BorderRadius.circular(999),
             ),
-            child: Text(actionLabel!, style: AppTextStyles.link.copyWith(color: colors.gold)),
+            child: InkWell(
+              onTap: onAction,
+              borderRadius: BorderRadius.circular(999),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      actionLabel!,
+                      style: AppTextStyles.labelSmall.copyWith(
+                        color: colors.textBold,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(Icons.arrow_forward_ios_rounded, size: 10, color: colors.gold),
+                  ],
+                ),
+              ),
+            ),
           ),
       ],
     );

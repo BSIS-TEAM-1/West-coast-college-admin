@@ -41,18 +41,28 @@ function formatSchoolYearFromStartYear(value) {
  * Prefers isCurrent=true with status Enrolled or Pending.
  * Falls back to the most recent enrollment matching schoolYear/semester.
  */
-async function findActiveEnrollment(studentId, schoolYear, semester) {
+async function findActiveEnrollment(studentId, schoolYear, semester, session = null) {
+  const scoped = (query) => (session ? query.session(session) : query);
+
   let query = { studentId, isCurrent: true, status: { $in: ['Enrolled', 'Pending'] } };
   if (schoolYear) query.schoolYear = schoolYear;
   if (semester) query.semester = semester;
 
-  let enrollment = await Enrollment.findOne(query).lean();
+  // Inside a transaction this MUST read through the session: a shift drops the
+  // old enrollment and updates the student in the same transaction, and a
+  // non-session read would still see the pre-shift, old-program enrollment.
+  let enrollment = await scoped(Enrollment.findOne(query)).lean();
   if (enrollment) return enrollment;
 
-  query = { studentId };
+  // Fallback: newest enrollment for the term. Dropped/Cancelled records are
+  // skipped — they are deliberately "unusable" (see BlockController's
+  // assignment path) and must not decide the student's program. Without this a
+  // program shift would leave the picker pinned to the old program through the
+  // closed enrollment.
+  query = { studentId, status: { $nin: ['Dropped', 'Cancelled'] } };
   if (schoolYear) query.schoolYear = schoolYear;
   if (semester) query.semester = semester;
-  enrollment = await Enrollment.findOne(query).sort({ createdAt: -1 }).lean();
+  enrollment = await scoped(Enrollment.findOne(query)).sort({ createdAt: -1 }).lean();
   return enrollment;
 }
 
