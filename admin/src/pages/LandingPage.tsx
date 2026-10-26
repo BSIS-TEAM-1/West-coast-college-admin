@@ -1064,12 +1064,6 @@ export default function LandingPage({
 
             <div className="landing-apply-modal-footer-links">
               <p>
-                New applicant?{' '}
-                <a href="mailto:westcoastcollegeregistrar@gmail.com?subject=New%20Applicant%20Registration%20Inquiry">
-                  Register here
-                </a>
-              </p>
-              <p>
                 Need assistance?{' '}
                 <a href="mailto:westcoastcollegeregistrar@gmail.com?subject=Software%20Support%20Inquiry%20-%20West%20Coast%20College">
                   Contact Software Support

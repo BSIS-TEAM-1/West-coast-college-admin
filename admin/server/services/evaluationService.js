@@ -231,7 +231,7 @@ function resolveSubjectProfessor(subject, student, professorLookup) {
   };
 }
 
-async function getStudentTermEvaluationStatus(student, enrollment, preloadedLookup = null) {
+async function getStudentTermEvaluationStatus(student, enrollment, preloadedLookup = null, preloadedCompletions = null) {
   if (!student || !enrollment) {
     return {
       requiredCount: 0,
@@ -250,18 +250,20 @@ async function getStudentTermEvaluationStatus(student, enrollment, preloadedLook
     (subj) => ['Enrolled', 'Incomplete', 'Completed'].includes(subj.status || 'Enrolled')
   );
 
-  const [completions, period] = await Promise.all([
-    EvaluationCompletion.find({
-      studentId: student._id,
-      semester: enrollment.semester,
-      schoolYear: enrollment.schoolYear
-    }).lean(),
-    ensurePeriodForTerm(enrollment.semester, enrollment.schoolYear, Boolean(enrollment.isCurrent))
-  ]);
+  // Use preloaded completions if provided (for immediate consistency after submission)
+  // Otherwise query from database
+  const completions = preloadedCompletions || await EvaluationCompletion.find({
+    studentId: student._id,
+    semester: enrollment.semester,
+    schoolYear: enrollment.schoolYear
+  }).lean();
+
+  const period = await ensurePeriodForTerm(enrollment.semester, enrollment.schoolYear, Boolean(enrollment.isCurrent));
 
   const completionByCode = new Map();
   for (const comp of completions) {
-    completionByCode.set(String(comp.subjectCode || '').trim().toUpperCase(), comp);
+    const code = String(comp.subjectCode || '').trim().toUpperCase();
+    completionByCode.set(code, comp);
   }
 
   const subjectsByCode = new Map();
@@ -274,6 +276,9 @@ async function getStudentTermEvaluationStatus(student, enrollment, preloadedLook
     const completion = completionByCode.get(code) || null;
     const isCompleted = Boolean(completion);
     const canEvaluate = !isCompleted && Boolean(period?.isOpen);
+
+    // Debug logging
+    console.log(`[Evaluation Status] Student: ${student.studentNumber}, Subject: ${code}, Completed: ${isCompleted}, Prof: ${prof.professorName}`);
 
     const item = {
       enrollmentId: String(enrollment._id),

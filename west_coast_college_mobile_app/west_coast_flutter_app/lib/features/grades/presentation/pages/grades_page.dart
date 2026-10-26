@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/animations/entrance.dart';
+import '../../../../core/services/notification_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_dimensions.dart';
 import '../../../../core/theme/app_text_styles.dart';
@@ -604,6 +605,7 @@ class _ProfessorEvaluationSheetState extends ConsumerState<_ProfessorEvaluationS
   bool _submitting = false;
   String? _errorMessage;
   bool _submitted = false;
+  final NotificationService _notificationService = NotificationService();
 
   @override
   void dispose() {
@@ -651,6 +653,13 @@ class _ProfessorEvaluationSheetState extends ConsumerState<_ProfessorEvaluationS
             ratings: ratingsPayload,
             comment: _commentController.text.trim(),
           );
+
+      // Show notification for successful evaluation submission
+      await _notificationService.showEvaluationReminder(
+        subjectCode: widget.entry.subjectCode,
+        professorName: widget.entry.professorName,
+        deadline: widget.period.evaluationDeadlineDate ?? 'TBA',
+      );
 
       if (mounted) {
         setState(() {

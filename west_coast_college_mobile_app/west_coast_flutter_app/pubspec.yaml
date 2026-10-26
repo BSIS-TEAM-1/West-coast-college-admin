@@ -71,6 +71,10 @@ dependencies:
   # Biometric Authentication
   local_auth: ^2.1.8
 
+  # Local Notifications
+  flutter_local_notifications: ^17.2.2
+  timezone: ^0.9.4
+
 dependency_overrides:
   # path_provider_android 2.3.x ships a JNI-generated path_provider.g.dart
   # whose dart:ffi references (Pointer, Void, NativeFunction, VarArgs,

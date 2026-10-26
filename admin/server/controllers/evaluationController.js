@@ -357,6 +357,7 @@ class EvaluationController {
       });
 
       // 7. Record completion separately (rollback response if duplicate race occurs)
+      let newCompletion = null;
       try {
         const fullName = [student.lastName, student.firstName, student.middleName, student.suffix]
           .filter(Boolean)
@@ -364,7 +365,7 @@ class EvaluationController {
           .replace(', ,', ',')
           .trim() || student.studentNumber;
 
-        await EvaluationCompletion.create({
+        newCompletion = await EvaluationCompletion.create({
           studentId: student._id,
           studentNumber: String(student.studentNumber || ''),
           studentName: fullName,
@@ -396,7 +397,18 @@ class EvaluationController {
         throw completionError;
       }
 
-      const updatedStatus = await getStudentTermEvaluationStatus(student, matchedEnrollment, professorLookup);
+      // Fetch existing completions excluding the newly created one to avoid duplicates
+      const existingCompletions = await EvaluationCompletion.find({
+        studentId: student._id,
+        semester,
+        schoolYear,
+        _id: { $ne: newCompletion._id }
+      }).lean();
+
+      // Combine existing completions with the newly created one for immediate consistency
+      const allCompletions = [...existingCompletions, newCompletion.toObject()];
+
+      const updatedStatus = await getStudentTermEvaluationStatus(student, matchedEnrollment, professorLookup, allCompletions);
 
       return res.status(201).json({
         success: true,

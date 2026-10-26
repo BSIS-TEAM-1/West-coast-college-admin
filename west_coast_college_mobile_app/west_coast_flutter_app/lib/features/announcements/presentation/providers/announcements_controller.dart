@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/errors/failure.dart';
+import '../../../../core/services/notification_service.dart';
 import '../../domain/entities/announcement_entities.dart';
 import '../../domain/usecases/get_announcements_usecase.dart';
 import 'announcements_providers.dart';
@@ -32,11 +33,14 @@ class AnnouncementsFailed extends AnnouncementsState {
 
 class AnnouncementsController extends StateNotifier<AnnouncementsState> {
   final GetAnnouncementsUseCase _getAnnouncements;
+  final NotificationService _notificationService;
   int _offset = 0;
   static const int _pageSize = 20;
   bool _disposed = false;
+  final Set<String> _seenAnnouncementIds = {};
 
-  AnnouncementsController(this._getAnnouncements) : super(const AnnouncementsLoading()) {
+  AnnouncementsController(this._getAnnouncements, this._notificationService)
+      : super(const AnnouncementsLoading()) {
     load();
   }
 
@@ -106,6 +110,19 @@ class AnnouncementsController extends StateNotifier<AnnouncementsState> {
       }
       if (!_disposed) {
         state = AnnouncementsLoaded(items: result.items, hasMore: result.hasMore);
+
+        // Show notifications for new announcements (only on initial load or refresh)
+        if (reset) {
+          for (final announcement in result.items) {
+            if (!_seenAnnouncementIds.contains(announcement.id)) {
+              await _notificationService.showAnnouncement(
+                title: announcement.title,
+                message: announcement.message,
+              );
+              _seenAnnouncementIds.add(announcement.id);
+            }
+          }
+        }
       }
     } catch (error) {
       if (!_disposed) {
@@ -117,5 +134,8 @@ class AnnouncementsController extends StateNotifier<AnnouncementsState> {
 
 final announcementsControllerProvider =
     StateNotifierProvider.autoDispose<AnnouncementsController, AnnouncementsState>((ref) {
-  return AnnouncementsController(ref.watch(getAnnouncementsUseCaseProvider));
+  return AnnouncementsController(
+    ref.watch(getAnnouncementsUseCaseProvider),
+    NotificationService(),
+  );
 });
