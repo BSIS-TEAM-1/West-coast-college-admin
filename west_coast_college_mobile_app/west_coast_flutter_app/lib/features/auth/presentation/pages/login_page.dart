@@ -124,12 +124,19 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           const SizedBox(height: AppDimensions.xs),
           TextFormField(
             controller: _studentNumberController,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+            cursorColor: colors.primary,
             keyboardType: TextInputType.text,
             textInputAction: TextInputAction.next,
             autofillHints: const [AutofillHints.username],
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               hintText: 'Enter your student number',
-              prefixIcon: Icon(Icons.badge_outlined),
+              hintStyle: TextStyle(color: colors.textMuted),
+              prefixIcon: Icon(Icons.badge_outlined, color: colors.textMuted),
             ),
             validator: (value) => value == null || value.trim().isEmpty
                 ? 'Enter your student number.'
@@ -145,17 +152,25 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           const SizedBox(height: AppDimensions.xs),
           TextFormField(
             controller: _passwordController,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+            cursorColor: colors.primary,
             obscureText: _obscurePassword,
             textInputAction: TextInputAction.done,
             autofillHints: const [AutofillHints.password],
             decoration: InputDecoration(
               hintText: 'Enter your password',
-              prefixIcon: const Icon(Icons.lock_outline),
+              hintStyle: TextStyle(color: colors.textMuted),
+              prefixIcon: Icon(Icons.lock_outline, color: colors.textMuted),
               suffixIcon: IconButton(
                 icon: Icon(
                   _obscurePassword
                       ? Icons.visibility_outlined
                       : Icons.visibility_off_outlined,
+                  color: colors.textMuted,
                 ),
                 onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
               ),
@@ -175,59 +190,66 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     );
   }
 
-  /// Raised gradient sign-in button with a press "dip" (PressableScale).
+  /// Raised collegiate gold sign-in button matching the WCC theme.
   Widget _gradientSignInButton(AuthState authState) {
+    const goldTop = Color(0xFFE5C378);
+    const goldBottom = AppColors.gold; // Color(0xFFD6AF52)
+    const navy = AppColors.primary;    // Color(0xFF07152F)
+
     return PressableScale(
       onTap: authState.isSubmitting ? null : _submit,
       pressScale: .97,
-      child: Ink(
+      child: Container(
         height: AppDimensions.buttonHeightLarge,
         decoration: BoxDecoration(
+          color: goldBottom,
           gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [AppColors.primaryHover, AppColors.primary],
+            colors: [goldTop, goldBottom],
           ),
           borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
-          border: Border.all(color: Colors.white.withValues(alpha: .1)),
+          border: Border.all(
+            color: const Color(0xFFBE9332).withValues(alpha: .5),
+            width: 1.2,
+          ),
           boxShadow: [
             BoxShadow(
-              color: AppColors.shadow.withValues(alpha: .3),
-              blurRadius: 12,
-              offset: const Offset(0, 5),
-            ),
-            BoxShadow(
-              color: Colors.white.withValues(alpha: .05),
-              blurRadius: 2,
-              offset: const Offset(-2, -2),
+              color: AppColors.gold.withValues(alpha: .32),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
-          onTap: authState.isSubmitting ? null : _submit,
-          child: Center(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
-              child: authState.isSubmitting
-                  ? const SizedBox(
-                      key: ValueKey('spinner'),
-                      width: AppDimensions.progressIndicatorSize,
-                      height: AppDimensions.progressIndicatorSize,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.4,
-                        color: Colors.white,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+            onTap: authState.isSubmitting ? null : _submit,
+            child: Center(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                child: authState.isSubmitting
+                    ? const SizedBox(
+                        key: ValueKey('spinner'),
+                        width: AppDimensions.progressIndicatorSize,
+                        height: AppDimensions.progressIndicatorSize,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.4,
+                          color: navy,
+                        ),
+                      )
+                    : const Text(
+                        'Sign in',
+                        key: ValueKey('label'),
+                        style: TextStyle(
+                          fontSize: _buttonFontSize,
+                          fontWeight: FontWeight.w800,
+                          color: navy,
+                          letterSpacing: 0.3,
+                        ),
                       ),
-                    )
-                  : const Text(
-                      'Sign in',
-                      key: ValueKey('label'),
-                      style: TextStyle(
-                        fontSize: _buttonFontSize,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
+              ),
             ),
           ),
         ),
@@ -623,6 +645,12 @@ class _GoogleSignInDialogState extends State<_GoogleSignInDialog> {
                     const SizedBox(height: AppDimensions.xs),
                     TextField(
                       controller: _emailController,
+                      style: TextStyle(
+                        color: colors.textPrimary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      cursorColor: colors.primary,
                       enabled: !_submitting,
                       autofocus: true,
                       keyboardType: TextInputType.emailAddress,
@@ -634,9 +662,10 @@ class _GoogleSignInDialogState extends State<_GoogleSignInDialog> {
                         }
                       },
                       onSubmitted: (_) => _submit(),
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         hintText: 'your.email@gmail.com',
-                        prefixIcon: Icon(Icons.alternate_email_rounded),
+                        hintStyle: TextStyle(color: colors.textMuted),
+                        prefixIcon: Icon(Icons.alternate_email_rounded, color: colors.textMuted),
                       ),
                     ),
                     const SizedBox(height: AppDimensions.lg),
@@ -657,9 +686,12 @@ class _GoogleSignInDialogState extends State<_GoogleSignInDialog> {
                                 ),
                               ),
                             ),
-                            child: const Text(
+                            child: Text(
                               'Cancel',
-                              style: TextStyle(fontWeight: FontWeight.w700),
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: colors.textSecondary,
+                              ),
                             ),
                           ),
                         ),

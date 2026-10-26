@@ -22,6 +22,7 @@ const PDFDocument = require('pdfkit');
 const QRCode = require('qrcode');
 
 const DEFAULT_LOGO_PATH = path.join(__dirname, '../../public/logo-header.jpg');
+const DEFAULT_QR_IMAGE_PATH = path.join(__dirname, '../../public/WccPortal-Downloadlink.png');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -568,9 +569,15 @@ function drawFooter(doc, data, qrMatrix) {
   const qrColX = width - margin - QR.columnWidth;
   const qrX = qrColX + (QR.columnWidth - QR.size) / 2;
   const qrY = top + 8; // 8pt above symbol = quiet zone
-  drawQrVector(doc, qrMatrix, qrX, qrY, QR.size);
 
-  const moduleSize = QR.size / qrMatrix.size;
+  const qrImagePath = data.qrImagePath || DEFAULT_QR_IMAGE_PATH;
+  if (fs.existsSync(qrImagePath)) {
+    doc.image(qrImagePath, qrX, qrY, { width: QR.size, height: QR.size });
+  } else if (qrMatrix) {
+    drawQrVector(doc, qrMatrix, qrX, qrY, QR.size);
+  }
+
+  const moduleSize = qrMatrix ? QR.size / qrMatrix.size : 2.5;
   const labelY = qrY + QR.size + moduleSize * QR.quietZoneModules + 1; // stay outside the quiet zone
   doc.fillColor(COLORS.muted);
   setFont(doc, FONT.regular, 6.5);
@@ -678,7 +685,8 @@ class CorPdfService {
     return new Promise((resolve, reject) => {
       try {
         // Build QR first: if it fails we reject before any PDF work is done.
-        const qrMatrix = buildQrMatrix(data.qrUrl);
+        const qrUrl = data.qrUrl || 'https://west-coast-college-admin-production.up.railway.app/download-apk';
+        const qrMatrix = buildQrMatrix(qrUrl);
 
         const doc = new PDFDocument({
           size: 'LETTER',

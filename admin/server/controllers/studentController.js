@@ -3019,7 +3019,8 @@ class StudentController {
       registrationNumber: await StudentController.ensureRegistrationNumber(student),
       issuedDate: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
       registrarName,
-      qrUrl: `${appBaseUrl}/download-apk`,
+      qrUrl: process.env.APP_DOWNLOAD_URL || 'https://west-coast-college-admin-production.up.railway.app/download-apk',
+      qrImagePath: path.join(__dirname, '../../public/WccPortal-Downloadlink.png'),
       student: {
         number: h.formatStudentNumber(student.studentNumber, courseCode),
         name: [student.firstName, student.middleName, student.lastName, student.suffix]

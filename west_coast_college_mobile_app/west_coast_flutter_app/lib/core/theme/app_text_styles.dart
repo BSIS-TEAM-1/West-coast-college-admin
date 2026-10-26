@@ -99,7 +99,6 @@ class AppTextStyles {
   static const TextStyle button = TextStyle(
     fontSize: 14,
     fontWeight: FontWeight.w500,
-    color: AppColors.onPrimary,
   );
   
   // Caption (Matching Admin System small text)

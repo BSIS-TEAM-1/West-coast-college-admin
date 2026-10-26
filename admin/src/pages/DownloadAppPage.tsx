@@ -18,7 +18,7 @@ type ApkMetadata = {
 const DEFAULT_METADATA: ApkMetadata = {
   available: true,
   fileName: 'WCConnect-arm64.apk',
-  fileSize: '~21 MB',
+  fileSize: '~21.7 MB',
   appVersion: '1.0.0+1',
   architecture: 'arm64-v8a',
   downloadUrl: '/download-apk/file'
