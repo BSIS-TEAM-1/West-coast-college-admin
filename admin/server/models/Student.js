@@ -293,6 +293,13 @@ const studentSchema = new Schema({
   passwordResetExpires: {
     type: Date
   },
+  passwordResetAttempts: {
+    type: Number,
+    default: 0
+  },
+  passwordResetSentAt: {
+    type: Date
+  },
 
   // Profile Picture (uploadable by student; can be updated)
   profilePicture: {

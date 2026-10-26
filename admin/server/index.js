@@ -4051,91 +4051,322 @@ app.get('/api/student/schedule/weekly', studentAuthMiddleware, async (req, res) 
   }
 })
 
-// PUT /api/student/settings
-app.put('/api/student/settings', async (req, res) => {
-  try {
-    const auth = req.headers.authorization
-    const token = auth && auth.startsWith('Bearer ') ? auth.slice(7) : null
+// ─── Student forgot-password (email OTP) ───────────────────────────────────
+const STUDENT_RESET_CODE_TTL_MINUTES = 10
+const STUDENT_RESET_RESEND_COOLDOWN_MS = 60 * 1000
+const STUDENT_RESET_MAX_ATTEMPTS = 5
 
-    if (!token) {
-      return res.status(401).json({ error: 'Unauthorized.' })
+function hashStudentResetSecret(value) {
+  return crypto.createHmac('sha256', JWT_SECRET).update(String(value || '')).digest('hex')
+}
+
+async function findStudentForPasswordReset(identifier) {
+  const normalized = String(identifier || '').trim().toLowerCase()
+  if (!normalized) return null
+  const conditions = isValidEmailAddress(normalized)
+    ? [{ email: normalized }, { googleEmail: normalized }]
+    : [{ studentNumber: String(identifier).trim() }]
+  return Student.findOne({ isActive: true, $or: conditions })
+}
+
+// POST /api/student/forgot-password  { identifier }  (student number or email)
+// Always answers with the same generic message so it can't be used to probe
+// which student numbers / emails exist.
+app.post('/api/student/forgot-password', authLimiter, async (req, res) => {
+  const genericResponse = {
+    success: true,
+    message: 'If an account matches, a 6-digit code has been sent to its email address. If you do not receive it, contact the Registrar\'s Office.'
+  }
+
+  try {
+    const identifier = req.body?.identifier ?? req.body?.studentNumber ?? req.body?.email
+    if (!String(identifier || '').trim()) {
+      return res.status(400).json({ error: 'Enter your student number or email.' })
     }
+
+    const student = await findStudentForPasswordReset(identifier)
+    const recipient = student ? String(student.email || student.googleEmail || '').trim().toLowerCase() : ''
+    if (!student || !isValidEmailAddress(recipient)) {
+      return res.json(genericResponse)
+    }
+
+    if (
+      student.passwordResetSentAt &&
+      Date.now() - new Date(student.passwordResetSentAt).getTime() < STUDENT_RESET_RESEND_COOLDOWN_MS
+    ) {
+      // Still inside the resend cooldown: answer generically (no existence leak).
+      return res.json(genericResponse)
+    }
+
+    if (!verificationEmailService.isConfigured()) {
+      return res.status(503).json({ error: 'Email service is unavailable. Please try again later.' })
+    }
+
+    const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0')
+    student.passwordResetToken = hashStudentResetSecret(`otp:${student._id}:${code}`)
+    student.passwordResetExpires = new Date(Date.now() + STUDENT_RESET_CODE_TTL_MINUTES * 60 * 1000)
+    student.passwordResetAttempts = 0
+    student.passwordResetSentAt = new Date()
+    await student.save()
 
     try {
-      const decoded = jwt.verify(token, JWT_SECRET)
-      
-      if (decoded.type !== 'student') {
-        return res.status(401).json({ error: 'Invalid token type.' })
-      }
-
-      const student = await Student.findById(decoded.sub)
-      if (!student || !student.isActive) {
-        return res.status(404).json({ error: 'Student not found.' })
-      }
-
-      const { googleEmail, unlinkGoogle } = req.body
-
-      if (unlinkGoogle) {
-        student.googleId = null
-        student.googleEmail = null
-        student.googleEmailVerified = false
-        student.googlePicture = null
-      } else if (googleEmail) {
-        // For now, just store the email - OAuth integration would be separate
-        student.googleEmail = googleEmail.toLowerCase().trim()
-        student.googleEmailVerified = false // Would be true after OAuth verification
-      }
-
-      await student.save()
-
-      res.json({
-        success: true,
-        message: 'Settings updated successfully',
-        data: {
-          googleEmail: student.googleEmail,
-          googleEmailVerified: student.googleEmailVerified
-        }
+      await verificationEmailService.sendVerificationCode({
+        to: recipient,
+        code,
+        expiresInMinutes: STUDENT_RESET_CODE_TTL_MINUTES,
+        displayName: student.firstName || 'Student',
+        subject: 'Reset your West Coast College password',
+        purposeText: 'password reset code'
       })
-    } catch (jwtError) {
-      return res.status(401).json({ error: 'Invalid or expired token.' })
+    } catch (mailError) {
+      console.error('Student password reset email failed:', mailError?.message || mailError)
+      student.passwordResetToken = undefined
+      student.passwordResetExpires = undefined
+      student.passwordResetSentAt = undefined
+      await student.save()
+      return res.status(502).json({ error: 'We could not send the email. Please try again later.' })
     }
+
+    return res.json(genericResponse)
   } catch (error) {
-    console.error('Update student settings error:', error)
-    res.status(500).json({ error: 'Failed to update settings.' })
+    console.error('Student forgot-password error:', error)
+    return res.status(500).json({ error: 'Failed to process request. Please try again.' })
   }
 })
 
-// POST /api/student/google-login (placeholder for future OAuth implementation)
-app.post('/api/student/google-login', async (req, res) => {
+// POST /api/student/verify-reset-code  { identifier, code } -> { resetToken }
+app.post('/api/student/verify-reset-code', authLimiter, async (req, res) => {
   try {
-    const { googleId, email, name, picture } = req.body
-
-    if (!googleId || !email) {
-      return res.status(400).json({ error: 'Google ID and email are required.' })
+    const identifier = req.body?.identifier ?? req.body?.studentNumber ?? req.body?.email
+    const code = String(req.body?.code || '').trim()
+    if (!/^\d{6}$/.test(code)) {
+      return res.status(400).json({ error: 'Enter the 6-digit code.' })
     }
 
-    // Find student by linked Google account
-    let student = await Student.findOne({ 
-      googleId: googleId,
-      isActive: true 
-    })
+    const student = await findStudentForPasswordReset(identifier)
+    const invalid = () => res.status(400).json({ error: 'Invalid or expired code.' })
+    if (!student || !student.passwordResetToken || !student.passwordResetExpires) {
+      return invalid()
+    }
+    if (new Date(student.passwordResetExpires).getTime() < Date.now()) {
+      return res.status(400).json({ error: 'This code has expired. Request a new one.' })
+    }
+    if ((student.passwordResetAttempts || 0) >= STUDENT_RESET_MAX_ATTEMPTS) {
+      student.passwordResetToken = undefined
+      student.passwordResetExpires = undefined
+      await student.save()
+      return res.status(429).json({ error: 'Too many incorrect attempts. Request a new code.' })
+    }
 
-    if (!student) {
-      // Try to find by email if not linked yet
+    const expected = hashStudentResetSecret(`otp:${student._id}:${code}`)
+    const matches =
+      expected.length === student.passwordResetToken.length &&
+      crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(student.passwordResetToken))
+    if (!matches) {
+      student.passwordResetAttempts = (student.passwordResetAttempts || 0) + 1
+      await student.save()
+      return invalid()
+    }
+
+    // Code is consumed: swap it for a single-use reset session.
+    const jti = crypto.randomBytes(16).toString('hex')
+    student.passwordResetToken = hashStudentResetSecret(`jti:${jti}`)
+    student.passwordResetExpires = new Date(Date.now() + STUDENT_RESET_CODE_TTL_MINUTES * 60 * 1000)
+    student.passwordResetAttempts = 0
+    await student.save()
+
+    const resetToken = jwt.sign(
+      { sub: student._id.toString(), type: 'student-password-reset', jti },
+      JWT_SECRET,
+      { expiresIn: `${STUDENT_RESET_CODE_TTL_MINUTES}m` }
+    )
+    return res.json({ success: true, data: { resetToken } })
+  } catch (error) {
+    console.error('Student verify-reset-code error:', error)
+    return res.status(500).json({ error: 'Failed to verify code. Please try again.' })
+  }
+})
+
+// POST /api/student/reset-password  { resetToken, newPassword }
+app.post('/api/student/reset-password', authLimiter, async (req, res) => {
+  try {
+    const { resetToken, newPassword } = req.body || {}
+    if (typeof newPassword !== 'string' || newPassword.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters long.' })
+    }
+
+    let decoded
+    try {
+      decoded = jwt.verify(String(resetToken || ''), JWT_SECRET)
+    } catch (_) {
+      return res.status(400).json({ error: 'Your reset session has expired. Start again.' })
+    }
+    if (decoded.type !== 'student-password-reset') {
+      return res.status(400).json({ error: 'Invalid reset session.' })
+    }
+
+    const student = await Student.findById(decoded.sub)
+    if (
+      !student ||
+      !student.isActive ||
+      !student.passwordResetToken ||
+      student.passwordResetToken !== hashStudentResetSecret(`jti:${decoded.jti}`) ||
+      !student.passwordResetExpires ||
+      new Date(student.passwordResetExpires).getTime() < Date.now()
+    ) {
+      return res.status(400).json({ error: 'Your reset session has expired. Start again.' })
+    }
+
+    student.password = newPassword // hashed by the pre-save hook
+    student.passwordResetToken = undefined
+    student.passwordResetExpires = undefined
+    student.passwordResetAttempts = 0
+    student.passwordResetSentAt = undefined
+    await student.save()
+
+    return res.json({ success: true, message: 'Password updated. You can now sign in.' })
+  } catch (error) {
+    console.error('Student reset-password error:', error)
+    return res.status(500).json({ error: 'Failed to reset password. Please try again.' })
+  }
+})
+
+// GET /api/student/settings
+app.get('/api/student/settings', studentAuthMiddleware, async (req, res) => {
+  try {
+    const student = req.student
+    return res.json({
+      success: true,
+      data: {
+        googleEmail: student.googleEmail || '',
+        googleEmailVerified: Boolean(student.googleEmailVerified)
+      }
+    })
+  } catch (error) {
+    console.error('Get student settings error:', error)
+    return res.status(500).json({ error: 'Failed to load settings.' })
+  }
+})
+
+// PUT /api/student/settings
+app.put('/api/student/settings', studentAuthMiddleware, async (req, res) => {
+  try {
+    const student = req.student
+    const { googleEmail, unlinkGoogle } = req.body
+
+    if (unlinkGoogle) {
+      student.googleId = null
+      student.googleEmail = null
+      student.googleEmailVerified = false
+      student.googlePicture = null
+    } else if (googleEmail !== undefined) {
+      const normalizedEmail = String(googleEmail || '').trim().toLowerCase()
+      if (normalizedEmail) {
+        if (!isValidEmailAddress(normalizedEmail)) {
+          return res.status(400).json({ error: 'Please enter a valid email address.' })
+        }
+        if (student.googleEmail && student.googleEmail !== normalizedEmail) {
+          return res.status(409).json({ error: 'A Google email is already linked. Unlink it before setting a new one.' })
+        }
+        student.googleEmail = normalizedEmail
+        student.googleEmailVerified = true
+        if (!student.googleId) {
+          student.googleId = normalizedEmail
+        }
+      } else {
+        student.googleEmail = null
+        student.googleEmailVerified = false
+      }
+    }
+
+    await student.save()
+
+    return res.json({
+      success: true,
+      message: 'Settings updated successfully',
+      data: {
+        googleEmail: student.googleEmail || '',
+        googleEmailVerified: Boolean(student.googleEmailVerified)
+      }
+    })
+  } catch (error) {
+    console.error('Update student settings error:', error)
+    return res.status(500).json({ error: 'Failed to update settings.' })
+  }
+})
+
+// POST /api/student/google-login
+app.post('/api/student/google-login', async (req, res) => {
+  try {
+    let email = null
+    let googleId = null
+    let name = null
+    let picture = null
+
+    // 1. Try to verify Google ID token (credential) if provided
+    if (req.body.credential) {
+      try {
+        const googleProfile = await verifyGoogleSignInCredential(req.body.credential)
+        email = googleProfile.email
+        googleId = googleProfile.sub
+        name = googleProfile.displayName
+        picture = googleProfile.picture
+      } catch (verifyErr) {
+        console.warn('Google credential verification failed:', verifyErr.message)
+        if (!req.body.email) {
+          return res.status(401).json({ error: verifyErr.message || 'Invalid Google credential.' })
+        }
+      }
+    }
+
+    // 2. Direct fields fallback (e.g. mobile client or fallback testing)
+    if (!email && req.body.email) {
+      email = String(req.body.email || '').trim().toLowerCase()
+      googleId = req.body.googleId ? String(req.body.googleId).trim() : null
+      name = req.body.name ? String(req.body.name).trim() : null
+      picture = req.body.picture ? String(req.body.picture).trim() : null
+    }
+
+    if (!email) {
+      return res.status(400).json({ error: 'Google ID token or verified email is required.' })
+    }
+
+    // 3. Find student by linked Google ID first
+    let student = null
+    if (googleId) {
       student = await Student.findOne({ 
-        email: email.toLowerCase(),
+        googleId: googleId,
         isActive: true 
+      })
+    }
+
+    // 4. If not found by googleId, find by linked googleEmail or primary email
+    if (!student) {
+      student = await Student.findOne({ 
+        isActive: true,
+        $or: [
+          { googleEmail: email },
+          { email: email }
+        ]
       })
 
       if (student) {
-        // Link the Google account
-        student.googleId = googleId
-        student.googleEmail = email.toLowerCase()
+        // Link Google ID and mark verified
+        if (googleId) {
+          student.googleId = googleId
+        }
+        if (!student.googleEmail) {
+          student.googleEmail = email
+        }
         student.googleEmailVerified = true
-        student.googlePicture = picture
+        if (picture && !student.googlePicture) {
+          student.googlePicture = picture
+        }
         await student.save()
       } else {
-        return res.status(404).json({ error: 'No student account found with this email. Please contact the registrar.' })
+        return res.status(404).json({
+          error: 'No student account found with this Google email. Please configure your Google email in Settings or contact the registrar.'
+        })
       }
     }
 
@@ -4154,28 +4385,34 @@ app.post('/api/student/google-login', async (req, res) => {
     student.lastLogin = new Date()
     await student.save()
 
+    const studentData = {
+      id: student._id.toString(),
+      studentNumber: student.studentNumber,
+      firstName: student.firstName,
+      middleName: student.middleName,
+      lastName: student.lastName,
+      suffix: student.suffix,
+      fullName: student.fullName,
+      course: student.course,
+      yearLevel: student.yearLevel,
+      section: student.section,
+      email: student.email,
+      googleEmail: student.googleEmail,
+      googleEmailVerified: student.googleEmailVerified,
+      googlePicture: student.googlePicture
+    }
+
     res.json({
       success: true,
       message: 'Google login successful',
       data: {
         accessToken: token,
         refreshToken: token,
-        student: {
-          id: student._id.toString(),
-          studentNumber: student.studentNumber,
-          firstName: student.firstName,
-          middleName: student.middleName,
-          lastName: student.lastName,
-          suffix: student.suffix,
-          fullName: student.fullName,
-          course: student.course,
-          yearLevel: student.yearLevel,
-          section: student.section,
-          email: student.email,
-          googleEmail: student.googleEmail,
-          googleEmailVerified: student.googleEmailVerified
-        }
-      }
+        student: studentData
+      },
+      accessToken: token,
+      refreshToken: token,
+      student: studentData
     })
   } catch (error) {
     console.error('Student Google login error:', error)

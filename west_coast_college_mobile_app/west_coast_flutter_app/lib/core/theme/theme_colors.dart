@@ -26,6 +26,11 @@ class ThemeColors extends ThemeExtension<ThemeColors> {
   final Color error;
   final Color maintenance;
 
+  /// Brand accent that stays readable on the current surface. [primary] is
+  /// navy in both modes, which disappears on dark surfaces, so links, icons
+  /// and highlights switch to gold there.
+  Color get accent => surface.computeLuminance() < 0.3 ? gold : primary;
+
   const ThemeColors({
     required this.background,
     required this.backgroundSoft,

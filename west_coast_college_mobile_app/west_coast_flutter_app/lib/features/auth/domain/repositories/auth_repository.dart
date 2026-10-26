@@ -25,7 +25,13 @@ abstract class AuthRepository {
   });
 
   /// Logs in with Google and persists the session on success.
-  Future<AuthResult<StudentEntity>> loginWithGoogle();
+  Future<AuthResult<StudentEntity>> loginWithGoogle({
+    required String credential,
+    String? googleId,
+    String? email,
+    String? name,
+    String? picture,
+  });
 
   /// True if a previously-saved session token exists locally.
   Future<bool> hasStoredSession();

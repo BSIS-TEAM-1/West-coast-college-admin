@@ -13,6 +13,7 @@ export interface StudentData {
   semester: string;
   schoolYear: string;
   studentStatus: string;
+  classification?: string;
   lifecycleStatus?: string;
   corStatus?: string;
   scholarship?: string;
@@ -172,7 +173,7 @@ declare class StudentService {
   static getCurrentEnrollment(token: string, id: string, schoolYear: string, semester: string): Promise<ApiResponse<unknown> | null>;
   static getEnrollmentHistory(token: string, id: string): Promise<ApiResponse<unknown>>;
   static send(token: string, path: string, options?: { method?: string; body?: unknown }): Promise<ApiResponse<unknown>>;
-  static getCurriculumSuggestions(token: string, params: { programCode: number | string; yearLevel: number | string; semester: string; curriculumVersion?: string }): Promise<ApiResponse<CurriculumSuggestionsData>>;
+  static getCurriculumSuggestions(token: string, params: { programCode: number | string; yearLevel: number | string; semester: string; curriculumVersion?: string; studentId?: string; isIrregular?: boolean }): Promise<ApiResponse<CurriculumSuggestionsData>>;
   static getAcademicProgress(token: string, studentId: string): Promise<ApiResponse<AcademicProgressData>>;
   static validateEnrollmentSubjects(token: string, enrollmentId: string, subjectIds: string[]): Promise<ApiResponse<SubjectValidationData>>;
   static addEnrollmentSubjects(token: string, enrollmentId: string, subjectIds: string[], overrideReason?: string): Promise<ApiResponse<AddSubjectsData>>;

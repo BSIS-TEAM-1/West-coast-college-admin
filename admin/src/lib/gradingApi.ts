@@ -16,7 +16,6 @@ export interface GradeSubmissionSummary {
   subjectId?: string
   subjectCode?: string
   subjectCodes?: string
-  subjects?: Array<{ subjectId?: string; sectionCode?: string }>
   gradedCount?: number
   totalCount?: number
   professorSubmissionStatus?: GradeSubmissionStatus

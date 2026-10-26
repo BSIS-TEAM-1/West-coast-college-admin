@@ -202,7 +202,7 @@ class VerificationEmailService {
     return this.getProviders().some(({ service }) => typeof service.isConfigured === 'function' && service.isConfigured())
   }
 
-  async sendVerificationCode({ to, code, expiresInMinutes = 10, displayName = '' } = {}) {
+  async sendVerificationCode({ to, code, expiresInMinutes = 10, displayName = '', subject: customSubject = '', purposeText = '' } = {}) {
     const recipientEmail = String(to || '').trim().toLowerCase()
     if (!isValidEmail(recipientEmail)) {
       throw new Error('Invalid recipient email address.')
@@ -220,11 +220,11 @@ class VerificationEmailService {
     const safeDisplayName = escapeHtml(displayName || 'Administrator')
     // Keep the new attachment-free template out of Gmail threads that contain
     // verification messages sent by the legacy Logo.jpg MIME implementation.
-    const subject = 'Your West Coast College security code'
+    const subject = String(customSubject || '').trim() || 'Your West Coast College security code'
     const text = [
       `Hello ${displayName || 'Administrator'},`,
       '',
-      `Your West Coast College verification code is ${verificationCode}.`,
+      `Your West Coast College ${purposeText || 'verification code'} is ${verificationCode}.`,
       `This code expires in ${expiresLabel} minute${expiresLabel === 1 ? '' : 's'}.`,
       '',
       'If you did not request this code, you can ignore this email.'

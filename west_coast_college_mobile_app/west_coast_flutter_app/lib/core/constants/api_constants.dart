@@ -10,6 +10,9 @@ class ApiConstants {
   static const String login = '/student/login';
   static const String logout = '/student/logout';
   static const String refreshToken = '/student/refresh-token';
+  static const String forgotPassword = '/student/forgot-password';
+  static const String verifyResetCode = '/student/verify-reset-code';
+  static const String resetPassword = '/student/reset-password';
   
   // Endpoints - Student Data
   static const String studentMe = '/student/me';

@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../../core/network/api_client.dart';
 
 class SettingsController extends StateNotifier<SettingsState> {
-  SettingsController() : super(const SettingsState()) {
+  final ApiClient? _apiClient;
+
+  SettingsController([this._apiClient]) : super(const SettingsState()) {
     _loadSettings();
   }
 
@@ -14,20 +17,75 @@ class SettingsController extends StateNotifier<SettingsState> {
     final prefs = await SharedPreferences.getInstance();
     final themeModeIndex = prefs.getInt(_themeModeKey) ?? 2; // Default to system
     final themeMode = ThemeMode.values[themeModeIndex];
-    final googleEmail = prefs.getString(_googleEmailKey) ?? '';
+    var googleEmail = prefs.getString(_googleEmailKey) ?? '';
     state = SettingsState(themeMode: themeMode, googleEmail: googleEmail);
+
+    if (_apiClient != null) {
+      try {
+        Map<String, dynamic> data;
+        try {
+          final res = await _apiClient.get('/student/settings');
+          data = res['data'] is Map<String, dynamic>
+              ? res['data'] as Map<String, dynamic>
+              : res;
+        } catch (_) {
+          final res = await _apiClient.get('/student/me');
+          data = res['data'] is Map<String, dynamic>
+              ? res['data'] as Map<String, dynamic>
+              : res;
+        }
+        final serverEmail = (data['googleEmail'] ?? '').toString();
+        if (serverEmail.isNotEmpty && serverEmail != googleEmail) {
+          googleEmail = serverEmail;
+          await prefs.setString(_googleEmailKey, serverEmail);
+          state = state.copyWith(googleEmail: serverEmail);
+        }
+      } catch (_) {
+        // Offline or unauthenticated; local value in state remains
+      }
+    }
   }
 
   Future<void> setThemeMode(ThemeMode mode) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_themeModeKey, mode.index);
-    state = SettingsState(themeMode: mode);
+    state = state.copyWith(themeMode: mode);
   }
 
-  Future<void> setGoogleEmail(String email) async {
+  Future<bool> setGoogleEmail(String email) async {
+    final trimmed = email.trim().toLowerCase();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_googleEmailKey, email);
-    state = SettingsState(themeMode: state.themeMode, googleEmail: email);
+    await prefs.setString(_googleEmailKey, trimmed);
+    state = state.copyWith(googleEmail: trimmed);
+
+    if (_apiClient != null) {
+      try {
+        await _apiClient.put('/student/settings', data: {'googleEmail': trimmed});
+        try {
+          await _apiClient.put('/student/profile', data: {'email': trimmed});
+        } catch (_) {}
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  Future<bool> unlinkGoogleEmail() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_googleEmailKey);
+    state = state.copyWith(googleEmail: '');
+
+    if (_apiClient != null) {
+      try {
+        await _apiClient.put('/student/settings', data: {'unlinkGoogle': true});
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+    return true;
   }
 }
 
@@ -35,9 +93,23 @@ class SettingsState {
   final ThemeMode themeMode;
   final String googleEmail;
 
-  const SettingsState({this.themeMode = ThemeMode.system, this.googleEmail = ''});
+  const SettingsState({
+    this.themeMode = ThemeMode.system,
+    this.googleEmail = '',
+  });
+
+  SettingsState copyWith({
+    ThemeMode? themeMode,
+    String? googleEmail,
+  }) {
+    return SettingsState(
+      themeMode: themeMode ?? this.themeMode,
+      googleEmail: googleEmail ?? this.googleEmail,
+    );
+  }
 }
 
 final settingsControllerProvider = StateNotifierProvider<SettingsController, SettingsState>((ref) {
-  return SettingsController();
+  final apiClient = ref.watch(apiClientProvider);
+  return SettingsController(apiClient);
 });

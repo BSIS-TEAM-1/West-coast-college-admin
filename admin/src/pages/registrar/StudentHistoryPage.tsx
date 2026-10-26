@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Calendar, GraduationCap, History, Lock, BookOpen, FileText, AlertCircle, Plus, X, RotateCcw, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Calendar, GraduationCap, History, Lock, FileText, AlertCircle, X, CheckCircle2, AlertTriangle } from 'lucide-react'
 import StudentService from '../../lib/studentApi'
-import { formatGrade, isPassingGrade } from '../../lib/gradingScale'
+import { formatGrade } from '../../lib/gradingScale'
 import type {
   AcademicProgressData,
   CurriculumSuggestionsData,
@@ -22,7 +22,7 @@ import './StudentHistoryPage.css'
 
 type SubjectEntry = {
   _id?: string
-  subjectId?: string
+  subjectId?: string | { _id?: string; toHexString?: () => string }
   code: string
   title: string
   units?: number
@@ -100,8 +100,6 @@ const TERMINAL_STATUSES = ['Completed', 'Retained', 'Graduated', 'Dropped']
 
 /** Subject-level states that an official drop may still be applied to. */
 const DROPPABLE_STATUSES = ['Enrolled', 'Incomplete']
-/** Subject-level states that qualify for a retake in a later term. */
-const RETAKEABLE_STATUSES = ['Dropped', 'Removed', 'Failed']
 
 function isLocked(record: EnrollmentRecord) {
   return Boolean(record.lockedAt) || TERMINAL_STATUSES.includes(record.status)

@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../../../../core/network/api_client.dart';
 import '../../../../core/storage/secure_storage_service.dart';
 import '../../data/datasources/auth_remote_data_source.dart';
@@ -16,6 +17,7 @@ final authRepositoryProvider = Provider<AuthRepository>((ref) {
   return AuthRepositoryImpl(
     ref.watch(authRemoteDataSourceProvider),
     ref.watch(secureStorageProvider),
+    ref.read(googleSignInProvider),
   );
 });
 
@@ -29,4 +31,8 @@ final logoutUseCaseProvider = Provider<LogoutUseCase>((ref) {
 
 final restoreSessionUseCaseProvider = Provider<RestoreSessionUseCase>((ref) {
   return RestoreSessionUseCase(ref.watch(authRepositoryProvider));
+});
+
+final googleSignInProvider = Provider<GoogleSignIn>((ref) {
+  return GoogleSignIn();
 });

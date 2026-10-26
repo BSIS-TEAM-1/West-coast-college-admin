@@ -383,16 +383,17 @@ export default function CreateCurriculumPage({ onBack, onCreated }: CreateCurric
       const rows = (Array.isArray(data?.data) ? data.data : []) as CopiedPlacementRow[]
       // Cache the copied subject docs (populated with the Subject snapshot
       // fields) plus their prerequisite subjects so the draft table renders.
-      cacheSubjects(rows.map((r) => r.subjectId).filter(Boolean))
+      cacheSubjects(rows.map((r) => r.subjectId).filter((s): s is SubjectItem => Boolean(s && typeof s === 'object')))
       cacheSubjects(rows.flatMap((r) => (Array.isArray(r.prerequisiteSubjectIds)
-        ? r.prerequisiteSubjectIds.filter((p) => p && typeof p === 'object')
+        ? r.prerequisiteSubjectIds.filter((p): p is SubjectItem => Boolean(p && typeof p === 'object'))
         : [])))
       const copied: DraftPlacement[] = rows
-        .map((r, index) => {
+        .map((r, index): DraftPlacement => {
           const prereqIds = normalizePrereqIds(r.prerequisiteSubjectIds)
+          const rawSubjectId = typeof r.subjectId === 'object' && r.subjectId !== null ? r.subjectId._id : r.subjectId
           return {
             localId: nextLocalId(),
-            subjectId: String(r.subjectId?._id ?? r.subjectId ?? ''),
+            subjectId: String(rawSubjectId ?? ''),
             yearLevel: r.yearLevel,
             semester: r.semester,
             type: r.type || 'General',

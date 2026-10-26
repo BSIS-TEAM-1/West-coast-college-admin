@@ -6,6 +6,8 @@ import '../../../../core/theme/app_dimensions.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/theme_colors.dart';
 import '../../../../core/widgets/depth.dart';
+import '../../../../core/widgets/google_logo.dart';
+import '../../../settings/presentation/providers/settings_controller.dart';
 import '../providers/auth_controller.dart';
 
 class LoginPage extends ConsumerStatefulWidget {
@@ -126,7 +128,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             textInputAction: TextInputAction.next,
             autofillHints: const [AutofillHints.username],
             decoration: const InputDecoration(
-              hintText: 'e.g. 202610140200',
+              hintText: 'Enter your student number',
               prefixIcon: Icon(Icons.badge_outlined),
             ),
             validator: (value) => value == null || value.trim().isEmpty
@@ -165,7 +167,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           const SizedBox(height: AppDimensions.lg),
           _gradientSignInButton(authState),
           const SizedBox(height: AppDimensions.md),
-          _googleSignInButton(authState),
+          _OrDivider(colors: colors),
+          const SizedBox(height: AppDimensions.md),
+          _googleSignInButton(authState, colors),
         ],
       ),
     );
@@ -219,6 +223,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       'Sign in',
                       key: ValueKey('label'),
                       style: TextStyle(
+                        fontSize: _buttonFontSize,
                         fontWeight: FontWeight.w700,
                         color: Colors.white,
                       ),
@@ -230,45 +235,52 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     );
   }
 
-  /// Google sign-in button.
-  Widget _googleSignInButton(AuthState authState) {
+  /// Google sign-in button. Same height, radius and label style as the
+  /// primary button; surface-colored so text stays readable in light and dark.
+  Widget _googleSignInButton(AuthState authState, ThemeColors colors) {
+    Future<void> signIn() async {
+      FocusScope.of(context).unfocus();
+      final status =
+          await ref.read(authControllerProvider.notifier).loginWithGoogle();
+      if (!mounted) return;
+      if (status == GoogleSignInStatus.fallbackRequired) {
+        await _showGoogleEmailSignInDialog();
+      }
+    }
+
     return PressableScale(
-      onTap: authState.isSubmitting ? null : () => ref.read(authControllerProvider.notifier).loginWithGoogle(),
+      onTap: authState.isSubmitting ? null : signIn,
       pressScale: .97,
       child: Container(
         height: AppDimensions.buttonHeightLarge,
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: .1),
+          color: colors.surface,
           borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
-          border: Border.all(color: Colors.white.withValues(alpha: .2)),
+          border: Border.all(color: colors.border),
           boxShadow: [
             BoxShadow(
-              color: AppColors.shadow.withValues(alpha: .2),
+              color: AppColors.shadow.withValues(alpha: .12),
               blurRadius: 8,
-              offset: const Offset(0, 4),
+              offset: const Offset(0, 3),
             ),
           ],
         ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
-          onTap: authState.isSubmitting ? null : () => ref.read(authControllerProvider.notifier).loginWithGoogle(),
-          child: Padding(
-            padding: const EdgeInsets.all(AppDimensions.md),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+            onTap: authState.isSubmitting ? null : signIn,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Image.asset(
-                  'assets/images/google_logo.png',
-                  width: 28,
-                  height: 28,
-                  errorBuilder: (context, error, stackTrace) => const Icon(Icons.g_mobiledata, size: 28, color: Colors.red),
-                ),
-                const SizedBox(width: AppDimensions.sm),
-                const Text(
+                const GoogleLogo(size: 22),
+                const SizedBox(width: AppDimensions.sm + 2),
+                Text(
                   'Sign in with Google',
                   style: TextStyle(
-                    color: Colors.black87,
+                    fontSize: _buttonFontSize,
                     fontWeight: FontWeight.w700,
+                    color: colors.textBold,
                   ),
                 ),
               ],
@@ -276,6 +288,43 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           ),
         ),
       ),
+    );
+  }
+
+  Future<void> _showGoogleEmailSignInDialog() async {
+    final savedEmail = ref.read(settingsControllerProvider).googleEmail;
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: .55),
+      builder: (dialogContext) => _GoogleSignInDialog(
+        initialEmail: savedEmail,
+        onSubmit: (email) =>
+            ref.read(authControllerProvider.notifier).loginWithGoogleEmail(email),
+      ),
+    );
+  }
+}
+
+const double _buttonFontSize = 15;
+
+class _OrDivider extends StatelessWidget {
+  const _OrDivider({required this.colors});
+  final ThemeColors colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(child: Divider(color: colors.divider, height: 1)),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppDimensions.md),
+          child: Text(
+            'or',
+            style: AppTextStyles.labelLarge.copyWith(color: colors.textMuted),
+          ),
+        ),
+        Expanded(child: Divider(color: colors.divider, height: 1)),
+      ],
     );
   }
 }
@@ -385,6 +434,275 @@ class _ErrorBanner extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _GoogleSignInDialog extends StatefulWidget {
+  const _GoogleSignInDialog({
+    required this.initialEmail,
+    required this.onSubmit,
+  });
+
+  final String initialEmail;
+  final Future<String?> Function(String email) onSubmit;
+
+  @override
+  State<_GoogleSignInDialog> createState() => _GoogleSignInDialogState();
+}
+
+class _GoogleSignInDialogState extends State<_GoogleSignInDialog> {
+  late final TextEditingController _emailController;
+  String? _errorText;
+  bool _submitting = false;
+
+  static final RegExp _emailRegex = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
+
+  @override
+  void initState() {
+    super.initState();
+    _emailController = TextEditingController(text: widget.initialEmail);
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final email = _emailController.text.trim().toLowerCase();
+    if (email.isEmpty) {
+      setState(() => _errorText = 'Enter your linked Google email address.');
+      return;
+    }
+    if (!_emailRegex.hasMatch(email)) {
+      setState(() => _errorText = 'Please enter a valid Google email address.');
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _errorText = null;
+    });
+
+    final error = await widget.onSubmit(email);
+    if (!mounted) return;
+
+    if (error == null) {
+      Navigator.of(context).pop();
+    } else {
+      setState(() {
+        _submitting = false;
+        _errorText = error;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = ThemeColors.of(context);
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(
+        horizontal: AppDimensions.lg,
+        vertical: AppDimensions.xl,
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400),
+        child: Container(
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: colors.border),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: .28),
+                blurRadius: 32,
+                offset: const Offset(0, 16),
+              ),
+            ],
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.fromLTRB(
+                  AppDimensions.lg,
+                  AppDimensions.lg,
+                  AppDimensions.md,
+                  AppDimensions.md,
+                ),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      colors.primary.withValues(alpha: .08),
+                      colors.gold.withValues(alpha: .06),
+                    ],
+                  ),
+                  border: Border(bottom: BorderSide(color: colors.divider)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: colors.surface,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: colors.border),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.shadow.withValues(alpha: .1),
+                            blurRadius: 8,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: const Center(child: GoogleLogo(size: 22)),
+                    ),
+                    const SizedBox(width: AppDimensions.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Sign in with Google',
+                            style: AppTextStyles.headlineSmall.copyWith(
+                              color: colors.textBold,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Enter the Google email linked to your student account.',
+                            style: AppTextStyles.bodySmall.copyWith(
+                              color: colors.textMuted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: _submitting
+                          ? null
+                          : () => Navigator.of(context).pop(),
+                      icon: Icon(
+                        Icons.close_rounded,
+                        color: colors.textMuted,
+                        size: 20,
+                      ),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(AppDimensions.lg),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_errorText != null) ...[
+                      _ErrorBanner(message: _errorText!, colors: colors),
+                      const SizedBox(height: AppDimensions.md),
+                    ],
+                    Text(
+                      'Google email',
+                      style: AppTextStyles.labelLarge.copyWith(
+                        color: colors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: AppDimensions.xs),
+                    TextField(
+                      controller: _emailController,
+                      enabled: !_submitting,
+                      autofocus: true,
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.done,
+                      autofillHints: const [AutofillHints.email],
+                      onChanged: (_) {
+                        if (_errorText != null) {
+                          setState(() => _errorText = null);
+                        }
+                      },
+                      onSubmitted: (_) => _submit(),
+                      decoration: const InputDecoration(
+                        hintText: 'your.email@gmail.com',
+                        prefixIcon: Icon(Icons.alternate_email_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: AppDimensions.lg),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: _submitting
+                                ? null
+                                : () => Navigator.of(context).pop(),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(46),
+                              foregroundColor: colors.textSecondary,
+                              side: BorderSide(color: colors.border),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(
+                                  AppDimensions.radiusMedium,
+                                ),
+                              ),
+                            ),
+                            child: const Text(
+                              'Cancel',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: AppDimensions.sm),
+                        Expanded(
+                          flex: 2,
+                          child: FilledButton(
+                            onPressed: _submitting ? null : _submit,
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(46),
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(
+                                  AppDimensions.radiusMedium,
+                                ),
+                              ),
+                            ),
+                            child: _submitting
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Text(
+                                    'Continue',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -28,4 +28,27 @@ class AuthRemoteDataSource {
   Future<void> logout() async {
     await _client.post(ApiConstants.logout);
   }
+
+  /// Emails a 6-digit reset code. The server answers generically so it never
+  /// reveals whether the account exists.
+  Future<void> requestPasswordReset(String identifier) async {
+    await _client.post(ApiConstants.forgotPassword, data: {'identifier': identifier});
+  }
+
+  /// Exchanges the emailed code for a short-lived, single-use reset token.
+  Future<String> verifyResetCode({required String identifier, required String code}) async {
+    final response = await _client.post(
+      ApiConstants.verifyResetCode,
+      data: {'identifier': identifier, 'code': code},
+    );
+    final data = response['data'] is Map<String, dynamic> ? response['data'] as Map<String, dynamic> : response;
+    return (data['resetToken'] ?? '').toString();
+  }
+
+  Future<void> resetPassword({required String resetToken, required String newPassword}) async {
+    await _client.post(
+      ApiConstants.resetPassword,
+      data: {'resetToken': resetToken, 'newPassword': newPassword},
+    );
+  }
 }
