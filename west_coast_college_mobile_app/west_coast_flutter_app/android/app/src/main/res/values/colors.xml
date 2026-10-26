@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- WccPortal brand colors used by the launch (splash) themes. -->
-    <color name="wcc_navy">#07152F</color>
-    <color name="wcc_gold">#F3E6BE</color>
-    <color name="ic_launcher_background">#FFFFFF</color>
-</resources>

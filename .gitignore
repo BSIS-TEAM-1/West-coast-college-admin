@@ -13,3 +13,9 @@ admin/.env.development
 admin/.env.example
 admin/.env.production
 CRUD_HANDLING_REVIEW.md
+
+# Mobile app build artifacts
+*.apk
+
+# Mobile app directory
+west_coast_college_mobile_app/

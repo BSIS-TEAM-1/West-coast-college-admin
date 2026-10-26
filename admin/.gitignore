@@ -42,3 +42,6 @@ render.yaml
 
 # Gzipped JSON files
 *.json.gz
+
+# Mobile app build artifacts
+*.apk
