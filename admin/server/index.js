@@ -8984,10 +8984,10 @@ const frontendLimiter = rateLimit({
 function getApkFileInfo() {
   const candidatePaths = [
     path.join(mobileAppPath, 'app-release.apk'),
-    path.join(__dirname, '..', 'public', 'WCConnect-arm64.apk'),
     path.join(__dirname, '..', 'public', 'app-release.apk'),
-    path.join(__dirname, '..', 'dist', 'WCConnect-arm64.apk'),
+    path.join(__dirname, '..', 'public', 'WCConnect-arm64.apk'),
     path.join(__dirname, '..', 'dist', 'app-release.apk'),
+    path.join(__dirname, '..', 'dist', 'WCConnect-arm64.apk'),
     path.join(mobileAppPath, '..', 'apk', 'release', 'WestConnect-release.apk'),
     path.join(mobileAppPath, 'app-arm64-v8a-release.apk'),
     path.join(mobileAppPath, 'WestConnect-release.apk')

@@ -18,7 +18,7 @@ type ApkMetadata = {
 const DEFAULT_METADATA: ApkMetadata = {
   available: true,
   fileName: 'WCConnect-arm64.apk',
-  fileSize: '~21.7 MB',
+  fileSize: '~22.4 MB',
   appVersion: '1.0.0+1',
   architecture: 'arm64-v8a',
   downloadUrl: '/download-apk/file'
@@ -58,14 +58,14 @@ export default function DownloadAppPage({ onBack }: DownloadAppPageProps) {
       }
 
       try {
-        const headRes = await fetch('/WCConnect-arm64.apk', { method: 'HEAD' })
+        const headRes = await fetch('/app-release.apk', { method: 'HEAD' })
         if (!cancelled && headRes.ok) {
           const contentLength = Number(headRes.headers.get('content-length') || 0)
           setMetadata(prev => ({
             ...prev,
             available: true,
             fileSize: contentLength > 0 ? formatByteSize(contentLength) : prev.fileSize,
-            downloadUrl: '/WCConnect-arm64.apk'
+            downloadUrl: '/app-release.apk'
           }))
         }
       } catch {

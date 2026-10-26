@@ -117,16 +117,8 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
     // Check for existing drafts on component mount
     loadExistingDraft()
 
-    // Default the wizard's term to the configured "Current School Year" setting.
-    getAcademicTerm()
-      .then((term) => {
-        const startYear = Number(term.schoolYear.split('-')[0])
-        if (Number.isFinite(startYear) && startYear > 0) setNewGroupYear(startYear)
-        setNewGroupSemester(term.semester)
-      })
-      .catch(() => {
-        // Silently fall back to the calendar-year default if the setting can't be loaded.
-      })
+    // Don't auto-default the academic year - let the registrar choose the year they want
+    // This allows creating historical blocks for past years (e.g., 2021-2022)
   }, [])
 
   // Fetch curriculums for the selected program so the registrar can link
