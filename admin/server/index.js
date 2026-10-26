@@ -56,6 +56,7 @@ const SemaphoreSmsService = require('./services/semaphoreSmsService')
 const SmsApiPhService = require('./services/smsApiPhService')
 const TextlocalSmsService = require('./services/textlocalSmsService')
 const supabaseAuthService = require('./services/supabaseAuth')
+const documentStorageService = require('./services/documentStorageService')
 const VerificationEmailService = require('./services/verificationEmailService')
 const { apiCache, cacheMiddleware } = require('./services/apiCache')
 const registrarRoutes = require('./routes/registrarRoutes')
@@ -73,6 +74,13 @@ const AcademicYearRolloverService = require('./services/academicYearRolloverServ
 const BlockSubjectAssignmentController = require('./controllers/blockSubjectAssignmentController')
 const { requireAnyRole, requireAdminRole, isOwnerOrAdmin, normalizeAccountType } = require('./authorization')
 const { registerDocumentRoutes } = require('./routes/documentRoutes')
+const EvaluationController = require('./controllers/evaluationController')
+const {
+  getStudentTermEvaluationStatus,
+  loadProfessorLookup,
+  EVALUATION_QUESTIONS,
+  EMOJI_RATING_SCALE
+} = require('./services/evaluationService')
 const { purgeExpiredArchiveBinItems } = require('./services/documentService')
 
 // Register domain event handlers
@@ -95,6 +103,23 @@ const semaphoreSmsService = new SemaphoreSmsService()
 const smsApiPhService = new SmsApiPhService()
 const textlocalSmsService = new TextlocalSmsService()
 const verificationEmailService = new VerificationEmailService()
+
+// Function to count active data (documents stored in Supabase or local storage)
+async function getSupabaseFileCount() {
+  try {
+    // Count all active documents regardless of storage provider
+    // This counts the actual document files, not all MongoDB records
+    const count = await Document.countDocuments({
+      isTrashed: false,
+      status: { $ne: 'ARCHIVED' }
+    });
+    console.log(`[System Health] Active document count: ${count}`);
+    return count;
+  } catch (error) {
+    console.error('Error counting active documents:', error);
+    return 0;
+  }
+}
 
 logger.debug('Verification email service status:', {
   configured: verificationEmailService.isConfigured(),
@@ -886,7 +911,10 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
                 title: subjectEntry.title,
                 schedule: subjectEntry.schedule,
                 room: subjectEntry.room,
-                enrolledStudents: subjectEntry.studentIds.size
+                enrolledStudents: subjectEntry.studentIds.size,
+                // Expose IDs so the client can count unique students across
+                // subjects/blocks instead of summing per-subject enrollments.
+                studentIds: Array.from(subjectEntry.studentIds)
               }))
               .sort((a, b) => a.code.localeCompare(b.code))
 
@@ -917,13 +945,23 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
       0
     )
 
+    const uniqueStudentIds = new Set()
+    courses.forEach((course) => {
+      course.blocks.forEach((block) => {
+        block.subjects.forEach((subject) => {
+          subject.studentIds.forEach((id) => uniqueStudentIds.add(id))
+        })
+      })
+    })
+
     res.json({
       success: true,
       data: {
         courses,
         totalCourses: courses.length,
         totalBlocks,
-        totalSubjects
+        totalSubjects,
+        totalStudents: uniqueStudentIds.size
       }
     })
   } catch (error) {
@@ -1696,6 +1734,9 @@ mongoose.connect(uri)
   .then(() => {
     dbReady = true
     console.log('MongoDB connected')
+    // Clear system health cache on startup to ensure fresh data
+    global.cachedSystemHealth = null
+    global.lastSystemHealthScan = new Date(0)
     void purgeExpiredArchiveBinItems().catch((error) => {
       console.error('Archive bin startup cleanup error:', error)
     })
@@ -3273,13 +3314,18 @@ app.get('/api/student/me', async (req, res) => {
       // Get student's block assignment with schedule
       let blockInfo = null
       try {
-        const currentYear = new Date().getFullYear()
+        const termSetting = await SystemSetting.findOne({ key: 'academicTerm' }).lean().catch(() => null)
+        const termSchoolYear = String(termSetting?.value?.schoolYear || '').trim()
+        const termSemester = String(termSetting?.value?.semester || '').trim()
+        const currentYear = parseInt(termSchoolYear.split('-')[0], 10) || new Date().getFullYear()
         const currentMonth = new Date().getMonth() + 1
-        let currentSemester = '1st'
-        if (currentMonth >= 6 && currentMonth <= 10) {
-          currentSemester = '1st'
-        } else {
-          currentSemester = '2nd'
+        let currentSemester = termSemester || '1st'
+        if (!termSemester) {
+          if (currentMonth >= 6 && currentMonth <= 10) {
+            currentSemester = '1st'
+          } else {
+            currentSemester = '2nd'
+          }
         }
         
         const blockAssignment = await StudentBlockAssignment.findOne({
@@ -3646,6 +3692,7 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
     let enrolledSubjects = []
     let nextDayClasses = []
     let nextDayLabel = null
+    let evaluationSummary = null
 
     if (enrollment) {
       // Only count subjects the student is currently enrolled in for this term.
@@ -3654,6 +3701,17 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
       const activeSubjects = (enrollment.subjects || []).filter(
         (subject) => ['Enrolled', 'Incomplete'].includes(subject.status)
       )
+
+      const professorLookup = await loadProfessorLookup()
+      const evalStatus = await getStudentTermEvaluationStatus(student, enrollment, professorLookup)
+      evaluationSummary = {
+        requiredCount: evalStatus.requiredCount,
+        completedCount: evalStatus.completedCount,
+        pendingCount: evalStatus.pendingCount,
+        allCompleted: evalStatus.allCompleted,
+        gradesLocked: evalStatus.gradesLocked,
+        period: evalStatus.period
+      }
 
       academicSummary = {
         hasCurrentEnrollment: true,
@@ -3666,9 +3724,13 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
 
       // Build the enrolled subjects list — visible to the student immediately
       // upon enrollment, regardless of whether grades have been submitted/published.
-      // Grade is only included if the subject's submissionStatus is 'Published'.
+      // Grade is only included if all required professor evaluations are completed
+      // AND the subject's submissionStatus is 'Published'.
       enrolledSubjects = activeSubjects.map((subject) => {
         const isPublished = (subject.submissionStatus || 'Draft') === 'Published'
+        const isUnlocked = evalStatus.allCompleted && isPublished
+        const code = String(subject.code || '').trim().toUpperCase()
+        const evalMeta = evalStatus.subjectsByCode.get(code)
         return {
           subjectId: subject.subjectId ? String(subject.subjectId) : null,
           subjectCode: subject.code,
@@ -3676,10 +3738,15 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
           units: subject.units,
           schedule: subject.schedule || 'TBA',
           room: subject.room || 'TBA',
-          instructor: subject.instructor || 'TBA',
+          instructor: evalMeta?.professorName || subject.instructor || 'TBA',
+          professorId: evalMeta?.professorId || null,
           subjectStatus: subject.status || 'Enrolled',
-          grade: isPublished ? (subject.grade ?? null) : null,
-          remarks: isPublished ? (subject.remarks || '') : '',
+          evaluationRequired: true,
+          evaluationCompleted: Boolean(evalMeta?.evaluationCompleted),
+          canEvaluate: Boolean(evalMeta?.canEvaluate),
+          gradeLocked: !isUnlocked,
+          grade: isUnlocked ? (subject.grade ?? null) : null,
+          remarks: isUnlocked ? (subject.remarks || '') : (!evalStatus.allCompleted ? 'LOCKED' : ''),
           gradePublished: isPublished
         }
       })
@@ -3751,25 +3818,29 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
           ? 'today'
           : 'none_today'
 
-      // Only show grades to the student if the SPECIFIC SUBJECT's submissionStatus is Published.
-      // Per-subject publishing means some subjects may be published while others are still in draft.
-      const gradeScale = await gradingScaleService.loadGradeScale()
-      latestGrades = activeSubjects
-        .filter((subject) =>
-          (subject.submissionStatus || 'Draft') === 'Published'
-          && subject.grade !== null
-          && subject.grade !== undefined
-        )
-        .sort((a, b) => new Date(b.dateModified || 0) - new Date(a.dateModified || 0))
-        .slice(0, 5)
-        .map((subject) => ({
-          subjectCode: subject.code,
-          subjectTitle: subject.title,
-          units: subject.units,
-          grade: subject.grade,
-          remarks: subject.remarks || (gradingScaleService.isPassingGrade(subject.grade, gradeScale) ? 'PASSED' : 'FAILED'),
-          status: subject.status
-        }))
+      // Only show grades to the student if ALL required professor evaluations are completed
+      // AND the SPECIFIC SUBJECT's submissionStatus is Published.
+      if (evalStatus.allCompleted) {
+        const gradeScale = await gradingScaleService.loadGradeScale()
+        latestGrades = activeSubjects
+          .filter((subject) =>
+            (subject.submissionStatus || 'Draft') === 'Published'
+            && subject.grade !== null
+            && subject.grade !== undefined
+          )
+          .sort((a, b) => new Date(b.dateModified || 0) - new Date(a.dateModified || 0))
+          .slice(0, 5)
+          .map((subject) => ({
+            subjectCode: subject.code,
+            subjectTitle: subject.title,
+            units: subject.units,
+            grade: subject.grade,
+            remarks: subject.remarks || (gradingScaleService.isPassingGrade(subject.grade, gradeScale) ? 'PASSED' : 'FAILED'),
+            status: subject.status
+          }))
+      } else {
+        latestGrades = []
+      }
     }
 
     const announcements = await Announcement.find({
@@ -3802,6 +3873,7 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
             : null
         },
         academicSummary,
+        evaluationSummary,
         enrolledSubjects,
         todaySchedule,
         upcomingSchedule: nextDayClasses.length > 0 ? {
@@ -3826,33 +3898,30 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
 })
 
 // GET /api/student/grades — full grade history grouped by academic period.
-// Returns current term + all historical enrollments that have graded
-// subjects, so the mobile app can render Current / Historical tabs without
-// ever mixing records from different academic years (spec §32).
+// Enforces professor evaluation completion before unlocking grade values.
 app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
   try {
     const student = req.student
 
-    // Fetch all non-dropped enrollments — we filter per-subject by submissionStatus below
-    // so that subjects published by one professor are visible even if another professor's
-    // subjects in the same enrollment are still in draft.
     const enrollments = await Enrollment.find({
       studentId: student._id,
       status: { $ne: 'Dropped' }
     }).sort({ isCurrent: -1, createdAt: -1 })
 
-    const gradeScale = await gradingScaleService.loadGradeScale()
+    const [gradeScale, professorLookup] = await Promise.all([
+      gradingScaleService.loadGradeScale(),
+      loadProfessorLookup()
+    ])
 
-    const periods = enrollments
-      .map((enrollment) => {
-        // For the current term, show ALL active subjects so students can see
-        // what they're enrolled in even before grades are published. For
-        // historical terms, only show subjects with published grades.
+    const rawPeriods = await Promise.all(
+      enrollments.map(async (enrollment) => {
         const isCurrent = !!enrollment.isCurrent
+        const evalStatus = await getStudentTermEvaluationStatus(student, enrollment, professorLookup)
+
         const subjects = (enrollment.subjects || [])
           .filter((subject) => {
-            if (isCurrent) {
-              return ['Enrolled', 'Incomplete'].includes(subject.status)
+            if (isCurrent || !evalStatus.allCompleted) {
+              return ['Enrolled', 'Incomplete', 'Completed'].includes(subject.status)
             }
             return (subject.submissionStatus || 'Draft') === 'Published'
               && subject.grade !== null
@@ -3860,25 +3929,44 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
           })
           .map((subject) => {
             const isPublished = (subject.submissionStatus || 'Draft') === 'Published'
+            const isUnlocked = evalStatus.allCompleted && isPublished
+            const code = String(subject.code || '').trim().toUpperCase()
+            const evalMeta = evalStatus.subjectsByCode.get(code)
+            const lockReason = !evalStatus.allCompleted
+              ? 'Complete the required professor evaluations to access your grades.'
+              : (!isPublished ? 'Grade not yet officially released' : null)
+
             return {
+              subjectId: subject.subjectId ? String(subject.subjectId) : null,
               subjectCode: subject.code,
               subjectTitle: subject.title,
               units: subject.units,
-              grade: isPublished && subject.grade != null ? subject.grade : 0,
-              gradeMark: isPublished ? (subject.gradeMark || null) : null,
-              remarks: isPublished ? (subject.remarks || (subject.gradeMark ? subject.gradeMark : (subject.grade != null && gradingScaleService.isPassingGrade(subject.grade, gradeScale) ? 'PASSED' : 'FAILED'))) : '',
+              instructor: evalMeta?.professorName || subject.instructor || 'Assigned Faculty',
+              professorName: evalMeta?.professorName || subject.instructor || 'Assigned Faculty',
+              professorId: evalMeta?.professorId || null,
+              evaluationRequired: true,
+              evaluationCompleted: Boolean(evalMeta?.evaluationCompleted),
+              completedAt: evalMeta?.completedAt || null,
+              canEvaluate: Boolean(evalMeta?.canEvaluate),
+              gradePublished: isPublished,
+              gradeLocked: !isUnlocked,
+              lockReason,
+              grade: isUnlocked && subject.grade != null ? subject.grade : 0,
+              gradeMark: isUnlocked ? (subject.gradeMark || null) : null,
+              remarks: isUnlocked
+                ? (subject.remarks || (subject.gradeMark ? subject.gradeMark : (subject.grade != null && gradingScaleService.isPassingGrade(subject.grade, gradeScale) ? 'PASSED' : 'FAILED')))
+                : (!evalStatus.allCompleted ? 'LOCKED' : ''),
               status: subject.status || 'Enrolled'
             }
           })
 
         if (subjects.length === 0) return null
 
-        // Only count published+graded subjects toward GPA/units
-        const graded = subjects.filter((s) => s.grade > 0)
+        const graded = evalStatus.allCompleted ? subjects.filter((s) => !s.gradeLocked && s.grade > 0) : []
         const totalUnits = subjects.reduce((sum, g) => sum + (Number(g.units) || 0), 0)
         const gradedUnits = graded.reduce((sum, g) => sum + (Number(g.units) || 0), 0)
         const weightedSum = graded.reduce((sum, g) => sum + (Number(g.grade) || 0) * (Number(g.units) || 0), 0)
-        const termGpa = gradedUnits > 0 ? weightedSum / gradedUnits : null
+        const termGpa = evalStatus.allCompleted && gradedUnits > 0 ? weightedSum / gradedUnits : null
 
         return {
           isCurrent: !!enrollment.isCurrent,
@@ -3887,15 +3975,26 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
           yearLevel: enrollment.yearLevel,
           termGpa: termGpa ? Number(termGpa.toFixed(2)) : null,
           totalUnits,
+          gradesLocked: !evalStatus.allCompleted,
+          evaluationPeriod: evalStatus.period,
+          evaluationSummary: {
+            requiredCount: evalStatus.requiredCount,
+            completedCount: evalStatus.completedCount,
+            pendingCount: evalStatus.pendingCount,
+            allCompleted: evalStatus.allCompleted,
+            gradesLocked: evalStatus.gradesLocked
+          },
           subjects
         }
       })
-      .filter(Boolean)
+    )
 
-    // Cumulative GPA/units only count subjects with actual grades
+    const periods = rawPeriods.filter(Boolean)
+
+    // Cumulative GPA/units only count unlocked, published subjects with actual grades
     const allGradedSubjects = periods
       .flatMap((p) => p.subjects)
-      .filter((s) => s.grade > 0)
+      .filter((s) => !s.gradeLocked && s.grade > 0)
     const cumulativeUnits = allGradedSubjects.reduce((sum, g) => sum + (Number(g.units) || 0), 0)
     const cumulativeWeighted = allGradedSubjects.reduce(
       (sum, g) => sum + (Number(g.grade) || 0) * (Number(g.units) || 0),
@@ -3906,6 +4005,8 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
     res.json({
       success: true,
       data: {
+        questions: EVALUATION_QUESTIONS,
+        emojiScale: EMOJI_RATING_SCALE,
         periods,
         summary: {
           cumulativeGpa,
@@ -3919,6 +4020,17 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
     res.status(500).json({ error: 'Failed to load grades.' })
   }
 })
+
+// Professor Evaluation System Routes (Student, Professor, and Registrar)
+app.get('/api/student/evaluations', studentAuthMiddleware, EvaluationController.getStudentEvaluations)
+app.post('/api/student/evaluations', studentAuthMiddleware, EvaluationController.submitStudentEvaluation)
+app.get('/api/professor/evaluations', authMiddleware, EvaluationController.getProfessorEvaluations)
+app.get(['/api/registrar/evaluation-periods', '/registrar/evaluation-periods'], authMiddleware, requireAnyRole('registrar'), EvaluationController.listEvaluationPeriods)
+app.post(['/api/registrar/evaluation-periods', '/registrar/evaluation-periods'], authMiddleware, requireAnyRole('registrar'), EvaluationController.createEvaluationPeriod)
+app.patch(['/api/registrar/evaluation-periods/:id/status', '/registrar/evaluation-periods/:id/status'], authMiddleware, requireAnyRole('registrar'), EvaluationController.updateEvaluationPeriodStatus)
+app.get(['/api/registrar/evaluations/overview', '/registrar/evaluations/overview'], authMiddleware, requireAnyRole('registrar'), EvaluationController.getRegistrarEvaluationOverview)
+app.post(['/api/registrar/evaluations/:responseId/reveal-identity', '/registrar/evaluations/:responseId/reveal-identity'], authMiddleware, requireAnyRole('registrar'), EvaluationController.revealStudentIdentity)
+app.get(['/api/registrar/evaluations/reveal-logs', '/registrar/evaluations/reveal-logs'], authMiddleware, requireAnyRole('registrar'), EvaluationController.getIdentityRevealLogs)
 
 // GET /api/student/announcements — paginated, student-facing announcements.
 // Reuses the same Announcement model the admin/registrar writes to, scoped
@@ -6486,6 +6598,29 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
     // Use cached data if less than 10 minutes old and not forcing a scan
     if (!forceScan && scanAgeMinutes < 10 && global.cachedSystemHealth) {
       console.log('Using cached system health data')
+      try {
+        const [adminCount, registrarCount, professorCount, studentCount, cachedDbStats] = await Promise.all([
+          Admin.countDocuments({ accountType: 'admin' }),
+          Admin.countDocuments({ accountType: 'registrar' }),
+          Admin.countDocuments({ accountType: 'professor' }),
+          Student.countDocuments(),
+          mongoose.connection.db.stats().catch(() => null)
+        ])
+        if (global.cachedSystemHealth.statistics) {
+          global.cachedSystemHealth.statistics.totalAdmins = adminCount + registrarCount + professorCount
+          // Use active data count from Supabase/local storage instead of MongoDB objects
+          const activeDataCount = await getSupabaseFileCount()
+          global.cachedSystemHealth.statistics.totalDocuments = activeDataCount
+          global.cachedSystemHealth.statistics.accountTypes = {
+            admins: adminCount,
+            registrars: registrarCount,
+            professors: professorCount,
+            students: studentCount
+          }
+        }
+      } catch (countError) {
+        logger.error('Failed to refresh account counts on cached system health:', countError?.message || countError)
+      }
       return res.json(global.cachedSystemHealth)
     }
     
@@ -6531,6 +6666,7 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
       adminCount,
       registrarCount,
       professorCount,
+      studentCount,
       // Security metrics
       blockedIPs,
       failedLogins,
@@ -6570,6 +6706,7 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
       Admin.countDocuments({ accountType: 'admin' }),
       Admin.countDocuments({ accountType: 'registrar' }),
       Admin.countDocuments({ accountType: 'professor' }),
+      Student.countDocuments(),
       // Security metrics
       BlockedIP.countDocuments(),
       AuditLog.countDocuments({ 
@@ -6631,11 +6768,16 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
     // Build atlasMetrics from real db.stats() data so the frontend has real DB info
     // without requiring Atlas API credentials
     const collectionsCount = dbStats.collections || 0;
+    const totalDbDocuments = Number(dbStats.objects || 0) > 0 ? Number(dbStats.objects) : totalDocuments;
     const formatBytes = (bytes) => {
       if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
       if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
       return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
     };
+    
+    // Get total active data count from Supabase or local storage
+    const totalActiveData = await getSupabaseFileCount();
+    
     const atlasMetrics = {
       enabled: true,
       clusterInfo: {
@@ -6646,6 +6788,7 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
       },
       databaseInfo: {
         collectionsCount,
+        objectsCount: totalDbDocuments,
         dataSize: formatBytes(dbDataSize),
         indexSize: formatBytes(dbIndexSize),
       },
@@ -6703,7 +6846,7 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
       },
       statistics: {
         totalAdmins, // This should be real data from Admin.countDocuments()
-        totalDocuments,
+        totalDocuments: totalActiveData, // Active data from Supabase/local storage
         activeAnnouncements,
         recentLogins, // Total logins in 24h (for stats)
         errorLogs,
@@ -6714,7 +6857,7 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
           admins: adminCount,
           registrars: registrarCount,
           professors: professorCount,
-          students: 0 // Placeholder - no student model yet
+          students: studentCount
         }
       },
       logs: recentErrorLogs.map(log => ({
@@ -6733,6 +6876,7 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
       adminCount,
       registrarCount,
       professorCount,
+      studentCount,
       blockedIPs,
       failedLogins
     })
@@ -6783,13 +6927,42 @@ app.get('/api/admin/test-account-types', authMiddleware, requireAdminRole, async
   }
 })
 
+// Fast endpoint for dashboard account type counts (avoids heavy OS/WMI scan)
+app.get('/api/admin/account-counts', authMiddleware, requireAnyRole('admin', 'registrar'), async (req, res) => {
+  try {
+    const [admins, registrars, professors, students] = await Promise.all([
+      Admin.countDocuments({ accountType: 'admin' }),
+      Admin.countDocuments({ accountType: 'registrar' }),
+      Admin.countDocuments({ accountType: 'professor' }),
+      Student.countDocuments()
+    ])
+
+    res.json({
+      admins,
+      registrars,
+      professors,
+      students,
+      total: admins + registrars + professors + students
+    })
+  } catch (error) {
+    console.error('Failed to fetch account counts:', error)
+    res.status(500).json({ error: 'Failed to fetch account counts' })
+  }
+})
+
 // Get registration logs
 app.get('/api/admin/registration-logs', authMiddleware, requireAdminRole, async (req, res) => {
   try {
-    const logs = await Admin.find({}, 'username accountType displayName createdAt')
-      .sort({ createdAt: -1 })
-      .limit(50)
-      .lean()
+    const [logs, admins, registrars, professors, students] = await Promise.all([
+      Admin.find({}, 'username accountType displayName createdAt')
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .lean(),
+      Admin.countDocuments({ accountType: 'admin' }),
+      Admin.countDocuments({ accountType: 'registrar' }),
+      Admin.countDocuments({ accountType: 'professor' }),
+      Student.countDocuments()
+    ])
     
     res.json({
       logs: logs.map(log => ({
@@ -6798,7 +6971,13 @@ app.get('/api/admin/registration-logs', authMiddleware, requireAdminRole, async 
         accountType: log.accountType,
         displayName: log.displayName,
         createdAt: log.createdAt
-      }))
+      })),
+      counts: {
+        admins,
+        registrars,
+        professors,
+        students
+      }
     })
   } catch (error) {
     console.error('Failed to fetch registration logs:', error)
@@ -6809,17 +6988,21 @@ app.get('/api/admin/registration-logs', authMiddleware, requireAdminRole, async 
 // Debug endpoint to check Admin collection directly
 app.get('/api/admin/debug-admins', authMiddleware, requireAdminRole, async (req, res) => {
   try {
-    const allAdmins = await Admin.find({}, 'username accountType displayName')
-    const totalCount = await Admin.countDocuments()
-    const adminCount = await Admin.countDocuments({ accountType: 'admin' })
-    const registrarCount = await Admin.countDocuments({ accountType: 'registrar' })
-    const professorCount = await Admin.countDocuments({ accountType: 'professor' })
+    const [allAdmins, totalCount, adminCount, registrarCount, professorCount, studentCount] = await Promise.all([
+      Admin.find({}, 'username accountType displayName'),
+      Admin.countDocuments(),
+      Admin.countDocuments({ accountType: 'admin' }),
+      Admin.countDocuments({ accountType: 'registrar' }),
+      Admin.countDocuments({ accountType: 'professor' }),
+      Student.countDocuments()
+    ])
     
     console.log('Direct Admin collection check:', {
       totalCount,
       adminCount,
       registrarCount,
       professorCount,
+      studentCount,
       allAdmins: allAdmins.map(a => ({ username: a.username, accountType: a.accountType }))
     })
     
@@ -6828,6 +7011,7 @@ app.get('/api/admin/debug-admins', authMiddleware, requireAdminRole, async (req,
       adminCount,
       registrarCount,
       professorCount,
+      studentCount,
       admins: allAdmins.map(a => ({ username: a.username, accountType: a.accountType, displayName: a.displayName }))
     })
   } catch (error) {
@@ -8032,8 +8216,8 @@ app.get('/api/settings/academic-term', authMiddleware, cacheMiddleware({ ttlMs: 
   }
 });
 
-// PUT /api/settings/academic-term
-app.put('/api/settings/academic-term', authMiddleware, requireBlockManagementRole, invalidateApiCacheOnSuccess('/api/settings/academic-term'), async (req, res) => {
+// PUT /api/settings/academic-term (centralized in Registrar function only)
+app.put('/api/settings/academic-term', authMiddleware, requireAnyRole('registrar'), invalidateApiCacheOnSuccess('/api/settings/academic-term'), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -8796,6 +8980,102 @@ const frontendLimiter = rateLimit({
   legacyHeaders: false
 })
 
+// Mobile App APK Download (ARM64 compatible)
+function getApkFileInfo() {
+  const candidatePaths = [
+    path.join(__dirname, '..', 'public', 'WCConnect-arm64.apk'),
+    path.join(__dirname, '..', 'dist', 'WCConnect-arm64.apk'),
+    path.join(mobileAppPath, '..', 'apk', 'release', 'WestConnect-release.apk'),
+    path.join(mobileAppPath, 'app-arm64-v8a-release.apk'),
+    path.join(mobileAppPath, 'WestConnect-release.apk'),
+    path.join(mobileAppPath, 'app-release.apk')
+  ]
+  for (const candidate of candidatePaths) {
+    if (fs.existsSync(candidate)) {
+      let size = 0
+      try {
+        size = fs.statSync(candidate).size
+      } catch {
+        size = 0
+      }
+      return { available: true, apkPath: candidate, size }
+    }
+  }
+  return { available: false, apkPath: candidatePaths[0], size: 0 }
+}
+
+// Public metadata endpoint for the frontend DownloadAppPage
+app.get('/api/public/apk-info', publicReadLimiter, (req, res) => {
+  try {
+    const { formatBytes, readAppVersion } = require('./mobileDownloadPage')
+    const info = getApkFileInfo()
+    const appVersion = readAppVersion(path.join(mobileAppPath, '..', '..', '..', '..')) || '1.0.0+1'
+    return res.json({
+      available: info.available,
+      fileName: 'WCConnect-arm64.apk',
+      fileSize: info.available ? formatBytes(info.size) : '',
+      sizeBytes: info.size || 0,
+      appVersion,
+      architecture: 'arm64-v8a (64-bit ARM)',
+      downloadUrl: '/download-apk/file'
+    })
+  } catch (error) {
+    logger.error('APK info error:', error.message)
+    return res.status(500).json({ error: 'Failed to read APK metadata.' })
+  }
+})
+
+// Raw APK bytes for the download button (must be registered before SPA catch-all).
+app.get('/download-apk/file', frontendLimiter, (req, res) => {
+  try {
+    const info = getApkFileInfo()
+
+    if (!info.available) {
+      return res.status(404).json({ error: 'APK file not found. Please build the mobile app first.' })
+    }
+
+    res.setHeader('Content-Type', 'application/vnd.android.package-archive')
+    res.download(info.apkPath, 'WCConnect-arm64.apk', (err) => {
+      if (err) {
+        logger.error('APK download error:', err.message)
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to download APK.' })
+        }
+      }
+    })
+  } catch (error) {
+    logger.error('APK download error:', error.message)
+    res.status(500).json({ error: 'Failed to download APK.' })
+  }
+})
+
+// WCConnect student-app download landing page (/download-apk).
+// Serves the React SPA DownloadAppPage if built, or falls back to server-rendered HTML.
+app.get('/download-apk', frontendLimiter, (req, res) => {
+  try {
+    const indexFile = path.join(distPath, 'index.html')
+    if (fs.existsSync(indexFile)) {
+      res.setHeader('Cache-Control', 'no-store')
+      return res.sendFile(indexFile)
+    }
+
+    const { renderMobileDownloadPage, formatBytes, readAppVersion } = require('./mobileDownloadPage')
+    const info = getApkFileInfo()
+    const html = renderMobileDownloadPage({
+      available: info.available,
+      fileName: 'WCConnect-arm64.apk',
+      fileSize: info.available ? formatBytes(info.size) : '',
+      appVersion: readAppVersion(path.join(mobileAppPath, '..', '..', '..', '..')) || '1.0.0+1'
+    })
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    res.setHeader('Cache-Control', 'no-store')
+    return res.send(html)
+  } catch (error) {
+    logger.error('Download page error:', error.message)
+    res.status(500).json({ error: 'Failed to load download page.' })
+  }
+})
+
 // SPA fallback: serve index.html for app routes only (must be last)
 app.use((req, res, next) => {
   if (req.method !== 'GET') return next()
@@ -8927,64 +9207,6 @@ app.use((err, req, res, next) => {
   }
 
   res.status(500).send('Internal server error.')
-})
-
-// Mobile App APK Download
-function getApkFileInfo() {
-  const apkPath = path.join(mobileAppPath, 'WestConnect-release.apk')
-  if (!fs.existsSync(apkPath)) return { available: false, apkPath }
-  let size = 0
-  try {
-    size = fs.statSync(apkPath).size
-  } catch {
-    size = 0
-  }
-  return { available: true, apkPath, size }
-}
-
-// WCConnect student-app download landing page. This is what every printed
-// QR code (e.g. on the COR) points to, so it must stay at this exact URL:
-// scan -> branded page -> tap Download. The raw file lives at /download-apk/file.
-app.get('/download-apk', (req, res) => {
-  try {
-    const { renderMobileDownloadPage, formatBytes, readAppVersion } = require('./mobileDownloadPage')
-    const info = getApkFileInfo()
-    const html = renderMobileDownloadPage({
-      available: info.available,
-      fileName: 'WCConnect.apk',
-      fileSize: info.available ? formatBytes(info.size) : '',
-      appVersion: readAppVersion(path.join(mobileAppPath, '..', '..'))
-    })
-    res.setHeader('Content-Type', 'text/html; charset=utf-8')
-    res.setHeader('Cache-Control', 'no-store')
-    return res.send(html)
-  } catch (error) {
-    logger.error('Download page error:', error.message)
-    res.status(500).json({ error: 'Failed to load download page.' })
-  }
-})
-
-// Raw APK bytes for the landing page's download button.
-app.get('/download-apk/file', (req, res) => {
-  try {
-    const info = getApkFileInfo()
-
-    if (!info.available) {
-      return res.status(404).json({ error: 'APK file not found. Please build the mobile app first.' })
-    }
-
-    res.download(info.apkPath, 'WCConnect.apk', (err) => {
-      if (err) {
-        logger.error('APK download error:', err.message)
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Failed to download APK.' })
-        }
-      }
-    })
-  } catch (error) {
-    logger.error('APK download error:', error.message)
-    res.status(500).json({ error: 'Failed to download APK.' })
-  }
 })
 
 // Catch-all route for debugging

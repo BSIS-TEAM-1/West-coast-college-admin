@@ -29,7 +29,6 @@ function CourseManagement({
   const [semesterFilter, setSemesterFilter] = useState('all')
   const [schoolYearFilter, setSchoolYearFilter] = useState('all')
   const [subjectSort, setSubjectSort] = useState<'default' | 'code' | 'students'>('default')
-  const [showEnrolledOnly, setShowEnrolledOnly] = useState(false)
   const [showUsageTips, setShowUsageTips] = useState(false)
   const [expandedBlockKeys, setExpandedBlockKeys] = useState<string[]>([])
   const [openListActionMenuId, setOpenListActionMenuId] = useState<string | null>(null)
@@ -274,10 +273,6 @@ function CourseManagement({
               })
               : block.subjects
 
-            if (showEnrolledOnly) {
-              subjects = subjects.filter((subject) => (subject.enrolledStudents ?? 0) > 0)
-            }
-
             if (subjectSort === 'code') {
               subjects = [...subjects].sort((a, b) => String(a.code || '').localeCompare(String(b.code || '')))
             } else if (subjectSort === 'students') {
@@ -294,18 +289,34 @@ function CourseManagement({
         }
       })
       .filter((course) => course.blocks.length > 0)
-  }, [courses, courseFilter, semesterFilter, schoolYearFilter, normalizedQuery, showEnrolledOnly, subjectSort])
+  }, [courses, courseFilter, semesterFilter, schoolYearFilter, normalizedQuery, subjectSort])
+
+  // Count unique students across subjects/blocks. Summing per-subject
+  // enrollment counts double-counts students taking multiple subjects.
+  const countUniqueStudents = (courseList: ProfessorAssignedCourse[]) => {
+    const ids = new Set<string>()
+    let fallbackCount = 0
+    courseList.forEach((course) => {
+      course.blocks.forEach((block) => {
+        const hasIds = block.subjects.some((subject) => Array.isArray(subject.studentIds))
+        if (hasIds) {
+          block.subjects.forEach((subject) => {
+            (subject.studentIds || []).forEach((id) => ids.add(String(id)))
+          })
+        } else {
+          fallbackCount += getBlockRosterCount(block)
+        }
+      })
+    })
+    return ids.size + fallbackCount
+  }
 
   const totalStats = useMemo(() => {
     const blocks = courses.reduce((sum, course) => sum + course.blocks.length, 0)
     const subjects = courses.reduce((sum, course) => {
       return sum + course.blocks.reduce((blockSum, block) => blockSum + block.subjects.length, 0)
     }, 0)
-    const students = courses.reduce((sum, course) => {
-      return sum + course.blocks.reduce((blockSum, block) => {
-        return blockSum + block.subjects.reduce((subjectSum, subject) => subjectSum + (subject.enrolledStudents ?? 0), 0)
-      }, 0)
-    }, 0)
+    const students = countUniqueStudents(courses)
 
     return {
       courses: courses.length,
@@ -320,11 +331,7 @@ function CourseManagement({
     const subjects = filteredCourses.reduce((sum, course) => {
       return sum + course.blocks.reduce((blockSum, block) => blockSum + block.subjects.length, 0)
     }, 0)
-    const students = filteredCourses.reduce((sum, course) => {
-      return sum + course.blocks.reduce((blockSum, block) => {
-        return blockSum + block.subjects.reduce((subjectSum, subject) => subjectSum + (subject.enrolledStudents ?? 0), 0)
-      }, 0)
-    }, 0)
+    const students = countUniqueStudents(filteredCourses)
 
     return {
       courses: filteredCourses.length,
@@ -339,7 +346,6 @@ function CourseManagement({
     || semesterFilter !== 'all'
     || schoolYearFilter !== 'all'
     || subjectSort !== 'default'
-    || showEnrolledOnly
 
   useEffect(() => {
     const allKeys = filteredCourses.flatMap((course) => course.blocks.map((block) => getBlockKey(course.courseCode, block)))
@@ -368,7 +374,6 @@ function CourseManagement({
     setSemesterFilter('all')
     setSchoolYearFilter('all')
     setSubjectSort('default')
-    setShowEnrolledOnly(false)
   }
 
   const toggleBlock = (blockKey: string) => {
@@ -628,17 +633,6 @@ function CourseManagement({
                 <option value="students">Student count</option>
               </select>
             </label>
-            <label className="professor-course-select professor-course-toggle-field">
-              <span>Students</span>
-              <span className="professor-course-toggle">
-                <input
-                  type="checkbox"
-                  checked={showEnrolledOnly}
-                  onChange={(event) => setShowEnrolledOnly(event.target.checked)}
-                />
-                <span>Enrolled only</span>
-              </span>
-            </label>
           </div>
           <button
             type="button"
@@ -677,11 +671,6 @@ function CourseManagement({
           {subjectSort !== 'default' && (
             <button type="button" className="professor-filter-chip" onClick={() => setSubjectSort('default')}>
               Sort: {subjectSort === 'code' ? 'Subject code' : 'Student count'} x
-            </button>
-          )}
-          {showEnrolledOnly && (
-            <button type="button" className="professor-filter-chip" onClick={() => setShowEnrolledOnly(false)}>
-              Enrolled only x
             </button>
           )}
         </div>

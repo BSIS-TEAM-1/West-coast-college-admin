@@ -1,10 +1,10 @@
-import { LayoutDashboard, User, UserPlus, Settings, Users, Bell, Shield, Activity, CheckCircle2, BookOpen, X } from 'lucide-react';
+import { LayoutDashboard, User, UserPlus, Settings, Users, Bell, Shield, Activity, CheckCircle2, BookOpen, MessageSquare, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { getProfile } from '../lib/authApi';
 import type { ProfileResponse } from '../lib/authApi';
 import './Sidebar.css';
 
-type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'announcement-detail' | 'personal-details' | 'system-health' | 'security' | 'cor-docs' | 'calendar' | 'curriculum-management';
+type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'announcement-detail' | 'personal-details' | 'system-health' | 'security' | 'cor-docs' | 'calendar' | 'curriculum-management' | 'evaluations';
 
 type SidebarProps = {
   id?: string;
@@ -20,6 +20,7 @@ const NAV_ITEMS: { id: View; label: string; icon: any }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'system-health', label: 'System Health', icon: Activity },
   { id: 'announcements', label: 'Announcements', icon: Bell },
+  { id: 'evaluations', label: 'Evaluation Management', icon: MessageSquare },
   { id: 'curriculum-management', label: 'Curriculum Management', icon: BookOpen },
   { id: 'cor-docs', label: 'COR Generation', icon: CheckCircle2 },
   { id: 'add-account', label: 'Add Account', icon: UserPlus },
@@ -111,6 +112,10 @@ export default function Sidebar({ id, activeLink = 'dashboard', onNavigate, prof
           }
           // Hide system-health for professor users
           if (id === 'system-health' && accountType === 'professor') {
+            return false
+          }
+          // Hide evaluations for admin users (only registrar can access)
+          if (id === 'evaluations' && accountType === 'admin') {
             return false
           }
           return true

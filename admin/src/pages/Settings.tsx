@@ -450,8 +450,8 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
             </div>
           </section>
 
-          {/* Academic Setup — half width */}
-          {profile?.accountType !== 'professor' ? (
+          {/* Academic Setup — centralized in Registrar function only */}
+          {profile?.accountType === 'registrar' ? (
             <form className="settings-card" onSubmit={handleAcademicTermSubmit}>
               <div className="settings-card-header">
                 <h4 className="settings-card-header-title">Academic Setup</h4>
@@ -495,91 +495,25 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
                     </select>
                   </div>
                 </div>
-                <p className="settings-card-hint">Default term for new student enrollments.</p>
-              </div>
-
-              <div className="settings-card-footer">
-                <span className="settings-card-footer-status">
-                  {academicTermDirty ? 'Review and save changes' : 'No pending changes'}
-                </span>
-                <button
-                  type="submit"
-                  className="settings-card-save-btn"
-                  disabled={academicTermLoading || academicTermSaving || !academicTermDirty}
-                >
-                  {academicTermSaving ? 'Saving...' : 'Save'}
-                </button>
-              </div>
-            </form>
-          ) : null}
-
-          {/* Grading Scale — half width */}
-          {profile?.accountType !== 'professor' ? (
-            <form className="settings-card" onSubmit={handleGradeScaleSubmit}>
-              <div className="settings-card-header">
-                <h4 className="settings-card-header-title">Grading Scale</h4>
-              </div>
-
-              <div className="settings-card-body">
-                {gradeScaleStatus && (
-                  <p className={`settings-status ${gradeScaleStatus.type === 'error' ? 'settings-error' : 'settings-success'}`} role="alert">
-                    {gradeScaleStatus.message}
-                  </p>
-                )}
-                <div className="settings-card-body-grid">
-                  <div className="form-group">
-                    <label htmlFor="gradeScaleStep" className="settings-field-label">Grade Step</label>
-                    <input
-                      id="gradeScaleStep"
-                      name="gradeScaleStep"
-                      type="number"
-                      className="settings-input"
-                      min="0.01"
-                      max="1"
-                      step="any"
-                      inputMode="decimal"
-                      value={gradeScaleDraft.step}
-                      onChange={(event) => setGradeScaleDraft((prev) => ({ ...prev, step: event.target.value }))}
-                      disabled={gradeScaleLoading}
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="gradeScalePassing" className="settings-field-label">Passing Grade</label>
-                    <input
-                      id="gradeScalePassing"
-                      name="gradeScalePassing"
-                      type="number"
-                      className="settings-input"
-                      min={gradeScale?.min ?? 1}
-                      max={gradeScale?.max ?? 5}
-                      step="any"
-                      inputMode="decimal"
-                      value={gradeScaleDraft.passingGrade}
-                      onChange={(event) => setGradeScaleDraft((prev) => ({ ...prev, passingGrade: event.target.value }))}
-                      disabled={gradeScaleLoading}
-                      required
-                    />
-                  </div>
-                </div>
                 <p className="settings-card-hint">
-                  Grades: {gradeScalePreview}. A grade of {formatGrade(gradeScalePreviewScale.passingGrade, '', gradeScalePreviewScale)} or better
-                  passes; anything above it fails. Existing recorded grades keep their original values.
+                  Centralized school year and semester applied across Registrar, Admin, and Professor portals.
                 </p>
               </div>
 
-              <div className="settings-card-footer">
-                <span className="settings-card-footer-status">
-                  {gradeScaleDirty ? 'Review and save changes' : 'No pending changes'}
-                </span>
-                <button
-                  type="submit"
-                  className="settings-card-save-btn"
-                  disabled={gradeScaleLoading || gradeScaleSaving || !gradeScaleDirty}
-                >
-                  {gradeScaleSaving ? 'Saving...' : 'Save'}
-                </button>
-              </div>
+              {profile?.accountType === 'registrar' && (
+                <div className="settings-card-footer">
+                  <span className="settings-card-footer-status">
+                    {academicTermDirty ? 'Review and save changes' : 'No pending changes'}
+                  </span>
+                  <button
+                    type="submit"
+                    className="settings-card-save-btn"
+                    disabled={academicTermLoading || academicTermSaving || !academicTermDirty}
+                  >
+                    {academicTermSaving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              )}
             </form>
           ) : null}
 
@@ -713,6 +647,76 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
               </div>
             </div>
           </form>
+
+          {/* Academic Setup — centralized in Registrar function only */}
+          {profile?.accountType !== 'professor' ? (
+            <form className="settings-card" onSubmit={handleAcademicTermSubmit}>
+              <div className="settings-card-header">
+                <h4 className="settings-card-header-title">Academic Setup</h4>
+              </div>
+
+              <div className="settings-card-body">
+                {academicTermStatus && (
+                  <p className={`settings-status ${academicTermStatus.type === 'error' ? 'settings-error' : 'settings-success'}`} role="alert">
+                    {academicTermStatus.message}
+                  </p>
+                )}
+                <div className="settings-card-body-grid">
+                  <div className="form-group">
+                    <label htmlFor="academicTermSchoolYear" className="settings-field-label">School Year</label>
+                    <input
+                      id="academicTermSchoolYear"
+                      name="schoolYear"
+                      type="text"
+                      className="settings-input"
+                      placeholder="YYYY-YYYY"
+                      pattern="\d{4}-\d{4}"
+                      value={academicTermDraft.schoolYear}
+                      onChange={(event) => setAcademicTermDraft((prev) => ({ ...prev, schoolYear: event.target.value }))}
+                      disabled={academicTermLoading || profile?.accountType !== 'registrar'}
+                      readOnly={profile?.accountType !== 'registrar'}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="academicTermSemester" className="settings-field-label">Semester</label>
+                    <select
+                      id="academicTermSemester"
+                      name="semester"
+                      className="settings-input"
+                      value={academicTermDraft.semester}
+                      onChange={(event) => setAcademicTermDraft((prev) => ({ ...prev, semester: event.target.value as AcademicSemester }))}
+                      disabled={academicTermLoading || profile?.accountType !== 'registrar'}
+                    >
+                      <option value="1st">1st Semester</option>
+                      <option value="2nd">2nd Semester</option>
+                      <option value="Summer">Summer</option>
+                    </select>
+                  </div>
+                </div>
+                <p className="settings-card-hint">
+                  {profile?.accountType === 'registrar'
+                    ? 'Centralized school year and semester applied across Registrar, Admin, and Professor portals.'
+                    : 'Centralized in the Registrar portal. Changes made by the Registrar automatically apply here.'}
+                </p>
+              </div>
+
+              {profile?.accountType === 'registrar' && (
+                <div className="settings-card-footer">
+                  <span className="settings-card-footer-status">
+                    {academicTermDirty ? 'Review and save changes' : 'No pending changes'}
+                  </span>
+                  <button
+                    type="submit"
+                    className="settings-card-save-btn"
+                    disabled={academicTermLoading || academicTermSaving || !academicTermDirty}
+                  >
+                    {academicTermSaving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              )}
+            </form>
+          ) : null}
         </div>
       </div>
     </div>

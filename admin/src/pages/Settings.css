@@ -188,8 +188,8 @@
 
 @media (min-width: 960px) {
   .settings-bento-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: start;
+    grid-template-columns: repeat(2, 1fr);
+    align-items: stretch;
   }
 
   .settings-card-appearance {

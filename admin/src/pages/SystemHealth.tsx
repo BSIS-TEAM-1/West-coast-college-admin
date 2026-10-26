@@ -50,6 +50,7 @@ interface SystemMetrics {
     } | null;
     databaseInfo: {
       collectionsCount: number;
+      objectsCount?: number;
       dataSize: string;
       indexSize: string;
     } | null;
@@ -645,7 +646,7 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
           <DashboardCard title="Resources" icon={<HardDrive size={20} />}>
             <div className="summary-card-body">
               <StatCard label="DB Usage" value={formatMetricPercent(metrics.databaseUsage)} tone="info" status={metrics.atlasMetrics?.enabled ? `${metrics.atlasMetrics.databaseInfo?.collectionsCount || 0} collections` : 'Disabled'} />
-              <StatCard label="Total Docs" value={formatNumber(metrics.statistics.totalDocuments)} status="Current" />
+              <StatCard label="Active Data" value={formatNumber(metrics.statistics.totalDocuments || metrics.atlasMetrics?.databaseInfo?.objectsCount || 0)} status="Current" />
             </div>
           </DashboardCard>
         </div>

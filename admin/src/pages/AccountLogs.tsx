@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { Users, Calendar, Search, Download, Eye, EyeOff, Trash2, MoreVertical, Shield } from 'lucide-react';
+import { Users, Calendar, Search, Eye, EyeOff, Trash2, MoreVertical, Shield } from 'lucide-react';
 import { getAccountLogs, deleteAccount, getProfile, changeStaffPassword } from '../lib/authApi';
 import type { AccountLog, ProfileResponse } from '../lib/authApi';
 import './AccountLogs.css';
@@ -179,10 +179,6 @@ export default function AccountLogs() {
     { label: 'Registrars', value: filteredTypeCounts.registrar.toString() },
     { label: 'Professors', value: filteredTypeCounts.professor.toString() }
   ];
-
-  const handleExport = () => {
-    // TODO: Implement export functionality
-  };
 
   const handleDelete = async (account: AccountLog) => {
     setDeleteLoading(true);
@@ -382,12 +378,6 @@ export default function AccountLogs() {
               <option value="professor">Professor</option>
             </select>
           </div>
-
-          
-          <button className="export-btn" onClick={handleExport}>
-            <Download size={16} />
-            Export
-          </button>
         </div>
       </div>
 

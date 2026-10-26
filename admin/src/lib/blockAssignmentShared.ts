@@ -114,6 +114,9 @@ export function schoolYearStartYear(value?: number | string | null) {
 }
 
 export function getDefaultSchoolYear() {
+  if (typeof window !== 'undefined' && (window as any).__wccAcademicTerm?.schoolYear) {
+    return String((window as any).__wccAcademicTerm.schoolYear)
+  }
   const currentYear = new Date().getFullYear()
   return `${currentYear}-${currentYear + 1}`
 }

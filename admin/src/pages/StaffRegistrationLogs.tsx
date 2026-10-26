@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  Users, Search, Download, Trash2, Eye, Clock, UserCheck,
+  Users, Search, Trash2, Eye, Clock, UserCheck,
   CheckCircle, AlertCircle, RefreshCw, X, Calendar, MoreVertical
 } from 'lucide-react'
 import { getStoredToken, API_URL, getProfile, type ProfileResponse } from '../lib/authApi'
@@ -185,31 +185,6 @@ export default function StaffRegistrationLogs() {
     }
   }
 
-  const exportLogs = () => {
-    const headers = ['Username', 'Display Name', 'UID', 'Account Type', 'Created Date', 'Created By', 'Email']
-    const rows = filteredLogs.map((log) => [
-      log.username,
-      log.displayName,
-      getUidDisplay(log),
-      log.accountType.charAt(0).toUpperCase() + log.accountType.slice(1),
-      formatDate(log.createdAt),
-      getCreatedByDisplay(log),
-      log.email || 'N/A'
-    ])
-
-    const csv = [headers, ...rows]
-      .map((row) => row.map((cell) => `"${cell}"`).join(','))
-      .join('\n')
-
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `staff-registration-logs-${new Date().toISOString().split('T')[0]}.csv`
-    a.click()
-    window.URL.revokeObjectURL(url)
-  }
-
   const clearFilters = () => {
     setSearchTerm('')
     setFilterType('all')
@@ -297,10 +272,6 @@ export default function StaffRegistrationLogs() {
           <div className="toolbar-actions">
             <button className="btn btn-ghost" onClick={fetchLogs} title="Refresh logs" aria-label="Refresh logs">
               <RefreshCw size={16} />
-            </button>
-            <button className="btn btn-primary" onClick={exportLogs} disabled={filteredLogs.length === 0}>
-              <Download size={16} />
-              <span>Export</span>
             </button>
           </div>
         </div>

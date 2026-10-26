@@ -14,11 +14,13 @@ import Security from './Security'
 import CorGeneration from './CorGeneration'
 import CalendarPage from './CalendarPage'
 import CurriculumManagementLayout from './registrar/CurriculumManagementLayout'
+import EvaluationManagementPage from './registrar/EvaluationManagementPage'
 import StatisticsCard from '../components/StatisticsCard'
 import MiniEventCalendar from '../components/MiniEventCalendar'
 import { User, Users, FileText, Wrench } from 'lucide-react'
 import { getStoredToken, API_URL } from '../lib/authApi'
 import type { ProfileResponse } from '../lib/authApi'
+import { getAcademicTerm, getCachedAcademicTerm, subscribeAcademicTerm } from '../lib/settingsApi'
 import './Dashboard.css'
 
 type DashboardProps = {
@@ -28,7 +30,7 @@ type DashboardProps = {
   initialProfile?: ProfileResponse | null
 }
 
-type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'announcement-detail' | 'personal-details' | 'system-health' | 'security' | 'cor-docs' | 'calendar' | 'curriculum-management'
+type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'announcement-detail' | 'personal-details' | 'system-health' | 'security' | 'cor-docs' | 'calendar' | 'curriculum-management' | 'evaluations'
 
 export default function Dashboard({ username, onLogout, onProfileUpdated, initialProfile = null }: DashboardProps) {
   const [view, setView] = useState<View>('dashboard')
@@ -37,6 +39,23 @@ export default function Dashboard({ username, onLogout, onProfileUpdated, initia
   const [registrationLogs, setRegistrationLogs] = useState<any[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [academicTerm, setAcademicTerm] = useState(() => getCachedAcademicTerm())
+
+  useEffect(() => {
+    let cancelled = false
+    getAcademicTerm()
+      .then((term) => {
+        if (!cancelled) setAcademicTerm(term)
+      })
+      .catch(() => {})
+    const unsubscribe = subscribeAcademicTerm((term) => {
+      if (!cancelled) setAcademicTerm(term)
+    })
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [])
   const profileName = initialProfile?.displayName || initialProfile?.username || username
   const profileRole = initialProfile?.accountType === 'registrar'
     ? 'Registrar'
@@ -100,19 +119,73 @@ export default function Dashboard({ username, onLogout, onProfileUpdated, initia
     }
   }, [isSidebarOpen])
 
-  const fetchMetrics = async (forceScan = false) => {
+  const fetchMetrics = async () => {
     try {
       const token = await getStoredToken()
-      const response = await fetch(`${API_URL}/api/admin/system-health${forceScan ? '?forceScan=true' : ''}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      })
-      
-      if (response.ok) {
-        const data = await response.json()
-        setMetrics(data)
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+
+      const extractStudentCount = (payload: any): number | null => {
+        if (!payload) return null
+        if (Array.isArray(payload?.data)) return payload.data.length
+        if (Array.isArray(payload?.students)) return payload.students.length
+        if (Array.isArray(payload)) return payload.length
+        if (typeof payload?.total === 'number') return payload.total
+        return null
+      }
+
+      const [countsRes, registrarStudentsRes, apiRegistrarStudentsRes, debugAdminsRes] = await Promise.all([
+        fetch(`${API_URL}/api/admin/account-counts`, { headers }).catch(() => null),
+        fetch(`${API_URL}/registrar/students`, { headers }).catch(() => null),
+        fetch(`${API_URL}/api/registrar/students`, { headers }).catch(() => null),
+        fetch(`${API_URL}/api/admin/debug-admins`, { headers }).catch(() => null)
+      ])
+
+      const countsData = countsRes && countsRes.ok ? await countsRes.json().catch(() => null) : null
+      const registrarStudentsPayload = registrarStudentsRes && registrarStudentsRes.ok
+        ? await registrarStudentsRes.json().catch(() => null)
+        : null
+      const apiRegistrarStudentsPayload = apiRegistrarStudentsRes && apiRegistrarStudentsRes.ok
+        ? await apiRegistrarStudentsRes.json().catch(() => null)
+        : null
+      const debugAdminsData = debugAdminsRes && debugAdminsRes.ok
+        ? await debugAdminsRes.json().catch(() => null)
+        : null
+
+      const studentListCount =
+        extractStudentCount(registrarStudentsPayload) ??
+        extractStudentCount(apiRegistrarStudentsPayload)
+
+      const resolvedAdmins = Number(
+        countsData?.admins ?? debugAdminsData?.adminCount ?? 0
+      )
+      const resolvedRegistrars = Number(
+        countsData?.registrars ?? debugAdminsData?.registrarCount ?? 0
+      )
+      const resolvedProfessors = Number(
+        countsData?.professors ?? debugAdminsData?.professorCount ?? 0
+      )
+      const resolvedStudents = Math.max(
+        Number(countsData?.students ?? 0),
+        Number(debugAdminsData?.studentCount ?? 0),
+        Number(studentListCount ?? 0)
+      )
+
+      if (countsData || debugAdminsData || studentListCount !== null) {
+        setMetrics((prev: any) => ({
+          ...(prev || {}),
+          statistics: {
+            ...(prev?.statistics || {}),
+            accountTypes: {
+              admins: resolvedAdmins || prev?.statistics?.accountTypes?.admins || 0,
+              registrars: resolvedRegistrars || prev?.statistics?.accountTypes?.registrars || 0,
+              professors: resolvedProfessors || prev?.statistics?.accountTypes?.professors || 0,
+              students: resolvedStudents || prev?.statistics?.accountTypes?.students || 0
+            }
+          }
+        }))
       }
     } catch (error) {
       console.error('Failed to fetch metrics:', error)
@@ -136,6 +209,23 @@ export default function Dashboard({ username, onLogout, onProfileUpdated, initia
         const data = await response.json()
         // Get only the latest 3 logs for dashboard display
         setRegistrationLogs(data.logs?.slice(0, 3) || [])
+        if (data.counts) {
+          setMetrics((prev: any) => ({
+            ...(prev || {}),
+            statistics: {
+              ...(prev?.statistics || {}),
+              accountTypes: {
+                admins: Number(data.counts.admins ?? prev?.statistics?.accountTypes?.admins ?? 0),
+                registrars: Number(data.counts.registrars ?? prev?.statistics?.accountTypes?.registrars ?? 0),
+                professors: Number(data.counts.professors ?? prev?.statistics?.accountTypes?.professors ?? 0),
+                students: Math.max(
+                  Number(data.counts.students ?? 0),
+                  Number(prev?.statistics?.accountTypes?.students ?? 0)
+                )
+              }
+            }
+          }))
+        }
       }
     } catch (error) {
       console.error('Failed to fetch registration logs:', error)
@@ -274,6 +364,31 @@ export default function Dashboard({ username, onLogout, onProfileUpdated, initia
               activeView="curriculums"
               onNavigate={() => setView('curriculum-management')}
             />
+          ) : view === 'evaluations' ? (
+            // Only registrars can access evaluation management
+            initialProfile?.accountType === 'registrar' ? (
+              <EvaluationManagementPage />
+            ) : (
+              <div style={{ padding: '2rem', textAlign: 'center' }}>
+                <h2>Access Denied</h2>
+                <p>Evaluation Management is only available to registrars.</p>
+                <button
+                  type="button"
+                  onClick={() => setView('dashboard')}
+                  style={{
+                    marginTop: '1rem',
+                    padding: '0.5rem 1rem',
+                    background: 'var(--color-primary)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Return to Dashboard
+                </button>
+              </div>
+            )
           ) : (
             <div className="dashboard-content">
               <div className="dashboard-header-content">
@@ -320,14 +435,14 @@ export default function Dashboard({ username, onLogout, onProfileUpdated, initia
                     fontWeight: '700', 
                     color: 'var(--text-primary)' 
                   }}>
-                    2026-2027
+                    {academicTerm?.schoolYear || '—'}
                   </div>
                   <div style={{ 
                     fontSize: '0.75rem', 
                     fontWeight: '600', 
                     color: 'var(--text-secondary)' 
                   }}>
-                    Academic Year
+                    {academicTerm?.semester ? `${academicTerm.semester} Sem · Academic Year` : 'Academic Year'}
                   </div>
                 </div>
               </div>
