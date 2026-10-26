@@ -359,9 +359,20 @@ class StudentController {
         .sort({ schoolYear: -1, year: -1, semester: 1, name: 1 })
         .lean();
 
+      // Get current academic year (e.g., if it's 2026, current year is 2026-2027)
+      const currentYear = new Date().getFullYear();
+      const currentMonth = new Date().getMonth() + 1; // 1-12
+      const currentSchoolYear = currentMonth >= 6 ? `${currentYear}-${currentYear + 1}` : `${currentYear - 1}-${currentYear}`;
+
+      // Filter to show only block groups from the current academic year
+      const filteredGroups = rawGroups.filter(g => {
+        const groupYear = String(g.schoolYear || '').trim();
+        return groupYear === currentSchoolYear;
+      });
+
       // Fetch curriculum details for all block groups
       const curriculumIds = Array.from(new Set(
-        rawGroups.map((group) => String(group.curriculumId || '').trim()).filter(Boolean)
+        filteredGroups.map((group) => String(group.curriculumId || '').trim()).filter(Boolean)
       ));
       const curriculumMap = new Map();
       if (curriculumIds.length > 0) {
@@ -374,11 +385,11 @@ class StudentController {
       }
 
       const filterOptions = {
-        semesters: Array.from(new Set(rawGroups.map((group) => String(group.semester || '').trim()).filter(Boolean))),
-        years: Array.from(new Set(rawGroups.map((group) => String(group.schoolYear || group.year || '').trim()).filter(Boolean))).sort((a, b) => b.localeCompare(a)),
+        semesters: Array.from(new Set(filteredGroups.map((group) => String(group.semester || '').trim()).filter(Boolean))),
+        years: Array.from(new Set(filteredGroups.map((group) => String(group.schoolYear || group.year || '').trim()).filter(Boolean))).sort((a, b) => b.localeCompare(a)),
         courses: Array.from(
           new Map(
-            rawGroups
+            filteredGroups
               .map((group) => {
                 // Use curriculum programCode if available, otherwise fall back to legacy parsing
                 if (group.curriculumId && curriculumMap.has(String(group.curriculumId))) {
@@ -405,13 +416,13 @@ class StudentController {
         ).sort((a, b) => a.label.localeCompare(b.label))
       };
 
-      if (rawGroups.length === 0) {
+      if (filteredGroups.length === 0) {
         const payload = buildEmptyResponse();
         payload.data.filterOptions = filterOptions;
         return res.json(payload);
       }
 
-      const blockGroups = rawGroups
+      const blockGroups = filteredGroups
         .map((group) => {
           // Use curriculum programCode if available, otherwise fall back to legacy parsing
           let meta;

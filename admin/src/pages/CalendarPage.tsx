@@ -28,6 +28,98 @@ const EVENT_TYPES: { value: EventType; label: string }[] = [
 ]
 
 const seedEvents: CalendarEvent[] = [
+  // Philippine National Holidays 2026
+  {
+    id: 'holiday-1',
+    title: 'New Year\'s Day',
+    date: '2026-01-01',
+    time: '00:00',
+    type: 'holiday',
+    location: 'College closed',
+    description: 'College closed for New Year\'s Day'
+  },
+  {
+    id: 'holiday-2',
+    title: 'Maundy Thursday',
+    date: '2026-03-26',
+    time: '00:00',
+    type: 'holiday',
+    location: 'College closed',
+    description: 'College closed for Maundy Thursday'
+  },
+  {
+    id: 'holiday-3',
+    title: 'Good Friday',
+    date: '2026-03-27',
+    time: '00:00',
+    type: 'holiday',
+    location: 'College closed',
+    description: 'College closed for Good Friday'
+  },
+  {
+    id: 'holiday-4',
+    title: 'Araw ng Kagitingan (Day of Valor)',
+    date: '2026-04-09',
+    time: '00:00',
+    type: 'holiday',
+    location: 'College closed',
+    description: 'College closed for Araw ng Kagitingan'
+  },
+  {
+    id: 'holiday-5',
+    title: 'Labor Day',
+    date: '2026-05-01',
+    time: '00:00',
+    type: 'holiday',
+    location: 'College closed',
+    description: 'College closed for Labor Day'
+  },
+  {
+    id: 'holiday-6',
+    title: 'Independence Day',
+    date: '2026-06-12',
+    time: '00:00',
+    type: 'holiday',
+    location: 'College closed',
+    description: 'College closed for Independence Day'
+  },
+  {
+    id: 'holiday-7',
+    title: 'National Heroes Day',
+    date: '2026-08-31',
+    time: '00:00',
+    type: 'holiday',
+    location: 'College closed',
+    description: 'College closed for National Heroes Day'
+  },
+  {
+    id: 'holiday-8',
+    title: 'Bonifacio Day',
+    date: '2026-11-30',
+    time: '00:00',
+    type: 'holiday',
+    location: 'College closed',
+    description: 'College closed for Bonifacio Day'
+  },
+  {
+    id: 'holiday-9',
+    title: 'Christmas Day',
+    date: '2026-12-25',
+    time: '00:00',
+    type: 'holiday',
+    location: 'College closed',
+    description: 'College closed for Christmas Day'
+  },
+  {
+    id: 'holiday-10',
+    title: 'Rizal Day',
+    date: '2026-12-30',
+    time: '00:00',
+    type: 'holiday',
+    location: 'College closed',
+    description: 'College closed for Rizal Day'
+  },
+  // Academic events
   {
     id: 'evt-1',
     title: 'Faculty Meeting',
@@ -45,15 +137,6 @@ const seedEvents: CalendarEvent[] = [
     type: 'academic',
     location: 'Main Campus',
     description: 'Midterm examination period begins.'
-  },
-  {
-    id: 'evt-3',
-    title: 'President\'s Day',
-    date: '2026-02-17',
-    time: '09:00',
-    type: 'holiday',
-    location: 'College closed',
-    description: 'College holiday'
   },
   {
     id: 'evt-4',

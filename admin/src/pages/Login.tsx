@@ -80,7 +80,7 @@ const renderThemeIcon = (theme: ThemePreference) => {
   )
 }
 
-export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, error, signUpSuccess: _signUpSuccess, loading, onBack, onOpenStudentPortal }: LoginProps) {
+export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, error, signUpSuccess: _signUpSuccess, loading, onBack, onOpenStudentPortal: _onOpenStudentPortal }: LoginProps) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -643,33 +643,6 @@ export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, 
                     <p className="login-google-status">Completing Google sign-in...</p>
                   )}
                 </div>
-
-                {onOpenStudentPortal && (
-                  <button
-                    type="button"
-                    className="login-student-portal-btn"
-                    onClick={onOpenStudentPortal}
-                    style={{
-                      marginTop: '0.65rem',
-                      width: '100%',
-                      padding: '0.7rem 1rem',
-                      borderRadius: '10px',
-                      border: '1px solid rgba(37, 99, 235, 0.35)',
-                      background: 'rgba(37, 99, 235, 0.08)',
-                      color: 'var(--text-primary, #1e293b)',
-                      fontWeight: 600,
-                      fontSize: '0.86rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '0.5rem',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '18px' }}>school</span>
-                    <span>Student Grades &amp; Professor Evaluation Portal</span>
-                  </button>
-                )}
               </div>
             </form>
 

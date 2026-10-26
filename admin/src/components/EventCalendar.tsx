@@ -18,6 +18,88 @@ const EventCalendar = () => {
 
   // Sample events data - in production this would come from API
   const events: Event[] = [
+    // Philippine National Holidays 2026
+    {
+      id: 'holiday-1',
+      title: 'New Year\'s Day',
+      date: '2026-01-01',
+      time: 'All Day',
+      type: 'holiday',
+      description: 'College closed for New Year\'s Day'
+    },
+    {
+      id: 'holiday-2',
+      title: 'Maundy Thursday',
+      date: '2026-03-26',
+      time: 'All Day',
+      type: 'holiday',
+      description: 'College closed for Maundy Thursday'
+    },
+    {
+      id: 'holiday-3',
+      title: 'Good Friday',
+      date: '2026-03-27',
+      time: 'All Day',
+      type: 'holiday',
+      description: 'College closed for Good Friday'
+    },
+    {
+      id: 'holiday-4',
+      title: 'Araw ng Kagitingan (Day of Valor)',
+      date: '2026-04-09',
+      time: 'All Day',
+      type: 'holiday',
+      description: 'College closed for Araw ng Kagitingan'
+    },
+    {
+      id: 'holiday-5',
+      title: 'Labor Day',
+      date: '2026-05-01',
+      time: 'All Day',
+      type: 'holiday',
+      description: 'College closed for Labor Day'
+    },
+    {
+      id: 'holiday-6',
+      title: 'Independence Day',
+      date: '2026-06-12',
+      time: 'All Day',
+      type: 'holiday',
+      description: 'College closed for Independence Day'
+    },
+    {
+      id: 'holiday-7',
+      title: 'National Heroes Day',
+      date: '2026-08-31',
+      time: 'All Day',
+      type: 'holiday',
+      description: 'College closed for National Heroes Day'
+    },
+    {
+      id: 'holiday-8',
+      title: 'Bonifacio Day',
+      date: '2026-11-30',
+      time: 'All Day',
+      type: 'holiday',
+      description: 'College closed for Bonifacio Day'
+    },
+    {
+      id: 'holiday-9',
+      title: 'Christmas Day',
+      date: '2026-12-25',
+      time: 'All Day',
+      type: 'holiday',
+      description: 'College closed for Christmas Day'
+    },
+    {
+      id: 'holiday-10',
+      title: 'Rizal Day',
+      date: '2026-12-30',
+      time: 'All Day',
+      type: 'holiday',
+      description: 'College closed for Rizal Day'
+    },
+    // Academic events
     {
       id: '1',
       title: 'Faculty Meeting',
@@ -35,14 +117,6 @@ const EventCalendar = () => {
       location: 'Various',
       type: 'academic',
       description: 'Midterm examination period begins'
-    },
-    {
-      id: '3',
-      title: 'President\'s Day Holiday',
-      date: '2026-02-17',
-      time: 'All Day',
-      type: 'holiday',
-      description: 'College closed for President\'s Day'
     },
     {
       id: '4',
@@ -124,6 +198,7 @@ const EventCalendar = () => {
           key={day}
           className={`calendar-day ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''}`}
           onClick={() => setSelectedDate(date)}
+          title={dayEvents.length > 0 ? dayEvents.map(e => `${e.title} (${e.time})`).join('\n') : ''}
         >
           <div className="day-number">{day}</div>
           {dayEvents.length > 0 && (
@@ -194,9 +269,9 @@ const EventCalendar = () => {
       {selectedDateEvents.length > 0 && (
         <div className="selected-date-events">
           <h4 className="events-title">
-            {selectedDate?.toLocaleDateString('en-US', { 
-              weekday: 'long', 
-              month: 'long', 
+            {selectedDate?.toLocaleDateString('en-US', {
+              weekday: 'long',
+              month: 'long',
               day: 'numeric',
               year: 'numeric'
             })}
@@ -228,33 +303,6 @@ const EventCalendar = () => {
           </div>
         </div>
       )}
-
-      <div className="upcoming-events">
-        <h4 className="upcoming-title">Upcoming Events</h4>
-        <div className="upcoming-list">
-          {events
-            .filter(event => new Date(event.date) >= new Date())
-            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-            .slice(0, 3)
-            .map(event => (
-              <div key={event.id} className="upcoming-event">
-                <div className="upcoming-date">
-                  <div className="date-day">
-                    {new Date(event.date).getDate()}
-                  </div>
-                  <div className="date-month">
-                    {new Date(event.date).toLocaleDateString('en-US', { month: 'short' })}
-                  </div>
-                </div>
-                <div className="upcoming-info">
-                  <div className="upcoming-title">{event.title}</div>
-                  <div className="upcoming-time">{event.time}</div>
-                </div>
-                <div className="upcoming-type" style={{ backgroundColor: getEventTypeColor(event.type) }} />
-              </div>
-            ))}
-        </div>
-      </div>
     </div>
   )
 }

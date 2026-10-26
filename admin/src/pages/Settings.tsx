@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { getProfile, updateProfile, clearStoredToken } from '../lib/authApi';
 import type { ProfileResponse, UpdateProfileRequest } from '../lib/authApi';
 import {
@@ -11,8 +11,7 @@ import {
   type ThemeAccentColor,
   type ThemePreference,
 } from '../lib/theme';
-import { getAcademicTerm, getGradeScaleSetting, updateAcademicTerm, updateGradeScaleSetting, type AcademicSemester } from '../lib/settingsApi';
-import { formatGrade, listAllowedGrades, setGradeScale as applyGradeScale } from '../lib/gradingScale';
+import { getAcademicTerm, updateAcademicTerm, type AcademicSemester } from '../lib/settingsApi';
 import './Settings.css';
 
 type Theme = ThemePreference;
@@ -53,13 +52,6 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
   const [academicTermLoading, setAcademicTermLoading] = useState(true);
   const [academicTermSaving, setAcademicTermSaving] = useState(false);
   const [academicTermStatus, setAcademicTermStatus] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
-
-  // Grading scale (numeric format + passing grade) state
-  const [gradeScale, setGradeScaleState] = useState<{ min: number; max: number; step: number; passingGrade: number } | null>(null);
-  const [gradeScaleDraft, setGradeScaleDraft] = useState({ step: '0.1', passingGrade: '3' });
-  const [gradeScaleLoading, setGradeScaleLoading] = useState(true);
-  const [gradeScaleSaving, setGradeScaleSaving] = useState(false);
-  const [gradeScaleStatus, setGradeScaleStatus] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
 
   useEffect(() => {
     getAcademicTerm()
@@ -107,73 +99,6 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
       });
     } finally {
       setAcademicTermSaving(false);
-    }
-  };
-
-  // Grading scale: load once, keep the draft in sync with the saved policy.
-  useEffect(() => {
-    getGradeScaleSetting()
-      .then((scale) => {
-        setGradeScaleState({ min: scale.min, max: scale.max, step: scale.step, passingGrade: scale.passingGrade });
-        setGradeScaleDraft({ step: String(scale.step), passingGrade: String(scale.passingGrade) });
-        applyGradeScale(scale);
-      })
-      .catch((err) => {
-        setGradeScaleStatus({
-          type: 'error',
-          message: err instanceof Error ? err.message : 'Failed to load grading scale setting.',
-        });
-      })
-      .finally(() => setGradeScaleLoading(false));
-  }, []);
-
-  const gradeScaleDirty = Boolean(
-    gradeScale &&
-    (Number(gradeScaleDraft.step) !== gradeScale.step || Number(gradeScaleDraft.passingGrade) !== gradeScale.passingGrade)
-  );
-
-  const gradeScalePreviewScale = useMemo(
-    () => ({
-      min: gradeScale?.min ?? 1,
-      max: gradeScale?.max ?? 5,
-      step: Number(gradeScaleDraft.step) || 0.1,
-      passingGrade: Number(gradeScaleDraft.passingGrade) || 3,
-    }),
-    [gradeScale, gradeScaleDraft]
-  );
-
-  const gradeScalePreview = useMemo(() => {
-    const grades = listAllowedGrades(gradeScalePreviewScale);
-    if (grades.length === 0) return '';
-    const label = (value: number) => formatGrade(value, '', gradeScalePreviewScale);
-    if (grades.length <= 8) return grades.map(label).join(', ');
-    return `${label(grades[0])}, ${label(grades[1])}, ${label(grades[2])} … ${label(grades[grades.length - 1])}`;
-  }, [gradeScalePreviewScale]);
-
-  const handleGradeScaleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!gradeScaleDirty) return;
-
-    setGradeScaleSaving(true);
-    setGradeScaleStatus(null);
-    try {
-      const updated = await updateGradeScaleSetting({
-        min: gradeScale?.min ?? 1,
-        max: gradeScale?.max ?? 5,
-        step: Number(gradeScaleDraft.step),
-        passingGrade: Number(gradeScaleDraft.passingGrade),
-      });
-      setGradeScaleState({ min: updated.min, max: updated.max, step: updated.step, passingGrade: updated.passingGrade });
-      setGradeScaleDraft({ step: String(updated.step), passingGrade: String(updated.passingGrade) });
-      applyGradeScale(updated);
-      setGradeScaleStatus({ type: 'success', message: 'Grading scale updated successfully.' });
-    } catch (err) {
-      setGradeScaleStatus({
-        type: 'error',
-        message: err instanceof Error ? err.message : 'Failed to update grading scale setting.',
-      });
-    } finally {
-      setGradeScaleSaving(false);
     }
   };
 
@@ -450,73 +375,6 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
             </div>
           </section>
 
-          {/* Academic Setup — centralized in Registrar function only */}
-          {profile?.accountType === 'registrar' ? (
-            <form className="settings-card" onSubmit={handleAcademicTermSubmit}>
-              <div className="settings-card-header">
-                <h4 className="settings-card-header-title">Academic Setup</h4>
-              </div>
-
-              <div className="settings-card-body">
-                {academicTermStatus && (
-                  <p className={`settings-status ${academicTermStatus.type === 'error' ? 'settings-error' : 'settings-success'}`} role="alert">
-                    {academicTermStatus.message}
-                  </p>
-                )}
-                <div className="settings-card-body-grid">
-                  <div className="form-group">
-                    <label htmlFor="academicTermSchoolYear" className="settings-field-label">School Year</label>
-                    <input
-                      id="academicTermSchoolYear"
-                      name="schoolYear"
-                      type="text"
-                      className="settings-input"
-                      placeholder="YYYY-YYYY"
-                      pattern="\d{4}-\d{4}"
-                      value={academicTermDraft.schoolYear}
-                      onChange={(event) => setAcademicTermDraft((prev) => ({ ...prev, schoolYear: event.target.value }))}
-                      disabled={academicTermLoading}
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="academicTermSemester" className="settings-field-label">Semester</label>
-                    <select
-                      id="academicTermSemester"
-                      name="semester"
-                      className="settings-input"
-                      value={academicTermDraft.semester}
-                      onChange={(event) => setAcademicTermDraft((prev) => ({ ...prev, semester: event.target.value as AcademicSemester }))}
-                      disabled={academicTermLoading}
-                    >
-                      <option value="1st">1st Semester</option>
-                      <option value="2nd">2nd Semester</option>
-                      <option value="Summer">Summer</option>
-                    </select>
-                  </div>
-                </div>
-                <p className="settings-card-hint">
-                  Centralized school year and semester applied across Registrar, Admin, and Professor portals.
-                </p>
-              </div>
-
-              {profile?.accountType === 'registrar' && (
-                <div className="settings-card-footer">
-                  <span className="settings-card-footer-status">
-                    {academicTermDirty ? 'Review and save changes' : 'No pending changes'}
-                  </span>
-                  <button
-                    type="submit"
-                    className="settings-card-save-btn"
-                    disabled={academicTermLoading || academicTermSaving || !academicTermDirty}
-                  >
-                    {academicTermSaving ? 'Saving...' : 'Save'}
-                  </button>
-                </div>
-              )}
-            </form>
-          ) : null}
-
           {/* Account Details — half width */}
           <form className="settings-card" onSubmit={handleSubmit}>
             <div className="settings-card-header">
@@ -648,41 +506,39 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
             </div>
           </form>
 
-          {/* Academic Setup — centralized in Registrar function only */}
-          {profile?.accountType !== 'professor' ? (
-            <form className="settings-card" onSubmit={handleAcademicTermSubmit}>
-              <div className="settings-card-header">
-                <h4 className="settings-card-header-title">Academic Setup</h4>
-              </div>
+          {/* Academic Setup */}
+          <form className="settings-card" onSubmit={handleAcademicTermSubmit}>
+            <div className="settings-card-header">
+              <h4 className="settings-card-header-title">Academic Setup</h4>
+            </div>
 
-              <div className="settings-card-body">
-                {academicTermStatus && (
-                  <p className={`settings-status ${academicTermStatus.type === 'error' ? 'settings-error' : 'settings-success'}`} role="alert">
-                    {academicTermStatus.message}
-                  </p>
-                )}
-                <div className="settings-card-body-grid">
-                  <div className="form-group">
-                    <label htmlFor="academicTermSchoolYear" className="settings-field-label">School Year</label>
-                    <input
-                      id="academicTermSchoolYear"
-                      name="schoolYear"
-                      type="text"
-                      className="settings-input"
-                      placeholder="YYYY-YYYY"
-                      pattern="\d{4}-\d{4}"
-                      value={academicTermDraft.schoolYear}
-                      onChange={(event) => setAcademicTermDraft((prev) => ({ ...prev, schoolYear: event.target.value }))}
-                      disabled={academicTermLoading || profile?.accountType !== 'registrar'}
-                      readOnly={profile?.accountType !== 'registrar'}
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="academicTermSemester" className="settings-field-label">Semester</label>
-                    <select
-                      id="academicTermSemester"
-                      name="semester"
+            <div className="settings-card-body">
+              {academicTermStatus && (
+                <p className={`settings-status ${academicTermStatus.type === 'error' ? 'settings-error' : 'settings-success'}`} role="alert">
+                  {academicTermStatus.message}
+                </p>
+              )}
+              <div className="settings-card-body-grid">
+                <div className="form-group">
+                  <label htmlFor="academicTermSchoolYear" className="settings-field-label">School Year</label>
+                  <input
+                    id="academicTermSchoolYear"
+                    name="schoolYear"
+                    type="text"
+                    className="settings-input"
+                    placeholder="YYYY-YYYY"
+                    pattern="\d{4}-\d{4}"
+                    value={academicTermDraft.schoolYear}
+                    onChange={(event) => setAcademicTermDraft((prev) => ({ ...prev, schoolYear: event.target.value }))}
+                    disabled={academicTermLoading || profile?.accountType !== 'registrar'}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="academicTermSemester" className="settings-field-label">Semester</label>
+                  <select
+                    id="academicTermSemester"
+                    name="semester"
                       className="settings-input"
                       value={academicTermDraft.semester}
                       onChange={(event) => setAcademicTermDraft((prev) => ({ ...prev, semester: event.target.value as AcademicSemester }))}
@@ -697,7 +553,7 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
                 <p className="settings-card-hint">
                   {profile?.accountType === 'registrar'
                     ? 'Centralized school year and semester applied across Registrar, Admin, and Professor portals.'
-                    : 'Centralized in the Registrar portal. Changes made by the Registrar automatically apply here.'}
+                    : 'Only registrars can modify academic year settings. Contact your registrar to make changes.'}
                 </p>
               </div>
 
@@ -716,7 +572,6 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
                 </div>
               )}
             </form>
-          ) : null}
         </div>
       </div>
     </div>

@@ -128,7 +128,7 @@ export default function DocumentManagementPage() {
           includeUnfoldered: !selectedFolderId ? true : undefined,
           limit: 100,
         }),
-        listFolders({ trashed: showTrashed ? 'include' : 'exclude' }),
+        listFolders({ trashed: showTrashed ? 'only' : 'exclude' }),
       ])
       setDocuments(docRes.documents)
       setFolders(folderRes.folders)
@@ -264,7 +264,7 @@ export default function DocumentManagementPage() {
             >
               <HardDrive size={16} />
               <span>All Documents</span>
-              <span className="doc-mgmt-folder-count">{documents.length}</span>
+              {documents.length > 0 && <span className="doc-mgmt-folder-count">{documents.length}</span>}
             </button>
             <button
               className={`doc-mgmt-nav-item ${showTrashed ? 'doc-mgmt-nav-item--active' : ''}`}
@@ -272,6 +272,7 @@ export default function DocumentManagementPage() {
             >
               <Trash2 size={16} />
               <span>Trash</span>
+              {showTrashed && documents.length > 0 && <span className="doc-mgmt-folder-count">{documents.length}</span>}
             </button>
           </div>
 

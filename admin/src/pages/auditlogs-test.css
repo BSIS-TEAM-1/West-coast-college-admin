@@ -748,6 +748,14 @@
   min-width: 8.5rem;
 }
 
+.filter-date input[type="date"] {
+  cursor: pointer;
+}
+
+.filter-date input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+}
+
 .filter-input-icon {
   position: relative;
   display: flex;

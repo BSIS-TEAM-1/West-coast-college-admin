@@ -42,7 +42,8 @@ const AuditLogs: React.FC = () => {
   const [logs, setLogs] = useState<AuditLog[]>([])
   const [stats, setStats] = useState<AuditStats | null>(null)
   const [totalLogsCount, setTotalLogsCount] = useState(0)
-  const [loading, setLoading] = useState(true)
+  const [initialLoading, setInitialLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [performedByInput, setPerformedByInput] = useState('')
@@ -59,9 +60,22 @@ const AuditLogs: React.FC = () => {
   })
 
   useEffect(() => {
-    fetchLogs()
     fetchStats()
+  }, [])
+
+  useEffect(() => {
+    fetchLogs()
   }, [currentPage, filters])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const trimmed = performedByInput.trim()
+      if (trimmed !== filters.performedBy) {
+        handleFilterChange('performedBy', trimmed)
+      }
+    }, 350)
+    return () => window.clearTimeout(timer)
+  }, [performedByInput])
 
   const fetchLogs = async () => {
     try {
@@ -105,6 +119,7 @@ const AuditLogs: React.FC = () => {
       console.error('Failed to fetch audit logs:', error)
     } finally {
       setLoading(false)
+      setInitialLoading(false)
     }
   }
 
@@ -133,6 +148,18 @@ const AuditLogs: React.FC = () => {
   const handleFilterChange = (key: string, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }))
     setCurrentPage(1)
+  }
+
+  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>, key: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    handleFilterChange(key, e.target.value)
+  }
+
+  const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>, key: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    handleFilterChange(key, e.target.value)
   }
 
   const clearFilters = () => {
@@ -257,7 +284,7 @@ const AuditLogs: React.FC = () => {
     })
   }, [logs, searchTerm])
 
-  if (loading && currentPage === 1) return <div className="loading">Loading audit logs...</div>
+  if (initialLoading) return <div className="loading">Loading audit logs...</div>
 
   return (
     <div className="audit-logs-container">
@@ -268,26 +295,24 @@ const AuditLogs: React.FC = () => {
         </div>
       </div>
 
-      {!loading && (
-        <div className="stats-grid">
-          <div className="stat-card">
-            <h3>Total Logs</h3>
-            <p>{(stats?.totalLogs ?? totalLogsCount).toLocaleString()}</p>
-          </div>
-          <div className="stat-card">
-            <h3>Last 30 Days</h3>
-            <p>{(stats?.recentLogs ?? 0).toLocaleString()}</p>
-          </div>
-          <div className="stat-card critical">
-            <h3>Critical</h3>
-            <p>{(stats?.criticalLogs ?? 0).toLocaleString()}</p>
-          </div>
-          <div className="stat-card">
-            <h3>New Accounts (Last 30 Days)</h3>
-            <p>{stats?.newAccounts ?? 0}</p>
-          </div>
+      <div className="stats-grid">
+        <div className="stat-card">
+          <h3>Total Logs</h3>
+          <p>{(stats?.totalLogs ?? totalLogsCount).toLocaleString()}</p>
         </div>
-      )}
+        <div className="stat-card">
+          <h3>Last 30 Days</h3>
+          <p>{(stats?.recentLogs ?? 0).toLocaleString()}</p>
+        </div>
+        <div className="stat-card critical">
+          <h3>Critical</h3>
+          <p>{(stats?.criticalLogs ?? 0).toLocaleString()}</p>
+        </div>
+        <div className="stat-card">
+          <h3>New Accounts (Last 30 Days)</h3>
+          <p>{stats?.newAccounts ?? 0}</p>
+        </div>
+      </div>
 
       <section className="filters-section" aria-label="Audit log filters">
         <div className="filters-toolbar">
@@ -299,14 +324,21 @@ const AuditLogs: React.FC = () => {
                 type="search"
                 placeholder="Action, resource, user, IP..."
                 value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
+                onChange={(e) => {
+                  setSearchInput(e.target.value)
+                  setSearchTerm(e.target.value.trim())
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
+                    e.preventDefault()
+                    e.stopPropagation()
                     setSearchTerm(searchInput.trim())
                     setCurrentPage(1)
                   }
                 }}
-                onBlur={() => {
+                onBlur={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
                   if (searchInput.trim() !== searchTerm) {
                     setSearchTerm(searchInput.trim())
                     setCurrentPage(1)
@@ -320,7 +352,7 @@ const AuditLogs: React.FC = () => {
             <span>Action</span>
             <select
               value={filters.action}
-              onChange={(e) => handleFilterChange('action', e.target.value)}
+              onChange={(e) => handleSelectChange(e, 'action')}
             >
               <option value="">All Actions</option>
               <option value="CREATE">Create</option>
@@ -350,7 +382,7 @@ const AuditLogs: React.FC = () => {
             <span>Resource</span>
             <select
               value={filters.resourceType}
-              onChange={(e) => handleFilterChange('resourceType', e.target.value)}
+              onChange={(e) => handleSelectChange(e, 'resourceType')}
             >
               <option value="">All Resources</option>
               <option value="USER">User</option>
@@ -364,7 +396,7 @@ const AuditLogs: React.FC = () => {
             <span>Severity</span>
             <select
               value={filters.severity}
-              onChange={(e) => handleFilterChange('severity', e.target.value)}
+              onChange={(e) => handleSelectChange(e, 'severity')}
             >
               <option value="">All</option>
               <option value="LOW">Low</option>
@@ -378,7 +410,7 @@ const AuditLogs: React.FC = () => {
             <span>Sort</span>
             <select
               value={filters.sortOrder}
-              onChange={(e) => handleFilterChange('sortOrder', e.target.value)}
+              onChange={(e) => handleSelectChange(e, 'sortOrder')}
             >
               <option value="newest">Newest</option>
               <option value="oldest">Oldest</option>
@@ -391,13 +423,21 @@ const AuditLogs: React.FC = () => {
               type="text"
               placeholder="Performed by"
               value={performedByInput}
-              onChange={(e) => setPerformedByInput(e.target.value)}
+              onChange={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                setPerformedByInput(e.target.value)
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
+                  e.preventDefault()
+                  e.stopPropagation()
                   handleFilterChange('performedBy', performedByInput.trim())
                 }
               }}
-              onBlur={() => {
+              onBlur={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
                 if (performedByInput.trim() !== filters.performedBy) {
                   handleFilterChange('performedBy', performedByInput.trim())
                 }
@@ -411,7 +451,7 @@ const AuditLogs: React.FC = () => {
               <input
                 type="date"
                 value={filters.startDate}
-                onChange={(e) => handleFilterChange('startDate', e.target.value)}
+                onChange={(e) => handleDateChange(e, 'startDate')}
               />
             </label>
             <label className="filter-control filter-date">
@@ -419,7 +459,7 @@ const AuditLogs: React.FC = () => {
               <input
                 type="date"
                 value={filters.endDate}
-                onChange={(e) => handleFilterChange('endDate', e.target.value)}
+                onChange={(e) => handleDateChange(e, 'endDate')}
               />
             </label>
           </div>
@@ -435,7 +475,7 @@ const AuditLogs: React.FC = () => {
         </div>
       </section>
 
-      <div className="logs-table">
+      <div className="logs-table" style={{ opacity: loading ? 0.65 : 1, transition: 'opacity 0.15s ease' }}>
         <div className="table-header">
           <div>Date/Time</div>
           <div>Action</div>

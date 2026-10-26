@@ -28,73 +28,154 @@ function readAppVersion(flutterAppDir) {
 
 /**
  * Public download landing page for the WCConnect student mobile app.
- * Served at GET /download-apk so every printed QR code (e.g. on the COR)
- * keeps working: scan -> this page -> tap Download.
+ * Styled to follow the requested structure with WCC theme & color palette.
  */
 function renderMobileDownloadPage({ available, fileName, fileSize, appVersion }) {
   const safeFile = escapeHtml(fileName || 'WCConnect-arm64.apk');
   const safeSize = escapeHtml(fileSize || '');
-  const safeVersion = escapeHtml(appVersion || '');
+  const safeVersion = escapeHtml(appVersion || '1.0.0+1');
   const statusBlock = available
-    ? `<a class="dl-btn" href="/download-apk/file" download="${safeFile}">Download for Android ARM64${safeSize ? ` (${safeSize})` : ''}</a>
-       <p class="dl-meta">${safeFile} &bull; ARM64 (arm64-v8a)${safeVersion ? ` &bull; v${safeVersion}` : ''}</p>`
-    : `<div class="dl-notice" role="status">No app build is published yet. Please ask the Registrar's Office or try again later.</div>`;
+    ? `<a class="btn btn-dark" href="/download-apk/file" download="${safeFile}">Download for Android</a>`
+    : `<div class="dl-feedback" role="status">No APK build is currently published. Please contact the Registrar's Office.</div>`;
 
-  return `<!doctype html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#7c2d12">
-<title>WCConnect — Student App Download | West Coast College</title>
-<style>
-  * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px;
-    font-family: Arial, Helvetica, sans-serif; background: #f1f5f9; color: #1e293b; }
-  .dl-card { width: min(480px, 100%); background: #ffffff; border: 1px solid #e2e8f0;
-    border-radius: 16px; overflow: hidden; text-align: center; box-shadow: 0 18px 44px rgba(2,6,23,.10); }
-  .dl-hero { background: #7c2d12; color: #fff; padding: 32px 24px 24px; }
-  .dl-badge { display: inline-flex; align-items: center; justify-content: center; width: 72px; height: 72px;
-    border-radius: 50%; background: #fff; color: #7c2d12; font-weight: 700; font-size: 22px;
-    border: 2px solid #fde68a; }
-  .dl-kicker { margin: 16px 0 0; font-size: 12px; font-weight: 700; letter-spacing: 2px; color: #fde68a; }
-  .dl-hero h1 { margin: 6px 0 0; font-size: 24px; }
-  .dl-hero p { margin: 8px 0 0; font-size: 14px; color: #fde68a; opacity: .9; }
-  .dl-body { padding: 28px 24px 32px; }
-  .dl-body > p { font-size: 14px; line-height: 1.6; color: #475569; margin: 0 0 20px; }
-  .dl-btn { display: inline-block; padding: 14px 28px; border-radius: 10px; background: #7c2d12; color: #fff;
-    font-size: 16px; font-weight: 700; text-decoration: none; }
-  .dl-btn:active { transform: scale(.98); }
-  .dl-meta { margin: 12px 0 0; font-size: 12px; color: #64748b; }
-  .dl-notice { border: 1px solid #fcd34d; background: #fffbeb; color: #92400e; border-radius: 10px;
-    padding: 14px; font-size: 14px; line-height: 1.5; }
-  .dl-steps { margin: 24px 0 0; padding: 0; list-style: none; text-align: left; font-size: 13px; color: #475569; }
-  .dl-steps li { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid #f1f5f9; line-height: 1.5; }
-  .dl-steps li:first-child { border-top: 0; }
-  .dl-num { flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; background: #7c2d12; color: #fff;
-    font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
-  .dl-foot { margin: 20px 0 0; font-size: 11px; color: #94a3b8; }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Get the App — WCConnect | West Coast College</title>
+  <meta name="description" content="Download the WCConnect Android app — grades, schedules, attendance, and official student portal for West Coast College." />
+  <link rel="icon" type="image/png" href="/wcc-app-icon.png" />
+  <style>
+    :root {
+      --navy: #002147;
+      --navy-dark: #00142b;
+      --blue: #1A56DB;
+      --blue-dark: #123E9E;
+      --gold: #C69214;
+      --text: #0F172A;
+      --muted: #526077;
+      --line: #DBE3ED;
+      --bg: #F4F6F9;
+      --white: #fff;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    a { color: inherit; text-decoration: none; }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; width: 100%; }
+
+    nav {
+      border-bottom: 1px solid var(--line);
+      padding: 14px 0;
+      background: rgba(244, 246, 249, 0.92);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+    nav .wrap { display: flex; align-items: center; justify-content: space-between; }
+    .logo { display: inline-flex; align-items: center; gap: 12px; }
+    .logo img { height: 48px; width: auto; object-fit: contain; }
+    .logo-text { display: flex; flex-direction: column; }
+    .logo-text strong { font-size: 16px; color: var(--navy); line-height: 1.2; }
+    .logo-text small { font-size: 12px; color: var(--muted); font-weight: 500; }
+
+    .btn {
+      display: inline-block; padding: 10px 22px; border-radius: 8px;
+      font-weight: 600; font-size: 15px; border: 1px solid transparent;
+      transition: background .15s, border-color .15s, transform .15s;
+    }
+    .btn-dark { background: var(--navy); color: #fff; box-shadow: 0 4px 14px rgba(0, 33, 71, 0.2); }
+    .btn-dark:hover { background: var(--blue); color: #fff; transform: translateY(-1px); }
+    .btn-outline { border-color: var(--navy); color: var(--navy); background: transparent; }
+    .btn-outline:hover { background: var(--navy); color: #fff; }
+
+    main { flex: 1; display: flex; align-items: center; }
+    .dl-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 64px; align-items: center;
+      padding: 48px 0;
+    }
+    .dl-img { display: flex; justify-content: center; }
+    .dl-img img {
+      max-width: 420px; width: 100%; height: auto;
+      border-radius: 24px;
+      box-shadow: 0 30px 60px rgba(0, 33, 71, 0.2);
+    }
+    .dl-copy h1 { font-size: clamp(36px, 5vw, 52px); font-weight: 800; letter-spacing: -1px; margin-bottom: 24px; color: var(--navy); }
+    .dl-copy p { font-size: 17px; color: var(--text); margin-bottom: 18px; max-width: 460px; line-height: 1.65; }
+    .dl-copy .sign { font-weight: 700; margin-bottom: 32px; color: var(--navy); font-size: 18px; }
+    .dl-cta { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .dl-cta .btn-dark { padding: 14px 32px; font-size: 16px; border-radius: 10px; }
+    .dl-feedback {
+      padding: 10px 16px; background: #fef2f2; border: 1px solid #fecaca;
+      border-radius: 8px; color: #991b1b; font-size: 13px; font-weight: 500;
+    }
+    .dl-meta { margin-top: 22px; font-size: 13px; color: var(--muted); }
+
+    footer {
+      border-top: 1px solid var(--line); padding: 24px 0;
+      text-align: center; font-size: 13px; color: var(--muted);
+      background: rgba(244, 246, 249, 0.7);
+    }
+
+    @media (max-width: 860px) {
+      .dl-grid { grid-template-columns: 1fr; gap: 40px; text-align: center; padding: 40px 0; }
+      .dl-copy p { margin-left: auto; margin-right: auto; }
+      .dl-cta { justify-content: center; }
+      .dl-img img { max-width: 300px; }
+    }
+  </style>
 </head>
 <body>
-  <main class="dl-card">
-    <div class="dl-hero">
-      <span class="dl-badge">WCC</span>
-      <p class="dl-kicker">WEST COAST COLLEGE</p>
-      <h1>WCConnect Student App</h1>
-      <p>Grades, schedule, COR &amp; announcements on your phone</p>
+
+<nav>
+  <div class="wrap">
+    <a class="logo" href="/">
+      <img src="/logo-bg-removed.png" alt="West Coast College" onerror="this.src='/Logo.jpg'" />
+      <span class="logo-text">
+        <strong>West Coast College</strong>
+        <small>WCConnect Mobile Portal</small>
+      </span>
+    </a>
+    <a href="/" class="btn btn-outline" style="padding: 8px 18px; font-size: 14px;">&larr; Back to site</a>
+  </div>
+</nav>
+
+<main>
+  <div class="wrap">
+    <div class="dl-grid">
+      <div class="dl-img">
+        <img src="/Download-phone-feature.png" alt="WCConnect app on a phone" onerror="this.src='/Logo.jpg'" />
+      </div>
+      <div class="dl-copy">
+        <h1>Get The App</h1>
+        <p>Ready to carry your campus in your pocket?</p>
+        <p>
+          Access your real-time verified grades, official Certificate of Registration (COR),
+          class schedules, faculty evaluations, and campus announcements &mdash; built
+          exclusively for West Coast College students and faculty.
+        </p>
+        <p class="sign">Time to get connected.</p>
+        <div class="dl-cta">
+          ${statusBlock}
+        </div>
+        <div class="dl-meta">Android 8.0+ &middot; Version ${safeVersion} &middot; ${safeSize ? safeSize + ' &middot; ' : ''}Direct APK &middot; Powered by West Coast College</div>
+      </div>
     </div>
-    <div class="dl-body">
-      <p>You scanned a code from your Certificate of Registration. Tap below to get the official student app for Android.</p>
-      ${statusBlock}
-      <ol class="dl-steps">
-        <li><span class="dl-num">1</span><span>Tap Download and wait for the APK file to finish.</span></li>
-        <li><span class="dl-num">2</span><span>Open the file and allow <strong>Install unknown apps</strong> for your browser when asked.</span></li>
-        <li><span class="dl-num">3</span><span>Open WCConnect and log in with your student number and password.</span></li>
-      </ol>
-      <p class="dl-foot">Android only &bull; Free &bull; Provided by the Registrar&apos;s Office</p>
-    </div>
-  </main>
+  </div>
+</main>
+
+<footer>
+  <div>West Coast College &mdash; Official Student &amp; Faculty Mobile Portal</div>
+</footer>
+
 </body>
 </html>`;
 }

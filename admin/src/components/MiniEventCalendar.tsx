@@ -19,6 +19,78 @@ const MiniEventCalendar = ({ onOpenCalendar }: MiniEventCalendarProps) => {
 
   // Sample events data - in production this would come from API
   const events: Event[] = [
+    // Philippine National Holidays 2026
+    {
+      id: 'holiday-1',
+      title: 'New Year\'s Day',
+      date: '2026-01-01',
+      time: 'All Day',
+      type: 'holiday'
+    },
+    {
+      id: 'holiday-2',
+      title: 'Maundy Thursday',
+      date: '2026-03-26',
+      time: 'All Day',
+      type: 'holiday'
+    },
+    {
+      id: 'holiday-3',
+      title: 'Good Friday',
+      date: '2026-03-27',
+      time: 'All Day',
+      type: 'holiday'
+    },
+    {
+      id: 'holiday-4',
+      title: 'Araw ng Kagitingan',
+      date: '2026-04-09',
+      time: 'All Day',
+      type: 'holiday'
+    },
+    {
+      id: 'holiday-5',
+      title: 'Labor Day',
+      date: '2026-05-01',
+      time: 'All Day',
+      type: 'holiday'
+    },
+    {
+      id: 'holiday-6',
+      title: 'Independence Day',
+      date: '2026-06-12',
+      time: 'All Day',
+      type: 'holiday'
+    },
+    {
+      id: 'holiday-7',
+      title: 'National Heroes Day',
+      date: '2026-08-31',
+      time: 'All Day',
+      type: 'holiday'
+    },
+    {
+      id: 'holiday-8',
+      title: 'Bonifacio Day',
+      date: '2026-11-30',
+      time: 'All Day',
+      type: 'holiday'
+    },
+    {
+      id: 'holiday-9',
+      title: 'Christmas Day',
+      date: '2026-12-25',
+      time: 'All Day',
+      type: 'holiday'
+    },
+    {
+      id: 'holiday-10',
+      title: 'Rizal Day',
+      date: '2026-12-30',
+      time: 'All Day',
+      type: 'holiday'
+    },
+    // Academic events
     {
       id: '1',
       title: 'Faculty Meeting',
@@ -32,13 +104,6 @@ const MiniEventCalendar = ({ onOpenCalendar }: MiniEventCalendarProps) => {
       date: '2026-02-18',
       time: '8:00 AM',
       type: 'academic'
-    },
-    {
-      id: '3',
-      title: 'President\'s Day',
-      date: '2026-02-17',
-      time: 'All Day',
-      type: 'holiday'
     },
     {
       id: '4',
@@ -111,6 +176,7 @@ const MiniEventCalendar = ({ onOpenCalendar }: MiniEventCalendarProps) => {
         <div
           key={day}
           className={`mini-calendar-day ${isToday ? 'today' : ''}`}
+          title={dayEvents.length > 0 ? dayEvents.map(e => `${e.title} (${e.time})`).join('\n') : ''}
         >
           <div className="mini-day-number">{day}</div>
           {dayEvents.length > 0 && (
@@ -122,11 +188,6 @@ const MiniEventCalendar = ({ onOpenCalendar }: MiniEventCalendarProps) => {
 
     return days
   }
-
-  const upcomingEvents = events
-    .filter(event => new Date(event.date) >= new Date())
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-    .slice(0, 1)
 
   return (
     <div className="mini-event-calendar">
@@ -161,26 +222,6 @@ const MiniEventCalendar = ({ onOpenCalendar }: MiniEventCalendarProps) => {
         </div>
         <div className="mini-days-grid">
           {renderCalendarDays()}
-        </div>
-      </div>
-
-      <div className="mini-upcoming-events">
-        <div className="mini-events-header">
-          <span className="mini-events-title">Upcoming</span>
-          <span className="mini-events-count">{upcomingEvents.length}</span>
-        </div>
-        <div className="mini-events-list">
-          {upcomingEvents.map(event => (
-            <div key={event.id} className="mini-event-item">
-              <div className="mini-event-type" style={{ backgroundColor: getEventTypeColor(event.type) }} />
-              <div className="mini-event-info">
-                <div className="mini-event-title">{event.title}</div>
-                <div className="mini-event-date">
-                  {new Date(event.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                </div>
-              </div>
-            </div>
-          ))}
         </div>
       </div>
     </div>

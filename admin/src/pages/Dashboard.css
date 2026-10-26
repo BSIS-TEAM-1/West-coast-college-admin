@@ -1018,6 +1018,19 @@
   }
 }
 
+/* Ensure the secondary grid maintains stable layout */
+.dashboard-secondary-grid {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 2rem;
+  align-items: start;
+}
+
+.dashboard-secondary-grid > .dashboard-stats-section:nth-child(2) {
+  min-width: 0;
+  max-width: 320px;
+}
+
 @media (max-width: 768px) {
   .dashboard-main {
     padding: 1rem 0.75rem;

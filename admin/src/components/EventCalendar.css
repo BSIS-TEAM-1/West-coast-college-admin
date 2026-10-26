@@ -152,6 +152,28 @@
   border-radius: 50%;
 }
 
+/* Tooltip for calendar days */
+.calendar-day[title]:hover::after {
+  content: attr(title);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--text-primary);
+  color: var(--bg-secondary);
+  padding: 0.5rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  white-space: pre;
+  z-index: 1000;
+  min-width: 150px;
+  max-width: 250px;
+  word-wrap: break-word;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  margin-bottom: 4px;
+  pointer-events: none;
+}
+
 .selected-date-events {
   margin-bottom: 1.5rem;
   padding: 1rem;

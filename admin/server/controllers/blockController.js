@@ -1836,7 +1836,19 @@ class BlockController {
   async getBlockGroups(req, res) {
     try {
       const groups = await BlockGroup.find().sort({ name: 1 });
-      res.json(groups);
+
+      // Get current academic year (e.g., if it's 2026, current year is 2026-2027)
+      const currentYear = new Date().getFullYear();
+      const currentMonth = new Date().getMonth() + 1; // 1-12
+      const currentSchoolYear = currentMonth >= 6 ? `${currentYear}-${currentYear + 1}` : `${currentYear - 1}-${currentYear}`;
+
+      // Filter to show only block groups from the current academic year
+      const currentYearGroups = groups.filter(g => {
+        const groupYear = String(g.schoolYear || '').trim();
+        return groupYear === currentSchoolYear;
+      });
+
+      res.json(currentYearGroups);
     } catch (error) {
       console.error('Get block groups error:', error);
       res.status(500).json({ error: 'Failed to get block groups' });

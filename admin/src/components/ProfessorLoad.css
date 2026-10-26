@@ -1714,7 +1714,7 @@
 }
 
 .registrar-professor-simple-row:hover {
-  background: #f9fafb;
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
   box-shadow: none;
 }
 
@@ -2111,7 +2111,7 @@
 }
 
 .professor-load-card:hover {
-  background: #f9fafb;
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
 }
 
 .professor-load-card--expanded {

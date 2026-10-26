@@ -20,7 +20,6 @@ import MiniEventCalendar from '../components/MiniEventCalendar'
 import { User, Users, FileText, Wrench } from 'lucide-react'
 import { getStoredToken, API_URL } from '../lib/authApi'
 import type { ProfileResponse } from '../lib/authApi'
-import { getAcademicTerm, getCachedAcademicTerm, subscribeAcademicTerm } from '../lib/settingsApi'
 import './Dashboard.css'
 
 type DashboardProps = {
@@ -39,23 +38,6 @@ export default function Dashboard({ username, onLogout, onProfileUpdated, initia
   const [registrationLogs, setRegistrationLogs] = useState<any[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-  const [academicTerm, setAcademicTerm] = useState(() => getCachedAcademicTerm())
-
-  useEffect(() => {
-    let cancelled = false
-    getAcademicTerm()
-      .then((term) => {
-        if (!cancelled) setAcademicTerm(term)
-      })
-      .catch(() => {})
-    const unsubscribe = subscribeAcademicTerm((term) => {
-      if (!cancelled) setAcademicTerm(term)
-    })
-    return () => {
-      cancelled = true
-      unsubscribe()
-    }
-  }, [])
   const profileName = initialProfile?.displayName || initialProfile?.username || username
   const profileRole = initialProfile?.accountType === 'registrar'
     ? 'Registrar'
@@ -400,53 +382,6 @@ export default function Dashboard({ username, onLogout, onProfileUpdated, initia
                 </div>
               </div>
 
-              {/* School Info Bar */}
-              <div className="school-info-bar" style={{
-                background: 'var(--bg-secondary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '12px',
-                padding: '1rem 1.5rem',
-                marginBottom: '2rem',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
-              }}>
-                <div>
-                  <h3 style={{ 
-                    fontSize: '1.125rem', 
-                    fontWeight: '700', 
-                    color: 'var(--text-primary)', 
-                    margin: '0 0 0.125rem 0' 
-                  }}>
-                    West Coast College
-                  </h3>
-                  <p style={{ 
-                    fontSize: '0.75rem', 
-                    color: 'var(--text-secondary)', 
-                    margin: '0' 
-                  }}>
-                    Administration Portal
-                  </p>
-                </div>
-                <div className="school-info-year" style={{ textAlign: 'right' }}>
-                  <div style={{ 
-                    fontSize: '1.25rem', 
-                    fontWeight: '700', 
-                    color: 'var(--text-primary)' 
-                  }}>
-                    {academicTerm?.schoolYear || '—'}
-                  </div>
-                  <div style={{ 
-                    fontSize: '0.75rem', 
-                    fontWeight: '600', 
-                    color: 'var(--text-secondary)' 
-                  }}>
-                    {academicTerm?.semester ? `${academicTerm.semester} Sem · Academic Year` : 'Academic Year'}
-                  </div>
-                </div>
-              </div>
-
               {/* Account Type Statistics */}
               <div className="dashboard-stats-section" style={{ marginBottom: '2rem' }}>
                 <h2 className="section-title" style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--text-primary)' }}>Registered Users</h2>
@@ -477,7 +412,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated, initia
               </div>
 
               {/* Recent Registration Logs & Calendar */}
-              <div className="dashboard-secondary-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '2rem', marginBottom: '2rem' }}>
+              <div className="dashboard-secondary-grid" style={{ marginBottom: '2rem' }}>
                 <div className="dashboard-stats-section">
                   <h2 className="section-title" style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--text-primary)' }}>Recent Account Registration Logs</h2>
                   <div className="registration-logs-card" style={{
