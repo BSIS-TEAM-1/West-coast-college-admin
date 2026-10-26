@@ -74,7 +74,7 @@ const TABLE = {
   padY: 3,
   headerHeight: 17,
   minRowHeight: 16,
-  minRows: 8
+  minRows: 0
 };
 
 const TOTALS_HEIGHT = 18;
@@ -513,14 +513,6 @@ function drawTable(doc, rows, startY) {
   };
 
   measured.forEach(drawRow);
-
-  // Blank filler rows so a short schedule still looks like a form
-  const blanks = Math.max(0, TABLE.minRows - rows.length);
-  for (let i = 0; i < blanks; i += 1) {
-    if (y + TABLE.minRowHeight > PAGE.bottom) break;
-    drawCellGrid(doc, y, TABLE.minRowHeight);
-    y += TABLE.minRowHeight;
-  }
 
   return y;
 }

@@ -3,9 +3,12 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import '../../../../core/animations/entrance.dart';
+import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_dimensions.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/theme_colors.dart';
+import '../../../../core/widgets/depth.dart';
 import '../../../../core/widgets/empty_state.dart';
 import '../../../../core/widgets/error_state.dart';
 import '../../../../core/widgets/status_badge.dart';
@@ -19,14 +22,32 @@ class AnnouncementsPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(announcementsControllerProvider);
-    final colors = ThemeColors.of(context);
-
-    return Scaffold(
+    final colors = ThemeColors.of(context);    return Scaffold(
       backgroundColor: colors.backgroundSoft,
       appBar: AppBar(
         title: const Text('Announcements'),
-        backgroundColor: colors.primary,
+        backgroundColor: AppColors.primary,
         foregroundColor: colors.onPrimary,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [AppColors.primaryHover, AppColors.primary],
+            ),
+          ),
+        ),
+        leading: Padding(
+          padding: const EdgeInsets.only(left: AppDimensions.md),
+          child: Center(
+            child: DepthIconTile(
+              icon: Icons.campaign_rounded,
+              tone: DepthTone.gold,
+              size: 36,
+              radius: 11,
+            ),
+          ),
+        ),
       ),
       body: _buildBody(context, ref, state, colors),
       bottomNavigationBar: const AppBottomNav(currentPath: '/announcements'),
@@ -76,13 +97,17 @@ class AnnouncementsPage extends ConsumerWidget {
                           child: Center(child: CircularProgressIndicator(color: _progressTint, strokeWidth: 2)),
                         );
                       }
-                      if (isRefreshing && index == 0) {
-                        return const LinearProgressIndicator(minHeight: 2, color: _progressTint);
-                      }
-                      return _AnnouncementTile(
-                        announcement: items[index],
-                        colors: colors,
-                        onTap: () => _openDetail(context, items[index], colors),
+                      // NOTE: no top LinearProgressIndicator here — the
+                      // footer spinner is the single scroll-loading indicator;
+                      // adding a top bar showed two loaders at once.
+                      return Entrance(
+                        order: index < 6 ? index : 0,
+                        delayMs: 45,
+                        child: _AnnouncementTile(
+                          announcement: items[index],
+                          colors: colors,
+                          onTap: () => _openDetail(context, items[index], colors),
+                        ),
                       );
                     },
                   ),
@@ -98,7 +123,7 @@ class AnnouncementsPage extends ConsumerWidget {
   }
 }
 
-const Color _progressTint = Color(0xFF4F46E5);
+const Color _progressTint = Color(0xFFD6AF52);
 
 class _AnnouncementTile extends StatelessWidget {
   const _AnnouncementTile({required this.announcement, required this.colors, required this.onTap});
@@ -121,7 +146,12 @@ class _AnnouncementTile extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(_iconFor(announcement.type), size: AppDimensions.iconMedium, color: _colorFor(announcement.type, colors)),
+            DepthIconTile(
+              icon: _iconFor(announcement.type),
+              tint: _colorFor(announcement.type, colors, Theme.of(context).brightness == Brightness.dark),
+              size: 40,
+              radius: 12,
+            ),
             const SizedBox(width: AppDimensions.sm),
             Expanded(
               child: Column(
@@ -130,7 +160,8 @@ class _AnnouncementTile extends StatelessWidget {
                   Row(
                     children: [
                       if (announcement.isPinned) ...[
-                        Icon(Icons.push_pin, size: 12, color: colors.warning),
+                        // Gold marks pinned/highlighted announcements.
+                        Icon(Icons.push_pin, size: 12, color: colors.gold),
                         const SizedBox(width: 4),
                       ],
                       Expanded(
@@ -178,11 +209,15 @@ class _AnnouncementTile extends StatelessWidget {
         _ => Icons.campaign_outlined,
       };
 
-  Color _colorFor(String type, ThemeColors colors) => switch (type) {
+  // The general-announcement tile is filled with textBold in light mode — a
+  // deep navy that reads as a neutral chip. In dark mode textBold becomes a
+  // near-white, which would glare as a white chip behind a white icon, so the
+  // fill swaps to the dark surface tone instead (the icon stays white).
+  Color _colorFor(String type, ThemeColors colors, bool isDark) => switch (type) {
         'urgent' => colors.error,
         'warning' => colors.warning,
         'maintenance' => colors.maintenance,
-        _ => colors.textBold,
+        _ => isDark ? colors.surfaceVariant : colors.textBold,
       };
 
   StatusTone _toneFor(String type) => switch (type) {
@@ -213,9 +248,9 @@ class _AnnouncementDetailPage extends StatelessWidget {
           if (announcement.isPinned)
             Row(
               children: [
-                Icon(Icons.push_pin, size: 14, color: colors.warning),
+                Icon(Icons.push_pin, size: 14, color: colors.gold),
                 const SizedBox(width: 4),
-                Text('Pinned', style: AppTextStyles.labelSmall.copyWith(color: colors.warning)),
+                Text('Pinned', style: AppTextStyles.labelSmall.copyWith(color: colors.gold)),
               ],
             ),
           Text(announcement.title, style: AppTextStyles.headlineMedium.copyWith(color: colors.textBold)),

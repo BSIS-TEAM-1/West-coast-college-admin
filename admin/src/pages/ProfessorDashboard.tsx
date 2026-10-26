@@ -15,6 +15,7 @@ import StudentManagement from './professor/StudentManagement'
 import type { ProfessorAssignedBlock, ProfessorAssignedCourse, ProfessorSubjectDetailState, ProfessorView } from './professor/professorTypes'
 import { buildReconnectMessage } from './professor/professorUtils'
 import './ProfessorDashboard.css'
+import './professor/ProfessorShared.css'
 
 type ProfessorDashboardProps = {
   username: string

@@ -150,6 +150,133 @@
   color: var(--color-text-muted, #6b7280);
 }
 
+/* Compact submission list: fewer merged columns and tighter cells so the
+   registrar table fits its container without a horizontal scrollbar. */
+.grade-submission-table--compact th {
+  padding: 0.55rem 0.7rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.grade-submission-table--compact td {
+  padding: 0.5rem 0.7rem;
+  font-size: 0.8125rem;
+  line-height: 1.3;
+}
+
+.grade-submission-table--compact th:first-child,
+.grade-submission-table--compact td:first-child { padding-left: 1rem; }
+
+.grade-submission-table--compact th:last-child,
+.grade-submission-table--compact td:last-child { padding-right: 1rem; }
+
+.grade-submission-table--compact th:last-child { text-align: right; }
+
+.gs-row { cursor: pointer; }
+
+.gs-col-student { min-width: 9rem; }
+
+.gs-professor-name {
+  display: block;
+  max-width: 8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gs-col-term { white-space: nowrap; }
+.gs-col-term > span { display: block; }
+
+.gs-col-subjects { max-width: 15rem; }
+
+.gs-subject-grades {
+  display: block;
+  max-width: 15rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gs-cell-sub {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--color-text-muted, #6b7280);
+}
+
+.gs-col-status { white-space: nowrap; }
+
+.grade-submission-table--compact .gs-col-status .gs-cell-sub {
+  margin-top: 0.15rem;
+  font-size: 0.7rem;
+}
+
+.grade-submission-table--compact .status-badge {
+  padding: 0.1rem 0.4rem;
+  font-size: 0.7rem;
+}
+
+.gs-col-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.grade-submission-table--compact .gs-action-dropdown-trigger {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.78rem;
+}
+
+/* Block group header rows: one labelled band per block. */
+.gs-block-row td {
+  padding: 0.85rem 1rem 0.4rem;
+  background: var(--color-bg-soft, #f1f5f9);
+  border-top: 1px solid var(--color-border, #e5e7eb);
+}
+
+.grade-submission-table tbody .gs-block-row:first-child td {
+  border-top: none;
+  padding-top: 0.55rem;
+}
+
+.grade-submission-table tbody .gs-block-row:hover td {
+  background: var(--color-bg-soft, #f1f5f9);
+}
+
+.gs-block-row-inner {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.gs-block-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.6rem;
+  border-radius: 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
+  color: var(--color-primary);
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.gs-block-count {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #6b7280);
+}
+
+/* Narrower registrar viewports: trim the two flexible text columns so the
+   table still fits without a horizontal scrollbar. */
+@media (max-width: 1024px) {
+  .gs-professor-name { max-width: 6rem; }
+  .gs-col-subjects,
+  .gs-subject-grades { max-width: 10rem; }
+}
+
 /* Status badge — uppercase, bold, subtle */
 .status-badge {
   display: inline-flex;

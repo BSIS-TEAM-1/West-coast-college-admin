@@ -1,4 +1,5 @@
 const SystemSetting = require('../models/SystemSetting');
+const gradingScaleService = require('../services/gradingScaleService');
 
 const ACADEMIC_TERM_KEY = 'academicTerm';
 const VALID_SEMESTERS = ['1st', '2nd', 'Summer'];
@@ -51,6 +52,41 @@ class SettingsController {
     } catch (error) {
       console.error('Update academic term error:', error);
       res.status(500).json({ error: 'Failed to update academic term setting' });
+    }
+  }
+
+  // GET /api/settings/grade-scale
+  async getGradeScale(req, res) {
+    try {
+      const scale = await gradingScaleService.loadGradeScale();
+      res.json({
+        ...scale,
+        allowedGrades: gradingScaleService.listAllowedGrades(scale),
+        description: gradingScaleService.describeScale(scale)
+      });
+    } catch (error) {
+      console.error('Get grade scale error:', error);
+      res.status(500).json({ error: 'Failed to get grade scale setting' });
+    }
+  }
+
+  // PUT /api/settings/grade-scale
+  async updateGradeScale(req, res) {
+    try {
+      const { min, max, step, passingGrade } = req.body || {};
+      const result = await gradingScaleService.saveGradeScale({ min, max, step, passingGrade }, req.adminId);
+      if (result.error) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({
+        ...result.scale,
+        allowedGrades: gradingScaleService.listAllowedGrades(result.scale),
+        description: gradingScaleService.describeScale(result.scale)
+      });
+    } catch (error) {
+      console.error('Update grade scale error:', error);
+      res.status(500).json({ error: 'Failed to update grade scale setting' });
     }
   }
 }

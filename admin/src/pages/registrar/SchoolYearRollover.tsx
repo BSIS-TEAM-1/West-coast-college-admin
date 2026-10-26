@@ -1,19 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle, Archive, ArrowRight, CalendarClock, Check, CheckCircle2,
-  ChevronDown, ChevronRight, GraduationCap, History, RefreshCw, RotateCcw, Search,
+  ChevronDown, ChevronRight, Download, GraduationCap, History, RefreshCw, RotateCcw, Search,
   Users, AlertTriangle, Filter, X,
 } from 'lucide-react'
-import { getAcademicTerm, type AcademicSemester } from '../../lib/settingsApi'
+import { getAcademicTerm, type AcademicSemester, type AcademicTerm } from '../../lib/settingsApi'
+import { formatGrade } from '../../lib/gradingScale'
 import {
   executeRollover,
   getLatestRollover,
+  getRolloverSnapshot,
+  getSchoolYearRolloverReport,
+  listRolloverBatches,
   listRolloverSnapshots,
   previewRolloverSummary,
   previewRolloverExceptions,
   revertRollover,
   type ArchiveSnapshotSummary,
   type RolloverAction,
+  type RolloverBatchListItem,
   type RolloverBatchSummary,
   type RolloverGroupSummary,
   type RolloverRevertResult,
@@ -23,6 +28,7 @@ import {
   type RolloverGroupDecision,
 } from '../../lib/rolloverApi'
 import { courseShortLabel, formatStudentNumber } from '../../lib/blockAssignmentShared'
+import { downloadCsv } from '../../lib/csv'
 import './SchoolYearRollover.css'
 
 type WizardStep = 1 | 2 | 3 | 4
@@ -34,6 +40,39 @@ const ACTION_LABELS: Record<RolloverAction, string> = {
   graduate: 'Graduate',
   skip: 'Skip',
 }
+
+// One row per subject grade (student details repeated), so a school year's
+// export is a usable student + grades report.
+const ROLLOVER_EXPORT_HEADERS = [
+  'Student Number',
+  'Student Name',
+  'First Name',
+  'Middle Name',
+  'Last Name',
+  'Suffix',
+  'Course',
+  'Year Level',
+  'Section',
+  'Semester',
+  'School Year',
+  'Student Status',
+  'Lifecycle',
+  'Email',
+  'Contact Number',
+  'Address',
+  'Permanent Address',
+  'Gender',
+  'Birth Date',
+  'Latest Grade',
+  'Subject Code',
+  'Subject Title',
+  'Units',
+  'Grade',
+  'Grade Mark',
+  'Subject Status',
+  'Instructor',
+  'Subject Semester',
+]
 
 const SEMESTERS: AcademicSemester[] = ['1st', '2nd', 'Summer']
 
@@ -53,11 +92,45 @@ function formatDateTime(value?: string | null) {
   return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString()
 }
 
+// ---- Graduation report snapshot payload ----
+
+type GraduateEntry = {
+  studentNumber: string
+  name: string
+  courseLabel: string
+  block: string | null
+  blockLabel: string
+  label: string
+  latestGrade: number | null
+}
+
+type GraduateBlockGroup = {
+  label: string
+  courseLabel: string
+  block: string | null
+  blockLabel: string
+  count: number
+  students: {
+    studentId: string
+    studentNumber: string
+    name: string
+    latestGrade: number | null
+  }[]
+}
+
+type SnapshotDetail = ArchiveSnapshotSummary & {
+  data?: {
+    graduates?: GraduateEntry[]
+    groupedByCourseBlock?: GraduateBlockGroup[]
+  }
+}
+
 export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) {
   const [step, setStep] = useState<WizardStep>(1)
   const [fromSchoolYear, setFromSchoolYear] = useState('')
   const [toSchoolYear, setToSchoolYear] = useState('')
   const [semester, setSemester] = useState<AcademicSemester>('1st')
+  const [activeTerm, setActiveTerm] = useState<AcademicTerm | null>(null)
   const [summaryPreview, setSummaryPreview] = useState<RolloverSummaryPreview | null>(null)
   const [approvedGroups, setApprovedGroups] = useState<Set<string>>(new Set())
   const [groupActions, setGroupActions] = useState<Record<string, RolloverAction>>({})
@@ -66,6 +139,19 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
   const [result, setResult] = useState<RolloverResult | null>(null)
   const [snapshots, setSnapshots] = useState<ArchiveSnapshotSummary[]>([])
   const [showHistory, setShowHistory] = useState(false)
+
+  // ---- Rollover history + detailed student exports ----
+  const [rolloverBatches, setRolloverBatches] = useState<RolloverBatchListItem[]>([])
+  const [batchesLoading, setBatchesLoading] = useState(false)
+  const [exportingSchoolYear, setExportingSchoolYear] = useState<string | null>(null)
+  const [exportNotice, setExportNotice] = useState('')
+  const [exportFailure, setExportFailure] = useState('')
+
+  // ---- Archive snapshot detail (graduation report expansion) ----
+  const [expandedSnapshotId, setExpandedSnapshotId] = useState<string | null>(null)
+  const [snapshotDetail, setSnapshotDetail] = useState<SnapshotDetail | null>(null)
+  const [snapshotDetailLoading, setSnapshotDetailLoading] = useState(false)
+  const [snapshotDetailError, setSnapshotDetailError] = useState('')
   const [loading, setLoading] = useState(false)
   const [executing, setExecuting] = useState(false)
   const [error, setError] = useState('')
@@ -89,6 +175,19 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
   const [exceptionPage, setExceptionPage] = useState(1)
   const [exceptionTotal, setExceptionTotal] = useState(0)
   const [exceptionTotalPages, setExceptionTotalPages] = useState(0)
+
+  // Semester rollover ("sem promote"): the opening school year equals the
+  // closing one, so the whole cohort advances to the opening semester without
+  // changing year level. Year-level promotion stays reserved for a rollover
+  // that moves to a different school year.
+  const sameYearFields = /^\d{4}-\d{4}$/.test(fromSchoolYear) && /^\d{4}-\d{4}$/.test(toSchoolYear)
+  const isSemesterRollover = sameYearFields && toSchoolYear === fromSchoolYear
+  const isSemesterRolloverInvalid = isSemesterRollover && semester === '1st'
+  // Where in the year is the closing school year, per the system's active
+  // academic term? '1st' = we are mid-year and must only close SEMESTER.
+  const closingActiveSemester = activeTerm && activeTerm.schoolYear === fromSchoolYear
+    ? activeTerm.semester
+    : null
   const [exceptionSearch, setExceptionSearch] = useState('')
   const exceptionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -102,17 +201,34 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
   const [globalExceptionSearch, setGlobalExceptionSearch] = useState('')
   const globalExceptionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  /**
+   * Apply the term-correct defaults for a closing school year:
+   *   - still in the 1st semester → close the SEMESTER (same school year,
+   *     opening 2nd) — never the year;
+   *   - past the 1st semester (2nd/Summer) → close the YEAR (next school
+   *     year, opening 1st).
+   */
+  const applyDefaultsForActiveTerm = (term: AcademicTerm) => {
+    setActiveTerm(term)
+    setFromSchoolYear(term.schoolYear)
+    if (term.semester === '1st') {
+      setToSchoolYear(term.schoolYear)
+      setSemester('2nd')
+    } else {
+      setToSchoolYear(nextSchoolYear(term.schoolYear))
+      setSemester('1st')
+    }
+  }
+
   useEffect(() => {
     ;(async () => {
       try {
-        const term = await getAcademicTerm()
-        setFromSchoolYear(term.schoolYear)
-        setToSchoolYear(nextSchoolYear(term.schoolYear))
-        setSemester(term.semester)
+        applyDefaultsForActiveTerm(await getAcademicTerm())
       } catch {
         // Leave fields empty; user can type them manually.
       }
     })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const loadLatestBatch = useCallback(async () => {
@@ -130,6 +246,28 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
   useEffect(() => {
     void loadLatestBatch()
   }, [loadLatestBatch])
+
+  // Expand/collapse an archive snapshot's detail payload (graduation report).
+  const toggleSnapshotDetail = useCallback(async (snapshot: ArchiveSnapshotSummary) => {
+    if (expandedSnapshotId === snapshot._id) {
+      setExpandedSnapshotId(null)
+      setSnapshotDetail(null)
+      setSnapshotDetailError('')
+      return
+    }
+    setExpandedSnapshotId(snapshot._id)
+    setSnapshotDetail(null)
+    setSnapshotDetailError('')
+    setSnapshotDetailLoading(true)
+    try {
+      const detail = await getRolloverSnapshot(snapshot._id)
+      setSnapshotDetail(detail as SnapshotDetail)
+    } catch (detailError) {
+      setSnapshotDetailError(detailError instanceof Error ? detailError.message : 'Failed to load snapshot details')
+    } finally {
+      setSnapshotDetailLoading(false)
+    }
+  }, [expandedSnapshotId])
 
   useEffect(() => {
     if (!showRevertConfirm) return
@@ -149,12 +287,113 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
     }
   }
 
+  const loadBatches = async () => {
+    setBatchesLoading(true)
+    try {
+      setRolloverBatches(await listRolloverBatches())
+    } catch (loadError) {
+      setExportFailure(loadError instanceof Error ? loadError.message : 'Failed to load rollover history')
+    } finally {
+      setBatchesLoading(false)
+    }
+  }
+
   useEffect(() => {
-    if (showHistory) void loadSnapshots()
+    if (showHistory) {
+      void loadSnapshots()
+      void loadBatches()
+    }
   }, [showHistory])
+
+  const handleExportSchoolYear = async (schoolYear: string) => {
+    setExportingSchoolYear(schoolYear)
+    setExportNotice('')
+    setExportFailure('')
+    try {
+      const report = await getSchoolYearRolloverReport(schoolYear)
+      if (report.students.length === 0) {
+        setExportFailure(`No students were found for SY ${schoolYear}.`)
+        return
+      }
+
+      const rows: (string | number)[][] = [ROLLOVER_EXPORT_HEADERS]
+      let gradeCount = 0
+
+      for (const student of report.students) {
+        const base = [
+          student.studentNumber,
+          student.name,
+          student.firstName,
+          student.middleName,
+          student.lastName,
+          student.suffix,
+          student.course ? courseShortLabel(student.course) : '',
+          student.yearLevel ?? '',
+          student.section,
+          student.semester,
+          student.schoolYear,
+          student.studentStatus,
+          student.lifecycleBefore,
+          student.email,
+          student.contactNumber,
+          student.address,
+          student.permanentAddress,
+          student.gender,
+          student.birthDate ? String(student.birthDate).slice(0, 10) : '',
+          typeof student.latestGrade === 'number' ? formatGrade(student.latestGrade) : '',
+        ]
+
+        if (student.grades.length === 0) {
+          rows.push([...base, '', '', '', '', '', '', '', ''])
+          continue
+        }
+
+        for (const grade of student.grades) {
+          gradeCount += 1
+          rows.push([
+            ...base,
+            grade.subjectCode,
+            grade.subjectTitle,
+            grade.units ?? '',
+            typeof grade.grade === 'number' ? formatGrade(grade.grade) : '',
+            grade.gradeMark,
+            grade.subjectStatus,
+            grade.instructor,
+            grade.semester,
+          ])
+        }
+      }
+
+      downloadCsv(`rollover-students-grades-${schoolYear}.csv`, rows)
+      setExportNotice(
+        `Exported ${report.students.length.toLocaleString()} student(s) and ${gradeCount.toLocaleString()} subject grade(s) for SY ${schoolYear}.`
+      )
+    } catch (exportError) {
+      setExportFailure(exportError instanceof Error ? exportError.message : 'Failed to export school year students')
+    } finally {
+      setExportingSchoolYear(null)
+    }
+  }
+
+  const groupedBatches = useMemo(() => {
+    const groups = new Map<string, RolloverBatchListItem[]>()
+    for (const batch of rolloverBatches) {
+      const key = batch.fromSchoolYear
+      const list = groups.get(key) || []
+      list.push(batch)
+      groups.set(key, list)
+    }
+    return [...groups.entries()]
+      .sort((left, right) => right[0].localeCompare(left[0]))
+      .map(([schoolYear, batches]) => ({ schoolYear, batches }))
+  }, [rolloverBatches])
 
   // ---- Step 1 -> Step 2: load summary ----
   const handlePreview = async () => {
+    if (isSemesterRolloverInvalid) {
+      setError('A semester rollover (same school year) must open 2nd or Summer. Set a different school year to promote year levels.')
+      return
+    }
     setLoading(true)
     setError('')
     try {
@@ -196,6 +435,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
       try {
         const data = await previewRolloverExceptions({
           fromSchoolYear,
+          toSchoolYear,
           semester,
           page,
           limit: 50,
@@ -216,7 +456,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
         setExceptionLoading(false)
       }
     },
-    [fromSchoolYear, semester]
+    [fromSchoolYear, toSchoolYear, semester]
   )
 
   const handleExpandGroup = (group: RolloverGroupSummary) => {
@@ -246,6 +486,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
       try {
         const data = await previewRolloverExceptions({
           fromSchoolYear,
+          toSchoolYear,
           semester,
           page,
           limit: 50,
@@ -263,7 +504,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
         setGlobalExceptionLoading(false)
       }
     },
-    [fromSchoolYear, semester]
+    [fromSchoolYear, toSchoolYear, semester]
   )
 
   const handleShowGlobalExceptions = () => {
@@ -468,10 +709,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
       setShowHistory(false)
 
       try {
-        const term = await getAcademicTerm()
-        setFromSchoolYear(term.schoolYear)
-        setToSchoolYear(nextSchoolYear(term.schoolYear))
-        setSemester(term.semester)
+        applyDefaultsForActiveTerm(await getAcademicTerm())
       } catch {
         // Keep the current form values if the term cannot be reloaded.
       }
@@ -503,11 +741,24 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
       <header className="rollover-page__header">
         <div>
           <span className="rollover-page__eyebrow">Academic Year Rollover</span>
-          <h2>Close School Year</h2>
-          <p>
-            Historical enrollments are locked as immutable records; promoted and retained students receive new
-            enrollments for the incoming school year. The entire rollover runs in a single transaction.
-          </p>
+          {closingActiveSemester === '1st' ? (
+            <>
+              <h2>Close Semester</h2>
+              <p>
+                The school year is still in its 1st semester, so only the semester is advanced — students move to
+                the 2nd semester without changing year level. Year levels move when the school year itself is
+                closed after the 2nd semester. The entire rollover runs in a single transaction.
+              </p>
+            </>
+          ) : (
+            <>
+              <h2>Close School Year</h2>
+              <p>
+                Historical enrollments are locked as immutable records; promoted and retained students receive new
+                enrollments for the incoming school year. The entire rollover runs in a single transaction.
+              </p>
+            </>
+          )}
         </div>
         <div className="rollover-page__header-actions">
           <button type="button" className="rollover-page__ghost-button" onClick={() => setShowHistory((value) => !value)}>
@@ -532,9 +783,13 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
           <div className="rollover-page__status-header">
             <div>
               <span className="rollover-page__eyebrow">Last rollover</span>
-              <h3>
-                SY {latestBatch.fromSchoolYear} <ArrowRight size={16} /> SY {latestBatch.toSchoolYear}
-              </h3>
+              {latestBatch.fromSchoolYear === latestBatch.toSchoolYear ? (
+                <h3>Semester rollover — SY {latestBatch.fromSchoolYear} ({latestBatch.semester} semester)</h3>
+              ) : (
+                <h3>
+                  SY {latestBatch.fromSchoolYear} <ArrowRight size={16} /> SY {latestBatch.toSchoolYear}
+                </h3>
+              )}
               <p className="rollover-page__hint">
                 {latestBatch.status === 'applied'
                   ? `Executed ${formatDateTime(latestBatch.executedAt)} by ${latestBatch.executedBy?.displayName || latestBatch.executedBy?.username || 'an administrator'} · ${latestBatch.semester} semester`
@@ -558,8 +813,8 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
             <span><strong>{latestBatch.counts?.skipped?.toLocaleString() ?? 0}</strong> skipped</span>
           </div>
 
-          {latestBatch.status === 'applied' ? (
-            <footer className="rollover-page__status-actions">
+          <footer className="rollover-page__status-actions">
+            {latestBatch.status === 'applied' ? (
               <button
                 type="button"
                 className="rollover-page__danger-button"
@@ -568,15 +823,24 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
               >
                 <RotateCcw size={16} /> Revert this rollover
               </button>
-              <span className="rollover-page__hint">
-                Restores the previous academic term, closing enrollments, student year levels, and block assignments.
-              </span>
-            </footer>
-          ) : (
-            <p className="rollover-page__hint">
-              The previous academic term and student records have been restored. The rollover archive remains immutable.
-            </p>
-          )}
+            ) : null}
+            <button
+              type="button"
+              className="rollover-page__ghost-button"
+              onClick={() => void handleExportSchoolYear(latestBatch.fromSchoolYear)}
+              disabled={exportingSchoolYear !== null}
+            >
+              {exportingSchoolYear === latestBatch.fromSchoolYear
+                ? <RefreshCw size={16} className="rollover-page__spin" />
+                : <Download size={16} />}
+              Export SY {latestBatch.fromSchoolYear} students &amp; grades
+            </button>
+            <span className="rollover-page__hint">
+              {latestBatch.status === 'applied'
+                ? 'Revert restores the previous academic term, closing enrollments, student year levels, and block assignments.'
+                : 'The previous academic term and student records have been restored. The rollover archive remains immutable.'}
+            </span>
+          </footer>
 
           {revertSuccess ? (
             <div className="rollover-page__success">
@@ -596,6 +860,97 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
         </section>
       ) : null}
 
+      {exportNotice ? (
+        <div className="rollover-page__success" role="status">
+          <CheckCircle2 size={18} />
+          <div><span>{exportNotice}</span></div>
+        </div>
+      ) : null}
+
+      {exportFailure ? (
+        <div className="rollover-page__error" role="alert">
+          <AlertCircle size={20} />
+          <span>{exportFailure}</span>
+        </div>
+      ) : null}
+
+      {showHistory ? (
+        <section className="rollover-page__panel">
+          <h3><History size={16} /> Rollover history</h3>
+          <p className="rollover-page__hint">
+            Every executed rollover, grouped by school year. Export downloads that school year's students with
+            their subject grades (one row per subject), ready for reporting and verification.
+          </p>
+          {batchesLoading ? (
+            <div className="rollover-page__empty">
+              <RefreshCw size={16} className="rollover-page__spin" /> Loading rollover history...
+            </div>
+          ) : rolloverBatches.length === 0 ? (
+            <div className="rollover-page__empty">No rollovers have been executed yet.</div>
+          ) : (
+            <div className="rollover-page__school-years">
+              {groupedBatches.map((group) => (
+                <div key={group.schoolYear} className="rollover-page__school-year">
+                  <header className="rollover-page__school-year-header">
+                    <div>
+                      <strong>School Year {group.schoolYear}</strong>
+                      <span className="rollover-page__batch-meta">
+                        {group.batches.length} rollover{group.batches.length === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="rollover-page__snapshot-toggle"
+                      onClick={() => void handleExportSchoolYear(group.schoolYear)}
+                      disabled={exportingSchoolYear !== null}
+                    >
+                      {exportingSchoolYear === group.schoolYear
+                        ? <RefreshCw size={14} className="rollover-page__spin" />
+                        : <Download size={14} />}
+                      {exportingSchoolYear === group.schoolYear
+                        ? 'Exporting...'
+                        : 'Export students & grades'}
+                    </button>
+                  </header>
+                  <div className="rollover-page__snapshot-list">
+                    {group.batches.map((batch) => (
+                      <div key={batch.batchId} className="rollover-page__snapshot-row rollover-page__batch-row">
+                        <span
+                          className={[
+                            'rollover-page__status-badge',
+                            batch.status === 'applied'
+                              ? 'rollover-page__status-badge--ok'
+                              : 'rollover-page__status-badge--warn',
+                          ].join(' ')}
+                        >
+                          {batch.status === 'applied' ? 'Applied' : 'Reverted'}
+                        </span>
+                        <span className="rollover-page__snapshot-title">
+                          {batch.fromSchoolYear === batch.toSchoolYear
+                            ? `SY ${batch.fromSchoolYear} · ${batch.semester} semester`
+                            : `SY ${batch.fromSchoolYear} to SY ${batch.toSchoolYear}`}
+                          <span className="rollover-page__batch-meta">
+                            {' '}· {batch.counts?.promoted ?? 0} promoted · {batch.counts?.retained ?? 0} retained ·{' '}
+                            {batch.counts?.graduated ?? 0} graduated · {batch.counts?.skipped ?? 0} skipped
+                          </span>
+                        </span>
+                        <span className="rollover-page__snapshot-date">
+                          {formatDateTime(batch.executedAt)}
+                          {batch.executedBy?.displayName || batch.executedBy?.username
+                            ? ` · ${batch.executedBy.displayName || batch.executedBy.username}`
+                            : ''}
+                        </span>
+                        <span className="rollover-page__batch-term">{batch.semester} semester</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
       {showHistory ? (
         <section className="rollover-page__panel">
           <h3><Archive size={16} /> Archive snapshots</h3>
@@ -604,13 +959,73 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
             <div className="rollover-page__empty">No archive snapshots yet.</div>
           ) : (
             <div className="rollover-page__snapshot-list">
-              {snapshots.map((snapshot) => (
-                <div key={snapshot._id} className="rollover-page__snapshot-row">
-                  <span className="rollover-page__snapshot-type">{snapshot.type.replace(/_/g, ' ')}</span>
-                  <span className="rollover-page__snapshot-title">{snapshot.title}</span>
-                  <span className="rollover-page__snapshot-date">{new Date(snapshot.generatedAt).toLocaleString()}</span>
-                </div>
-              ))}
+              {snapshots.map((snapshot) => {
+                const isGraduationReport = snapshot.type === 'GRADUATION_REPORT'
+                const isExpanded = expandedSnapshotId === snapshot._id
+                const graduates = snapshotDetail?._id === snapshot._id ? snapshotDetail?.data?.graduates ?? [] : []
+                const graduateGroups = snapshotDetail?._id === snapshot._id ? snapshotDetail?.data?.groupedByCourseBlock ?? [] : []
+                return (
+                  <div key={snapshot._id} className="rollover-page__snapshot-row">
+                    <span className="rollover-page__snapshot-type">{snapshot.type.replace(/_/g, ' ')}</span>
+                    <span className="rollover-page__snapshot-title">{snapshot.title}</span>
+                    <span className="rollover-page__snapshot-date">{new Date(snapshot.generatedAt).toLocaleString()}</span>
+                    {isGraduationReport ? (
+                      <button
+                        type="button"
+                        className="rollover-page__snapshot-toggle"
+                        onClick={() => void toggleSnapshotDetail(snapshot)}
+                      >
+                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                        {isExpanded ? 'Hide graduates' : 'View graduates'}
+                      </button>
+                    ) : null}
+                    {isExpanded && isGraduationReport ? (
+                      <div className="rollover-page__snapshot-detail">
+                        {snapshotDetailLoading ? (
+                          <div className="rollover-page__empty">Loading graduates…</div>
+                        ) : snapshotDetailError ? (
+                          <div className="rollover-page__hint">{snapshotDetailError}</div>
+                        ) : graduateGroups.length === 0 ? (
+                          <div className="rollover-page__empty">No graduates in this rollover.</div>
+                        ) : (
+                          <>
+                            <header className="rollover-page__graduates-header">
+                              <span className="rollover-page__eyebrow">Graduate roster</span>
+                              <span className="rollover-page__hint">
+                                {graduates.length} graduate{graduates.length === 1 ? '' : 's'} · the list is immutable and was generated during the rollover
+                              </span>
+                            </header>
+                            <div className="rollover-page__graduate-groups">
+                              {graduateGroups.map((group) => (
+                                <section key={group.label} className="rollover-page__graduate-group">
+                                  <header className="rollover-page__graduate-group-header">
+                                    <h4 className="rollover-page__graduate-group-label">
+                                      <GraduationCap size={14} />
+                                      {group.label}
+                                    </h4>
+                                    <span className="rollover-page__graduate-group-count">{group.count}</span>
+                                  </header>
+                                  <ul className="rollover-page__graduate-list">
+                                    {group.students.map((student) => (
+                                      <li key={student.studentId} className="rollover-page__graduate-item">
+                                        <span className="rollover-page__graduate-number">{student.studentNumber}</span>
+                                        <span className="rollover-page__graduate-name">{student.name}</span>
+                                        <span className="rollover-page__graduate-grade">
+                                          Grade: {typeof student.latestGrade === 'number' ? formatGrade(student.latestGrade) : '—'}
+                                        </span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </section>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })}
             </div>
           )}
         </section>
@@ -654,15 +1069,29 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
               <input
                 value={fromSchoolYear}
                 onChange={(event) => {
-                  setFromSchoolYear(event.target.value)
-                  setToSchoolYear(nextSchoolYear(event.target.value))
+                  const closing = event.target.value
+                  setFromSchoolYear(closing)
+                  // Derive the correct close type from the active term when
+                  // the typed closing year is the one we're actually in.
+                  if (activeTerm && activeTerm.schoolYear === closing) {
+                    if (activeTerm.semester === '1st') {
+                      setToSchoolYear(closing) // close the semester, not the year
+                      setSemester('2nd')
+                    } else {
+                      setToSchoolYear(nextSchoolYear(closing)) // close the year
+                      setSemester('1st')
+                    }
+                  } else {
+                    setToSchoolYear(nextSchoolYear(closing))
+                    setSemester('1st')
+                  }
                 }}
                 placeholder="2025-2026"
                 pattern="\d{4}-\d{4}"
               />
             </label>
             <label>
-              <span>New school year</span>
+              <span>{isSemesterRollover ? 'Opening school year (same as closing)' : 'New school year'}</span>
               <input
                 value={toSchoolYear}
                 onChange={(event) => setToSchoolYear(event.target.value)}
@@ -679,12 +1108,26 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
               </select>
             </label>
           </div>
+          {isSemesterRollover ? (
+            semester === '1st' ? (
+              <p className="rollover-page__warning" role="note">
+                Semester rollover (same school year) must open 2nd or Summer. Set a different school year to
+                promote year levels instead.
+              </p>
+            ) : (
+              <p className="rollover-page__hint" role="note">
+                Semester rollover — students advance to the {semester} semester of SY {fromSchoolYear} without
+                changing year level. Year levels only move when the school year itself changes.
+              </p>
+            )
+          ) : null}
           <footer className="rollover-page__actions">
             <button
               type="button"
               className="rollover-page__primary-button"
               onClick={handlePreview}
-              disabled={loading || !/^\d{4}-\d{4}$/.test(fromSchoolYear) || !/^\d{4}-\d{4}$/.test(toSchoolYear)}
+              disabled={loading || isSemesterRolloverInvalid || !/^\d{4}-\d{4}$/.test(fromSchoolYear) || !/^\d{4}-\d{4}$/.test(toSchoolYear)}
+              title={isSemesterRolloverInvalid ? 'A semester rollover must open 2nd or Summer' : undefined}
             >
               {loading ? <RefreshCw size={16} className="rollover-page__spin" /> : <ArrowRight size={16} />}
               {loading ? 'Evaluating...' : 'Evaluate students'}
@@ -1031,14 +1474,22 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
         <section className="rollover-page__panel">
           <h3>Confirm rollover</h3>
           <div className="rollover-page__confirm-box">
-            <p>
-              You are about to close <strong>SY {summaryPreview.fromSchoolYear}</strong> and open{' '}
-              <strong>SY {summaryPreview.toSchoolYear} ({summaryPreview.semester} semester)</strong>.
-            </p>
+            {isSemesterRollover ? (
+              <p>
+                You are about to run a <strong>semester rollover</strong>: all students advance to the{' '}
+                <strong>{summaryPreview.semester} semester of SY {summaryPreview.toSchoolYear}</strong> without
+                changing year level.
+              </p>
+            ) : (
+              <p>
+                You are about to close <strong>SY {summaryPreview.fromSchoolYear}</strong> and open{' '}
+                <strong>SY {summaryPreview.toSchoolYear} ({summaryPreview.semester} semester)</strong>.
+              </p>
+            )}
             <ul>
               <li><Users size={14} /> {totalApprovedStudents.toLocaleString()} student{totalApprovedStudents === 1 ? '' : 's'} across {approvedGroups.size} approved group{approvedGroups.size === 1 ? '' : 's'}.</li>
-              <li><Check size={14} /> {decisionCounts.promote.toLocaleString()} will be promoted.</li>
-              <li><RefreshCw size={14} /> {decisionCounts.retain.toLocaleString()} will be retained.</li>
+              <li><Check size={14} /> {decisionCounts.promote.toLocaleString()} will {isSemesterRollover ? 'advance to the opening semester (year level unchanged)' : 'be promoted'}.</li>
+              <li><RefreshCw size={14} /> {decisionCounts.retain.toLocaleString()} will {isSemesterRollover ? 'stay in the current semester' : 'be retained'}.</li>
               <li><GraduationCap size={14} /> {decisionCounts.graduate.toLocaleString()} will be graduated.</li>
               {decisionCounts.skip > 0 ? (
                 <li><X size={14} /> {decisionCounts.skip.toLocaleString()} will be skipped.</li>
@@ -1059,7 +1510,9 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
             <button type="button" className="rollover-page__ghost-button" onClick={() => setStep(2)} disabled={executing}>Back</button>
             <button type="button" className="rollover-page__primary-button rollover-page__primary-button--danger" onClick={handleExecute} disabled={executing}>
               {executing ? <RefreshCw size={16} className="rollover-page__spin" /> : <Check size={16} />}
-              {executing ? 'Executing rollover...' : `Close SY ${summaryPreview.fromSchoolYear}`}
+              {executing ? 'Executing rollover...' : isSemesterRollover
+                ? `Advance to the ${summaryPreview.semester} semester`
+                : `Close SY ${summaryPreview.fromSchoolYear}`}
             </button>
           </footer>
         </section>
@@ -1072,7 +1525,11 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
             <CheckCircle2 size={40} />
             <div>
               <h3>Rollover complete</h3>
-              <p>SY {result.fromSchoolYear} is now closed. SY {result.toSchoolYear} is the active school year.</p>
+              {result.fromSchoolYear === result.toSchoolYear ? (
+                <p>The {result.semester} semester of SY {result.toSchoolYear} is now open. Students advanced to the new semester without changing year level.</p>
+              ) : (
+                <p>SY {result.fromSchoolYear} is now closed. SY {result.toSchoolYear} is the active school year.</p>
+              )}
             </div>
           </div>
           <div className="rollover-page__summary-cards">
@@ -1095,6 +1552,17 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
                 <RotateCcw size={16} /> Revert this rollover
               </button>
             ) : null}
+            <button
+              type="button"
+              className="rollover-page__ghost-button"
+              onClick={() => void handleExportSchoolYear(result.fromSchoolYear)}
+              disabled={exportingSchoolYear !== null}
+            >
+              {exportingSchoolYear === result.fromSchoolYear
+                ? <RefreshCw size={16} className="rollover-page__spin" />
+                : <Download size={16} />}
+              Export SY {result.fromSchoolYear} students &amp; grades
+            </button>
             <button
               type="button"
               className="rollover-page__primary-button"
@@ -1142,10 +1610,17 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
               </button>
             </div>
 
-            <p id="revert-rollover-description">
-              This will undo the <strong>SY {latestBatch.fromSchoolYear} <ArrowRight size={14} /> SY {latestBatch.toSchoolYear}</strong>{' '}
-              rollover and reopen <strong>SY {latestBatch.fromSchoolYear}</strong>.
-            </p>
+            {latestBatch.fromSchoolYear === latestBatch.toSchoolYear ? (
+              <p id="revert-rollover-description">
+                This will undo the <strong>{latestBatch.semester} semester rollover for SY {latestBatch.fromSchoolYear}</strong>{' '}
+                and return students to the previous semester of the same school year.
+              </p>
+            ) : (
+              <p id="revert-rollover-description">
+                This will undo the <strong>SY {latestBatch.fromSchoolYear} <ArrowRight size={14} /> SY {latestBatch.toSchoolYear}</strong>{' '}
+                rollover and reopen <strong>SY {latestBatch.fromSchoolYear}</strong>.
+              </p>
+            )}
 
             <ul className="rollover-page__modal-list">
               <li>Delete the enrollment records created for SY {latestBatch.toSchoolYear}.</li>

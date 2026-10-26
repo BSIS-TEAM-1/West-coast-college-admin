@@ -61,6 +61,7 @@ router.post('/students/:id/enroll', securityMiddleware.inputValidationMiddleware
 router.get('/students/:id/current-enrollment', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.currentEnrollment), cacheMiddleware({ ttlMs: 15 * 1000 }), StudentController.getCurrentEnrollment);
 router.get('/students/:id/enrollments', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.idParam), cacheMiddleware({ ttlMs: 15 * 1000 }), StudentController.getEnrollmentHistory);
 router.post('/students/:id/sync-curriculum-subjects', invalidateCacheOnSuccess(...enrollmentCachePrefixes, ...courseLoadCachePrefixes), StudentController.syncCurriculumSubjects);
+router.post('/students/:id/shift', invalidateCacheOnSuccess(...studentCachePrefixes), StudentController.shiftStudent);
 
 // Subject-level enrollment management (add / drop / retake / progress).
 // These act on the subjects inside one term's enrollment record and always
@@ -86,6 +87,7 @@ router.put('/curriculums/:id', invalidateCacheOnSuccess(...curriculumCachePrefix
 router.delete('/curriculums/:id', invalidateCacheOnSuccess(...curriculumCachePrefixes), CurriculumController.deleteCurriculum);
 router.patch('/curriculums/:id/status', invalidateCacheOnSuccess(...curriculumCachePrefixes), CurriculumController.patchStatus);
 router.post('/curriculums/:id/duplicate', invalidateCacheOnSuccess(...curriculumCachePrefixes), CurriculumController.duplicateCurriculum);
+router.post('/curriculums/:id/copy-subjects-from', invalidateCacheOnSuccess(...curriculumCachePrefixes, ...subjectAssignmentCachePrefixes, ...courseLoadCachePrefixes), CurriculumController.copySubjectsFrom);
 router.post('/curriculums/:id/sync-block-subjects', invalidateCacheOnSuccess(...curriculumCachePrefixes, ...subjectAssignmentCachePrefixes, ...courseLoadCachePrefixes), CurriculumController.syncLinkedBlockSubjects);
 
 // Curriculum Subject Routes

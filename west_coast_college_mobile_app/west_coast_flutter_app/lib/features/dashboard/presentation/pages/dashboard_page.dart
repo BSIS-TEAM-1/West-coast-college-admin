@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../../core/animations/entrance.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_dimensions.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/theme_colors.dart';
+import '../../../../core/utils/grade_format.dart';
 import '../../../../core/widgets/empty_state.dart';
 import '../../../../core/widgets/error_state.dart';
 import '../../../../core/widgets/loading_skeleton.dart';
@@ -25,12 +27,6 @@ class DashboardPage extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: colors.backgroundSoft,
-      appBar: AppBar(
-        title: Text('WCConnect', style: AppTextStyles.headlineMedium.copyWith(color: colors.onPrimary)),
-        backgroundColor: colors.primary,
-        foregroundColor: colors.onPrimary,
-        elevation: 0,
-      ),
       body: SafeArea(child: _buildBody(context, ref, state)),
       bottomNavigationBar: const AppBottomNav(currentPath: '/dashboard'),
     );
@@ -45,53 +41,86 @@ class DashboardPage extends ConsumerWidget {
             onRetry: () => ref.read(dashboardControllerProvider.notifier).load(),
           ),
         ),
-      DashboardLoaded(:final summary, :final isRefreshing) => RefreshIndicator(
+      DashboardLoaded(:final summary) => RefreshIndicator(
           onRefresh: () => ref.read(dashboardControllerProvider.notifier).refresh(),
           child: ListView(
             padding: const EdgeInsets.fromLTRB(AppDimensions.md, AppDimensions.md, AppDimensions.md, AppDimensions.xl),
+            // NOTE: no extra progress bar here — the RefreshIndicator's own
+            // spinner is the one and only pull-to-refresh indicator. A
+            // top LinearProgressIndicator used to run alongside it, showing
+            // two loaders at once while scrolling/refreshing.
             children: [
-              if (isRefreshing) const LinearProgressIndicator(minHeight: 2),
-              _HeaderCard(profile: summary.profile),
-              const SizedBox(height: AppDimensions.lg),
-              _AcademicContextRow(academicSummary: summary.academicSummary),
-              const SizedBox(height: AppDimensions.lg),
+              Entrance(child: _HeaderCard(profile: summary.profile, academicSummary: summary.academicSummary)),
               if (summary.enrolledSubjects.isNotEmpty) ...[
-                SectionHeader(
-                  title: 'My Subjects',
-                  actionLabel: 'View Grades',
-                  onAction: () => context.go('/grades'),
+                Entrance(
+                  order: 1,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: AppDimensions.lg),
+                      SectionHeader(
+                        title: 'My Subjects',
+                        actionLabel: 'View Grades',
+                        onAction: () => context.go('/grades'),
+                      ),
+                      const SizedBox(height: AppDimensions.sm),
+                      _EnrolledSubjectsSection(subjects: summary.enrolledSubjects),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: AppDimensions.sm),
-                _EnrolledSubjectsSection(subjects: summary.enrolledSubjects),
-                const SizedBox(height: AppDimensions.lg),
               ],
-              SectionHeader(
-                title: "Today's Schedule",
-                actionLabel: 'View All',
-                onAction: () => context.go('/schedule'),
+              Entrance(
+                order: 2,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: AppDimensions.lg),
+                    SectionHeader(
+                      title: "Today's Schedule",
+                      actionLabel: 'View All',
+                      onAction: () => context.go('/schedule'),
+                    ),
+                    const SizedBox(height: AppDimensions.sm),
+                    _TodayScheduleSection(
+                      items: summary.todaySchedule,
+                      upcomingSchedule: summary.upcomingSchedule,
+                      scheduleStatus: summary.academicSummary.scheduleStatus,
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: AppDimensions.sm),
-              _TodayScheduleSection(
-                items: summary.todaySchedule,
-                upcomingSchedule: summary.upcomingSchedule,
-                scheduleStatus: summary.academicSummary.scheduleStatus,
+              Entrance(
+                order: 3,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: AppDimensions.lg),
+                    SectionHeader(
+                      title: 'Latest Grades',
+                      actionLabel: 'View All',
+                      onAction: () => context.go('/grades'),
+                    ),
+                    const SizedBox(height: AppDimensions.sm),
+                    _LatestGradesSection(grades: summary.latestGrades),
+                  ],
+                ),
               ),
-              const SizedBox(height: AppDimensions.lg),
-              SectionHeader(
-                title: 'Latest Grades',
-                actionLabel: 'View All',
-                onAction: () => context.go('/grades'),
+              Entrance(
+                order: 4,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: AppDimensions.lg),
+                    SectionHeader(
+                      title: 'Announcements',
+                      actionLabel: 'View All',
+                      onAction: () => context.go('/announcements'),
+                    ),
+                    const SizedBox(height: AppDimensions.sm),
+                    _AnnouncementsSection(announcements: summary.announcements),
+                  ],
+                ),
               ),
-              const SizedBox(height: AppDimensions.sm),
-              _LatestGradesSection(grades: summary.latestGrades),
-              const SizedBox(height: AppDimensions.lg),
-              SectionHeader(
-                title: 'Announcements',
-                actionLabel: 'View All',
-                onAction: () => context.go('/announcements'),
-              ),
-              const SizedBox(height: AppDimensions.sm),
-              _AnnouncementsSection(announcements: summary.announcements),
             ],
           ),
         ),
@@ -100,37 +129,73 @@ class DashboardPage extends ConsumerWidget {
 }
 
 class _HeaderCard extends StatelessWidget {
-  const _HeaderCard({required this.profile});
+  const _HeaderCard({required this.profile, required this.academicSummary});
   final ProfileSummary profile;
+  final AcademicSummary academicSummary;
 
   @override
   Widget build(BuildContext context) {
     final hour = DateTime.now().hour;
     final greeting = hour < 12 ? 'Good morning' : (hour < 18 ? 'Good afternoon' : 'Good evening');
-    final colors = ThemeColors.of(context);
 
     return Container(
       padding: const EdgeInsets.all(AppDimensions.cardPadding),
       decoration: BoxDecoration(
-        color: colors.surface,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppColors.primaryHover, AppColors.primary],
+        ),
         borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
-        boxShadow: [BoxShadow(color: AppColors.shadow, blurRadius: 8, offset: const Offset(0, 2))],
+        border: Border.all(color: Colors.white.withValues(alpha: .08)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.shadow.withValues(alpha: .28),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+          BoxShadow(
+            color: Colors.white.withValues(alpha: .05),
+            blurRadius: 2,
+            offset: const Offset(0, -1),
+          ),
+        ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          StudentAvatar(
-            name: profile.fullName.isEmpty ? profile.firstName : profile.fullName,
-            photoUrl: profile.profilePictureUrl,
+          Row(
+            children: [
+              // Rim-lit avatar: a gold ring reads as edge light on the raised chip.
+              DecoratedBox(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.goldLight.withValues(alpha: .7), width: 2),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.goldLight.withValues(alpha: .25),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(2),
+              child: StudentAvatar(
+                name: profile.fullName.isEmpty ? profile.firstName : profile.fullName,
+                photoUrl: profile.profilePictureUrl,
+              ),
+            ),
           ),
           const SizedBox(width: AppDimensions.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('$greeting,', style: AppTextStyles.bodySmall.copyWith(color: colors.textMuted)),
+                Text('$greeting,', style: AppTextStyles.bodySmall.copyWith(color: AppColors.goldLight)),
                 Text(
                   profile.firstName.isEmpty ? profile.fullName : profile.firstName,
-                  style: AppTextStyles.titleLarge.copyWith(color: colors.textBold, fontSize: 18),
+                  style: AppTextStyles.titleLarge.copyWith(color: Colors.white, fontSize: 18),
                 ),
                 const SizedBox(height: AppDimensions.xs),
                 Wrap(
@@ -145,13 +210,54 @@ class _HeaderCard extends StatelessWidget {
                         'Year ${profile.yearLevel}',
                         if (profile.section != null) profile.section,
                       ].whereType<String>().join(' • '),
-                      style: AppTextStyles.bodySmall.copyWith(color: colors.textSecondary),
+                      style: AppTextStyles.bodySmall.copyWith(color: Colors.white.withValues(alpha: .72)),
                     ),
                   ],
                 ),
               ],
             ),
           ),
+            ],
+          ),
+          const SizedBox(height: AppDimensions.md),
+          Container(height: 1, color: Colors.white.withValues(alpha: .10)),
+          const SizedBox(height: AppDimensions.md),
+          // Term overview kept inside the same hero (one raised surface,
+          // less nesting). A 2×2 grid so values like '2025–2026' are never
+          // squeezed into four-across columns on narrow screens.
+          Row(
+            children: [
+              Expanded(child: _HeroStat('School Year', academicSummary.schoolYear ?? '—')),
+              const SizedBox(width: AppDimensions.md),
+              Expanded(child: _HeroStat('Semester', academicSummary.semester ?? '—')),
+            ],
+          ),
+          const SizedBox(height: AppDimensions.sm),
+          Row(
+            children: [
+              Expanded(child: _HeroStat('Subjects', '${academicSummary.enrolledSubjects}')),
+              const SizedBox(width: AppDimensions.md),
+              Expanded(child: _HeroStat('Units', '${academicSummary.totalUnits}')),
+            ],
+          ),
+          if (!academicSummary.hasCurrentEnrollment) ...[
+            const SizedBox(height: AppDimensions.md),
+            Container(height: 1, color: Colors.white.withValues(alpha: .10)),
+            const SizedBox(height: AppDimensions.sm),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline, color: AppColors.goldLight, size: AppDimensions.iconSmall),
+                const SizedBox(width: AppDimensions.xs),
+                Expanded(
+                  child: Text(
+                    'No active enrollment for this term. Contact the Registrar if this is unexpected.',
+                    style: AppTextStyles.bodySmall.copyWith(color: Colors.white.withValues(alpha: .85)),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -167,68 +273,41 @@ class _HeaderCard extends StatelessWidget {
   }
 }
 
-class _AcademicContextRow extends StatelessWidget {
-  const _AcademicContextRow({required this.academicSummary});
-  final AcademicSummary academicSummary;
+
+/// One quiet stat inside the navy hero: small gold label, white value.
+class _HeroStat extends StatelessWidget {
+  const _HeroStat(this.label, this.value);
+
+  final String label;
+  final String value;
 
   @override
   Widget build(BuildContext context) {
-    final colors = ThemeColors.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: AppDimensions.md, vertical: AppDimensions.sm),
-          decoration: BoxDecoration(
-            color: colors.surface,
-            borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
-            border: Border.all(color: colors.border),
-          ),
-          child: Row(
-            children: [
-              _metric('School Year', academicSummary.schoolYear ?? '—', colors),
-              _divider(colors),
-              _metric('Semester', academicSummary.semester ?? '—', colors),
-              _divider(colors),
-              _metric('Enrolled Subjects', '${academicSummary.enrolledSubjects}', colors),
-              _divider(colors),
-              _metric('Units', '${academicSummary.totalUnits}', colors),
-            ],
+        Text(
+          label.toUpperCase(),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppTextStyles.caption.copyWith(
+            color: AppColors.goldLight.withValues(alpha: .95),
+            fontWeight: FontWeight.w700,
+            letterSpacing: .5,
           ),
         ),
-        if (!academicSummary.hasCurrentEnrollment) ...[
-          const SizedBox(height: AppDimensions.sm),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppDimensions.xs),
-            child: Row(
-              children: [
-                Icon(Icons.info_outline, color: colors.warning, size: AppDimensions.iconSmall),
-                const SizedBox(width: AppDimensions.xs),
-                Expanded(
-                  child: Text(
-                    'No active enrollment for this term. Contact the Registrar if this is unexpected.',
-                    style: AppTextStyles.caption.copyWith(color: colors.textSecondary),
-                  ),
-                ),
-              ],
-            ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppTextStyles.titleMedium.copyWith(
+            color: Colors.white,
+            fontWeight: FontWeight.w800,
+            fontSize: 15,
           ),
-        ],
+        ),
       ],
-    );
-  }
-
-  Widget _divider(ThemeColors colors) => Container(width: 1, height: 28, color: colors.divider);
-
-  Widget _metric(String label, String value, ThemeColors colors) {
-    return Expanded(
-      child: Column(
-        children: [
-          Text(value, style: AppTextStyles.titleLarge.copyWith(color: colors.textBold)),
-          const SizedBox(height: 2),
-          Text(label, style: AppTextStyles.caption.copyWith(color: colors.textMuted), textAlign: TextAlign.center),
-        ],
-      ),
     );
   }
 }
@@ -342,22 +421,46 @@ class _ScheduleRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = ThemeColors.of(context);
     return Padding(
       padding: const EdgeInsets.all(AppDimensions.md),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           SizedBox(
-            width: 68,
-            child: Text(item.startTime, style: AppTextStyles.bodyMedium.copyWith(fontWeight: FontWeight.w600)),
+            width: 80,
+            child: Text(
+              item.startTime,
+              style: AppTextStyles.headlineSmall.copyWith(
+                color: colors.textBold,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('${item.subjectCode} — ${item.subjectTitle}', style: AppTextStyles.bodyMedium),
-                const SizedBox(height: 2),
-                Text('${item.room} • ${item.instructor}', style: AppTextStyles.caption.copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6))),
+                Text(
+                  '${item.subjectCode} — ${item.subjectTitle}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.titleSmall.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${item.room} • ${item.instructor}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: colors.textSecondary,
+                    fontSize: 12.5,
+                  ),
+                ),
               ],
             ),
           ),
@@ -423,7 +526,7 @@ class _GradeRow extends StatelessWidget {
           ),
           const SizedBox(width: AppDimensions.sm),
           Text(
-            grade.grade.toStringAsFixed(2),
+            formatGrade(grade.grade),
             style: AppTextStyles.titleLarge.copyWith(color: colors.textBold),
           ),
           const SizedBox(width: AppDimensions.sm),
@@ -510,7 +613,7 @@ class _EnrolledSubjectRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Text(
-            subject.grade!.toStringAsFixed(2),
+            formatGrade(subject.grade),
             style: AppTextStyles.titleLarge.copyWith(color: colors.textBold),
           ),
           const SizedBox(height: 2),

@@ -91,18 +91,28 @@ function compressionMiddleware(options = {}) {
       res.write = originalWrite
       res.end = originalEnd
 
+      if (res.destroyed || res.writableEnded || !res.writable || (res.socket && res.socket.destroyed)) {
+        if (typeof endCallback === 'function') endCallback()
+        return res
+      }
+
       if (!hasStreamed && body.length === 0) {
         return originalEnd(chunk, endEncoding, endCallback)
       }
 
       if (!shouldCompress(req, res, body.length, thresholdBytes)) {
-        if (body.length > 0) originalWrite(body)
+        if (body.length > 0 && !res.destroyed && res.writable) originalWrite(body)
         return originalEnd(undefined, undefined, endCallback)
       }
 
       const compressionStream = createCompressionStream(preferredEncoding)
       if (!compressionStream) {
-        if (body.length > 0) originalWrite(body)
+        if (body.length > 0 && !res.destroyed && res.writable) originalWrite(body)
+        return originalEnd(undefined, undefined, endCallback)
+      }
+
+      if (res.headersSent) {
+        if (body.length > 0 && !res.destroyed && res.writable) originalWrite(body)
         return originalEnd(undefined, undefined, endCallback)
       }
 
@@ -110,17 +120,23 @@ function compressionMiddleware(options = {}) {
       res.setHeader('Vary', 'Accept-Encoding')
       res.removeHeader('Content-Length')
 
-      pipeline(
-        Readable.from(body),
-        compressionStream,
-        res,
-        (error) => {
-          if (error) {
-            req.socket.destroy(error)
+      try {
+        pipeline(
+          Readable.from(body),
+          compressionStream,
+          res,
+          (error) => {
+            if (error) {
+              if (req.socket && !req.socket.destroyed && error.code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+                req.socket.destroy(error)
+              }
+            }
+            if (typeof endCallback === 'function') endCallback()
           }
-          if (typeof endCallback === 'function') endCallback()
-        }
-      )
+        )
+      } catch (error) {
+        if (typeof endCallback === 'function') endCallback()
+      }
       return res
     }
 

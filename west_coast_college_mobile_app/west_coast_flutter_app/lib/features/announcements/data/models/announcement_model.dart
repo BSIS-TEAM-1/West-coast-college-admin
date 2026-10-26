@@ -21,8 +21,8 @@ class AnnouncementModel extends Announcement {
     required super.isPinned,
     super.createdAt,
     super.media,
-    List<String> targetAudience = const [],
-  }) : super(targetAudience: targetAudience);
+    super.targetAudience = const [],
+  });
 
   factory AnnouncementModel.fromJson(Map<String, dynamic> json) {
     return AnnouncementModel(

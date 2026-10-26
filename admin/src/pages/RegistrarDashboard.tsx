@@ -11,7 +11,7 @@ import PersonalDetails from './PersonalDetails'
 import CorGeneration from './CorGeneration'
 import StudentManagement from '../components/StudentManagement'
 import ProfessorLoad from '../components/ProfessorLoad'
-import RegistrarCourseWorkspace, { type RegistrarCourseWorkspaceSelection } from '../components/RegistrarCourseWorkspace'
+import RegistrarCourseWorkspace from '../components/RegistrarCourseWorkspace'
 import EnterpriseAuditReport from './registrar/EnterpriseAuditReport'
 import ApplicantQueue from './ApplicantQueue'
 import BlockManagement from './registrar/BlockManagement'
@@ -21,6 +21,7 @@ import BlockOverviewDashboard from './registrar/BlockOverviewDashboard'
 import BlockAssignmentPage from './registrar/BlockAssignmentPage'
 import SchoolYearRollover from './registrar/SchoolYearRollover'
 import StudentHistoryPage from './registrar/StudentHistoryPage'
+import ShiftStudentPage from './registrar/ShiftStudentPage'
 // import AssignSubjectPage from './registrar/AssignSubjectPage' // Hidden - subjects auto-assigned from curriculum
 import SubjectManagementPage from './registrar/SubjectManagementPage'
 import CurriculumManagementLayout from './registrar/CurriculumManagementLayout'
@@ -40,7 +41,7 @@ type BlockWorkspaceSelection = {
   initialSectionId?: string | null
 }
 
-type RegistrarView = 'applicants' | 'students' | 'add-student' | 'courses' | 'course-workspace' | 'block-overview' | 'block-management' | 'assign-block' | 'view-blocks' | 'block-workspace' | 'school-year-rollover' | 'student-history' | 'subject-management' | 'add-subject' | /* 'assign-subject' | */ 'curriculum-management' | 'curriculum-overview' | 'curriculum-create' | 'curriculum-archived' | 'curriculum-details' | 'grade-submissions' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
+type RegistrarView = 'applicants' | 'students' | 'add-student' | 'courses' | 'course-workspace' | 'block-overview' | 'block-management' | 'assign-block' | 'view-blocks' | 'block-workspace' | 'school-year-rollover' | 'student-history' | 'shift-student' | 'subject-management' | 'add-subject' | /* 'assign-subject' | */ 'curriculum-management' | 'curriculum-overview' | 'curriculum-create' | 'curriculum-archived' | 'curriculum-details' | 'grade-submissions' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
 
 type RegistrarDashboardProps = {
   username: string
@@ -94,8 +95,9 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
   const [currentTime, setCurrentTime] = useState(new Date())
   const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string | null>(null)
   const [blockWorkspaceSelection, setBlockWorkspaceSelection] = useState<BlockWorkspaceSelection | null>(null)
-  const [courseWorkspaceSelection, setCourseWorkspaceSelection] = useState<RegistrarCourseWorkspaceSelection | null>(null)
+  const [courseWorkspaceSelection, setCourseWorkspaceSelection] = useState<{ professorId: string } | null>(null)
   const [historyStudentId, setHistoryStudentId] = useState<string | null>(null)
+  const [shiftStudentId, setShiftStudentId] = useState<string | null>(null)
   const [curriculumDetailId, setCurriculumDetailId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -141,7 +143,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
   const renderContent = () => {
     switch (view) {
       case 'students':
-        return <StudentManagement onViewHistory={(studentId) => { setHistoryStudentId(studentId); setView('student-history') }} />
+        return <StudentManagement onViewHistory={(studentId) => { setHistoryStudentId(studentId); setView('student-history') }} onShiftStudent={(studentId) => { setShiftStudentId(studentId); setView('shift-student') }} />
       case 'assign-block':
         return <BlockAssignmentPage />
       case 'add-student':
@@ -188,6 +190,8 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
         return <SchoolYearRollover onBack={() => setView('block-overview')} />
       case 'student-history':
         return <StudentHistoryPage studentId={historyStudentId || ''} onBack={() => setView('students')} />
+      case 'shift-student':
+        return <ShiftStudentPage studentId={shiftStudentId || ''} onBack={() => setView('students')} />
       case 'subject-management':
         return <SubjectManagementPage mode="catalog" />
       case 'add-subject':

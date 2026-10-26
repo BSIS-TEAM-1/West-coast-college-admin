@@ -80,7 +80,7 @@ class ThemeColors extends ThemeExtension<ThemeColors> {
     textMuted: AppColors.darkTextMuted,
     textBold: AppColors.darkTextPrimary,
     primary: AppColors.primary,
-    primarySubtle: Color(0x2E4F46E5),
+    primarySubtle: Color(0x1FFFFFFF), // white ~12% so subtle navy-style fills work on dark surfaces too
     onPrimary: AppColors.onPrimary,
     gold: AppColors.goldLight,
     success: AppColors.darkSuccess,

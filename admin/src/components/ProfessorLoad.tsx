@@ -15,7 +15,6 @@ import {
   GraduationCap
 } from 'lucide-react'
 import { authorizedFetch } from '../lib/blockAssignmentShared'
-import type { RegistrarCourseWorkspaceSelection } from './RegistrarCourseWorkspace'
 import './ProfessorLoad.css'
 
 // ─── Types ───
@@ -112,7 +111,7 @@ type SortOption = 'name-asc' | 'name-desc' | 'subjects-desc' | 'students-desc' |
 type Props = {
   onOpenStudents?: () => void
   onOpenReports?: () => void
-  onOpenWorkspace: (selection: RegistrarCourseWorkspaceSelection) => void
+  onOpenWorkspace: (selection: { professorId: string }) => void
 }
 
 export default function ProfessorLoad({ onOpenWorkspace }: Props) {
@@ -210,10 +209,8 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
   // ─── Actions ───
 
   const openWorkspace = (professor: ProfessorCourseLoad) => {
-    const courseLabel = professor.courseSummaries[0]?.label || ''
     onOpenWorkspace({
-      professorId: professor.professorId,
-      courseLabel
+      professorId: professor.professorId
     })
   }
 

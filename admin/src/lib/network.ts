@@ -1,5 +1,4 @@
 const NETWORK_ERROR_PATTERNS = [
-  'failed to fetch',
   'load failed',
   'networkerror',
   'network request failed',
@@ -28,6 +27,7 @@ export function isNetworkRequestError(error: unknown): boolean {
 
   const message = error instanceof Error ? error.message : String(error || '')
   const normalized = message.trim().toLowerCase()
+  if (normalized === 'failed to fetch') return true
   return NETWORK_ERROR_PATTERNS.some((pattern) => normalized.includes(pattern))
 }
 

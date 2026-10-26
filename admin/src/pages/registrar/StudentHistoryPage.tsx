@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Calendar, GraduationCap, History, Lock, BookOpen, FileText, AlertCircle, Plus, X, RotateCcw, CheckCircle2, AlertTriangle } from 'lucide-react'
 import StudentService from '../../lib/studentApi'
+import { formatGrade, isPassingGrade } from '../../lib/gradingScale'
 import type {
   AcademicProgressData,
   CurriculumSuggestionsData,
@@ -33,7 +34,7 @@ type SubjectEntry = {
   droppedBy?: string | null
   dropReason?: string | null
   overrideReason?: string | null
-  retakeOf?: { enrollmentId?: string; schoolYear?: string; semester?: string; status?: string; grade?: number | null } | null
+  retakeOf?: { enrollmentId?: string; subjectEntryId?: string; schoolYear?: string; semester?: string; status?: string; grade?: number | null } | null
 }
 
 type EnrollmentRecord = {
@@ -57,6 +58,14 @@ type EnrollmentRecord = {
     balance?: number
     paymentStatus?: string
   }
+  // Set when a program shift closed this enrollment. The record and its
+  // subjects/grades are preserved; this only records where the student moved.
+  shiftedTo?: {
+    course?: number | null
+    programLabel?: string | null
+    shiftedAt?: string | null
+    reason?: string | null
+  } | null
   createdAt?: string
   updatedAt?: string
 }
@@ -117,9 +126,23 @@ function isGraded(entry: SubjectEntry) {
 
 function canRetake(entry: SubjectEntry) {
   const status = entry.status || ''
-  if (RETAKEABLE_STATUSES.includes(status)) return true
+  // Only Dropped or Removed status qualifies for retake (matching backend logic)
+  if (status === 'Dropped' || status === 'Removed') return true
   if (entry.gradeMark === 'FA') return true
+  // Failing grades (greater than 3.0) are retakeable
   return typeof entry.grade === 'number' && entry.grade > 3.0
+}
+
+function hasBeenRetaken(entry: SubjectEntry, allEnrollments: EnrollmentRecord[]) {
+  // Check if there's a later enrollment with a subject that has retakeOf pointing to this entry
+  for (const enrollment of allEnrollments) {
+    for (const subject of enrollment.subjects || []) {
+      if (subject.retakeOf?.subjectEntryId === entry._id) {
+        return true
+      }
+    }
+  }
+  return false
 }
 
 /** First school year strictly after the term this attempt belongs to. */
@@ -275,11 +298,14 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
     try {
       const token = await getStoredToken()
       if (!token) throw new Error('Session expired. Please sign in again.')
+      const isIrregular = String(student.studentStatus || student.classification || '').toLowerCase() === 'irregular'
       const response = await StudentService.getCurriculumSuggestions(token, {
         programCode: student.course,
         yearLevel: record.yearLevel || student.yearLevel,
         semester: record.semester,
-        curriculumVersion: student.curriculumVersion || ''
+        curriculumVersion: student.curriculumVersion || '',
+        studentId: studentId,
+        isIrregular
       })
       const data = extractResponseData<CurriculumSuggestionsData>(response)
       const enrolled = new Set((record.subjects || []).map((s) => String(s.subjectId || '')))
@@ -382,7 +408,21 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
     try {
       const token = await getStoredToken()
       if (!token) throw new Error('Session expired. Please sign in again.')
-      await StudentService.retakeSubject(token, studentId, String(retakeTarget.entry.subjectId || ''), {
+      
+      // Properly extract subjectId from ObjectId object
+      let subjectId = ''
+      const entrySubjectId = retakeTarget.entry.subjectId
+      
+      if (entrySubjectId) {
+        if (typeof entrySubjectId === 'object' && entrySubjectId !== null) {
+          // Handle MongoDB ObjectId object
+          subjectId = entrySubjectId._id || entrySubjectId.toHexString?.() || String(entrySubjectId)
+        } else {
+          subjectId = String(entrySubjectId)
+        }
+      }
+      
+      await StudentService.retakeSubject(token, studentId, subjectId, {
         schoolYear: retakeYear,
         semester: retakeSemester,
         overrideReason: retakeOverride.trim()
@@ -450,27 +490,18 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
 
           <div className="student-history-page__stats">
             <div className="student-history-page__stat-card">
-              <div className="student-history-page__stat-icon student-history-page__stat-icon--total">
-                <BookOpen size={20} />
-              </div>
               <div>
                 <span className="student-history-page__stat-value">{sortedHistory.length}</span>
                 <span className="student-history-page__stat-label">Total Enrollments</span>
               </div>
             </div>
             <div className="student-history-page__stat-card">
-              <div className="student-history-page__stat-icon student-history-page__stat-icon--locked">
-                <Lock size={20} />
-              </div>
               <div>
                 <span className="student-history-page__stat-value">{lockedCount}</span>
                 <span className="student-history-page__stat-label">Locked Records</span>
               </div>
             </div>
             <div className="student-history-page__stat-card">
-              <div className="student-history-page__stat-icon student-history-page__stat-icon--active">
-                <GraduationCap size={20} />
-              </div>
               <div>
                 <span className="student-history-page__stat-value">{activeEnrollment ? '1' : '0'}</span>
                 <span className="student-history-page__stat-label">Active Enrollment</span>
@@ -621,6 +652,11 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                 {sortedHistory.map((record, index) => {
                   const locked = isLocked(record)
                   const isLast = index === sortedHistory.length - 1
+                  // Old-program record closed by a shift: label its subjects with
+                  // where the student went, without duplicating the rows.
+                  const shiftedToLabel = record.shiftedTo?.shiftedAt
+                    ? record.shiftedTo.programLabel || courseShortLabel(record.shiftedTo.course)
+                    : ''
 
                   return (
                     <div key={record._id} className={`student-history-page__timeline-item ${locked ? 'student-history-page__timeline-item--locked' : ''}`}>
@@ -644,9 +680,13 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                                   Active
                                 </span>
                               ) : null}
+                              {shiftedToLabel ? (
+                                <span className="student-history-page__status-badge student-history-page__status-badge--accent">
+                                  Shifted to {shiftedToLabel}
+                                </span>
+                              ) : null}
                               {locked ? (
                                 <span className="student-history-page__status-badge student-history-page__status-badge--locked">
-                                  <Lock size={12} />
                                   Locked
                                 </span>
                               ) : null}
@@ -657,7 +697,6 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                                   onClick={() => void openAddModal(record)}
                                   disabled={modalBusy}
                                 >
-                                  <Plus size={13} />
                                   Add subjects
                                 </button>
                               ) : null}
@@ -707,6 +746,7 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                                       <th>Units</th>
                                       <th>Status</th>
                                       <th>Grade</th>
+                                      <th>Shifted</th>
                                       <th>Notes</th>
                                       <th><span className="sr-only">Actions</span></th>
                                     </tr>
@@ -714,10 +754,21 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                                   <tbody>
                                     {record.subjects.map((entry, subIndex) => {
                                       const gradeText = entry.grade != null
-                                        ? String(entry.grade)
+                                        ? formatGrade(entry.grade)
                                         : entry.gradeMark || '—'
                                       const droppable = !locked && DROPPABLE_STATUSES.includes(entry.status || '')
                                       const retakeable = canRetake(entry)
+                                      const alreadyRetaken = hasBeenRetaken(entry, sortedHistory)
+                                      // A "Retake of …" note only renders for a verified
+                                      // retake snapshot: the backend serves retakeOf only
+                                      // when it resolves to a real, earlier attempt of
+                                      // the same subject, and it must carry a complete
+                                      // pointer (enrollment + exact entry + term).
+                                      const retakeNote = entry.retakeOf && entry.retakeOf.enrollmentId
+                                        && entry.retakeOf.subjectEntryId
+                                        && entry.retakeOf.schoolYear && entry.retakeOf.semester
+                                        ? `Retake of ${entry.retakeOf.schoolYear} ${entry.retakeOf.semester}`
+                                        : null
                                       return (
                                         <tr key={`${entry.subjectId || entry.code}-${subIndex}`}>
                                           <td><strong>{entry.code}</strong></td>
@@ -729,11 +780,20 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                                             </span>
                                           </td>
                                           <td>{gradeText}</td>
+                                          <td>
+                                            {shiftedToLabel ? (
+                                              <span className="student-history-page__status-badge student-history-page__status-badge--accent">
+                                                → {shiftedToLabel}
+                                              </span>
+                                            ) : (
+                                              <span className="student-history-page__muted">—</span>
+                                            )}
+                                          </td>
                                           <td className="student-history-page__note-cell">
-                                            {entry.retakeOf ? <span>Retake of {entry.retakeOf.schoolYear} {entry.retakeOf.semester}</span> : null}
+                                            {retakeNote ? <span>{retakeNote}</span> : null}
                                             {entry.dropReason ? <span>Drop: {entry.dropReason}</span> : null}
                                             {entry.overrideReason ? <span>Override: {entry.overrideReason}</span> : null}
-                                            {!entry.retakeOf && !entry.dropReason && !entry.overrideReason ? '—' : null}
+                                            {!retakeNote && !entry.dropReason && !entry.overrideReason ? '—' : null}
                                           </td>
                                           <td>
                                             <div className="student-history-page__row-actions">
@@ -753,21 +813,24 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                                                 </button>
                                               ) : null}
                                               {retakeable ? (
-                                                <button
-                                                  type="button"
-                                                  className="student-history-page__action-btn"
-                                                  onClick={() => {
-                                                    setRetakeTarget({ record, entry })
-                                                    setRetakeYear(nextSchoolYear(record.schoolYear))
-                                                    setRetakeSemester('1st')
-                                                    setRetakeOverride('')
-                                                    setModalError('')
-                                                  }}
-                                                  disabled={modalBusy}
-                                                >
-                                                  <RotateCcw size={13} />
-                                                  Retake
-                                                </button>
+                                                alreadyRetaken ? (
+                                                  <span className="student-history-page__muted">Enrolled</span>
+                                                ) : (
+                                                  <button
+                                                    type="button"
+                                                    className="student-history-page__action-btn"
+                                                    onClick={() => {
+                                                      setRetakeTarget({ record, entry })
+                                                      setRetakeYear(nextSchoolYear(record.schoolYear))
+                                                      setRetakeSemester('1st')
+                                                      setRetakeOverride('')
+                                                      setModalError('')
+                                                    }}
+                                                    disabled={modalBusy}
+                                                  >
+                                                    Retake
+                                                  </button>
+                                                )
                                               ) : null}
                                               {!droppable && !retakeable ? <span className="student-history-page__muted">—</span> : null}
                                             </div>
@@ -1066,7 +1129,7 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                 <h4 id="retake-subject-title">Retake {retakeTarget.entry.code}</h4>
                 <p>
                   Original: {retakeTarget.record.semester} {retakeTarget.record.schoolYear} ·{' '}
-                  {retakeTarget.entry.status}{retakeTarget.entry.grade != null ? ` · grade ${retakeTarget.entry.grade}` : ''}
+                  {retakeTarget.entry.status}{retakeTarget.entry.grade != null ? ` · grade ${formatGrade(retakeTarget.entry.grade)}` : ''}
                 </p>
               </div>
               <button type="button" onClick={() => setRetakeTarget(null)} aria-label="Close" disabled={modalBusy}>

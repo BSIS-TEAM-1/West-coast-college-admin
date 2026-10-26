@@ -66,13 +66,8 @@ type LoadsPayload = {
   professors?: ProfessorCourseLoad[]
 }
 
-export type RegistrarCourseWorkspaceSelection = {
-  professorId: string
-  courseLabel?: string
-}
-
 type Props = {
-  selection: RegistrarCourseWorkspaceSelection | null
+  selection: { professorId: string } | null
   onBack: () => void
 }
 
@@ -88,7 +83,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   const [subjectDaySchedules, setSubjectDaySchedules] = useState<Record<string, { start: string; end: string; room: string }>>({})
   const [professorLoads, setProfessorLoads] = useState<ProfessorCourseLoad[]>([])
   const [selectedProfessorId, setSelectedProfessorId] = useState('')
-  const [selectedProfessorCourseLabel, setSelectedProfessorCourseLabel] = useState('')
   const [courseLoadLoading, setCourseLoadLoading] = useState(false)
   const [showRefreshSignal, setShowRefreshSignal] = useState(false)
   const [assigning, setAssigning] = useState(false)
@@ -96,6 +90,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   const [autoPickedAssignmentKey, setAutoPickedAssignmentKey] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [viewingSubjectsProfessorId, setViewingSubjectsProfessorId] = useState('')
 
   const dayOptions = ['M', 'T', 'W', 'TH', 'F', 'S', 'SU']
 
@@ -309,9 +304,8 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   const selectedSection = sections.find((section) => section._id === selectedSectionId) || null
   const selectedSubject = subjects.find((subject) => subject._id === selectedSubjectId) || null
 
-  const selectProfessorWorkspace = (professorId: string, nextCourseLabel = '') => {
+  const selectProfessorWorkspace = (professorId: string) => {
     setSelectedProfessorId(professorId)
-    setSelectedProfessorCourseLabel(nextCourseLabel)
     setSelectedGroupId('')
     setSelectedSectionId('')
     setSections([])
@@ -323,9 +317,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   }
 
   const selectedProfessor = professorLoads.find((professor) => professor.professorId === selectedProfessorId) || null
-  const selectedProfessorCourseLabels = selectedProfessor
-    ? selectedProfessor.courseSummaries.map((course) => course.label).join('|')
-    : ''
 
   useEffect(() => {
     void fetchBlockGroups()
@@ -340,9 +331,9 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
 
   useEffect(() => {
     if (selection?.professorId) {
-      selectProfessorWorkspace(selection.professorId, selection.courseLabel || '')
+      selectProfessorWorkspace(selection.professorId)
     }
-  }, [selection?.professorId, selection?.courseLabel])
+  }, [selection?.professorId])
 
   useEffect(() => {
     if (!professorLoads.length) return
@@ -350,20 +341,9 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
       const fallback = professorLoads.find((professor) => professor.totals.subjects > 0) || professorLoads[0]
       if (fallback) {
         setSelectedProfessorId(fallback.professorId)
-        setSelectedProfessorCourseLabel(selection?.courseLabel || fallback.courseSummaries[0]?.label || '')
       }
     }
-  }, [professorLoads, selectedProfessorId, selection?.courseLabel])
-
-  useEffect(() => {
-    if (!selectedProfessor || selectedProfessor.courseSummaries.length === 0) {
-      setSelectedProfessorCourseLabel('')
-      return
-    }
-    if (!selectedProfessor.courseSummaries.some((course) => course.label === selectedProfessorCourseLabel)) {
-      setSelectedProfessorCourseLabel(selectedProfessor.courseSummaries[0].label)
-    }
-  }, [selectedProfessor?.professorId, selectedProfessorCourseLabels, selectedProfessorCourseLabel])
+  }, [professorLoads, selectedProfessorId])
 
   useEffect(() => {
     if (!selectedGroupId) {
@@ -376,16 +356,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     void fetchSections(selectedGroupId)
     void fetchSubjects(blockGroups.find((group) => group._id === selectedGroupId) || null)
   }, [selectedGroupId, blockGroups])
-
-  const selectedProfessorCourse = selectedProfessor?.courseSummaries.find((course) => course.label === selectedProfessorCourseLabel)
-    || selectedProfessor?.courseSummaries[0]
-    || null
-
-  const selectedProfessorCourseAssignments = selectedProfessor
-    ? selectedProfessor.assignments.filter((assignment) => (
-      selectedProfessorCourse ? assignment.courseShortLabel === selectedProfessorCourse.label : true
-    ))
-    : []
 
   const canAssign = !assigning
     && Boolean(selectedProfessor)
@@ -408,10 +378,10 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
 
   useEffect(() => {
     if (editingAssignmentId || selectedSubjectId || selectedGroupId || selectedSectionId) return
-    const assignment = selectedProfessorCourseAssignments[0]
+    const assignment = selectedProfessor?.assignments[0]
     if (!assignment) return
 
-    const assignmentKey = `${selectedProfessor?.professorId || ''}|${selectedProfessorCourse?.label || ''}|${assignment.sectionId}|${assignment.subjectId}`
+    const assignmentKey = `${selectedProfessor?.professorId || ''}|${assignment.sectionId}|${assignment.subjectId}`
     if (autoPickedAssignmentKey === assignmentKey) return
 
     setAutoPickedAssignmentKey(assignmentKey)
@@ -432,8 +402,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     selectedGroupId,
     selectedSectionId,
     selectedProfessor?.professorId,
-    selectedProfessorCourse?.label,
-    selectedProfessorCourseAssignments,
+    selectedProfessor?.assignments,
     selectedSubjectId
   ])
 
@@ -511,73 +480,10 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     }
   }
 
-  const removeSectionAssignment = async ({
-    sectionId,
-    subjectId,
-    subjectCode,
-    sectionLabel,
-    professorLabel
-  }: {
-    sectionId: string
-    subjectId: string
-    subjectCode: string
-    sectionLabel: string
-    professorLabel?: string
-  }) => {
-    if (!sectionId || !subjectId) return
-    const subjectOwner = professorLabel || 'the assigned professor'
-    const confirmed = window.confirm(`Remove ${subjectCode} from ${subjectOwner} in ${sectionLabel}?`)
-    if (!confirmed) return
-
-    setAssigning(true)
-    setError('')
-    setSuccess('')
-    try {
-      await authorizedFetch(`/api/registrar/sections/${sectionId}/subject-assignment/${subjectId}`, {
-        method: 'DELETE'
-      })
-      if (editingAssignmentId === subjectId) {
-        clearAssignmentForm()
-      }
-      setSuccess(`${subjectCode} removed from ${subjectOwner} in ${sectionLabel}.`)
-      await fetchProfessorCourseLoads()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to remove assignment')
-    } finally {
-      setAssigning(false)
-    }
-  }
-
-  const handleEditProfessorCourseAssignment = (assignment: ProfessorCourseAssignment) => {
-    if (assignment.courseShortLabel) {
-      setSelectedProfessorCourseLabel(assignment.courseShortLabel)
-    }
-    if (assignment.blockGroupId) {
-      setSelectedGroupId(assignment.blockGroupId)
-    }
-    populateAssignmentEditor({
-      subjectId: assignment.subjectId,
-      schedule: assignment.schedule,
-      room: assignment.room
-    })
-  }
-
-  const handleDeleteProfessorCourseAssignment = async (assignment: ProfessorCourseAssignment) => {
-    await removeSectionAssignment({
-      sectionId: assignment.sectionId,
-      subjectId: assignment.subjectId,
-      subjectCode: assignment.subjectCode,
-      sectionLabel: assignment.sectionLabel || 'the selected block',
-      professorLabel: selectedProfessor?.label
-    })
-  }
-
   const handleRefreshWorkspace = async () => {
     triggerRefreshSignal()
     await fetchProfessorCourseLoads()
   }
-
-  const selectedCourseSectionCount = new Set(selectedProfessorCourseAssignments.map((assignment) => assignment.sectionId)).size
 
   return (
     <div className="registrar-section registrar-course-management-page registrar-course-workspace-page">
@@ -611,73 +517,74 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
           </div>
           <div className="registrar-professor-workspace-sidebar-list">
             {professorLoads.map((professor) => (
-              <button
-                key={professor.professorId}
-                type="button"
-                className={`registrar-professor-workspace-link${professor.professorId === selectedProfessorId ? ' is-active' : ''}`}
-                onClick={() => selectProfessorWorkspace(professor.professorId, professor.courseSummaries[0]?.label || '')}
-              >
-                <strong>{professor.label}</strong>
-                <span>{professor.totals.subjects} subjects / {professor.totals.sections} sections</span>
-              </button>
+              <div key={professor.professorId} className="registrar-professor-workspace-item">
+                <button
+                  type="button"
+                  className={`registrar-professor-workspace-link${professor.professorId === selectedProfessorId ? ' is-active' : ''}`}
+                  onClick={() => selectProfessorWorkspace(professor.professorId)}
+                >
+                  <strong>{professor.label}</strong>
+                  <span>{professor.totals.subjects} subjects / {professor.totals.sections} sections</span>
+                </button>
+                <div className="registrar-professor-workspace-actions">
+                  <button
+                    type="button"
+                    className="registrar-btn registrar-btn-secondary registrar-professor-action-btn"
+                    onClick={() => setViewingSubjectsProfessorId(viewingSubjectsProfessorId === professor.professorId ? '' : professor.professorId)}
+                  >
+                    {viewingSubjectsProfessorId === professor.professorId ? 'Hide Subjects' : 'View Subjects'}
+                  </button>
+                  <button
+                    type="button"
+                    className="registrar-btn registrar-btn-secondary registrar-professor-action-btn"
+                    onClick={() => selectProfessorWorkspace(professor.professorId)}
+                  >
+                    Manage
+                  </button>
+                </div>
+                {viewingSubjectsProfessorId === professor.professorId && (
+                  <div className="registrar-professor-subjects-list">
+                    {professor.assignments.length > 0 ? (
+                      professor.assignments.map((assignment) => (
+                        <div key={`${assignment.sectionId}-${assignment.subjectId}`} className="registrar-professor-subject-item">
+                          <div className="registrar-professor-subject-header">
+                            <strong>{assignment.subjectCode}</strong>
+                            <span className="registrar-professor-subject-course">{assignment.courseShortLabel}</span>
+                          </div>
+                          <span className="registrar-professor-subject-title">{assignment.subjectTitle}</span>
+                          <div className="registrar-professor-subject-details">
+                            <span>{assignment.sectionLabel}</span>
+                            <span>{assignment.schedule}</span>
+                            <span>{assignment.room}</span>
+                          </div>
+                          <button
+                            type="button"
+                            className="registrar-btn registrar-btn-secondary registrar-professor-subject-edit-btn"
+                            onClick={() => {
+                              selectProfessorWorkspace(professor.professorId)
+                              if (assignment.blockGroupId) setSelectedGroupId(assignment.blockGroupId)
+                              if (assignment.sectionId) setSelectedSectionId(assignment.sectionId)
+                              populateAssignmentEditor({
+                                subjectId: assignment.subjectId,
+                                schedule: assignment.schedule,
+                                room: assignment.room
+                              })
+                            }}
+                          >
+                            <PencilLine size={12} />
+                            Edit
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="registrar-professor-subjects-empty">No subjects assigned yet</p>
+                    )}
+                  </div>
+                )}
+              </div>
             ))}
           </div>
         </aside>
-
-        <article className="registrar-course-detail-card registrar-course-workspace-controls">
-          <div className="registrar-course-card-header">
-            <div>
-              <p className="registrar-course-card-label">Active Load</p>
-              <h3>{selectedProfessor?.label || 'Choose a professor'}</h3>
-            </div>
-            <span className="registrar-course-card-pill">
-              {selectedProfessor ? `${selectedProfessor.totals.subjects} subjects` : 'No load'}
-            </span>
-          </div>
-
-          <p className="registrar-course-helper-copy">
-            Change the professor or course when you need to work on another load.
-          </p>
-
-          <div className="registrar-course-workspace-control-grid">
-            <label>
-              Professor
-              <select value={selectedProfessorId} onChange={(e) => selectProfessorWorkspace(e.target.value)}>
-                <option value="">Select professor</option>
-                {professorLoads.map((professor) => (
-                  <option key={professor.professorId} value={professor.professorId}>
-                    {professor.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              Course Focus
-              <select
-                value={selectedProfessorCourseLabel}
-                onChange={(e) => setSelectedProfessorCourseLabel(e.target.value)}
-                disabled={!selectedProfessor || selectedProfessor.courseSummaries.length === 0}
-              >
-                <option value="">{selectedProfessor?.courseSummaries.length ? 'Select course' : 'No course load yet'}</option>
-                {selectedProfessor?.courseSummaries.map((course) => (
-                  <option key={`${selectedProfessor.professorId}-${course.label}`} value={course.label}>
-                    {course.fullLabel || course.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          {selectedProfessor && (
-            <div className="registrar-course-detail-summary">
-              <div><span>Courses</span><strong>{selectedProfessor.totals.courses}</strong></div>
-              <div><span>Sections</span><strong>{selectedProfessor.totals.sections}</strong></div>
-              <div><span>Subjects</span><strong>{selectedProfessor.totals.subjects}</strong></div>
-              <div><span>Students</span><strong>{selectedProfessor.totals.students}</strong></div>
-            </div>
-          )}
-        </article>
 
         <section className="assignment-section registrar-course-workspace-card">
           <header className="registrar-course-card-header">
@@ -719,6 +626,18 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                   This block group is not linked to a curriculum. Please link a curriculum first to assign subjects.
                 </p>
               )}
+            </label>
+
+            <label>
+              Section
+              <select value={selectedSectionId} onChange={(e) => setSelectedSectionId(e.target.value)} disabled={!selectedGroupId}>
+                <option value="">Select section</option>
+                {sections.map((section) => (
+                  <option key={section._id} value={section._id}>
+                    {section.sectionCode} ({section.currentPopulation}/{section.capacity})
+                  </option>
+                ))}
+              </select>
             </label>
 
             <label>
@@ -826,23 +745,11 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
 
           <div className="registrar-course-workspace-footer">
             <div className="registrar-course-workspace-meta">
-              <article><span>Course focus</span><strong>{selectedProfessorCourse?.label || 'Any course'}</strong></article>
               <article><span>Selected block group</span><strong>{selectedGroup ? formatBlockLabel(selectedGroup.name) : 'Not selected'}</strong></article>
               <article><span>Selected section</span><strong>{selectedSection ? selectedSection.sectionCode : 'Not selected'}</strong></article>
               <article><span>Term</span><strong>{selectedGroup ? `${selectedGroup.semester} Semester, SY ${selectedGroup.schoolYear || formatAcademicYear(selectedGroup.year)}` : 'Select a block group'}</strong></article>
             </div>
             <div className="registrar-course-footer-actions">
-              {!editingAssignmentId && selectedProfessorCourseAssignments.length > 0 && (
-                <button
-                  type="button"
-                  className="registrar-btn registrar-btn-secondary"
-                  onClick={() => handleEditProfessorCourseAssignment(selectedProfessorCourseAssignments[0])}
-                  disabled={assigning}
-                >
-                  <PencilLine size={15} />
-                  Edit assignment
-                </button>
-              )}
               {editingAssignmentId && (
                 <button className="registrar-btn registrar-btn-secondary" onClick={clearAssignmentForm} disabled={assigning}>
                   Cancel edit
@@ -855,65 +762,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
           </div>
         </section>
 
-          <section className="registrar-course-detail-card registrar-course-workspace-assignments">
-            <header className="registrar-course-card-header">
-              <div>
-                <p className="registrar-course-card-label">Existing Assignments</p>
-                <h3>{selectedProfessorCourse?.fullLabel || selectedProfessorCourse?.label || 'Select a course'}</h3>
-              </div>
-              {selectedProfessorCourse && <span className="registrar-course-card-pill">{selectedProfessorCourseAssignments.length} scheduled classes</span>}
-            </header>
 
-            {selectedProfessorCourseAssignments.length > 0 ? (
-              <div className="registrar-course-subject-table" role="table" aria-label="Selected professor course assignments">
-                <div className="registrar-course-subject-head">
-                  <span>Subject</span>
-                  <span>Block</span>
-                  <span>Schedule</span>
-                  <span>Room</span>
-                  <span>Actions</span>
-                </div>
-                <div className="registrar-course-subject-body">
-                  {selectedProfessorCourseAssignments.map((assignment) => {
-                    return (
-                    <div key={`${assignment.sectionId}-${assignment.subjectId}`} className="registrar-course-subject-row" role="row">
-                      <div className="registrar-course-subject-main" data-label="Subject">
-                        <strong>{assignment.subjectCode}</strong>
-                        <span>{assignment.subjectTitle}</span>
-                      </div>
-                      <span data-label="Block">{assignment.sectionLabel}</span>
-                      <span data-label="Schedule">{assignment.schedule}</span>
-                      <span data-label="Room">{assignment.room}</span>
-                      <div data-label="Actions" className="registrar-course-subject-actions">
-                        <button className="registrar-btn registrar-btn-secondary" onClick={() => handleEditProfessorCourseAssignment(assignment)} disabled={assigning}>
-                          Edit
-                        </button>
-                        <button className="registrar-btn registrar-course-danger-btn" onClick={() => void handleDeleteProfessorCourseAssignment(assignment)} disabled={assigning}>
-                          Unassign
-                        </button>
-                      </div>
-                    </div>
-                    )
-                  })}
-                </div>
-              </div>
-            ) : (
-              <div className="registrar-course-empty-state registrar-course-empty-state-compact">
-                <div>
-                  <h3>No assignments yet</h3>
-                  <p>{selectedProfessor ? 'Use the form above to create the first class assignment.' : 'Choose a professor to start working.'}</p>
-                </div>
-              </div>
-            )}
-
-            {selectedProfessorCourse && (
-              <div className="registrar-course-focus-metrics">
-                <span><strong>{selectedCourseSectionCount}</strong> sections</span>
-                <span><strong>{selectedProfessorCourse.studentCount}</strong> students</span>
-                <span><strong>{selectedProfessorCourse.subjectCount}</strong> subjects</span>
-              </div>
-            )}
-          </section>
       </section>
 
       <div

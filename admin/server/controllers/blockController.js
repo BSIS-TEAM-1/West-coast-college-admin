@@ -15,7 +15,7 @@ const Subject = require('../models/Subject');
 const CurriculumSubject = require('../models/CurriculumSubject');
 const BlockSubjectAssignment = require('../models/BlockSubjectAssignment');
 const { autoAssignSubjectsFromCurriculum } = require('../services/blockSubjectAutoAssignService');
-const { autoAssignCurriculumSubjects } = require('../services/subjectEnrollmentService');
+const { autoAssignCurriculumSubjects, applySectionScheduleDefaults } = require('../services/subjectEnrollmentService');
 const { convertToSchoolYear } = require('../services/dateUtils');
 const enrollmentGuard = require('../services/enrollmentGuard');
 const { describeAssignmentFailure } = require('../services/assignmentFailure');
@@ -1166,22 +1166,33 @@ class BlockController {
 
     const [enrollment] = await Enrollment.create([enrollmentData], { session });
 
+    // The student was just assigned to `section` — if that section already
+    // carries schedules (stamped into its other students' enrollments),
+    // inherit the time/room/instructor instead of leaving everything TBA.
+    // Missing data stays TBA (no time → TBA, no room → TBA).
+    if (section?._id) {
+      await applySectionScheduleDefaults({ enrollment, sectionId: String(section._id), session });
+    }
+
     return enrollment;
   }
 
   // POST /api/blocks/assign-student
-  async assignStudent(req, res) {
-    const { studentId, sectionId, semester, year } = req.body;
-
-    const session = await mongoose.startSession();
-    session.startTransaction();
+  async performAssignment({ studentId, sectionId, semester, year, actorId, session }) {
+    if (!session) {
+      throw new Error('performAssignment requires an active session');
+    }
 
     try {
       // Get section
       const section = await BlockSection.findById(sectionId).session(session);
       if (!section || section.status !== 'OPEN') {
-        await session.abortTransaction();
-        return res.status(400).json({ error: 'Section not found or not open' });
+        return {
+          ok: false,
+          httpStatus: 400,
+          error: 'Section not found or not open',
+          reasons: ['Section not found or not open'],
+        };
       }
 
       const group = await BlockGroup.findById(section.blockGroupId).session(session);
@@ -1189,8 +1200,12 @@ class BlockController {
         .select('studentNumber yearLevel studentStatus course firstName lastName classification curriculumVersion schoolYear semester')
         .session(session);
       if (!student) {
-        await session.abortTransaction();
-        return res.status(404).json({ error: 'Student not found' });
+        return {
+          ok: false,
+          httpStatus: 404,
+          error: 'Student not found',
+          reasons: ['Student not found'],
+        };
       }
 
       // Find the active enrollment for this student.
@@ -1211,7 +1226,8 @@ class BlockController {
       let enrollment = await blockEligibilityService.findActiveEnrollment(
         studentId,
         blockSchoolYear || student.schoolYear,
-        blockSemester || student.semester
+        blockSemester || student.semester,
+        session
       );
 
       // Ensure a usable enrollment record exists. A missing, Dropped,
@@ -1231,16 +1247,17 @@ class BlockController {
             section,
             schoolYear: blockSchoolYear || student.schoolYear,
             semester: blockSemester || student.semester,
-            createdBy: req.registrarId || req.adminId,
+            createdBy: actorId,
             session
           });
         } catch (autoEnrollError) {
-          await session.abortTransaction();
-          return res.status(400).json({
+          return {
+            ok: false,
+            httpStatus: 400,
             error: 'Could not prepare an enrollment record for block assignment',
             reasons: [autoEnrollError.message || 'Enrollment auto-creation failed. Create one via Bulk enroll first.'],
-            checks: { enrollmentStatus: false }
-          });
+            checks: { enrollmentStatus: false },
+          };
         }
       }
 
@@ -1260,12 +1277,13 @@ class BlockController {
       );
 
       if (!eligibility.eligible) {
-        await session.abortTransaction();
-        return res.status(400).json({
+        return {
+          ok: false,
+          httpStatus: 400,
           error: 'Student is not eligible for this block',
           reasons: eligibility.reasons,
-          checks: eligibility.checks
-        });
+          checks: eligibility.checks,
+        };
       }
 
       // The unique index covers (studentId, semester, year, schoolYear), but the
@@ -1287,34 +1305,37 @@ class BlockController {
             studentId,
             schoolYear: enrollment.schoolYear,
             semester: enrollment.semester,
-            actorId: req.registrarId || req.adminId,
+            actorId: actorId,
             session,
           });
           const subjectAssignment = await autoAssignCurriculumSubjects({
             enrollmentId: finalized.enrollmentId,
             curriculumId: group.curriculumId || enrollment.curriculumId,
-            actorId: req.registrarId || req.adminId,
+            actorId: actorId,
             session,
           });
-          await session.commitTransaction();
-          return res.json({
-            status: 'ASSIGNED',
-            assignmentId: sameTermRecord._id,
-            alreadyAssigned: true,
-            sectionCode: finalized.sectionCode || section.sectionCode,
-            subjectsAdded: subjectAssignment.added.length,
-          });
+          return {
+            ok: true,
+            data: {
+              status: 'ASSIGNED',
+              assignmentId: sameTermRecord._id,
+              alreadyAssigned: true,
+              sectionCode: finalized.sectionCode || section.sectionCode,
+              subjectsAdded: subjectAssignment.added.length,
+            },
+          };
         }
-        await session.abortTransaction();
         const currentSection = await BlockSection.findById(sameTermRecord.sectionId)
           .select('sectionCode')
           .lean();
-        return res.status(409).json({
+        return {
+          ok: false,
+          httpStatus: 409,
           error: 'Student is already assigned to another block section for this term',
           reasons: [
             `The student already has a block assignment (${currentSection?.sectionCode || 'another section'}) for ${assignmentSemester} ${assignmentYear}. Remove that assignment before assigning a different section.`,
           ],
-        });
+        };
       }
 
       // Re-check capacity atomically (race condition protection)
@@ -1325,11 +1346,12 @@ class BlockController {
       );
 
       if (!updatedSection) {
-        await session.abortTransaction();
-        return res.status(400).json({
+        return {
+          ok: false,
+          httpStatus: 400,
           error: 'Block section is now full. Please refresh and try again.',
           reasons: ['Block section is full.'],
-        });
+        };
       }
 
       // Create the assignment under the term identity that was validated
@@ -1376,7 +1398,7 @@ class BlockController {
         blockGroupName: group ? group.name : '',
         studentId,
         studentName,
-        registrarId: req.registrarId || req.adminId,
+        registrarId: actorId,
         timestamp: new Date(),
         details: {
           semester: semester || undefined,
@@ -1396,7 +1418,7 @@ class BlockController {
         studentId,
         schoolYear: enrollment.schoolYear,
         semester: enrollment.semester,
-        actorId: req.registrarId || req.adminId,
+        actorId: actorId,
         session
       });
 
@@ -1406,18 +1428,68 @@ class BlockController {
       await autoAssignCurriculumSubjects({
         enrollmentId: finalized.enrollmentId,
         curriculumId: group.curriculumId || enrollment.curriculumId,
-        actorId: req.registrarId || req.adminId,
+        actorId: actorId,
         session,
       });
 
-      await session.commitTransaction();
-      return res.json({
-        status: 'ASSIGNED',
-        assignmentId: assignment._id,
-        enrolled: true,
-        enrollmentId: finalized.enrollmentId,
-        sectionCode: finalized.sectionCode
+      return {
+        ok: true,
+        data: {
+          status: 'ASSIGNED',
+          assignmentId: assignment._id,
+          enrolled: true,
+          enrollmentId: finalized.enrollmentId,
+          sectionCode: finalized.sectionCode,
+        },
+      };
+    } catch (error) {
+      console.error('Assign student error:', error);
+      // Every failure carries a readable reason (duplicate term record,
+      // invalid field, busy database, ...) instead of the old dead-end
+      // "Failed to assign student".
+      const failure = describeAssignmentFailure(error);
+      return {
+        ok: false,
+        httpStatus: failure.status,
+        error: failure.error,
+        reasons: failure.reasons,
+      };
+    }
+  }
+
+  /**
+   * HTTP entry point for block assignment. Owns the transaction and the
+   * response; every decision lives in performAssignment so the program-shift
+   * workflow can run the identical checks inside its own transaction.
+   */
+  async assignStudent(req, res) {
+    const { studentId, sectionId, semester, year } = req.body;
+    const actorId = req.registrarId || req.adminId;
+
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      const result = await this.performAssignment({
+        studentId,
+        sectionId,
+        semester,
+        year,
+        actorId,
+        session,
       });
+
+      if (!result.ok) {
+        await session.abortTransaction();
+        return res.status(result.httpStatus || 400).json({
+          error: result.error,
+          ...(result.reasons ? { reasons: result.reasons } : {}),
+          ...(result.checks ? { checks: result.checks } : {}),
+        });
+      }
+
+      await session.commitTransaction();
+      return res.json(result.data);
     } catch (error) {
       // Cleanup must never mask the error that actually broke the assignment:
       // aborting a transaction that a helper already committed/aborted throws.
@@ -1430,9 +1502,6 @@ class BlockController {
 
       if (res.headersSent) return;
 
-      // Every failure carries a readable reason (duplicate term record,
-      // invalid field, busy database, ...) instead of the old dead-end
-      // "Failed to assign student".
       const failure = describeAssignmentFailure(error);
       return res.status(failure.status).json({
         error: failure.error,
@@ -1774,9 +1843,155 @@ class BlockController {
     }
   }
 
-  // GET /api/blocks/groups/:groupId/sections - list sections in a group
-  async getSectionsInGroup(req, res) {
+  // GET /api/blocks/shift-options?course=102&semester=1st&schoolYear=2026-2027
+  //
+  // Lists the REAL open block sections for a program + term, so the registrar
+  // shift form can submit an actual sectionCode instead of a label guessed
+  // from BlockGroup.name. Course matching uses the same normalizeCourseCode
+  // rule the assignment pipeline (performAssignment / eligibility) applies,
+  // so everything listed here is assignable after the shift.
+  async getShiftSectionOptions(req, res) {
     try {
+      const course = Number(req.query.course);
+      const semester = String(req.query.semester || '').trim();
+      const schoolYear = String(req.query.schoolYear || '').trim();
+
+      if (!Number.isFinite(course) || course <= 0) {
+        return res.status(400).json({ success: false, error: 'A valid course query parameter is required' });
+      }
+      if (!semester) {
+        return res.status(400).json({ success: false, error: 'A semester query parameter is required' });
+      }
+
+      const groupQuery = { semester };
+      if (schoolYear) {
+        groupQuery.$or = [{ schoolYear }, { year: schoolYear }];
+      }
+
+      const matchesProgram = (group) => {
+        const groupCourse = blockEligibilityService.normalizeCourseCode(
+          group.courseId || group.courseCode || group.name
+        );
+        return groupCourse !== null && groupCourse === course;
+      };
+
+      // Strict pass: block groups stamped with the student's own term.
+      const strictGroups = (await BlockGroup.find(groupQuery).sort({ name: 1 }).lean())
+        .filter(matchesProgram);
+
+      // Fallback for the term-stamp mismatch: newly created students carry a
+      // current-date school year while the school's groups may be stamped
+      // with the legacy term they were created under. performAssignment keys
+      // the assignment to the BLOCK group's term (no student school-year
+      // check), so those blocks remain assignable — offer the most recent
+      // matching term instead of an empty dropdown. The semester the
+      // registrar explicitly selected stays a hard filter.
+      let candidateGroups = strictGroups;
+      let termOffered = null;
+      if (candidateGroups.length === 0) {
+        const looseGroups = (await BlockGroup.find({ semester }).sort({ name: 1 }).lean())
+          .filter(matchesProgram);
+        if (looseGroups.length > 0) {
+          const latestTermStart = Math.max(
+            ...looseGroups.map((group) => {
+              const stamp = [group.schoolYear, group.year]
+                .map((value) => String(value ?? '').match(/(\d{4})/))
+                .find(Boolean);
+              return stamp ? Number(stamp[1]) : 0;
+            })
+          );
+          candidateGroups =
+            latestTermStart > 0
+              ? looseGroups.filter((group) => {
+                  const stamp = [group.schoolYear, group.year]
+                    .map((value) => String(value ?? '').match(/(\d{4})/))
+                    .find(Boolean);
+                  return stamp ? Number(stamp[1]) === latestTermStart : false;
+                })
+              : looseGroups;
+          const stampGroup = candidateGroups[0];
+          const termStamp = [stampGroup?.schoolYear, stampGroup?.year]
+            .map((value) => String(value ?? '').trim())
+            .find(Boolean);
+          termOffered = termStamp || null;
+        }
+      }
+
+      if (candidateGroups.length === 0) {
+        // Nothing exists for this course in this semester at all — explain
+        // why instead of leaving the registrar with only the fallback option.
+        return res.json({
+          success: true,
+          data: [],
+          reason:
+            `No block groups exist for the selected program in ${semester}. ` +
+            'Create the block in Block Management, or shift without a block.',
+        });
+      }
+
+      const groupById = new Map(candidateGroups.map((group) => [String(group._id), group]));
+      const sections = await BlockSection.find({
+        blockGroupId: { $in: candidateGroups.map((group) => group._id) },
+        status: 'OPEN',
+      }).lean();
+
+      if (sections.length === 0) {
+        const anySections = await BlockSection.countDocuments({
+          blockGroupId: { $in: candidateGroups.map((group) => group._id) },
+        });
+        return res.json({
+          success: true,
+          data: [],
+          reason: anySections > 0
+            ? `The ${semester} blocks for the selected program have no open sections. Open one in Block Management, or shift without a block.`
+            : `The ${semester} blocks for the selected program have no sections yet. Add a section in Block Management, or shift without a block.`,
+        });
+      }
+
+      const options = sections
+        .map((section) => {
+          const group = groupById.get(String(section.blockGroupId));
+          const capacity = Number(section.capacity) || 0;
+          const currentPopulation = Number(section.currentPopulation) || 0;
+          return {
+            sectionId: String(section._id),
+            sectionCode: String(section.sectionCode || '').trim(),
+            groupName: group?.name || '',
+            schoolYear: group?.schoolYear || group?.year || null,
+            yearLevel: group?.yearLevel ?? null,
+            capacity,
+            currentPopulation,
+            freeSlots: Math.max(capacity - currentPopulation, 0),
+          };
+        })
+        .filter((option) => option.sectionCode);
+
+      if (options.length === 0) {
+        return res.json({
+          success: true,
+          data: [],
+          reason:
+            'The open block sections have no section codes. Set the section codes in Block Management, or shift without a block.',
+        });
+      }
+
+      options.sort((left, right) => left.sectionCode.localeCompare(right.sectionCode));
+
+      const payload = { success: true, data: options };
+      if (termOffered) {
+        // surfaced so the UI can label the offered term when it differs from
+        // the student's own stamp.
+        payload.term = termOffered;
+      }
+      res.json(payload);
+    } catch (error) {
+      console.error('Get shift section options error:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch shift section options' });
+    }
+  }
+
+  // GET /api/blocks/groups/:groupId/sections - list sections in a group
+  async getSectionsInGroup(req, res) {    try {
       const { groupId } = req.params;
       const sections = await BlockSection.find({ blockGroupId: groupId }).sort({ sectionCode: 1 });
       res.json(sections);

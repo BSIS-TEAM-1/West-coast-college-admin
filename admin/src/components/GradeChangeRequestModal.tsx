@@ -1,6 +1,9 @@
 import { useState } from 'react'
-import { X, Send, AlertCircle } from 'lucide-react'
+import { X, Send, AlertCircle, CheckCircle2, Edit3, ArrowRight, Info } from 'lucide-react'
 import { createGradeChangeRequest } from '../lib/gradingApi'
+import { formatChedGrade, isInvalidGrade } from '../pages/professor/GradesManagement'
+import { describeGradeScale, formatGrade, useGradeScale } from '../lib/gradingScale'
+import './GradeChangeRequestModal.css'
 
 interface GradeChangeRequestModalProps {
   open: boolean
@@ -33,16 +36,28 @@ export default function GradeChangeRequestModal({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
+  const gradeScale = useGradeScale()
 
   if (!open) return null
 
+  const handleClose = () => {
+    setRequestedGrade('')
+    setReason('')
+    setSupportingInfo('')
+    setError('')
+    setSuccess(false)
+    onClose()
+  }
+
   const handleSubmit = async () => {
     setError('')
-    const grade = Number(requestedGrade)
-    if (!Number.isFinite(grade) || grade < 1.0 || grade > 5.0) {
-      setError('Requested grade must be a number from 1.0 to 5.0.')
+    const normalizedStr = formatChedGrade(requestedGrade)
+    const grade = Number(normalizedStr)
+    if (!Number.isFinite(grade) || grade < gradeScale.min || grade > gradeScale.max) {
+      setError(`Requested grade must be a number from ${formatGrade(gradeScale.min)} to ${formatGrade(gradeScale.max)}.`)
       return
     }
+    setRequestedGrade(normalizedStr)
     if (!reason.trim()) {
       setError('A reason for the grade change is required.')
       return
@@ -74,88 +89,171 @@ export default function GradeChangeRequestModal({
     }
   }
 
-  const handleClose = () => {
-    setRequestedGrade('')
-    setReason('')
-    setSupportingInfo('')
-    setError('')
-    setSuccess(false)
-    onClose()
-  }
+  const showGradeError = Boolean(requestedGrade.trim()) && isInvalidGrade(requestedGrade)
 
   return (
-    <div className="transmutation-modal-overlay" onClick={handleClose}>
-      <div className="transmutation-modal" style={{ maxWidth: '40rem' }} onClick={e => e.stopPropagation()}>
-        <div className="transmutation-modal-header">
-          <div>
-            <h2>Grade Change Request</h2>
-            <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.875rem', color: 'var(--color-text-muted, #6b7280)' }}>
-              {studentName} · {subjectCode} — {subjectTitle}
-            </p>
+    <div className="gcr-backdrop" onClick={handleClose}>
+      <div
+        className="gcr-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="gcr-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="gcr-header">
+          <div className="gcr-header-main">
+            <span className="gcr-icon-badge">
+              <Edit3 size={20} />
+            </span>
+            <div className="gcr-title-group">
+              <h2 className="gcr-title" id="gcr-title">Grade Change Request</h2>
+              <p className="gcr-subtitle" title={`${studentName} · ${subjectCode} — ${subjectTitle}`}>
+                {studentName} · {subjectCode} — {subjectTitle}
+              </p>
+            </div>
           </div>
-          <button type="button" className="btn-icon" onClick={handleClose}><X size={20} /></button>
+          <button type="button" className="gcr-close-btn" onClick={handleClose} aria-label="Close">
+            <X size={20} />
+          </button>
         </div>
 
-        <div className="transmutation-modal-body">
+        <div className="gcr-body">
           {success ? (
-            <div className="grade-submission-info-box" style={{ background: '#dcfce7', color: '#15803d' }}>
-              <Send size={16} /> Grade change request submitted successfully. The registrar will review it.
+            <div className="gcr-success-card">
+              <span className="gcr-success-icon-badge">
+                <CheckCircle2 size={28} />
+              </span>
+              <h3 className="gcr-success-title">Request submitted</h3>
+              <p className="gcr-success-desc">
+                The grade change for {studentName} has been sent to the registrar for review.
+                You will be notified once it is approved or rejected.
+              </p>
             </div>
           ) : (
             <>
-              <div className="gs-change-request-details">
-                <div className="gs-change-request-row">
-                  <span>Current Grade:</span>
-                  <strong>{currentGrade !== null ? currentGrade.toFixed(2) : '—'}</strong>
+              <div className="gcr-context-card">
+                <div className="gcr-context-row">
+                  <span className="gcr-context-label">Student</span>
+                  <span className="gcr-context-val">{studentName}</span>
                 </div>
-                <div className="form-group" style={{ marginTop: '0.5rem' }}>
-                  <label>Requested New Grade (1.0–5.0)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="1"
-                    max="5"
-                    value={requestedGrade}
-                    onChange={e => setRequestedGrade(e.target.value)}
-                    placeholder="e.g. 1.75"
-                    style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--color-border, #d1d5db)', borderRadius: '0.375rem', fontSize: '0.875rem', boxSizing: 'border-box' }}
-                  />
+                <div className="gcr-context-row">
+                  <span className="gcr-context-label">Subject</span>
+                  <span className="gcr-context-val" title={`${subjectCode} — ${subjectTitle}`}>
+                    {subjectCode} — {subjectTitle}
+                  </span>
                 </div>
-                <div className="form-group" style={{ marginTop: '0.5rem' }}>
-                  <label>Reason for Change <span style={{ color: '#b91c1c' }}>*</span></label>
-                  <textarea
-                    value={reason}
-                    onChange={e => setReason(e.target.value)}
-                    placeholder="Explain why this grade needs to be changed..."
-                    rows={3}
-                  />
+              </div>
+
+              <div className="gcr-grade-comparison">
+                <div className="gcr-grade-box">
+                  <span className="gcr-grade-label">Current</span>
+                  <span className="gcr-grade-current-val">
+                    {currentGrade !== null ? formatGrade(currentGrade) : '—'}
+                  </span>
                 </div>
-                <div className="form-group" style={{ marginTop: '0.5rem' }}>
-                  <label>Supporting Information (optional)</label>
-                  <textarea
-                    value={supportingInfo}
-                    onChange={e => setSupportingInfo(e.target.value)}
-                    placeholder="Any additional context, evidence, or documentation..."
-                    rows={2}
-                  />
+                <div className="gcr-arrow-divider">
+                  <ArrowRight size={16} />
                 </div>
+                <div className="gcr-grade-box">
+                  <span className="gcr-grade-label">Requested</span>
+                  <div className="gcr-grade-input-wrapper">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      className={`gcr-grade-input ${showGradeError ? 'is-invalid' : ''}`}
+                      value={requestedGrade}
+                      onChange={(event) => {
+                        const val = event.target.value
+                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                          setRequestedGrade(val)
+                        }
+                      }}
+                      onBlur={() => {
+                        if (requestedGrade.trim()) {
+                          setRequestedGrade(formatChedGrade(requestedGrade))
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          if (requestedGrade.trim()) {
+                            setRequestedGrade(formatChedGrade(requestedGrade))
+                          }
+                        }
+                      }}
+                      placeholder={formatGrade(gradeScale.min + gradeScale.step)}
+                      aria-label="Requested new grade"
+                    />
+                  </div>
+                  <span className={`gcr-grade-hint ${showGradeError ? 'is-invalid' : ''}`}>
+                    {showGradeError ? `Must be ${formatGrade(gradeScale.min)}–${formatGrade(gradeScale.max)}` : describeGradeScale(gradeScale)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="gcr-field-group">
+                <label className="gcr-field-label" htmlFor="gcr-reason">
+                  <span>
+                    Reason for change
+                    <span className="gcr-field-label-required">*</span>
+                  </span>
+                </label>
+                <textarea
+                  id="gcr-reason"
+                  className="gcr-textarea"
+                  value={reason}
+                  onChange={(event) => setReason(event.target.value)}
+                  placeholder="Explain why this grade needs to be changed..."
+                  rows={3}
+                />
+              </div>
+
+              <div className="gcr-field-group">
+                <label className="gcr-field-label" htmlFor="gcr-supporting">
+                  <span>
+                    Supporting information
+                    <span className="gcr-field-label-sub"> (optional)</span>
+                  </span>
+                </label>
+                <textarea
+                  id="gcr-supporting"
+                  className="gcr-textarea"
+                  value={supportingInfo}
+                  onChange={(event) => setSupportingInfo(event.target.value)}
+                  placeholder="Any additional context, evidence, or documentation..."
+                  rows={2}
+                />
+              </div>
+
+              <div className="gcr-notice-banner">
+                <Info size={14} />
+                <span>
+                  Submitted grades can no longer be edited directly. The registrar reviews every
+                  change request before it is applied.
+                </span>
               </div>
 
               {error && (
-                <div className="grade-submission-error" style={{ marginTop: '1rem' }}>
-                  <AlertCircle size={16} /> {error}
+                <div className="gcr-alert-error">
+                  <AlertCircle size={16} />
+                  <span>{error}</span>
                 </div>
               )}
-
-              <div className="transmutation-modal-footer" style={{ marginTop: '1rem' }}>
-                <button type="button" className="btn-secondary" onClick={handleClose}>Cancel</button>
-                <button type="button" className="btn-primary" onClick={handleSubmit} disabled={loading}>
-                  <Send size={16} /> {loading ? 'Submitting...' : 'Submit Request'}
-                </button>
-              </div>
             </>
           )}
         </div>
+
+        {!success && (
+          <div className="gcr-footer">
+            <button type="button" className="gcr-btn-cancel" onClick={handleClose}>
+              Cancel
+            </button>
+            <button type="button" className="gcr-btn-submit" onClick={handleSubmit} disabled={loading}>
+              <Send size={16} />
+              {loading ? 'Submitting...' : 'Submit Request'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

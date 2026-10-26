@@ -982,8 +982,8 @@ describe('E. Academic evaluation', () => {
     const original = targetEnrollment({
       subjects: [
         { subjectId: S_FIL, code: 'FIL101', status: 'Completed', grade: 1.5 },
-        { subjectId: S_ENG, code: 'ENG101', status: 'Dropped', grade: null, gradeMark: 'DRP' },
-        { subjectId: S_MAT, code: 'MATH101', status: 'Completed', grade: 5.0 },
+        { _id: '64b000000000000000000065', subjectId: S_ENG, code: 'ENG101', status: 'Dropped', grade: null, gradeMark: 'DRP' },
+        { _id: '64b000000000000000000066', subjectId: S_MAT, code: 'MATH101', status: 'Completed', grade: 5.0 },
       ],
       ...TERM_1,
     });
@@ -994,7 +994,21 @@ describe('E. Academic evaluation', () => {
         _id: ENR_NEW_TERM,
         ...TERM_2,
         subjects: [
-          { subjectId: S_ENG, code: 'ENG101', status: 'Completed', grade: 2.0, retakeOf: { enrollmentId: ENR_ORIGINAL } },
+          // Shape matches what retakeSubject() actually writes: a complete,
+          // resolvable snapshot of the attempt being replaced.
+          {
+            subjectId: S_ENG,
+            code: 'ENG101',
+            status: 'Completed',
+            grade: 2.0,
+            retakeOf: {
+              enrollmentId: ENR_ORIGINAL,
+              subjectEntryId: '64b000000000000000000065',
+              schoolYear: TERM_1.schoolYear,
+              semester: TERM_1.semester,
+              status: 'Dropped',
+            },
+          },
         ],
       }),
     ];
@@ -1036,6 +1050,7 @@ describe('E. Academic evaluation', () => {
     // Both attempts remain visible — nothing was overwritten.
     expect(rizal.attempts).toHaveLength(2);
     expect(rizal.attempts[0].status).toBe('Dropped');
+    expect(rizal.attempts[0].isRetake).toBe(false);
     expect(rizal.attempts[1].isRetake).toBe(true);
   });
 
@@ -1046,7 +1061,13 @@ describe('E. Academic evaluation', () => {
       code: 'MATH101',
       status: 'Completed',
       grade: 2.25,
-      retakeOf: { enrollmentId: ENR_ORIGINAL },
+      retakeOf: {
+        enrollmentId: ENR_ORIGINAL,
+        subjectEntryId: '64b000000000000000000066',
+        schoolYear: TERM_1.schoolYear,
+        semester: TERM_1.semester,
+        status: 'Completed',
+      },
     });
 
     const progress = curriculumProgressService.evaluateProgress({
@@ -1233,5 +1254,209 @@ describe('F. Persistence and regression guards', () => {
     expect(res.body.data.summary.completed).toBe(1);
     expect(res.body.data.graduationEligibility.eligible).toBe(false);
     expect(res.body.data.progression.currentYearLevel).toBe(1);
+  });
+});
+
+// ─── G. Retake note verification ────────────────────────────────────────────
+//
+// The "Retake of …" note in the student history table may only appear when the
+// retakeOf snapshot resolves to a real, earlier attempt of the same subject in
+// the student's own enrollment history. verifyRetakeReferences() is the rule:
+// these tests pin down what counts as a genuine retake and what does not.
+
+describe('G. Retake note verification', () => {
+  // Entry ids used as the stable pointer targets of retakeOf snapshots.
+  const ENG_DROPPED_ID = '64b000000000000000000065';
+  const FIL_COMPLETED_ID = '64b000000000000000000081';
+  const ENG_RETAKE_ID = '64b000000000000000000075';
+
+  const TERM_3 = { schoolYear: '2028-2029', semester: '1st' };
+
+  const droppedEng = () => ({
+    _id: ENG_DROPPED_ID,
+    subjectId: S_ENG,
+    code: 'ENG101',
+    title: 'The Life & Works of Rizal',
+    units: 3,
+    status: 'Dropped',
+    grade: null,
+    gradeMark: 'DRP',
+  });
+
+  const snapshot = (overrides = {}) => ({
+    enrollmentId: ENR_ORIGINAL,
+    subjectEntryId: ENG_DROPPED_ID,
+    schoolYear: TERM_1.schoolYear,
+    semester: TERM_1.semester,
+    status: 'Dropped',
+    ...overrides,
+  });
+
+  test('a regular first-time enrollment is never marked as a retake', () => {
+    const history = [
+      targetEnrollment({
+        subjects: [{ subjectId: S_ENG, code: 'ENG101', status: 'Enrolled', grade: null, gradeMark: null }],
+        ...TERM_1,
+      }),
+    ];
+
+    const outcome = subjectEnrollmentService.verifyRetakeReferences(history);
+
+    expect(outcome).toEqual({ verified: 0, stripped: 0, reasons: [] });
+    // Nothing was retro-fitted onto the entry: no snapshot, no note.
+    expect(history[0].subjects[0].retakeOf).toBeUndefined();
+  });
+
+  test('a legitimate retake keeps its verified previous-attempt reference', () => {
+    const history = [
+      targetEnrollment({ subjects: [droppedEng()], ...TERM_1 }),
+      targetEnrollment({
+        _id: ENR_NEW_TERM,
+        subjects: [{
+          subjectId: S_ENG,
+          code: 'ENG101',
+          status: 'Enrolled',
+          grade: 1.0,
+          retakeOf: snapshot(),
+        }],
+        ...TERM_2,
+      }),
+    ];
+
+    const outcome = subjectEnrollmentService.verifyRetakeReferences(history);
+
+    expect(outcome.verified).toBe(1);
+    expect(outcome.stripped).toBe(0);
+    // The complete snapshot survives intact — the note may be shown.
+    expect(history[1].subjects[0].retakeOf).toEqual(snapshot());
+  });
+
+  test('re-enrolling a dropped subject is not silently inferred as a retake', () => {
+    const history = [
+      targetEnrollment({ subjects: [droppedEng()], ...TERM_1 }),
+      // Plainly re-added through the add-subject flow: same subject enrolled
+      // again, but no retake record exists, so no snapshot and no note.
+      targetEnrollment({
+        _id: ENR_NEW_TERM,
+        subjects: [{ subjectId: S_ENG, code: 'ENG101', status: 'Enrolled', grade: null, gradeMark: null }],
+        ...TERM_2,
+      }),
+    ];
+
+    const outcome = subjectEnrollmentService.verifyRetakeReferences(history);
+
+    expect(outcome.verified).toBe(0);
+    expect(outcome.stripped).toBe(0);
+    // A matching subject code plus an existing enrollment record is not
+    // evidence of a retake — no reference may be fabricated.
+    expect(history[1].subjects[0].retakeOf).toBeUndefined();
+  });
+
+  test('snapshots without a valid previous-attempt reference are stripped, not displayed', () => {
+    const history = [
+      targetEnrollment({
+        subjects: [
+          droppedEng(),
+          { _id: FIL_COMPLETED_ID, subjectId: S_FIL, code: 'FIL101', status: 'Completed', grade: 1.5 },
+        ],
+        ...TERM_1,
+      }),
+      targetEnrollment({
+        _id: ENR_NEW_TERM,
+        subjects: [
+          // Empty subdocument — carries no previous attempt at all.
+          { subjectId: S_ENG, code: 'ENG101', status: 'Enrolled', retakeOf: {} },
+          // Partial legacy snapshot — only the header pointer.
+          { subjectId: S_ENG, code: 'ENG101', status: 'Enrolled', retakeOf: { enrollmentId: ENR_ORIGINAL } },
+          // Complete-looking snapshot whose subject entry no longer exists.
+          { subjectId: S_ENG, code: 'ENG101', status: 'Enrolled', retakeOf: snapshot({ subjectEntryId: '64b0000000000000000000de' }) },
+          // Points at an enrollment that is not part of this student's history.
+          { subjectId: S_ENG, code: 'ENG101', status: 'Enrolled', retakeOf: snapshot({ enrollmentId: '64b0000000000000000000de' }) },
+          // Resolvable reference, but it belongs to a different subject.
+          { subjectId: S_ENG, code: 'ENG101', status: 'Enrolled', retakeOf: snapshot({ subjectEntryId: FIL_COMPLETED_ID }) },
+          // Does not point at an earlier term than the retaking entry.
+          { subjectId: S_ENG, code: 'ENG101', status: 'Enrolled', retakeOf: snapshot({ schoolYear: TERM_2.schoolYear }) },
+        ],
+        ...TERM_2,
+      }),
+    ];
+
+    const outcome = subjectEnrollmentService.verifyRetakeReferences(history);
+
+    expect(outcome.verified).toBe(0);
+    expect(outcome.stripped).toBe(history[1].subjects.length);
+    for (const entry of history[1].subjects) {
+      expect(entry.retakeOf).toBe(null);
+    }
+    // The untouched dropped attempt keeps its own record and grade.
+    expect(history[0].subjects[0].status).toBe('Dropped');
+    expect(history[0].subjects[0].gradeMark).toBe('DRP');
+  });
+
+  test('multiple enrollment records for the same subject verify independently', () => {
+    const history = [
+      targetEnrollment({ subjects: [droppedEng()], ...TERM_1 }),
+      targetEnrollment({
+        _id: ENR_NEW_TERM,
+        subjects: [{
+          _id: ENG_RETAKE_ID,
+          subjectId: S_ENG,
+          code: 'ENG101',
+          status: 'Dropped',
+          retakeOf: snapshot(),
+        }],
+        ...TERM_2,
+      }),
+      // Third term: retakes the TERM_2 attempt (dropped), so the retakeOf
+      // chain resolves term by term. A retake always lands in a LATER term.
+      targetEnrollment({
+        _id: '64b000000000000000000034',
+        subjects: [
+          {
+            subjectId: S_ENG,
+            code: 'ENG101',
+            status: 'Enrolled',
+            grade: null,
+            gradeMark: null,
+            retakeOf: {
+              enrollmentId: ENR_NEW_TERM,
+              subjectEntryId: ENG_RETAKE_ID,
+              schoolYear: TERM_2.schoolYear,
+              semester: TERM_2.semester,
+              status: 'Dropped',
+            },
+          },
+        ],
+        ...TERM_3,
+      }),
+      // A record of a DIFFERENT subject also exists for the same student.
+      targetEnrollment({
+        _id: '64b000000000000000000035',
+        subjects: [
+          {
+            subjectId: S_MAT,
+            code: 'MATH101',
+            status: 'Completed',
+            grade: 2.0,
+            // Bogus: claims to retake the ENG101 attempt from TERM_1.
+            retakeOf: snapshot({
+              schoolYear: TERM_1.schoolYear,
+              semester: TERM_1.semester,
+              status: 'Dropped',
+            }),
+          },
+        ],
+        ...TERM_2,
+      }),
+    ];
+
+    const outcome = subjectEnrollmentService.verifyRetakeReferences(history);
+
+    // Both genuine attempts in the chain are verified.
+    expect(outcome.verified).toBe(2);
+    // The MATH101 entry whose retakeOf points at an ENG101 attempt is stripped.
+    expect(outcome.stripped).toBe(1);
+    expect(history[3].subjects[0].retakeOf).toBe(null);
+    expect(history[1].subjects[0].retakeOf).toEqual(snapshot());
   });
 });

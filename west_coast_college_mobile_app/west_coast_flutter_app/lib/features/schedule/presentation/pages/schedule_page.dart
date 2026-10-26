@@ -1,5 +1,6 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_dimensions.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/theme_colors.dart';
@@ -40,11 +41,28 @@ class _SchedulePageState extends ConsumerState<SchedulePage> with SingleTickerPr
       backgroundColor: colors.backgroundSoft,
       appBar: AppBar(
         title: const Text('Schedule'),
-        backgroundColor: colors.primary,
+        // The title and tabs are white, so the app bar must always sit on
+        // navy — even when the flexible-space gradient has loose constraints.
+        backgroundColor: AppColors.primary,
         foregroundColor: colors.onPrimary,
+        // Same navy gradient treatment as the other screen headers.
+        flexibleSpace: const SizedBox.expand(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomCenter,
+                colors: [AppColors.primaryHover, AppColors.primary],
+              ),
+            ),
+          ),
+        ),
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: colors.onPrimary,
+          // Restrained gold accent for the active tab (spec: gold identifies
+          // the selected day/highlight on navy).
+          indicatorColor: AppColors.goldLight,
+          indicatorWeight: 3,
           labelColor: colors.onPrimary,
           unselectedLabelColor: colors.onPrimary.withValues(alpha: 0.7),
           tabs: const [Tab(text: 'Today'), Tab(text: 'Week')],
@@ -201,8 +219,8 @@ class _AcademicContextBar extends StatelessWidget {
     return Expanded(
       child: Column(
         children: [
-          Text(value, style: AppTextStyles.bodyMedium.copyWith(fontWeight: FontWeight.w600, color: colors.textPrimary)),
-          Text(label, style: AppTextStyles.caption.copyWith(color: colors.textMuted)),
+          Text(value, style: AppTextStyles.headlineSmall.copyWith(fontWeight: FontWeight.w800, color: colors.textPrimary)),
+          Text(label, style: AppTextStyles.bodySmall.copyWith(color: colors.textMuted)),
         ],
       ),
     );
@@ -217,12 +235,16 @@ class _ScheduleClassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final card = Container(
       padding: const EdgeInsets.all(AppDimensions.md),
       decoration: BoxDecoration(
         color: colors.surface,
         borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
-        border: Border.all(color: isToday ? colors.primary.withValues(alpha: 0.3) : colors.border),
+        border: Border.all(
+          // Subtle gold edge marks today's classes; regular hairline
+          // otherwise.
+          color: isToday ? colors.gold.withValues(alpha: 0.35) : colors.border,
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -232,8 +254,17 @@ class _ScheduleClassCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(scheduleClass.startTime, style: AppTextStyles.bodyMedium.copyWith(fontWeight: FontWeight.w700, color: colors.textPrimary)),
-                Text(scheduleClass.endTime, style: AppTextStyles.caption.copyWith(color: colors.textMuted)),
+                Text(
+                  scheduleClass.startTime,
+                  style: AppTextStyles.headlineSmall.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: isToday ? colors.textBold : colors.textPrimary,
+                  ),
+                ),
+                Text(
+                  scheduleClass.endTime,
+                  style: AppTextStyles.bodySmall.copyWith(color: colors.textMuted),
+                ),
               ],
             ),
           ),
@@ -242,19 +273,31 @@ class _ScheduleClassCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(scheduleClass.subjectCode, style: AppTextStyles.bodyMedium.copyWith(fontWeight: FontWeight.w700, color: colors.textPrimary)),
+                Text(
+                  scheduleClass.subjectCode,
+                  style: AppTextStyles.titleSmall.copyWith(fontWeight: FontWeight.w800, color: colors.textPrimary),
+                ),
                 const SizedBox(height: 2),
-                Text(scheduleClass.subjectTitle, style: AppTextStyles.bodySmall.copyWith(color: colors.textSecondary)),
+                Text(
+                  scheduleClass.subjectTitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.bodySmall.copyWith(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: colors.textSecondary,
+                  ),
+                ),
                 const SizedBox(height: AppDimensions.xs),
                 Row(
                   children: [
-                    Icon(Icons.location_on_outlined, size: 14, color: colors.textMuted),
-                    const SizedBox(width: 4),
-                    Text(scheduleClass.room, style: AppTextStyles.caption.copyWith(color: colors.textMuted)),
+                    Icon(Icons.location_on_outlined, size: 16, color: colors.textMuted),
+                    const SizedBox(width: 5),
+                    Text(scheduleClass.room, style: AppTextStyles.bodySmall.copyWith(color: colors.textMuted)),
                     const SizedBox(width: AppDimensions.sm),
-                    Icon(Icons.person_outline, size: 14, color: colors.textMuted),
+                    Icon(Icons.person_outline, size: 16, color: colors.textMuted),
                     const SizedBox(width: 4),
-                    Expanded(child: Text(scheduleClass.instructor, style: AppTextStyles.caption.copyWith(color: colors.textMuted), overflow: TextOverflow.ellipsis)),
+                    Expanded(child: Text(scheduleClass.instructor, style: AppTextStyles.bodySmall.copyWith(color: colors.textMuted), overflow: TextOverflow.ellipsis)),
                   ],
                 ),
               ],
@@ -262,6 +305,26 @@ class _ScheduleClassCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+
+    // Gold left rail — the "upcoming / today" accent.
+    if (!isToday) return card;
+    return Stack(
+      children: [
+        card,
+        Positioned(
+          left: 0,
+          top: 10,
+          bottom: 10,
+          child: Container(
+            width: 3.5,
+            decoration: BoxDecoration(
+              color: colors.gold,
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

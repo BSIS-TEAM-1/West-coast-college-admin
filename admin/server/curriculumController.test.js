@@ -416,6 +416,94 @@ describe('CurriculumController', () => {
       );
     });
 
+    test('copies the placements of the same-program copy source (copyFromCurriculumId)', async () => {
+      const createdDoc = { _id: 'curr1', programCode: 101, programName: 'BEED', version: '2027-2032', status: 'Draft', toObject: () => ({ _id: 'curr1', programCode: 101 }) };
+      mockSession();
+      Curriculum.findOne.mockResolvedValue(null);
+      Curriculum.create.mockResolvedValue([createdDoc]);
+      // createCurriculum's copy-source lookup (chained .select().lean()), then
+      // CurriculumSubject.find for the source placements (sorted).
+      Curriculum.findById.mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue({ _id: '507f1f77bcf86cd799439011', programCode: 101, version: '2026-2029' }),
+        }),
+      });
+      CurriculumSubject.find.mockReturnValue({
+        sort: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue([
+          { subjectId: 's1', yearLevel: 1, semester: '1st', type: 'General', isRequired: true, courseNo: 'MATH101', descriptiveTitle: 'College Algebra', units: 3, lecturePeriods: 3, labPeriods: 0, prerequisiteSubjectIds: [], displayOrder: 0 },
+          { subjectId: 's2', yearLevel: 1, semester: '2nd', type: 'Major', isRequired: false, courseNo: 'ENG101', descriptiveTitle: 'English', units: 3, lecturePeriods: 3, labPeriods: 0, prerequisiteSubjectIds: ['s1'], displayOrder: 1 },
+        ]),
+      });
+      CurriculumSubject.insertMany.mockResolvedValue([]);
+
+      const req = mockReq({ programCode: 101, version: '2027-2032', copyFromCurriculumId: '507f1f77bcf86cd799439011' });
+      const res = mockRes();
+
+      await CurriculumController.createCurriculum(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(201);
+      const inserted = CurriculumSubject.insertMany.mock.calls[0][0];
+      expect(inserted).toHaveLength(2);
+      expect(inserted.every((p) => p.curriculumId === 'curr1')).toBe(true);
+      expect(inserted[0]).toMatchObject({ subjectId: 's1', courseNo: 'MATH101', descriptiveTitle: 'College Algebra', units: 3, yearLevel: 1, semester: '1st', displayOrder: 0 });
+      // Snapshot + prereqs carried intact across the copy
+      expect(inserted[1]).toMatchObject({ subjectId: 's2', courseNo: 'ENG101', units: 3, prerequisiteSubjectIds: ['s1'], isRequired: false, displayOrder: 1 });
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        message: expect.stringContaining('copied from version "2026-2029"'),
+      }));
+    });
+
+    test('rejects a copy source from a different program', async () => {
+      mockSession();
+      Curriculum.findById.mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue({ _id: '507f1f77bcf86cd799439011', programCode: 201, version: '2027-2032' }),
+        }),
+      });
+
+      const req = mockReq({ programCode: 101, version: '2027-2032', copyFromCurriculumId: 'srcBSBA' });
+      const res = mockRes();
+
+      await CurriculumController.createCurriculum(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(Curriculum.create).not.toHaveBeenCalled();
+      expect(CurriculumSubject.insertMany).not.toHaveBeenCalled();
+    });
+
+    test('rejects when both inline subjects and copyFromCurriculumId are provided', async () => {
+      const req = mockReq({
+        programCode: 101,
+        version: '2027-2032',
+        copyFromCurriculumId: 'src1',
+        subjects: [{ subjectId: 's1', yearLevel: 1, semester: '1st', prerequisiteSubjectIds: [] }],
+      });
+      const res = mockRes();
+
+      await CurriculumController.createCurriculum(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(Curriculum.create).not.toHaveBeenCalled();
+    });
+
+    test('missing copy source returns 404 before anything is created', async () => {
+      mockSession();
+      Curriculum.findById.mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue(null),
+        }),
+      });
+
+      const req = mockReq({ programCode: 101, version: '2027-2032', copyFromCurriculumId: '507f1f77bcf86cd799439011' });
+      const res = mockRes();
+
+      await CurriculumController.createCurriculum(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(Curriculum.create).not.toHaveBeenCalled();
+    });
+
     test('creates a curriculum with multiple subjects each having independent prerequisites', async () => {
       const createdDoc = { _id: 'curr1', programCode: 101, programName: 'BEED', version: '2026', status: 'Draft', toObject: () => ({ _id: 'curr1' }) };
       mockSession();
@@ -455,6 +543,129 @@ describe('CurriculumController', () => {
       expect(inserted.find(p => p.subjectId === 's2').prerequisiteSubjectIds).toEqual(['s1']);
       expect(inserted.find(p => p.subjectId === 's3').prerequisiteSubjectIds).toEqual(['s2']);
       expect(inserted.find(p => p.subjectId === 's4').prerequisiteSubjectIds).toEqual(['s3']);
+    });
+  });
+
+  describe('copySubjectsFrom', () => {
+    const validSourceId = '507f1f77bcf86cd799439012';
+
+    const mockSourcePlacements = () => {
+      CurriculumSubject.find.mockImplementation((filter) => {
+        if (filter && filter.curriculumId === validSourceId) {
+          return {
+            sort: jest.fn().mockReturnThis(),
+            lean: jest.fn().mockResolvedValue([
+              { subjectId: 's1', yearLevel: 1, semester: '1st', type: 'General', isRequired: true, courseNo: 'MATH101', descriptiveTitle: 'College Algebra', units: 3, lecturePeriods: 3, labPeriods: 0, prerequisiteSubjectIds: ['s2'], displayOrder: 0 },
+              { subjectId: 's2', yearLevel: 2, semester: '1st', type: 'Major', isRequired: true, courseNo: 'ENG101', descriptiveTitle: 'English', units: 3, lecturePeriods: 3, labPeriods: 0, prerequisiteSubjectIds: [], displayOrder: 1 },
+            ]),
+          };
+        }
+        // Existing placements of the target (append dedupe)
+        return {
+          select: jest.fn().mockReturnValue({
+            lean: jest.fn().mockResolvedValue(filter && filter.curriculumId === '4891cc8a4ee3a94f6c188888' ? [{ subjectId: 's2', displayOrder: 4 }] : []),
+          }),
+        };
+      });
+    };
+
+    test('appends with full year/semester structure, skipping already-placed subjects', async () => {
+      mockSession();
+      Curriculum.findById.mockImplementation((queryId) => {
+        const chain = { select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(
+          queryId === validSourceId
+            ? { _id: validSourceId, programCode: 101, version: '2026-2029' }
+            : { _id: '4891cc8a4ee3a94f6c188888', programCode: 101, status: 'Draft', version: '2027-2032' }
+        ) }) };
+        return chain;
+      });
+      mockSourcePlacements();
+      CurriculumSubject.insertMany.mockResolvedValue([]);
+
+      const req = mockReq({ sourceCurriculumId: validSourceId, mode: 'append' }, { id: '4891cc8a4ee3a94f6c188888' });
+      const res = mockRes();
+
+      await CurriculumController.copySubjectsFrom(req, res);
+
+      expect(CurriculumSubject.insertMany).toHaveBeenCalled();
+      const inserted = CurriculumSubject.insertMany.mock.calls[0][0];
+      // s2 already placed in the target → skipped; s1 copied with year intact
+      expect(inserted).toHaveLength(1);
+      expect(inserted[0]).toMatchObject({
+        curriculumId: '4891cc8a4ee3a94f6c188888',
+        subjectId: 's1',
+        yearLevel: 1,
+        semester: '1st',
+        prerequisiteSubjectIds: ['s2'],
+      });
+      // displayOrder continues after the target's existing max (4)
+      expect(inserted[0].displayOrder).toBeGreaterThan(4);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        message: expect.stringContaining('skipped 1 already placed'),
+      }));
+    });
+
+    test('replace mode wipes the target placements before inserting', async () => {
+      mockSession();
+      Curriculum.findById.mockImplementation((queryId) => ({
+        select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(
+          queryId === validSourceId
+            ? { _id: validSourceId, programCode: 101, version: '2026-2029' }
+            : { _id: '4891cc8a4ee3a94f6c188888', programCode: 101, status: 'Draft', version: '2027-2032' }
+        ) }),
+      }));
+      mockSourcePlacements();
+      CurriculumSubject.deleteMany.mockResolvedValue({ deletedCount: 5 });
+      CurriculumSubject.insertMany.mockResolvedValue([]);
+
+      const req = mockReq({ sourceCurriculumId: validSourceId, mode: 'replace' }, { id: '4891cc8a4ee3a94f6c188888' });
+      const res = mockRes();
+
+      await CurriculumController.copySubjectsFrom(req, res);
+
+      expect(CurriculumSubject.deleteMany).toHaveBeenCalledWith({ curriculumId: '4891cc8a4ee3a94f6c188888' }, { session: expect.anything() });
+      const inserted = CurriculumSubject.insertMany.mock.calls[0][0];
+      expect(inserted).toHaveLength(2);
+      expect(inserted.find((p) => p.subjectId === 's2').yearLevel).toBe(2);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        message: expect.stringContaining('year & semester placement preserved'),
+      }));
+    });
+
+    test('rejects a cross-program copy source', async () => {
+      mockSession();
+      Curriculum.findById.mockImplementation((queryId) => ({
+        select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(
+          queryId === validSourceId
+            ? { _id: validSourceId, programCode: 201, version: '2027-2032' }
+            : { _id: '4891cc8a4ee3a94f6c188888', programCode: 101, status: 'Draft', version: '2027-2032' }
+        ) }),
+      }));
+
+      const req = mockReq({ sourceCurriculumId: validSourceId, mode: 'append' }, { id: '4891cc8a4ee3a94f6c188888' });
+      const res = mockRes();
+
+      await CurriculumController.copySubjectsFrom(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(CurriculumSubject.insertMany).not.toHaveBeenCalled();
+    });
+
+    test('rejects copying into an archived curriculum', async () => {
+      mockSession();
+      Curriculum.findById.mockImplementation(() => ({
+        select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(
+          { _id: '4891cc8a4ee3a94f6c188888', programCode: 101, status: 'Archived', version: '2027-2032' }
+        ) }),
+      }));
+
+      const req = mockReq({ sourceCurriculumId: validSourceId, mode: 'append' }, { id: '4891cc8a4ee3a94f6c188888' });
+      const res = mockRes();
+
+      await CurriculumController.copySubjectsFrom(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(CurriculumSubject.insertMany).not.toHaveBeenCalled();
     });
   });
 
@@ -617,6 +828,26 @@ describe('CurriculumController', () => {
       await CurriculumController.duplicateCurriculum(req, res);
 
       expect(res.status).toHaveBeenCalledWith(409);
+    });
+
+    test('suggests the next year range for range-form versions instead of "NaN"', async () => {      // Versioning convention is school-year ranges ("2026-2029"); the old
+      // Number(version)+1 default produced "NaN" for them.
+      Curriculum.findById.mockResolvedValue({
+        _id: 'curr1', programCode: 201, programName: 'BSBA', version: '2026-2029', code: 'BSBA-2026', description: 'x',
+      });
+      Curriculum.findOne.mockResolvedValue(null);
+      Curriculum.create.mockResolvedValue({ _id: 'curr2', version: '2027-2030' });
+      CurriculumSubject.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
+
+      const req = mockReq({}, { id: 'curr1' }); // no version provided → suggest
+      const res = mockRes();
+
+      await CurriculumController.duplicateCurriculum(req, res);
+
+      expect(Curriculum.create).toHaveBeenCalledWith(
+        expect.objectContaining({ version: '2027-2030' })
+      );
+      expect(res.status).toHaveBeenCalledWith(201);
     });
   });
 });

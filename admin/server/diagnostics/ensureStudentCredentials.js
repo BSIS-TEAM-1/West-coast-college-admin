@@ -1,17 +1,15 @@
 /**
- * DATA MIGRATION (test-data only): make every student's login credentials work.
+ * DATA MIGRATION (test-data only): give every student their own login credentials
+ * in THE SYSTEM's official format (StudentPasswordService.generateDefaultPassword).
  *
- * The /api/student/login endpoint:
- *   - accepts studentNumber + password
- *   - if a stored (bcrypt) password exists it is compared directly
- *   - otherwise it falls back to the DEFAULT password formula:
- *       first + middle + last initials (lowercase) + last 4 digits of studentNumber
+ * Format: firstInitial + middleInitial + lastInitial (lowercase, no filler) +
+ *         last 5 digits of the studentNumber — e.g. "lnfp28391".
+ * This is the same format the app's student-creation flow and the
+ * addStudentPasswords migration use, so the credentials match the system.
  *
- * This script derives that same default password for every student without a
- * stored password and persists the bcrypt hash, so all generated students log
- * in reliably (and can change passwords later). A local CSV of the credentials
- * is written for testing because the derivation is deterministic but the
- * plaintext is never stored server-side.
+ * Every student gets hashed (bcrypt, via the model's pre-save hook). A CSV of
+ * credentials is written locally for testing (plaintext is never stored on the
+ * server side — it is a deterministic derivation of studentNumber + name).
  *
  * Run: node diagnostics/ensureStudentCredentials.js
  */
@@ -20,14 +18,10 @@ const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
 const Student = require('../models/Student');
+const StudentPasswordService = require('../services/studentPasswordService');
 
 const TARGET_SCHOOL_YEAR = '2021-2022';
 const CSV_PATH = path.join(__dirname, '..', 'backups', `student-login-credentials_SY${TARGET_SCHOOL_YEAR}.csv`);
-
-function defaultPasswordFor(student) {
-  const initial = (part) => (part ? String(part).trim().charAt(0).toLowerCase() : '');
-  return `${initial(student.firstName)}${initial(student.middleName)}${initial(student.lastName)}${String(student.studentNumber || '').slice(-4)}`;
-}
 
 (async () => {
   try {
@@ -40,49 +34,36 @@ function defaultPasswordFor(student) {
 
     console.log(`students in scope: ${students.length}`);
 
-    let hashed = 0, alreadySet = 0, invalid = 0;
-    const csvRows = [['studentNumber', 'studentName', 'course', 'yearLevel', 'password', 'status']];
+    let hashed = 0, unchanged = 0, skipped = 0;
+    const csvRows = [['studentNumber', 'studentName', 'course', 'yearLevel', 'password (system format)', 'status']];
 
     for (const student of students) {
-      const password = defaultPasswordFor(student);
-      const name = `${student.firstName || ''} ${student.familyName || ''}`.trim() || '';
-      const valid = Boolean(password && password.length >= 8 && student.studentNumber && student.isActive);
-      const row = [
-        student.studentNumber,
-        `${student.firstName || ''} ${student.middleName || ''} ${student.lastName || ''}`.replace(/\s+/g, ' ').trim(),
-        String(student.course),
-        String(student.yearLevel),
-        password,
-        '',
-      ];
-
-      if (student.password && String(student.password).length > 0) {
-        alreadySet += 1;
-        row[5] = 'password already set (kept)';
-        csvRows.push(row);
-        continue;
-      }
-      if (!valid || !student.studentNumber) {
-        invalid += 1;
-        row[5] = 'SKIPPED (invalid: missing studentNumber/isActive)';
-        csvRows.push(row);
+      const password = StudentPasswordService.generateDefaultPassword(student);
+      if (!/^\d{12}$/.test(String(student.studentNumber || '')) || !student.isActive) {
+        skipped += 1;
+        csvRows.push([student.studentNumber, `${student.firstName} ${student.middleName} ${student.lastName}`.replace(/\s+/g, ' ').trim(), String(student.course), String(student.yearLevel), password, 'SKIPPED (invalid studentNumber or not active)']);
         continue;
       }
 
-      // Assigning triggers the Student pre-save hook which bcrypt-hashes it.
+      if (await student.comparePassword(password)) {
+        unchanged += 1;
+        csvRows.push([student.studentNumber, `${student.firstName} ${student.middleName} ${student.lastName}`.replace(/\s+/g, ' ').trim(), String(student.course), String(student.yearLevel), password, 'already in system format (kept)']);
+        continue;
+      }
+
+      // The pre-save hook bcrypt-hashes the password on save.
       student.password = password;
       await student.save();
       hashed += 1;
-      row[5] = 'hashed now';
-      csvRows.push(row);
+      csvRows.push([student.studentNumber, `${student.firstName} ${student.middleName} ${student.lastName}`.replace(/\s+/g, ' ').trim(), String(student.course), String(student.yearLevel), password, 'bcrypt hashed (system format)']);
     }
 
     fs.mkdirSync(path.dirname(CSV_PATH), { recursive: true });
     fs.writeFileSync(CSV_PATH, csvRows.map((r) => r.map((c) => (String(c).includes(',') ? `"${c}"` : c)).join(',')).join('\n'));
 
-    console.log(`\ncredentials: hashed now=${hashed} | already had password=${alreadySet} | skipped=${invalid}`);
-    console.log(`credential list written to: ${CSV_PATH}`);
-    console.log('\nDone. Students can now log in with studentNumber + default password.');
+    console.log(`\ncredentials: hashed=${hashed} | already correct=${unchanged} | skipped=${skipped}`);
+    console.log(`credential list -> ${CSV_PATH}`);
+    console.log('\nDone. Each student now logs in with studentNumber + their own system-format password.');
   } catch (err) {
     console.error('FAILED:', err.message);
     process.exitCode = 1;

@@ -81,7 +81,17 @@ function CurriculumManagementPage({
   }, [query, programFilter, statusFilter])
 
   const handleDuplicate = async (curriculum: Curriculum) => {
-    const newVersion = window.prompt('Enter version for the new curriculum:', String(Number(curriculum.version) + 1))
+    // Versions are school-year ranges ("2026-2029") these days, so the old
+    // Number(version)+1 default produced "NaN". Suggest the next year window.
+    const versionMatch = /^(\d{4})(?:-(\d{4}))?$/.exec(String(curriculum.version || '').trim())
+    let suggested: string
+    if (versionMatch) {
+      const start = Number(versionMatch[1])
+      suggested = versionMatch[2] ? `${start + 1}-${Number(versionMatch[2]) + 1}` : String(start + 1)
+    } else {
+      suggested = String(new Date().getFullYear())
+    }
+    const newVersion = window.prompt('Enter version for the new curriculum:', suggested)
     if (!newVersion) return
     setError('')
     setSuccess('')

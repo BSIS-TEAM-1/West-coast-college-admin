@@ -1,1685 +1,712 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { CalendarDays, Clock, Grid3X3, List, MapPin, Search } from 'lucide-react'
-import { API_URL } from '../../lib/authApi'
-import { fetchWithAutoReconnect, isAbortRequestError } from '../../lib/network'
+import { Fragment, useMemo, useState } from 'react'
+import { CalendarDays, Clock } from 'lucide-react'
 import type { ProfessorAssignedCourse } from './professorTypes'
-import { isVisibleProfessorAnnouncement } from './professorUtils'
-import SectionSkeleton from '../../components/SectionSkeleton'
-import '../../components/SectionSkeleton.css'
+import './ScheduleManagement.css'
 
-interface ScheduleManagementProps {
-  courses: ProfessorAssignedCourse[]
-  loading: boolean
-  error: string
-  onRefresh: () => Promise<void>
+export interface CalendarEvent {
+  id: string
+  title: string
+  date: string // YYYY-MM-DD
+  time: string
+  category: string
+  statusTag: string
+  statusTagClass: string
+  description: string
+  location?: string
 }
 
-function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleManagementProps) {
-  type ScheduleMode = 'list' | 'timetable'
-  type SchoolDay = 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday' | 'Sunday'
-  type ScopeFilter = 'classes' | 'events' | 'both'
-  type ItemDay = SchoolDay | 'Unscheduled'
+interface ScheduleCalendarProps {
+  events: CalendarEvent[]
+  onSelectEvent: (event: CalendarEvent) => void
+}
 
-  interface ScheduleItem {
-    id: string
-    courseCode: string
-    courseDisplayCode: string
-    sectionCode: string
-    blockCode: string
-    subjectCode: string
-    subjectTitle: string
-    scheduleText: string
-    days: SchoolDay[]
-    startMinutes: number | null
-    endMinutes: number | null
-    startTime: string
-    endTime: string
-    room: string
-    building: string
-    classType: 'Lecture' | 'Laboratory' | 'Other'
-    semester: string
-    schoolYear: string
-    yearLevel: number | null
-    enrolledStudents: number
-  }
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const MAX_CHIPS = 2
+const MAX_POPOVER_ITEMS = 4
 
-  interface TimetableOccurrence extends ScheduleItem {
-    day: SchoolDay
-    lane: number
-    laneCount: number
-  }
+const pad = (n: number) => String(n).padStart(2, '0')
+const toDateKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+const parseDateKey = (value: string) => {
+  const [y, m, d] = value.split('-').map(Number)
+  if (!y || !m || !d) return null
+  return new Date(y, m - 1, d)
+}
+const formatLongDate = (key: string) =>
+  parseDateKey(key)?.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) ?? key
 
-  interface SchoolEvent {
-    id: string
-    title: string
-    date: string
-    time: string
-    category: 'Academic' | 'Exam' | 'Holiday' | 'Meeting' | 'Deadline' | 'General'
-    statusTag: string
-    statusTagClass: 'academic' | 'exam' | 'holiday' | 'meeting' | 'deadline' | 'general'
-    description: string
-    location?: string
-  }
+/* ─── Weekly timeline helpers ─── */
 
-  interface CalendarEventPreview {
-    id: string
-    title: string
-    label: string
-    widthPercent: number
-    offsetPercent: number
-    tagClass: SchoolEvent['statusTagClass']
-  }
+const TIMELINE_DAYS = ['M', 'T', 'W', 'TH', 'F', 'S', 'SU'] as const
+type TimelineDay = (typeof TIMELINE_DAYS)[number]
 
-  const SCHOOL_DAYS: SchoolDay[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-  const DAY_SHORT: Record<SchoolDay, string> = {
-    Monday: 'Mon',
-    Tuesday: 'Tue',
-    Wednesday: 'Wed',
-    Thursday: 'Thu',
-    Friday: 'Fri',
-    Saturday: 'Sat',
-    Sunday: 'Sun'
-  }
-  const SCHOOL_DAYS_BY_JS: SchoolDay[] = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const DAY_LABELS: Record<TimelineDay, string> = {
+  M: 'Mon',
+  T: 'Tue',
+  W: 'Wed',
+  TH: 'Thu',
+  F: 'Fri',
+  S: 'Sat',
+  SU: 'Sun'
+}
 
-  const TIMETABLE_START = 7 * 60
-  const TIMETABLE_END = 21 * 60
-  const SLOT_MINUTES = 30
-  const SLOT_HEIGHT = 38
+// Date#getDay(): 0 = Sunday … 6 = Saturday
+const TODAY_DAY_CODE: Record<number, TimelineDay> = { 0: 'SU', 1: 'M', 2: 'T', 3: 'W', 4: 'TH', 5: 'F', 6: 'S' }
 
-  const toDateKey = (date: Date) =>
-    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+const TIMELINE_ACCENTS = ['#8b5cf6', '#0ea5e9', '#16a34a', '#f59e0b', '#ec4899', '#6366f1']
 
-  const parseDateKey = (value: string) => {
-    const [y, m, d] = String(value).split('-').map((part) => Number(part))
-    if (!y || !m || !d) return null
-    const parsed = new Date(y, m - 1, d)
-    return Number.isNaN(parsed.getTime()) ? null : parsed
-  }
+interface TimelineEntry {
+  day: TimelineDay
+  start: number // minutes from midnight
+  end: number
+  room: string
+}
 
-  const getSchoolDayFromJs = (value: Date) => SCHOOL_DAYS_BY_JS[value.getDay()]
+interface TimelineClass {
+  id: string
+  code: string
+  title: string
+  section: string
+  courseCode: string
+  room: string
+  entries: TimelineEntry[]
+}
 
-  const formatClock = (minutes: number) => {
-    const normalized = ((minutes % 1440) + 1440) % 1440
-    const h24 = Math.floor(normalized / 60)
-    const minute = String(normalized % 60).padStart(2, '0')
-    const amPm = h24 >= 12 ? 'PM' : 'AM'
-    const hour = ((h24 + 11) % 12) + 1
-    return `${hour}:${minute} ${amPm}`
-  }
-
-  const getTimelinePreview = (event: SchoolEvent): CalendarEventPreview => {
-    const range = parseTimeRange(event.time)
-    const timelineStart = TIMETABLE_START
-    const timelineSpan = TIMETABLE_END - TIMETABLE_START
-
-    if (range.startMinutes !== null && range.endMinutes !== null) {
-      const start = Math.max(range.startMinutes, timelineStart)
-      const end = Math.min(range.endMinutes, TIMETABLE_END)
-      const safeEnd = Math.max(end, start + 30)
-      const offsetPercent = Math.max(0, Math.min(84, ((start - timelineStart) / timelineSpan) * 100))
-      const widthPercent = Math.max(14, Math.min(100 - offsetPercent, ((safeEnd - start) / timelineSpan) * 100))
-
-      return {
-        id: event.id,
-        title: event.title,
-        label: `${range.startTime} - ${range.endTime}`,
-        widthPercent,
-        offsetPercent,
-        tagClass: event.statusTagClass
-      }
+const parseDayCodes = (raw: string): TimelineDay[] => {
+  const codes: TimelineDay[] = []
+  let cursor = String(raw || '').toUpperCase()
+  while (cursor.length > 0) {
+    // Two-letter tokens first, otherwise "TH" would read as Tuesday + a stray H.
+    const twoChar = cursor.slice(0, 2)
+    if (twoChar === 'TH' || twoChar === 'SU') {
+      codes.push(twoChar)
+      cursor = cursor.slice(2)
+      continue
     }
-
-    const firstMatch = String(event.time || '').toUpperCase().match(/(\d{1,2}(?::\d{2})?\s*(AM|PM)?)/)
-    const firstTime = firstMatch ? parseTime(firstMatch[1]) : null
-
-    if (firstTime) {
-      const offsetPercent = Math.max(0, Math.min(84, ((firstTime.minutes - timelineStart) / timelineSpan) * 100))
-      return {
-        id: event.id,
-        title: event.title,
-        label: firstTime.label,
-        widthPercent: 18,
-        offsetPercent,
-        tagClass: event.statusTagClass
-      }
+    const oneChar = cursor[0]
+    if (['M', 'T', 'W', 'F', 'S'].includes(oneChar)) {
+      codes.push(oneChar as TimelineDay)
     }
+    cursor = cursor.slice(1)
+  }
+  return codes
+}
 
-    return {
-      id: event.id,
-      title: event.title,
-      label: event.time || 'See details',
-      widthPercent: 42,
-      offsetPercent: 0,
-      tagClass: event.statusTagClass
-    }
+const parseClockMinutes = (value: string): number | null => {
+  const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})$/)
+  if (!match) return null
+  const hour = Number(match[1])
+  const minute = Number(match[2])
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null
+  if (hour > 23 || minute > 59) return null
+  return hour * 60 + minute
+}
+
+// Handles both formats the registrar workspace writes:
+//   classic   "MW 07:30-09:00"        (room in a separate field)
+//   per-day   "M 07:30-09:00 @ Room 205 / W 13:00-14:30 @ Lab 3"
+const parseScheduleSegments = (schedule: string): TimelineEntry[] => {
+  const trimmed = String(schedule || '').trim()
+  if (!trimmed || /^tba$/i.test(trimmed)) return []
+
+  const segments = trimmed.includes('/') ? trimmed.split('/') : [trimmed]
+  const entries: TimelineEntry[] = []
+
+  for (const rawSegment of segments) {
+    const segment = rawSegment.trim()
+    if (!segment) continue
+
+    const roomMatch = segment.match(/^(.+?)\s*@\s*(.+)$/)
+    const body = (roomMatch ? roomMatch[1] : segment).trim()
+    const room = roomMatch ? roomMatch[2].trim() : ''
+
+    const spaceIndex = body.indexOf(' ')
+    if (spaceIndex < 0) continue
+
+    const days = parseDayCodes(body.slice(0, spaceIndex))
+    const timeMatch = body.slice(spaceIndex + 1).trim().match(/^(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})$/)
+    if (days.length === 0 || !timeMatch) continue
+
+    const start = parseClockMinutes(timeMatch[1])
+    const end = parseClockMinutes(timeMatch[2])
+    if (start === null || end === null || end <= start) continue
+
+    days.forEach((day) => entries.push({ day, start, end, room }))
   }
 
-  const parseTime = (value: string, fallback?: string) => {
-    const match = String(value || '').trim().toUpperCase().match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/)
-    if (!match) return null
-    const hour = Number(match[1])
-    const minute = Number(match[2] || '0')
-    if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour < 1 || hour > 12 || minute < 0 || minute > 59) {
-      return null
-    }
+  return entries
+}
 
-    const period = (match[3] || fallback || (hour <= 6 ? 'PM' : 'AM')).toUpperCase()
-    const h24 = period === 'AM' ? (hour === 12 ? 0 : hour) : (hour === 12 ? 12 : hour + 12)
-    return {
-      minutes: h24 * 60 + minute,
-      label: `${hour}:${String(minute).padStart(2, '0')} ${period}`
-    }
-  }
-
-  const parseTimeRange = (value: string) => {
-    const matches = [...String(value || '').toUpperCase().matchAll(/(\d{1,2}(?::\d{2})?\s*(AM|PM)?)/g)]
-    if (matches.length < 2) {
-      return { startMinutes: null, endMinutes: null, startTime: 'TBA', endTime: 'TBA' }
-    }
-
-    const first = parseTime(matches[0][1])
-    const second = parseTime(matches[1][1], first?.label.includes('AM') ? 'AM' : 'PM')
-    if (!first || !second) {
-      return { startMinutes: null, endMinutes: null, startTime: 'TBA', endTime: 'TBA' }
-    }
-
-    let start = first.minutes
-    let end = second.minutes
-    if (end <= start) end += 720
-
-    return {
-      startMinutes: start,
-      endMinutes: end,
-      startTime: first.label,
-      endTime: second.label
-    }
-  }
-
-  const parseDays = (value: string) => {
-    // Scan the entire string for day tokens (handles per-day format "M 07:30-09:00 / W 13:00-14:30")
-    const normalized = String(value || '').toUpperCase()
-      .replace(/TTH/g, 'TUE THU')
-      .replace(/MWF/g, 'MON WED FRI')
-      .replace(/,/g, ' ')
-      .replace(/;/g, ' ')
-      .replace(/\//g, ' ')
-      .replace(/\b-\b/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-
-    const list: SchoolDay[] = []
-    const token = new Set(normalized.split(' ').filter(Boolean))
-
-    const hasMonday = /\bMONDAY\b/.test(normalized) || token.has('MON') || token.has('M')
-    const hasTuesday = /\bTUESDAY\b/.test(normalized) || token.has('TUE') || token.has('TU') || token.has('T')
-    const hasWednesday = /\bWEDNESDAY\b/.test(normalized) || token.has('WED') || token.has('W')
-    const hasThursday = /\bTHURSDAY\b/.test(normalized) || token.has('THU') || token.has('TH') || token.has('R')
-    const hasFriday = /\bFRIDAY\b/.test(normalized) || token.has('FRI') || token.has('F')
-    const hasSaturday = /\bSATURDAY\b/.test(normalized) || token.has('SAT') || token.has('SA')
-    const hasSunday = /\bSUNDAY\b/.test(normalized) || token.has('SUN') || token.has('SU')
-
-    if (hasMonday) list.push('Monday')
-    if (hasTuesday) list.push('Tuesday')
-    if (hasWednesday) list.push('Wednesday')
-    if (hasThursday) list.push('Thursday')
-    if (hasFriday) list.push('Friday')
-    if (hasSaturday) list.push('Saturday')
-    if (hasSunday) list.push('Sunday')
-
-    return list.filter((day, index, arr) => arr.indexOf(day) === index)
-  }
-
-  // Parse per-day schedule format: "M 07:30-09:00 @ Room 205 / W 13:00-14:30 @ Lab 3"
-  // Returns null if the schedule is not in per-day format.
-  const parsePerDaySchedule = (value: string): { day: SchoolDay; startMinutes: number | null; endMinutes: number | null; startTime: string; endTime: string; room: string }[] | null => {
-    const trimmed = String(value || '').trim()
-    if (!trimmed.includes('/')) return null
-
-    const dayCodeToSchoolDay: Record<string, SchoolDay> = {
-      M: 'Monday', T: 'Tuesday', W: 'Wednesday', TH: 'Thursday', F: 'Friday', S: 'Saturday', SU: 'Sunday'
-    }
-
-    const segments = trimmed.split('/').map(s => s.trim()).filter(Boolean)
-    const results: { day: SchoolDay; startMinutes: number | null; endMinutes: number | null; startTime: string; endTime: string; room: string }[] = []
-
-    for (const segment of segments) {
-      // Extract optional @ room suffix
-      const roomMatch = segment.match(/^(.+?)\s*@\s*(.+)$/)
-      const segmentBody = roomMatch ? roomMatch[1].trim() : segment
-      const segmentRoom = roomMatch ? roomMatch[2].trim() : ''
-
-      const match = segmentBody.match(/^([A-Z]+)\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})$/i)
-      if (!match) continue
-      const daysRaw = match[1].toUpperCase()
-      const parsedTime = parseTimeRange(`${match[2]}-${match[3]}`)
-
-      const tokenOrder = ['TH', 'SU', 'M', 'T', 'W', 'F', 'S']
-      let cursor = daysRaw
-      while (cursor.length > 0) {
-        const token = tokenOrder.find((t) => cursor.startsWith(t))
-        if (!token) break
-        const schoolDay = dayCodeToSchoolDay[token]
-        if (schoolDay) {
-          results.push({
-            day: schoolDay,
-            startMinutes: parsedTime.startMinutes,
-            endMinutes: parsedTime.endMinutes,
-            startTime: parsedTime.startTime,
-            endTime: parsedTime.endTime,
-            room: segmentRoom
-          })
+const buildTimelineClasses = (courses: ProfessorAssignedCourse[]): TimelineClass[] =>
+  (courses || []).flatMap((course) =>
+    (course.blocks || []).flatMap((block) =>
+      (block.subjects || []).map((subject) => {
+        const entries = parseScheduleSegments(subject.schedule)
+        const fallbackRoom = subject.room && !/^tba$/i.test(subject.room.trim()) ? subject.room.trim() : ''
+        return {
+          id: `${course.courseCode}|${block.sectionCode}|${subject.subjectId}`,
+          code: subject.code || 'Subject',
+          title: subject.title || '',
+          section: block.sectionCode || '',
+          courseCode: course.courseCode,
+          room: entries.find((entry) => entry.room)?.room || fallbackRoom,
+          entries
         }
-        cursor = cursor.slice(token.length)
-      }
-    }
-
-    return results.length > 0 ? results : null
-  }
-
-  const normalizeCourseCode = (courseCode: string) => {
-    const normalized = String(courseCode || '').trim().toUpperCase().replace(/\s+/g, '')
-    if (!normalized) return ''
-    if (/^\d{3,5}$/.test(normalized)) return normalized
-    if (normalized.includes('BEED')) return '101'
-    if (
-      normalized.includes('BSED-ENGLISH')
-      || normalized === 'ENGLISH'
-      || (normalized.includes('SECONDARYEDUCATION') && normalized.includes('ENGLISH'))
-    ) return '102'
-    if (
-      normalized.includes('BSED-MATH')
-      || normalized === 'MATH'
-      || normalized === 'MATHEMATICS'
-      || (normalized.includes('SECONDARYEDUCATION') && (normalized.includes('MATH') || normalized.includes('MATHEMATICS')))
-    ) return '103'
-    if (normalized.includes('BSBA-HRM') || normalized === 'HRM' || (normalized.includes('BSBA') && normalized.includes('HRM'))) return '201'
-    return normalized.slice(0, 3) || 'COURSE'
-  }
-
-  const toCourseDisplayLabel = (course: ProfessorAssignedCourse | string | number) => {
-    // If it's a course object with a name, use that
-    if (typeof course === 'object' && course !== null) {
-      if (course.courseName) return course.courseName
-      // Fall back to courseCode mapping
-      return toCourseDisplayLabel(course.courseCode)
-    }
-    
-    const raw = String(course ?? '').trim()
-    if (!raw) return 'N/A'
-
-    const normalized = raw.toUpperCase().replace(/\s+/g, '').replace(/_/g, '-')
-    const labelByCode: Record<string, string> = {
-      '101': 'BEED',
-      '102': 'BSED-ENGLISH',
-      '103': 'BSED-MATH',
-      '201': 'BSBA-HRM'
-    }
-
-    if (labelByCode[normalized]) return labelByCode[normalized]
-    if (normalized.includes('BEED')) return 'BEED'
-    if (normalized.includes('BSED-ENGLISH') || normalized === 'ENGLISH') return 'BSED-ENGLISH'
-    if (normalized.includes('BSED-MATH') || normalized === 'MATH' || normalized === 'MATHEMATICS') return 'BSED-MATH'
-    if (normalized.includes('BSBA-HRM') || normalized === 'HRM') return 'BSBA-HRM'
-    return raw
-  }
-
-  const getSectionSuffix = (sectionCode: string) => {
-    const text = String(sectionCode || '').trim()
-    if (!text) return 'TBA'
-    const parts = text.split('-').map((part) => part.trim()).filter(Boolean)
-    if (parts.length >= 2) {
-      const last = parts[parts.length - 1]
-      const prev = parts[parts.length - 2]
-
-      // Convert patterns like "101-1-A" or "1-A" into "1A"
-      if (/^\d+$/.test(prev) && /^[A-Za-z]+$/.test(last)) {
-        return `${prev}${last.toUpperCase()}`
-      }
-
-      return last.toUpperCase()
-    }
-
-    return text.toUpperCase()
-  }
-
-  const formatSectionCode = (courseCode: string, sectionCode: string) => {
-    const displayCourseCode = toCourseDisplayLabel(courseCode)
-    const sectionSuffix = getSectionSuffix(sectionCode)
-    return String(`${displayCourseCode}-${sectionSuffix}`)
-  }
-
-  const getRoomParts = (value: string) => {
-    const parts = String(value || 'TBA').split(',').map((part) => part.trim()).filter(Boolean)
-    return {
-      room: parts[0] || 'TBA',
-      building: parts.length > 1 ? parts.slice(1).join(', ') : 'Main Building'
-    }
-  }
-
-  const classItems = useMemo<ScheduleItem[]>(() =>
-  courses.flatMap((course) =>
-    course.blocks.flatMap((block) =>
-      block.subjects.flatMap((subject): ScheduleItem[] => {
-            const courseCode = normalizeCourseCode(course.courseCode)
-            const room = getRoomParts(subject.room || 'TBA')
-            const sectionCode = String(block.sectionCode || 'UNASSIGNED')
-            const sectionId = block.sectionId || `unassigned-${sectionCode}`
-            const scheduleText = String(subject.schedule || '')
-            const baseItem: ScheduleItem = {
-              id: `${course.courseCode}-${sectionId}-${subject.subjectId}`,
-              courseCode: String(course.courseCode || ''),
-              courseDisplayCode: courseCode,
-              sectionCode,
-              blockCode: formatSectionCode(course.courseCode, sectionCode),
-              subjectCode: String(subject.code || 'N/A'),
-              subjectTitle: String(subject.title || 'N/A'),
-              scheduleText,
-              room: room.room,
-              building: room.building,
-              classType: /lab|laboratory/i.test(`${subject.code} ${subject.title}`) ? 'Laboratory' : 'Lecture',
-              semester: String(block.semester || 'N/A'),
-              schoolYear: String(block.schoolYear || 'N/A'),
-              yearLevel: block.yearLevel ?? null,
-              enrolledStudents: Number.isFinite(subject.enrolledStudents) ? subject.enrolledStudents : 0,
-              days: [],
-              startMinutes: null,
-              endMinutes: null,
-              startTime: '',
-              endTime: ''
-            }
-
-            // Check for per-day schedule format first
-            const perDay = parsePerDaySchedule(scheduleText)
-            if (perDay) {
-              return perDay.map((entry): ScheduleItem => {
-                const entryRoom = entry.room ? getRoomParts(entry.room) : room
-                return {
-                  ...baseItem,
-                  id: `${course.courseCode}-${sectionId}-${subject.subjectId}-${entry.day}`,
-                  days: [entry.day],
-                  startMinutes: entry.startMinutes,
-                  endMinutes: entry.endMinutes,
-                  startTime: entry.startTime,
-                  endTime: entry.endTime,
-                  room: entryRoom.room,
-                  building: entryRoom.building
-                }
-              })
-            }
-
-            // Classic format: single time for all days
-            const days = parseDays(scheduleText)
-            const parsedTime = parseTimeRange(scheduleText)
-            return days.map((day): ScheduleItem => {
-              return {
-                ...baseItem,
-                id: `${course.courseCode}-${sectionId}-${subject.subjectId}-${day}`,
-                days: [day],
-                startMinutes: parsedTime.startMinutes,
-                endMinutes: parsedTime.endMinutes,
-                startTime: parsedTime.startTime,
-                endTime: parsedTime.endTime
-              }
-            })
-          })
-        )
+      })
     )
-  , [courses])
+  )
 
-  const philippineHolidayEvents = useMemo<SchoolEvent[]>(() => [
-    {
-      id: 'ph-holiday-2026-01-01',
-      title: "New Year's Day",
-      date: '2026-01-01',
-      time: 'All day',
-      category: 'Holiday',
-      statusTag: 'Regular Holiday',
-      statusTagClass: 'holiday',
-      description: 'Philippine regular holiday. No regular classes or office transactions.'
-    },
-    {
-      id: 'ph-holiday-2026-02-17',
-      title: 'Chinese New Year',
-      date: '2026-02-17',
-      time: 'All day',
-      category: 'Holiday',
-      statusTag: 'Special Holiday',
-      statusTagClass: 'holiday',
-      description: 'Philippine special non-working holiday.'
-    },
-    {
-      id: 'ph-holiday-2026-02-25',
-      title: 'EDSA People Power Revolution Anniversary',
-      date: '2026-02-25',
-      time: 'All day',
-      category: 'Holiday',
-      statusTag: 'Special Working Day',
-      statusTagClass: 'holiday',
-      description: 'Philippine special working day. Regular classes and office operations continue unless the school announces otherwise.'
-    },
-    {
-      id: 'ph-holiday-2026-04-02',
-      title: 'Maundy Thursday',
-      date: '2026-04-02',
-      time: 'All day',
-      category: 'Holiday',
-      statusTag: 'Regular Holiday',
-      statusTagClass: 'holiday',
-      description: 'Philippine regular holiday during Holy Week.'
-    },
-    {
-      id: 'ph-holiday-2026-04-03',
-      title: 'Good Friday',
-      date: '2026-04-03',
-      time: 'All day',
-      category: 'Holiday',
-      statusTag: 'Regular Holiday',
-      statusTagClass: 'holiday',
-      description: 'Philippine regular holiday during Holy Week.'
-    },
-    {
-      id: 'ph-holiday-2026-04-09',
-      title: 'Araw ng Kagitingan',
-      date: '2026-04-09',
-      time: 'All day',
-      category: 'Holiday',
-      statusTag: 'Regular Holiday',
-      statusTagClass: 'holiday',
-      description: 'Philippine regular holiday honoring valor.'
-    },
-    {
-      id: 'ph-holiday-2026-04-04',
-      title: 'Black Saturday',
-      date: '2026-04-04',
-      time: 'All day',
-      category: 'Holiday',
-      statusTag: 'Special Holiday',
-      statusTagClass: 'holiday',
-      description: 'Philippine special non-working holiday during Holy Week.'
-    },
-    {
-      id: 'ph-holiday-2026-05-01',
-      title: 'Labor Day',
-      date: '2026-05-01',
-      time: 'All day',
-      category: 'Holiday',
-      statusTag: 'Regular Holiday',
-      statusTagClass: 'holiday',
-      description: 'Philippine regular holiday celebrating workers.'
-    },
-    {
-      id: 'ph-holiday-2026-06-12',
-      title: 'Independence Day',
-      date: '2026-06-12',
-      time: 'All day',
-      category: 'Holiday',
-      statusTag: 'Regular Holiday',
-      statusTagClass: 'holiday',
-      description: 'Philippine regular holiday celebrating independence.'
-    },
-    {
-      id: 'ph-holiday-2026-08-21',
-      title: 'Ninoy Aquino Day',
-      date: '2026-08-21',
-      time: 'All day',
-      category: 'Holiday',
-      statusTag: 'Special Holiday',
-      statusTagClass: 'holiday',
-      description: 'Philippine special non-working holiday.'
-    },
-    {
-      id: 'ph-holiday-2026-08-31',
-      title: "National Heroes' Day",
-      date: '2026-08-31',
-      time: 'All day',
-      category: 'Holiday',
-      statusTag: 'Regular Holiday',
-      statusTagClass: 'holiday',
-      description: 'Philippine regular holiday honoring national heroes.'
-    },
-    {
-      id: 'ph-holiday-2026-11-01',
-      title: "All Saints' Day",
-      date: '2026-11-01',
-      time: 'All day',
-      category: 'Holiday',
-      statusTag: 'Special Holiday',
-      statusTagClass: 'holiday',
-      description: 'Philippine special non-working holiday.'
-    },
-    {
-      id: 'ph-holiday-2026-11-02',
-      title: "All Souls' Day",
-      date: '2026-11-02',
-      time: 'All day',
-      category: 'Holiday',
-      statusTag: 'Special Holiday',
-      statusTagClass: 'holiday',
-      description: 'Philippine additional special non-working holiday.'
-    },
-    {
-      id: 'ph-holiday-2026-11-30',
-      title: 'Bonifacio Day',
-      date: '2026-11-30',
-      time: 'All day',
-      category: 'Holiday',
-      statusTag: 'Regular Holiday',
-      statusTagClass: 'holiday',
-      description: 'Philippine regular holiday honoring Andres Bonifacio.'
-    },
-    {
-      id: 'ph-holiday-2026-12-08',
-      title: 'Feast of the Immaculate Conception of Mary',
-      date: '2026-12-08',
-      time: 'All day',
-      category: 'Holiday',
-      statusTag: 'Special Holiday',
-      statusTagClass: 'holiday',
-      description: 'Philippine special non-working holiday.'
-    },
-    {
-      id: 'ph-holiday-2026-12-24',
-      title: 'Christmas Eve',
-      date: '2026-12-24',
-      time: 'All day',
-      category: 'Holiday',
-      statusTag: 'Special Holiday',
-      statusTagClass: 'holiday',
-      description: 'Philippine special non-working holiday.'
-    },
-    {
-      id: 'ph-holiday-2026-12-25',
-      title: 'Christmas Day',
-      date: '2026-12-25',
-      time: 'All day',
-      category: 'Holiday',
-      statusTag: 'Regular Holiday',
-      statusTagClass: 'holiday',
-      description: 'Philippine regular holiday.'
-    },
-    {
-      id: 'ph-holiday-2026-12-30',
-      title: 'Rizal Day',
-      date: '2026-12-30',
-      time: 'All day',
-      category: 'Holiday',
-      statusTag: 'Regular Holiday',
-      statusTagClass: 'holiday',
-      description: 'Philippine regular holiday honoring Jose Rizal.'
-    },
-    {
-      id: 'ph-holiday-2026-12-31',
-      title: 'Last Day of the Year',
-      date: '2026-12-31',
-      time: 'All day',
-      category: 'Holiday',
-      statusTag: 'Special Holiday',
-      statusTagClass: 'holiday',
-      description: 'Philippine special non-working holiday.'
-    }
-  ], [])
-  const getEventCategory = (announcement: any): SchoolEvent['category'] => {
-    const type = String(announcement?.type || 'info').toLowerCase()
-    const title = String(announcement?.title || '').toLowerCase()
-    if (/holiday/.test(title)) return 'Holiday'
-    if (/midterm|final|exam/.test(title)) return 'Exam'
-    if (/grading|grade/.test(title)) return 'Deadline'
-    if (type === 'urgent') return 'Deadline'
-    if (type === 'warning') return 'Academic'
-    return 'Meeting'
-  }
+const formatClock = (minutes: number) => {
+  const hours = Math.floor(minutes / 60) % 24
+  const mins = minutes % 60
+  return `${hours > 12 ? hours - 12 : hours === 0 ? 12 : hours}:${pad(mins)} ${hours >= 12 ? 'PM' : 'AM'}`
+}
 
-  const getEventTag = (announcement: any) => {
-    if (announcement?.isPinned) return 'Pinned'
-    const type = String(announcement?.type || 'info').toLowerCase()
-    if (type === 'maintenance') return 'Maintenance'
-    if (type === 'warning') return 'Academic Alert'
-    return 'Announcement'
-  }
+const formatHourLabel = (hour: number) =>
+  new Date(2000, 0, 1, hour).toLocaleTimeString(undefined, { hour: 'numeric' })
 
-  const getEventTagClass = (statusTag: string, category: SchoolEvent['category']) => {
-    const normalized = String(statusTag || '').toLowerCase()
-    if (normalized.includes('exam')) return 'exam'
-    if (normalized.includes('holiday')) return 'holiday'
-    if (normalized.includes('meeting')) return 'meeting'
-    if (normalized.includes('pinned') || normalized.includes('maintenance') || normalized.includes('academic')) return 'academic'
-    if (normalized.includes('grade') || normalized.includes('due') || category === 'Deadline') return 'deadline'
-    if (normalized.includes('announcement')) return 'general'
-    return category.toLowerCase() as SchoolEvent['statusTagClass']
-  }
+function ScheduleTimeline({ courses }: { courses: ProfessorAssignedCourse[] }) {
+  const allClasses = useMemo(() => buildTimelineClasses(courses), [courses])
+  const scheduledClasses = useMemo(() => allClasses.filter((item) => item.entries.length > 0), [allClasses])
+  const unscheduledClasses = useMemo(() => allClasses.filter((item) => item.entries.length === 0), [allClasses])
 
-  const mergeEventSources = (items: SchoolEvent[]) => {
-    const seen = new Set<string>()
-    return items.filter((event) => {
-      const key = `${event.date}|${event.title}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
+  const accentById = useMemo(() => {
+    const map: Record<string, string> = {}
+    allClasses.forEach((item, index) => {
+      map[item.id] = TIMELINE_ACCENTS[index % TIMELINE_ACCENTS.length]
     })
-  }
+    return map
+  }, [allClasses])
 
-  const [events, setEvents] = useState<SchoolEvent[]>([])
-  const [eventLoading, setEventLoading] = useState(false)
-  const [scope, setScope] = useState<ScopeFilter>('both')
-  const [mode, setMode] = useState<ScheduleMode>('list')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [semesterFilter, setSemesterFilter] = useState('all')
-  const [yearFilter, setYearFilter] = useState('all')
-  const [dayFilter, setDayFilter] = useState<'all' | SchoolDay>('all')
-  const [calendarMonth, setCalendarMonth] = useState(() => {
+  const days = useMemo(() => TIMELINE_DAYS, [scheduledClasses])
+
+  const bounds = useMemo(() => {
+    // Always start at 6 AM, end time adjusts based on latest class
+    let startHour = 6
+    let endHour = 20
+    if (scheduledClasses.length > 0) {
+      const ends = scheduledClasses.flatMap((item) => item.entries.map((entry) => entry.end))
+      if (ends.length > 0) {
+        endHour = Math.max(24, Math.max(...ends) / 60 | 0 + 1)
+      }
+      // Ensure end time doesn't exceed midnight
+      if (endHour > 24) endHour = 24
+    }
+    return { startHour, endHour }
+  }, [scheduledClasses])
+
+  // Each day column gets lane numbers so overlapping classes sit side by side.
+  // All 7 days are always present in the grid; days without classes have empty lanes.
+  const dayColumns = useMemo(() => {
+    return days.map((day) => {
+      const items = scheduledClasses
+        .flatMap((item) => item.entries.filter((entry) => entry.day === day).map((entry) => ({ entry, item })))
+        .sort((a, b) => a.entry.start - b.entry.start || b.entry.end - a.entry.end)
+
+      const laneEnds: number[] = []
+      const placed = items.map(({ entry, item }) => {
+        let lane = laneEnds.findIndex((end) => end <= entry.start)
+        if (lane === -1) {
+          lane = laneEnds.length
+          laneEnds.push(entry.end)
+        } else {
+          laneEnds[lane] = entry.end
+        }
+        return { entry, item, lane }
+      })
+
+      return { day, placed, lanes: Math.max(laneEnds.length, 1) }
+    })
+  }, [days, scheduledClasses])
+
+  const hours = useMemo(
+    () => Array.from({ length: bounds.endHour - bounds.startHour }, (_, index) => bounds.startHour + index),
+    [bounds]
+  )
+
+  const weeklyMinutes = scheduledClasses.reduce(
+    (sum, item) => sum + item.entries.reduce((entrySum, entry) => entrySum + (entry.end - entry.start), 0),
+    0
+  )
+  const weeklyHours = Math.round((weeklyMinutes / 60) * 10) / 10
+  const todayCode = TODAY_DAY_CODE[new Date().getDay()]
+
+  return (
+    <div className="professor-tl">
+      <div className="professor-tl-head">
+        <div>
+          <h4>Weekly class timeline</h4>
+          <p>
+            {scheduledClasses.length} subject{scheduledClasses.length === 1 ? '' : 's'}
+            {weeklyHours > 0 ? ` · ${weeklyHours} class hour${weeklyHours === 1 ? '' : 's'} per week` : ''}
+          </p>
+        </div>
+        <span className="professor-tl-today-pill">
+          <Clock size={13} /> Today is {DAY_LABELS[todayCode]}
+        </span>
+      </div>
+
+      {scheduledClasses.length === 0 ? (
+        <p className="professor-tl-empty">
+          No class schedules assigned yet. Subjects appear here once the registrar sets their day and time.
+        </p>
+      ) : (
+        <div className="professor-tl-scroll"><div
+            className="professor-tl-grid"
+            style={{ gridTemplateColumns: `3.1rem repeat(7, 1fr)` }}>
+            <div className="professor-tl-corner" style={{ gridColumn: 1, gridRow: 1 }}>Time</div>
+            {days.map((day, index) => (
+              <div
+                key={day}
+                className={`professor-tl-day${day === todayCode ? ' is-today' : ''}`}
+                style={{ gridColumn: index + 2, gridRow: 1 }}
+              >
+                {DAY_LABELS[day]}
+              </div>
+
+            ))}
+
+            {hours.map((hour, index) => (
+              <Fragment key={hour}>
+                <div
+                  className="professor-tl-hourline"
+                  style={{ gridColumn: '1 / -1', gridRow: 2 + index * 2 }}
+                  aria-hidden="true"
+                />
+                <div className="professor-tl-hour" style={{ gridColumn: 1, gridRow: 2 + index * 2 + 1 }}>
+                  {formatHourLabel(hour)}
+                </div>
+              </Fragment>
+            ))}
+
+            {dayColumns.flatMap(({ placed, lanes }, dayIndex) =>
+              placed.map(({ entry, item, lane }) => {
+                const startSlot = Math.floor((entry.start - bounds.startHour * 60) / 30)
+                const endSlot = Math.ceil((entry.end - bounds.startHour * 60) / 30)
+                const room = entry.room || item.room
+                return (
+                  <div
+                    key={`${item.id}-${entry.day}-${entry.start}`}
+                    className={
+                      `professor-tl-block${accentById[item.id] && ` professor-tl-color-${accentById[item.id].replace('#', '')}`}`
+                    }
+                    style={{
+                      gridColumn: dayIndex + 2,
+                      gridRow: `${2 + startSlot} / span ${Math.max(1, endSlot - startSlot)}`,
+                      marginLeft: `calc(${(lane * 100) / lanes}% + 0.1rem)`,
+                      width: `calc(${100 / lanes}% - 0.25rem)`,
+                      ['--tl-accent' as string]: accentById[item.id] || TIMELINE_ACCENTS[0]
+                    }}
+                    title={`${item.code} — ${item.title}\n${formatClock(entry.start)} – ${formatClock(entry.end)}${
+                      room ? `\n${room}` : ''
+                    }`}
+                  >
+                    <span className="professor-tl-block-code professor-tl-block-code">{item.code}</span>
+                    <span className="professor-tl-block-time">
+                      {formatClock(entry.start)} – {formatClock(entry.end)}
+                    </span>
+                    {item.title && <span className="professor-tl-block-title">{item.title}</span>}
+                    <span className="professor-tl-block-meta">
+                      {[item.section, room].filter(Boolean).join(' · ')}
+                    </span>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {unscheduledClasses.length > 0 && (
+        <div className="professor-tl-unscheduled">
+          <strong>No time set yet</strong>
+          <div className="professor-tl-unscheduled-list">
+            {unscheduledClasses.map((item) => (
+              <span key={item.id} className="professor-tl-unscheduled-item">
+                {item.code}
+                {item.title ? ` — ${item.title}` : ''}
+                {item.section ? ` · ${item.section}` : ''}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ScheduleCalendar({ events, onSelectEvent }: ScheduleCalendarProps) {
+  const [month, setMonth] = useState(() => {
     const now = new Date()
     return new Date(now.getFullYear(), now.getMonth(), 1)
   })
-  const [calendarDate, setCalendarDate] = useState<string | null>(null)
-  const [selectedClass, setSelectedClass] = useState<ScheduleItem | null>(null)
-  const [selectedEvent, setSelectedEvent] = useState<SchoolEvent | null>(null)
-  const [timetableContainerWidth, setTimetableContainerWidth] = useState<number>(() => (
-    typeof window !== 'undefined' ? window.innerWidth : 1280
-  ))
-  const [timetableDayOffset, setTimetableDayOffset] = useState(0)
-  const timetableWrapRef = useRef<HTMLDivElement | null>(null)
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
 
-  const semesterOptions = useMemo(() => {
-    const list = new Set<string>()
-    classItems.forEach((item) => list.add(item.semester))
-    return ['all', ...Array.from(list).sort()]
-  }, [classItems])
-
-  const yearOptions = useMemo(() => {
-    const list = new Set<string>()
-    classItems.forEach((item) => list.add(item.schoolYear))
-    return ['all', ...Array.from(list).sort().reverse()]
-  }, [classItems])
-
-  useEffect(() => {
-    let cancelled = false
-    const controller = new AbortController()
-
-    const loadEvents = async () => {
-      try {
-        setEventLoading(true)
-        const response = await fetchWithAutoReconnect(`${API_URL}/api/announcements?targetAudience=professor`, {
-          signal: controller.signal
-        })
-
-        if (!response.ok) {
-          setEvents(mergeEventSources([...philippineHolidayEvents]))
-          return
-        }
-
-        const payload = await response.json().catch(() => [])
-        const records = Array.isArray(payload) ? payload : []
-
-        const mapped = records
-          .filter(isVisibleProfessorAnnouncement)
-          .map((announcement: any): SchoolEvent | null => {
-            const sourceDate = announcement.scheduledFor || announcement.expiresAt || announcement.createdAt
-            const date = new Date(sourceDate)
-            if (Number.isNaN(date.getTime())) {
-              return null
-            }
-            const statusTag = getEventTag(announcement)
-            const category = getEventCategory(announcement)
-
-            return {
-              id: announcement._id || `${announcement.title}-${sourceDate}`,
-              title: announcement.title || 'School Event',
-              date: toDateKey(date),
-              time: announcement.scheduledFor ? date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'See details',
-              category,
-              statusTag,
-              statusTagClass: getEventTagClass(statusTag, category),
-              description: announcement.message || 'No details yet.',
-              location: announcement.type === 'maintenance' ? 'System Notification' : ''
-            }
-          })
-          .filter((entry: SchoolEvent | null): entry is SchoolEvent => Boolean(entry))
-
-        if (!cancelled) {
-          setEvents(mergeEventSources([...philippineHolidayEvents, ...mapped]))
-        }
-      } catch (error) {
-        if (isAbortRequestError(error)) {
-          return
-        }
-
-        if (!cancelled) {
-          setEvents((current) => (
-            current.length > 0
-              ? current
-              : mergeEventSources([...philippineHolidayEvents])
-          ))
-        }
-      } finally {
-        if (!cancelled) {
-          setEventLoading(false)
-        }
-      }
-    }
-
-    void loadEvents()
-
-    return () => {
-      cancelled = true
-      controller.abort()
-    }
-  }, [philippineHolidayEvents])
-
-  const filteredClasses = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase()
-
-    return classItems.filter((entry) => {
-      if (scope === 'events') return false
-      if (semesterFilter !== 'all' && entry.semester !== semesterFilter) return false
-      if (yearFilter !== 'all' && entry.schoolYear !== yearFilter) return false
-      if (dayFilter !== 'all' && !entry.days.includes(dayFilter)) return false
-      if (!query) return true
-      return `${entry.subjectCode} ${entry.subjectTitle} ${entry.blockCode} ${entry.scheduleText}`.toLowerCase().includes(query)
+  const eventsByDate = useMemo(() => {
+    const map: Record<string, CalendarEvent[]> = {}
+    events.forEach((event) => {
+      ;(map[event.date] ||= []).push(event)
     })
-  }, [classItems, dayFilter, semesterFilter, scope, yearFilter, searchQuery])
+    return map
+  }, [events])
 
-  const filteredEvents = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase()
+  // Always 42 cells (6 weeks) so the calendar height is identical every month.
+  const cells = useMemo(() => {
+    const year = month.getFullYear()
+    const m = month.getMonth()
+    const offset = (new Date(year, m, 1).getDay() + 6) % 7 // Monday-first
+    const todayKey = toDateKey(new Date())
 
-    return events
-      .filter((event) => {
-        if (scope === 'classes') return false
-        const eventDay = getSchoolDayFromJs(new Date(`${event.date}T00:00:00`))
-        if (dayFilter !== 'all' && eventDay !== dayFilter) return false
-        if (!query) return true
-        return `${event.title} ${event.description} ${event.statusTag} ${event.category}`.toLowerCase().includes(query)
-      })
-      .sort((a, b) => {
-        const left = parseDateKey(a.date)?.getTime() ?? 0
-        const right = parseDateKey(b.date)?.getTime() ?? 0
-        if (left === right) {
-          if (a.time === 'See details' && b.time !== 'See details') return 1
-          if (b.time === 'See details' && a.time !== 'See details') return -1
-          return a.time.localeCompare(b.time)
-        }
-        return left - right
-      })
-  }, [events, scope, dayFilter, searchQuery])
-
-  const upcomingFilteredEvents = useMemo(() => {
-    const today = toDateKey(new Date())
-    return filteredEvents.filter((event) => event.date >= today)
-  }, [filteredEvents])
-
-  const upcomingCalendarMonthEvents = useMemo(() => {
-    const activeYear = calendarMonth.getFullYear()
-    const activeMonth = calendarMonth.getMonth()
-
-    return upcomingFilteredEvents.filter((event) => {
-      const eventDate = parseDateKey(event.date)
-      return Boolean(
-        eventDate &&
-        eventDate.getFullYear() === activeYear &&
-        eventDate.getMonth() === activeMonth
-      )
-    })
-  }, [calendarMonth, upcomingFilteredEvents])
-
-  const groupedClassDays = useMemo(() => {
-    const grouped: Record<ItemDay, ScheduleItem[]> = {
-      Monday: [],
-      Tuesday: [],
-      Wednesday: [],
-      Thursday: [],
-      Friday: [],
-      Saturday: [],
-      Sunday: [],
-      Unscheduled: []
-    }
-
-    filteredClasses.forEach((entry) => {
-      if (entry.days.length === 0) {
-        grouped.Unscheduled.push(entry)
-      } else {
-        entry.days.forEach((day) => {
-          grouped[day].push(entry)
-        })
-      }
-    })
-
-    ;(Object.keys(grouped) as ItemDay[]).forEach((day) => {
-      grouped[day].sort((a, b) => {
-        const aStart = a.startMinutes ?? Number.MAX_SAFE_INTEGER
-        const bStart = b.startMinutes ?? Number.MAX_SAFE_INTEGER
-        return aStart - bStart
-      })
-    })
-
-    return grouped
-  }, [filteredClasses])
-
-  const nextClass = useMemo(() => {
-    const now = new Date()
-    const nowDay = now.getDay()
-    const nowMinutes = now.getHours() * 60 + now.getMinutes()
-
-    const candidates = filteredClasses
-      .flatMap((entry) => {
-        if (!entry.days.length || entry.startMinutes === null) return []
-        return entry.days.map((day) => {
-          const dayIndex = SCHOOL_DAYS_BY_JS.indexOf(day)
-          const delta = (dayIndex - nowDay + 7) % 7
-          const date = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
-          date.setDate(date.getDate() + delta)
-          date.setMinutes(entry.startMinutes as number)
-          if (delta === 0 && (entry.startMinutes as number) <= nowMinutes) {
-            date.setDate(date.getDate() + 7)
-          }
-          return { item: entry, time: date.getTime() }
-        })
-      })
-      .sort((a, b) => a.time - b.time)
-
-    return candidates[0]?.item ?? null
-  }, [filteredClasses])
-
-  const nowForSchedule = new Date()
-  const todayName = getSchoolDayFromJs(nowForSchedule)
-  const classesTodayCount = filteredClasses.filter((entry) => entry.days.includes(todayName)).length
-  const currentTimeMinute = nowForSchedule.getHours() * 60 + nowForSchedule.getMinutes()
-  const currentTimeTop = currentTimeMinute >= TIMETABLE_START && currentTimeMinute <= TIMETABLE_END
-    ? ((currentTimeMinute - TIMETABLE_START) / SLOT_MINUTES) * SLOT_HEIGHT
-    : null
-
-  const timeSlots = useMemo(() => {
-    const list: string[] = []
-    for (let minute = TIMETABLE_START; minute <= TIMETABLE_END; minute += SLOT_MINUTES) {
-      list.push(formatClock(minute))
-    }
-    return list
-  }, [])
-
-  const timetableIntervals = useMemo(() => timeSlots.slice(0, -1), [timeSlots])
-  const timetableBodyHeight = timetableIntervals.length * SLOT_HEIGHT
-
-  const timetableOccurrences = useMemo<Record<SchoolDay, TimetableOccurrence[]>>(() => {
-    const buckets: Record<SchoolDay, TimetableOccurrence[]> = {
-      Monday: [],
-      Tuesday: [],
-      Wednesday: [],
-      Thursday: [],
-      Friday: [],
-      Saturday: [],
-      Sunday: []
-    }
-
-    filteredClasses
-      .filter((entry) => entry.startMinutes !== null && entry.endMinutes !== null && entry.days.length > 0)
-      .forEach((entry) => {
-        entry.days.forEach((day) => {
-          buckets[day].push({ ...entry, day, lane: 0, laneCount: 1 })
-        })
-      })
-
-    Object.keys(buckets).forEach((key) => {
-      const day = key as SchoolDay
-      const items = buckets[day]
-      items.sort((a, b) => {
-        return (a.startMinutes ?? 0) - (b.startMinutes ?? 0)
-      })
-
-      const lanes: number[] = []
-      buckets[day] = items.map((item) => {
-        const start = item.startMinutes ?? TIMETABLE_START
-        const end = item.endMinutes ?? start + 60
-        let lane = 0
-
-        while (lane < lanes.length && start < lanes[lane]) {
-          lane += 1
-        }
-
-        if (lane === lanes.length) lanes.push(end)
-        else lanes[lane] = end
-
-        return {
-          ...item,
-          lane,
-          laneCount: Math.max(lanes.length, 1)
-        }
-      })
-    })
-
-    return buckets
-  }, [filteredClasses])
-
-  const hasTimetableClasses = Object.values(timetableOccurrences).some((items) => items.length > 0)
-  const timetableDays = useMemo<SchoolDay[]>(() => (
-    dayFilter === 'all' ? SCHOOL_DAYS : [dayFilter]
-  ), [dayFilter])
-  const timetableTimeColumnWidth = timetableContainerWidth < 540 ? 68 : 78
-  const timetableDayColumnMinWidth = timetableContainerWidth < 720 ? 148 : 160
-  const visibleTimetableDayCount = useMemo(() => {
-    const maxColumns =
-      timetableContainerWidth < 560 ? 1 :
-      timetableContainerWidth < 900 ? 2 :
-      timetableContainerWidth < 1180 ? 4 :
-      timetableDays.length
-
-    return Math.max(1, Math.min(timetableDays.length, maxColumns))
-  }, [timetableContainerWidth, timetableDays.length])
-  const maxTimetableDayOffset = Math.max(timetableDays.length - visibleTimetableDayCount, 0)
-  const visibleTimetableDays = useMemo(() => (
-    timetableDays.slice(timetableDayOffset, timetableDayOffset + visibleTimetableDayCount)
-  ), [timetableDayOffset, timetableDays, visibleTimetableDayCount])
-  const timetableGridStyle = useMemo(() => {
-    if (visibleTimetableDays.length <= 1) {
-      return {
-        gridTemplateColumns: `${timetableTimeColumnWidth}px minmax(0, 1fr)`,
-        minWidth: '100%'
-      }
-    }
-
-    const minWidth = timetableTimeColumnWidth + (visibleTimetableDays.length * timetableDayColumnMinWidth)
-    return {
-      gridTemplateColumns: `${timetableTimeColumnWidth}px repeat(${visibleTimetableDays.length}, minmax(${timetableDayColumnMinWidth}px, 1fr))`,
-      minWidth: `${minWidth}px`
-    }
-  }, [timetableDayColumnMinWidth, timetableTimeColumnWidth, visibleTimetableDays.length])
-
-  useEffect(() => {
-    setTimetableDayOffset((previous) => Math.min(previous, maxTimetableDayOffset))
-  }, [maxTimetableDayOffset])
-
-  useEffect(() => {
-    if (dayFilter !== 'all' || visibleTimetableDayCount !== 1 || maxTimetableDayOffset <= 0 || timetableDayOffset !== 0) {
-      return
-    }
-
-    setTimetableDayOffset(Math.min(SCHOOL_DAYS.indexOf(todayName), maxTimetableDayOffset))
-  }, [dayFilter, maxTimetableDayOffset, timetableDayOffset, todayName, visibleTimetableDayCount])
-
-  const shiftTimetableDays = (direction: -1 | 1) => {
-    setTimetableDayOffset((previous) => {
-      if (direction < 0) {
-        return Math.max(previous - 1, 0)
-      }
-      return Math.min(previous + 1, maxTimetableDayOffset)
-    })
-  }
-
-  const jumpToTimetableDay = (index: number) => {
-    setTimetableDayOffset(Math.min(Math.max(index, 0), maxTimetableDayOffset))
-  }
-
-  useEffect(() => {
-    if (mode !== 'timetable' || !hasTimetableClasses || !timetableWrapRef.current) {
-      return
-    }
-
-    const node = timetableWrapRef.current
-    const updateWidth = () => {
-      setTimetableContainerWidth(node.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 1280))
-    }
-
-    updateWidth()
-
-    if (typeof ResizeObserver === 'undefined') {
-      window.addEventListener('resize', updateWidth)
-      return () => window.removeEventListener('resize', updateWidth)
-    }
-
-    const observer = new ResizeObserver((entries) => {
-      const nextWidth = entries[0]?.contentRect.width || node.clientWidth
-      setTimetableContainerWidth(nextWidth || (typeof window !== 'undefined' ? window.innerWidth : 1280))
-    })
-
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [hasTimetableClasses, mode])
-
-  const monthGrid = useMemo(() => {
-    const year = calendarMonth.getFullYear()
-    const month = calendarMonth.getMonth()
-    const firstDate = new Date(year, month, 1)
-    const daysInMonth = new Date(year, month + 1, 0).getDate()
-    const offset = (firstDate.getDay() + 6) % 7
-
-    const eventMap = filteredEvents.reduce<Record<string, CalendarEventPreview[]>>((acc, event) => {
-      if (!acc[event.date]) acc[event.date] = []
-      acc[event.date].push(getTimelinePreview(event))
-      return acc
-    }, {})
-
-    const cells: Array<{
-      key: string
-      day: number
-      date: string
-      isToday: boolean
-      hasEvent: boolean
-      previews: CalendarEventPreview[]
-      extraCount: number
-    } | null> = []
-
-    for (let i = 0; i < offset; i += 1) cells.push(null)
-    for (let day = 1; day <= daysInMonth; day += 1) {
-      const date = new Date(year, month, day)
+    return Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(year, m, 1 - offset + index)
       const key = toDateKey(date)
-      const previews = eventMap[key] || []
-      cells.push({
-        key: `calendar-${key}`,
-        day,
-        date: key,
-        isToday: key === toDateKey(new Date()),
-        hasEvent: previews.length > 0,
-        previews: previews.slice(0, 2),
-        extraCount: Math.max(previews.length - 2, 0)
-      })
+      return {
+        key,
+        day: date.getDate(),
+        inMonth: date.getMonth() === m,
+        isToday: key === todayKey,
+        column: index % 7,
+        row: Math.floor(index / 7),
+        events: eventsByDate[key] || []
+      }
+    })
+  }, [month, eventsByDate])
+
+  const monthPrefix = `${month.getFullYear()}-${pad(month.getMonth() + 1)}-`
+  const agendaEvents = useMemo(() => {
+    const list = selectedDate
+      ? eventsByDate[selectedDate] || []
+      : events.filter((e) => e.date.startsWith(monthPrefix))
+    return [...list].sort((a, b) => a.date.localeCompare(b.date))
+  }, [selectedDate, events, eventsByDate, monthPrefix])
+
+  const shiftMonth = (delta: number) => {
+    setSelectedDate(null)
+    setMonth((cur) => new Date(cur.getFullYear(), cur.getMonth() + delta, 1))
+  }
+
+  const goToday = () => {
+    const now = new Date()
+    setMonth(new Date(now.getFullYear(), now.getMonth(), 1))
+    setSelectedDate(toDateKey(now))
+  }
+
+  return (
+    <div className="professor-cal-layout">
+      <div className="professor-cal">
+        <div className="professor-cal-head">
+          <div className="professor-cal-nav">
+            <button type="button" className="professor-cal-nav-btn" onClick={() => shiftMonth(-1)} aria-label="Previous month">◀</button>
+            <button type="button" className="professor-cal-nav-btn" onClick={() => shiftMonth(1)} aria-label="Next month">▶</button>
+          </div>
+          <strong className="professor-cal-title">
+            {month.toLocaleString(undefined, { month: 'long', year: 'numeric' })}
+          </strong>
+          <button type="button" className="professor-cal-today-btn" onClick={goToday}>Today</button>
+        </div>
+
+        <div className="professor-cal-weekdays">
+          {WEEKDAYS.map((d) => <span key={d}>{d}</span>)}
+        </div>
+
+        <div className="professor-cal-grid">
+          {cells.map((cell) => {
+            const active = selectedDate === cell.key
+            const cellClass = [
+              'professor-cal-cell',
+              cell.inMonth ? '' : 'is-outside',
+              cell.isToday ? 'is-today' : '',
+              active ? 'is-active' : ''
+            ].filter(Boolean).join(' ')
+            const popClass = [
+              'professor-cal-popover',
+              cell.column >= 5 ? 'align-right' : cell.column >= 3 ? 'align-center' : '',
+              cell.row >= 3 ? 'is-above' : ''
+            ].filter(Boolean).join(' ')
+
+            return (
+              <div
+                key={cell.key}
+                className={cellClass}
+                onClick={() => setSelectedDate((prev) => (prev === cell.key ? null : cell.key))}
+              >
+                <button type="button" className="professor-cal-date" aria-pressed={active}>
+                  {cell.day}
+                </button>
+
+                <div className="professor-cal-chips">
+                  {cell.events.slice(0, MAX_CHIPS).map((event) => (
+                    <button
+                      key={event.id}
+                      type="button"
+                      className={`professor-cal-chip tag-${event.statusTagClass}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onSelectEvent(event)
+                      }}
+                    >
+                      <span className="professor-cal-chip-text">{event.title}</span>
+                    </button>
+                  ))}
+                  {cell.events.length > MAX_CHIPS && (
+                    <span className="professor-cal-more">+{cell.events.length - MAX_CHIPS} more</span>
+                  )}
+                </div>
+
+                {cell.events.length > 0 && (
+                  <div className={popClass} role="tooltip">
+                    <div className="professor-cal-popover-title">{formatLongDate(cell.key)}</div>
+                    {cell.events.slice(0, MAX_POPOVER_ITEMS).map((event) => (
+                      <div key={event.id} className={`professor-cal-popover-item tag-${event.statusTagClass}`}>
+                        <span className="professor-cal-popover-tag">{event.statusTag}</span>
+                        <strong>{event.title}</strong>
+                        <small>{event.time}{event.location ? ` • ${event.location}` : ''}</small>
+                        {event.description && <p>{event.description}</p>}
+                      </div>
+                    ))}
+                    {cell.events.length > MAX_POPOVER_ITEMS && (
+                      <div className="professor-cal-popover-more">
+                        +{cell.events.length - MAX_POPOVER_ITEMS} more events
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        <div className="professor-cal-legend" aria-hidden="true">
+          <span className="tag-academic">Academic</span>
+          <span className="tag-exam">Exam</span>
+          <span className="tag-holiday">Holiday</span>
+          <span className="tag-meeting">Meeting</span>
+          <span className="tag-deadline">Deadline</span>
+          <span className="tag-general">General</span>
+        </div>
+      </div>
+
+      <aside className="professor-cal-agenda">
+        <div className="professor-cal-agenda-inner">
+          <h4>{selectedDate ? formatLongDate(selectedDate) : month.toLocaleString(undefined, { month: 'long' }) + ' events'}</h4>
+          {agendaEvents.length === 0 ? (
+            <p className="professor-cal-agenda-empty">No events {selectedDate ? 'on this day' : 'this month'}.</p>
+          ) : (
+            <ul>
+              {agendaEvents.map((event) => (
+                <li key={event.id}>
+                  <button type="button" className={`professor-cal-agenda-item tag-${event.statusTagClass}`} onClick={() => onSelectEvent(event)}>
+                    <span className="professor-cal-agenda-date">{formatLongDate(event.date)} • {event.time}</span>
+                    <strong>{event.title}</strong>
+                    <small>{event.statusTag}</small>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </aside>
+    </div>
+  )
+}
+
+interface ScheduleManagementProps {
+  courses: any[]
+  loading: boolean
+  error: string | null
+  onRefresh: () => void
+}
+
+function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleManagementProps) {
+  const [view, setView] = useState<'month' | 'timeline'>('month')
+
+  // Get last Monday of August for National Heroes Day
+  const getNationalHeroesDay = (year: number): string => {
+    const lastDayOfAugust = new Date(year, 7, 31) // August 31 (month is 0-indexed)
+    const dayOfWeek = lastDayOfAugust.getDay() // 0 = Sunday, 1 = Monday, etc.
+    const daysToSubtract = (dayOfWeek + 6) % 7 // Get to previous Monday
+    const heroesDay = new Date(year, 7, 31 - daysToSubtract)
+    return toDateKey(heroesDay)
+  }
+
+  // Generate Philippine holidays for the current year
+  const getPhilippineHolidays = (year: number): CalendarEvent[] => {
+    const nationalHeroesDay = getNationalHeroesDay(year)
+    
+    const holidays: CalendarEvent[] = [
+      {
+        id: `holiday-new-year-${year}`,
+        title: "New Year's Day",
+        date: `${year}-01-01`,
+        time: 'All Day',
+        category: 'holiday',
+        statusTag: 'Holiday',
+        statusTagClass: 'holiday',
+        description: 'Regular Holiday'
+      },
+      {
+        id: `holiday-araw-ng-kagitingan-${year}`,
+        title: "Araw ng Kagitingan",
+        date: `${year}-04-09`,
+        time: 'All Day',
+        category: 'holiday',
+        statusTag: 'Holiday',
+        statusTagClass: 'holiday',
+        description: 'Regular Holiday'
+      },
+      {
+        id: `holiday-labor-day-${year}`,
+        title: "Labor Day",
+        date: `${year}-05-01`,
+        time: 'All Day',
+        category: 'holiday',
+        statusTag: 'Holiday',
+        statusTagClass: 'holiday',
+        description: 'Regular Holiday'
+      },
+      {
+        id: `holiday-independence-day-${year}`,
+        title: "Independence Day",
+        date: `${year}-06-12`,
+        time: 'All Day',
+        category: 'holiday',
+        statusTag: 'Holiday',
+        statusTagClass: 'holiday',
+        description: 'Regular Holiday'
+      },
+      {
+        id: `holiday-national-heroes-${year}`,
+        title: "National Heroes Day",
+        date: nationalHeroesDay,
+        time: 'All Day',
+        category: 'holiday',
+        statusTag: 'Holiday',
+        statusTagClass: 'holiday',
+        description: 'Regular Holiday'
+      },
+      {
+        id: `holiday-bonifacio-day-${year}`,
+        title: "Bonifacio Day",
+        date: `${year}-11-30`,
+        time: 'All Day',
+        category: 'holiday',
+        statusTag: 'Holiday',
+        statusTagClass: 'holiday',
+        description: 'Regular Holiday'
+      },
+      {
+        id: `holiday-christmas-${year}`,
+        title: "Christmas Day",
+        date: `${year}-12-25`,
+        time: 'All Day',
+        category: 'holiday',
+        statusTag: 'Holiday',
+        statusTagClass: 'holiday',
+        description: 'Regular Holiday'
+      },
+      {
+        id: `holiday-rizal-day-${year}`,
+        title: "Rizal Day",
+        date: `${year}-12-30`,
+        time: 'All Day',
+        category: 'holiday',
+        statusTag: 'Holiday',
+        statusTagClass: 'holiday',
+        description: 'Regular Holiday'
+      }
+    ]
+    return holidays
+  }
+
+  // Convert courses to calendar events
+  const events: CalendarEvent[] = useMemo(() => {
+    const currentYear = new Date().getFullYear()
+    const holidays = getPhilippineHolidays(currentYear)
+    
+    const courseEvents = courses.flatMap((course) => {
+      // Extract schedule from course data
+      const schedule = course.schedule || course.schedules || []
+      return schedule.map((sched: any, idx: number) => ({
+        id: `${course.id}-${idx}`,
+        title: course.name || course.courseName || 'Course',
+        date: sched.date || sched.day || '',
+        time: sched.time || sched.startTime || '',
+        category: course.category || 'academic',
+        statusTag: course.status || 'Scheduled',
+        statusTagClass: 'academic',
+        description: course.description || '',
+        location: sched.location || course.location || ''
+      }))
+    })
+    
+    // End of school year 2027
+    const endOfSchool2027: CalendarEvent = {
+      id: 'end-of-school-2027',
+      title: 'End of School Year',
+      date: '2027-04-08',
+      time: 'All Day',
+      category: 'deadline',
+      statusTag: 'Deadline',
+      statusTagClass: 'deadline',
+      description: 'Last day of classes for SY 2026-2027'
     }
+    
+    const today = toDateKey(new Date())
+    
+    // Combine holidays and course events, filter out expired
+    // Include the end-of-school event for 2027 even though it's in the future
+    const allEvents = [...holidays, ...courseEvents, endOfSchool2027]
+    return allEvents.filter((event) => event.date >= today || event.date === '2027-04-08')
+  }, [courses])
 
-    return cells
-  }, [calendarMonth, filteredEvents])
-
-  const eventsForActiveDate = useMemo(() => {
-    return calendarDate
-      ? filteredEvents.filter((event) => event.date === calendarDate)
-      : upcomingCalendarMonthEvents
-  }, [calendarDate, filteredEvents, upcomingCalendarMonthEvents])
-
-  const eventListTitle = calendarDate
-    ? `Events on ${calendarDate}`
-    : `Upcoming events in ${calendarMonth.toLocaleString(undefined, { month: 'long', year: 'numeric' })}`
-
-  const emptyEventListText = calendarDate
-    ? 'No school events scheduled for this date.'
-    : `No upcoming school events in ${calendarMonth.toLocaleString(undefined, { month: 'long', year: 'numeric' })}.`
-
-  const upcomingEvent = upcomingFilteredEvents[0] ?? null
-  const eventModeEnabled = scope === 'events' || scope === 'both'
-  const classModeEnabled = scope === 'classes' || scope === 'both'
-  const noAssignedSchedules = classModeEnabled && classItems.length === 0
-  const noClassMatches = filteredClasses.length === 0
-  const noFilterMatches =
-    (scope === 'classes' && filteredClasses.length === 0) ||
-    (scope === 'events' && filteredEvents.length === 0) ||
-    (scope === 'both' && filteredClasses.length === 0 && filteredEvents.length === 0)
-
-  const selectedEventDay = useMemo(() => {
-    const sourceDate = selectedEvent?.date || calendarDate
-    if (!sourceDate) return null
-    const date = parseDateKey(sourceDate)
-    if (!date) return null
-    return getSchoolDayFromJs(date)
-  }, [calendarDate, selectedEvent?.date])
-
-  const handlePrevMonth = () => {
-    setCalendarDate(null)
-    setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))
-  }
-
-  const handleNextMonth = () => {
-    setCalendarDate(null)
-    setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))
-  }
-
-  const formatDaysLabel = (days: SchoolDay[]) => {
-    if (!days.length) return 'Unscheduled'
-    return days.join(', ')
-  }
-
-  const formatDuration = (entry: ScheduleItem) => {
-    if (entry.startTime === 'TBA' || entry.endTime === 'TBA') return 'Time not set'
-    return `${entry.startTime} - ${entry.endTime}`
+  const handleSelectEvent = (event: CalendarEvent) => {
+    // TODO: Show event details modal or navigate to event details
+    console.log('Selected event:', event)
   }
 
   if (loading) {
+    return <div className="professor-cal-loading">Loading schedule...</div>
+  }
+
+  if (error) {
     return (
-      <div className="professor-section professor-schedule-page">
-        <div className="professor-schedule-head">
-          <div>
-            <h2 className="professor-section-title">Schedule</h2>
-            <p className="professor-section-desc">View your teaching schedule and upcoming academic events.</p>
-          </div>
-        </div>
-        <SectionSkeleton variant="cards" rows={3} label="Loading assigned teaching schedules" />
+      <div className="professor-cal-error">
+        <p>Error loading schedule: {error}</p>
+        <button type="button" onClick={onRefresh}>Retry</button>
       </div>
     )
   }
 
   return (
-    <div className="professor-section professor-schedule-page">
-      <div className="professor-schedule-head">
-        <div>
-          <h2 className="professor-section-title">Schedule</h2>
-          <p className="professor-section-desc">View your teaching schedule and upcoming academic events.</p>
-        </div>
-        <button className="professor-btn" onClick={() => void onRefresh()}>
-          Refresh
-        </button>
-      </div>
-
-      {error && (
-        <p className="professor-data-error">{error}</p>
-      )}
-
-      <div className="professor-summary-grid">
-        <div className="professor-summary-card">
-          <span>Total Assigned Classes</span>
-          <strong>{classItems.length}</strong>
-          <small>Across your assigned blocks</small>
-        </div>
-        <div className="professor-summary-card">
-          <span>Classes Today</span>
-          <strong>{classesTodayCount}</strong>
-          <small>{todayName} schedule</small>
-        </div>
-        <div className="professor-summary-card">
-          <span>Next Class</span>
-          <strong>{nextClass ? nextClass.subjectCode : 'N/A'}</strong>
-          <small>{nextClass ? `${nextClass.blockCode} • ${formatDuration(nextClass)}` : 'No upcoming class'}</small>
-        </div>
-        <div className="professor-summary-card">
-          <span>Upcoming School Event</span>
-          <strong>{upcomingEvent ? upcomingEvent.title : 'N/A'}</strong>
-          <small>{upcomingEvent ? `${upcomingEvent.date} • ${upcomingEvent.time}` : 'No upcoming school event'}</small>
-        </div>
-      </div>
-
+    <div className="professor-schedule-shell">
       <div className="professor-schedule-toolbar">
-        <div className="professor-course-toolbar-start">
-          <div className="professor-roster-search">
-            <Search size={16} />
-            <input
-              type="text"
-              value={searchQuery}
-              placeholder="Search subject code, title, section"
-              onChange={(event) => setSearchQuery(event.target.value)}
-            />
-          </div>
-
-          <label>
-            <span>Scope</span>
-            <select value={scope} onChange={(event) => setScope(event.target.value as ScopeFilter)}>
-              <option value="both">Classes and events</option>
-              <option value="classes">Classes only</option>
-              <option value="events">School events only</option>
-            </select>
-          </label>
-
-          <label>
-            <span>Semester</span>
-            <select
-              value={semesterFilter}
-              onChange={(event) => setSemesterFilter(event.target.value)}
-            >
-              {semesterOptions.map((semester) => (
-                <option key={semester} value={semester}>
-                  {semester === 'all' ? 'All semesters' : semester}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            <span>School Year</span>
-            <select value={yearFilter} onChange={(event) => setYearFilter(event.target.value)}>
-              {yearOptions.map((year) => (
-                <option key={year} value={year}>
-                  {year === 'all' ? 'All years' : year}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            <span>Day</span>
-            <select
-              value={dayFilter}
-              onChange={(event) => {
-                const value = event.target.value
-                setDayFilter(value === 'all' ? 'all' : (value as SchoolDay))
-              }}
-            >
-              <option value="all">All days</option>
-              {SCHOOL_DAYS.map((day) => (
-                <option key={day} value={day}>{day}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        <div className="professor-schedule-view-toggle">
+        <div className="professor-view-switch" role="group" aria-label="Schedule view">
           <button
             type="button"
-            className={`professor-layout-btn ${mode === 'list' ? 'is-active' : ''}`}
-            onClick={() => setMode('list')}
+            aria-pressed={view === 'month'}
+            className={view === 'month' ? 'is-active' : ''}
+            onClick={() => setView('month')}
           >
-            <List size={14} />
-            <span>List View</span>
+            <CalendarDays size={14} /> Month
           </button>
           <button
             type="button"
-            className={`professor-layout-btn ${mode === 'timetable' ? 'is-active' : ''}`}
-            onClick={() => setMode('timetable')}
+            aria-pressed={view === 'timeline'}
+            className={view === 'timeline' ? 'is-active' : ''}
+            onClick={() => setView('timeline')}
           >
-            <Grid3X3 size={14} />
-            <span>Timetable View</span>
+            <Clock size={14} /> Timeline
           </button>
         </div>
+        <p className="professor-schedule-hint">
+          {view === 'month'
+            ? 'Dates, deadlines and Philippine holidays.'
+            : 'Your weekly teaching schedule by day and time.'}
+        </p>
       </div>
 
-      <div className="professor-schedule-layout">
-        <div className="professor-schedule-main">
-          {(() => {
-            if (!classModeEnabled) {
-              return (
-                <div className="professor-empty-state">
-                  <h3>Class schedules hidden</h3>
-                  <p>Switch scope to both / classes to view class schedules.</p>
-                </div>
-              )
-            }
-
-            if (noAssignedSchedules) {
-              return (
-                <div className="professor-empty-state">
-                  <h3>No assigned schedules found.</h3>
-                  <p>Make sure your assigned subjects are updated by the registrar.</p>
-                </div>
-              )
-            }
-
-            if (mode === 'list') {
-              return (
-                <>
-                  {nextClass ? (
-                    <div className="professor-schedule-next">
-                      <strong>Next upcoming class</strong>
-                      <div>{nextClass.subjectCode}</div>
-                      <span>{String(nextClass.blockCode)} • {formatDuration(nextClass)}</span>
-                    </div>
-                  ) : (
-                    <div className="professor-schedule-empty">No upcoming class found.</div>
-                  )}
-
-                  <div className="professor-schedule-card-list">
-                    {SCHOOL_DAYS.map((day) => {
-                      const items = groupedClassDays[day]
-                      if (items.length === 0) return null
-
-                      return (
-                        <section key={`day-group-${day}`} className="professor-schedule-day-group" aria-label={`${day} classes`}>
-                          <h3 className="professor-schedule-day-title">{day}</h3>
-                          <div className="professor-schedule-day-cards">
-                          {items.map((entry) => (
-                        <button
-                          key={`${entry.id}-${day}`}
-                          type="button"
-                          className="professor-schedule-item professor-schedule-card"
-                          onClick={() => setSelectedClass(entry)}
-                        >
-                          <div className="professor-schedule-card-head">
-                            <span className="professor-schedule-card-badge">{entry.classType}</span>
-                          </div>
-                          <div className="professor-schedule-item-title">
-                            <strong>{entry.subjectCode}</strong>
-                            <span>{entry.subjectTitle}</span>
-                          </div>
-                          <div className="professor-schedule-item-meta">
-                            <span><CalendarDays size={13} /> Section: {entry.blockCode}</span>
-                            <span><Clock size={13} /> {formatDuration(entry)}</span>
-                            <span><MapPin size={13} /> {entry.room}, {entry.building}</span>
-                            <span>{entry.enrolledStudents} students</span>
-                          </div>
-                          <div className="professor-schedule-item-meta">
-                            <span>Semester: {entry.semester}</span>
-                            <span>School Year: {entry.schoolYear}</span>
-                          </div>
-                        </button>
-                          ))}
-                          </div>
-                        </section>
-                      )
-                    })}
-
-                    {groupedClassDays.Unscheduled.map((entry) => (
-                      <button
-                        key={`${entry.id}-unscheduled`}
-                        type="button"
-                        className="professor-schedule-item professor-schedule-card"
-                        onClick={() => setSelectedClass(entry)}
-                      >
-                        <div className="professor-schedule-card-head">
-                          <span className="professor-schedule-card-day">Unscheduled</span>
-                          <span className="professor-schedule-card-badge">{entry.classType}</span>
-                        </div>
-                        <div className="professor-schedule-item-title">
-                          <strong>{entry.subjectCode}</strong>
-                          <span>{entry.subjectTitle}</span>
-                        </div>
-                        <div className="professor-schedule-item-meta">
-                          <span><CalendarDays size={13} /> Section: {entry.blockCode}</span>
-                          <span><Clock size={13} /> {entry.scheduleText}</span>
-                        </div>
-                      </button>
-                    ))}
-
-                    {noClassMatches ? (
-                      <div className="professor-empty-state">
-                        <h3>No classes match your selected filters.</h3>
-                        <p>Try adjusting the filters or choose a different search query.</p>
-                      </div>
-                    ) : null}
-                  </div>
-                </>
-              )
-            }
-
-            if (hasTimetableClasses) {
-              return (
-                <div className="professor-schedule-timetable-wrap" ref={timetableWrapRef}>
-                  {timetableDays.length > visibleTimetableDayCount && (
-                    <div className="professor-timetable-window-controls">
-                      <button
-                        type="button"
-                        className="professor-timetable-window-btn"
-                        onClick={() => shiftTimetableDays(-1)}
-                        disabled={timetableDayOffset === 0}
-                        aria-label="Show earlier timetable days"
-                      >
-                        ◀
-                      </button>
-                      <div className="professor-timetable-day-pills" aria-label="Visible timetable days">
-                        {timetableDays.map((day, index) => (
-                          <button
-                            key={`timetable-day-pill-${day}`}
-                            type="button"
-                            className={`professor-timetable-day-pill ${visibleTimetableDays.includes(day) ? 'is-active' : ''}`}
-                            onClick={() => jumpToTimetableDay(index)}
-                            aria-pressed={visibleTimetableDays.includes(day)}
-                            title={day}
-                          >
-                            {DAY_SHORT[day]}
-                          </button>
-                        ))}
-                      </div>
-                      <button
-                        type="button"
-                        className="professor-timetable-window-btn"
-                        onClick={() => shiftTimetableDays(1)}
-                        disabled={timetableDayOffset >= maxTimetableDayOffset}
-                        aria-label="Show later timetable days"
-                      >
-                        ▶
-                      </button>
-                    </div>
-                  )}
-                  <div className="professor-timetable-scroll">
-                    <div
-                      className={`professor-timetable-grid ${visibleTimetableDays.length === 1 ? 'is-single-day' : ''}`}
-                      style={timetableGridStyle}
-                    >
-                      <div className="professor-timetable-time-col">
-                        <div className="professor-timetable-day-header">Time</div>
-                        <div className="professor-timetable-time-body" style={{ height: `${timetableBodyHeight}px` }}>
-                          {timetableIntervals.map((slot) => (
-                            <div key={`time-${slot}`} className="professor-timetable-time-row">{slot}</div>
-                          ))}
-                          <div className="professor-timetable-time-end">{timeSlots[timeSlots.length - 1]}</div>
-                        </div>
-                      </div>
-
-                      {visibleTimetableDays.map((day) => {
-                        const occurrences = timetableOccurrences[day]
-                        return (
-                          <div key={`timetable-${day}`} className={`professor-timetable-day-col ${day === todayName ? 'is-today' : ''}`}>
-                            <div className="professor-timetable-day-header">{day}</div>
-                            <div className="professor-timetable-day-body" style={{ height: `${timetableBodyHeight}px` }}>
-                              {timetableIntervals.map((_, idx) => (
-                                <div key={`${day}-line-${idx}`} className={`professor-timetable-line ${idx % 2 === 0 ? 'is-strong' : ''}`} />
-                              ))}
-
-                              {day === todayName && currentTimeTop !== null && (
-                                <div className="professor-timetable-now-line" style={{ top: `${currentTimeTop}px` }} />
-                              )}
-
-                              {occurrences.map((occurrence) => {
-                                const start = occurrence.startMinutes ?? TIMETABLE_START
-                                const end = occurrence.endMinutes ?? (start + 60)
-                                const top = ((start - TIMETABLE_START) / SLOT_MINUTES) * SLOT_HEIGHT
-                                const height = Math.max(((end - start) / SLOT_MINUTES) * SLOT_HEIGHT, 32)
-                                const width = 100 / occurrence.laneCount
-                                const left = occurrence.lane * width
-
-                                return (
-                                  <button
-                                    key={`${occurrence.id}-${occurrence.day}`}
-                                    type="button"
-                                    className="professor-timetable-item"
-                                    style={{
-                                      top: `${top}px`,
-                                      height: `${height}px`,
-                                      left: `${left}%`,
-                                      width: `calc(${width}% - 6px)`
-                                    }}
-                                    onClick={() => setSelectedClass(occurrence)}
-                                  >
-                                    <strong>{occurrence.subjectCode}</strong>
-                                    <span>{occurrence.blockCode}</span>
-                                    <small>{occurrence.startTime} - {occurrence.endTime}</small>
-                                    <small>{occurrence.room}</small>
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                </div>
-              )
-            }
-
-            if (noFilterMatches) {
-              return (
-                <div className="professor-empty-state">
-                  <h3>No schedule or event matches your selected filters.</h3>
-                  <p>Try adjusting the filters or a different search query.</p>
-                </div>
-              )
-            }
-
-            return (
-              <div className="professor-empty-state">
-                <h3>No timetable entries</h3>
-                <p>Assign meeting times are not available in your current schedule list.</p>
-              </div>
-            )
-          })()}
-        </div>
-
-        <section className="professor-schedule-event-panel professor-schedule-event-panel-horizontal">
-          <div className="professor-schedule-event-head">
-            <h3>School Calendar of Events</h3>
-            <p>Academic notices affecting teaching schedules.</p>
-          </div>
-
-          {eventModeEnabled ? (
-            <div className="professor-schedule-event-body">
-              <div className="professor-mini-calendar">
-                <div className="professor-mini-calendar-head">
-                  <button type="button" onClick={handlePrevMonth} aria-label="Previous month">◀</button>
-                  <strong>
-                    {calendarMonth.toLocaleString(undefined, { month: 'long' })} {calendarMonth.getFullYear()}
-                  </strong>
-                  <button type="button" onClick={handleNextMonth} aria-label="Next month">▶</button>
-                </div>
-
-                <div className="professor-mini-calendar-row">
-                  {SCHOOL_DAYS.map((day) => (
-                    <span key={`cal-head-${day}`}>{DAY_SHORT[day]}</span>
-                  ))}
-                </div>
-
-                <div className="professor-mini-calendar-grid">
-                  {monthGrid.map((cell, index) => {
-                    if (!cell) {
-                      return <span key={`empty-${index}`} className="professor-mini-calendar-empty" />
-                    }
-
-                    const isActive = calendarDate === cell.date
-                    const classes = [
-                      'professor-mini-calendar-day',
-                      cell.isToday ? 'is-today' : '',
-                      cell.hasEvent ? 'has-event' : '',
-                      isActive ? 'is-active' : ''
-                    ].filter(Boolean).join(' ')
-
-                    return (
-                      <button
-                        type="button"
-                        key={cell.key}
-                        className={classes}
-                        onClick={() => setCalendarDate((prev) => (prev === cell.date ? null : cell.date))}
-                      >
-                        <span className="professor-mini-calendar-date">{cell.day}</span>
-                        {(cell.previews.length > 0 || cell.extraCount > 0) && (
-                          <span className="professor-mini-calendar-dots" aria-hidden="true">
-                            {cell.previews.map((preview) => (
-                              <span
-                                key={preview.id}
-                                className={`professor-mini-calendar-dot tag-${preview.tagClass}`}
-                                title={preview.title}
-                              />
-                            ))}
-                            {cell.extraCount > 0 && (
-                              <span className="professor-mini-calendar-more">+{cell.extraCount}</span>
-                            )}
-                          </span>
-                        )}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-
-              <div className="professor-schedule-event-list">
-                <h4>{eventListTitle}</h4>
-
-                {eventLoading ? (
-                  <p>Loading school events...</p>
-                ) : eventsForActiveDate.length === 0 ? (
-                  <p>{emptyEventListText}</p>
-                ) : (
-                  eventsForActiveDate
-                    .slice(0, 8)
-                    .map((event) => {
-                      const eventTag = event.statusTagClass || 'general'
-                      return (
-                        <button
-                          type="button"
-                          key={event.id}
-                          className="professor-schedule-event-item"
-                          onClick={() => setSelectedEvent(event)}
-                        >
-                          <div className="professor-schedule-event-header">
-                            <span className={`professor-schedule-event-tag tag-${eventTag}`}>{event.statusTag}</span>
-                            <strong>{event.title}</strong>
-                          </div>
-                          <div className="professor-schedule-event-meta">
-                            {event.time} • {event.category}
-                          </div>
-                        </button>
-                      )
-                    })
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="professor-empty-state">
-              <h3>School events hidden</h3>
-              <p>Switch scope to both / events to view calendar events.</p>
-            </div>
-          )}
-        </section>
-      </div>
-
-      {selectedClass && createPortal(
-        <div className="professor-student-modal-backdrop" onClick={() => setSelectedClass(null)}>
-          <div className="professor-student-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
-            <div className="professor-student-modal-header">
-              <h3>Class Details</h3>
-              <button className="professor-btn professor-btn-secondary" type="button" onClick={() => setSelectedClass(null)}>Close</button>
-            </div>
-            <div className="professor-student-modal-content">
-              <div className="professor-student-modal-grid">
-                <div><strong>Subject Code:</strong> {selectedClass.subjectCode}</div>
-                <div><strong>Subject Title:</strong> {selectedClass.subjectTitle}</div>
-                <div><strong>Section / Block:</strong> {selectedClass.blockCode}</div>
-                <div><strong>Schedule:</strong> {formatDaysLabel(selectedClass.days)} • {formatDuration(selectedClass)}</div>
-                <div><strong>Room:</strong> {selectedClass.room}</div>
-                <div><strong>Building / Location:</strong> {selectedClass.building}</div>
-                <div><strong>Class Type:</strong> {selectedClass.classType}</div>
-                <div><strong>Semester:</strong> {selectedClass.semester}</div>
-                <div><strong>School Year:</strong> {selectedClass.schoolYear}</div>
-                <div><strong>Enrolled Students:</strong> {selectedClass.enrolledStudents}</div>
-              </div>
-
-              <div className="professor-schedule-modal-actions">
-                <button className="professor-btn" type="button">View Student Roster</button>
-                <button className="professor-btn professor-btn-secondary" type="button">View Attendance</button>
-                <button className="professor-btn professor-btn-secondary" type="button">View Grades</button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {selectedEvent && createPortal(
-        <div className="professor-student-modal-backdrop" onClick={() => setSelectedEvent(null)}>
-          <div className="professor-student-modal professor-event-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
-            <div className="professor-event-modal-head">
-              <div className="professor-event-modal-title">
-                <span className={`professor-schedule-event-tag tag-${selectedEvent.statusTagClass || 'general'}`}>{selectedEvent.statusTag}</span>
-                <h3>{selectedEvent.title}</h3>
-                <p>{selectedEvent.date} • {selectedEvent.time} • {selectedEvent.category}</p>
-              </div>
-              <button className="professor-btn professor-btn-secondary" type="button" onClick={() => setSelectedEvent(null)}>Close</button>
-            </div>
-            <dl className="professor-event-modal-facts">
-              <div><dt>Date</dt><dd>{selectedEvent.date}</dd></div>
-              <div><dt>Time</dt><dd>{selectedEvent.time}</dd></div>
-              <div><dt>Type</dt><dd>{selectedEvent.category}</dd></div>
-              <div><dt>Day</dt><dd>{selectedEventDay || 'N/A'}</dd></div>
-            </dl>
-            <div className="professor-student-academic">
-              <h4>Description</h4>
-              <p>{selectedEvent.description || 'No description provided.'}</p>
-            </div>
-            <div className="professor-student-academic">
-              <h4>Affected classes</h4>
-              <ul>
-                {(filteredClasses.filter((entry) => {
-                  if (!selectedEventDay) return false
-                  if (entry.days.length === 0) return false
-                  return entry.days.includes(selectedEventDay)
-                })).length === 0 ? (
-                  <li>No directly affected classes identified.</li>
-                ) : (
-                  filteredClasses
-                    .filter((entry) => {
-                      if (!selectedEventDay) return false
-                      if (entry.days.length === 0) return false
-                      return entry.days.includes(selectedEventDay)
-                    })
-                    .map((entry) => (
-                      <li key={`${entry.id}-${selectedEventDay}`}>{entry.subjectCode} • {entry.blockCode}</li>
-                    ))
-                )}
-              </ul>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+      {view === 'month'
+        ? <ScheduleCalendar events={events} onSelectEvent={handleSelectEvent} />
+        : <ScheduleTimeline courses={courses} />}
     </div>
   )
 }

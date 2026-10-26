@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../core/animations/entrance.dart';
+import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_dimensions.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/theme_colors.dart';
+import '../../../../core/widgets/depth.dart';
 import '../providers/auth_controller.dart';
 
 class LoginPage extends ConsumerStatefulWidget {
@@ -55,25 +58,26 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         const Spacer(),
-                        _BrandHeader(colors: colors),
+                        Entrance(child: _BrandHeader(colors: colors)),
                         const SizedBox(height: AppDimensions.lg),
-                        Container(
-                          padding: const EdgeInsets.all(AppDimensions.lg),
-                          decoration: BoxDecoration(
-                            color: colors.surface,
-                            borderRadius: BorderRadius.circular(
-                              AppDimensions.radiusLarge,
-                            ),
-                            border: Border.all(color: colors.border),
+                        Entrance(
+                          order: 1,
+                          child: DepthCard(
+                            padding: const EdgeInsets.all(AppDimensions.lg),
+                            radius: AppDimensions.radiusLarge,
+                            lift: 1.2,
+                            child: _buildForm(authState, colors),
                           ),
-                          child: _buildForm(authState, colors),
                         ),
                         const SizedBox(height: AppDimensions.lg),
-                        Text(
-                          "Need help signing in? Contact the Registrar's Office.",
-                          textAlign: TextAlign.center,
-                          style: AppTextStyles.caption.copyWith(
-                            color: colors.textMuted,
+                        Entrance(
+                          order: 2,
+                          child: Text(
+                            'Need help signing in? Contact the Registrar\'s Office.',
+                            textAlign: TextAlign.center,
+                            style: AppTextStyles.caption.copyWith(
+                              color: colors.textMuted,
+                            ),
                           ),
                         ),
                         const SizedBox(height: AppDimensions.sm),
@@ -106,7 +110,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           ),
           const SizedBox(height: AppDimensions.lg),
           if (authState.errorMessage != null) ...[
-            _ErrorBanner(message: authState.errorMessage!, colors: colors),
+            Entrance(child: _ErrorBanner(message: authState.errorMessage!, colors: colors)),
             const SizedBox(height: AppDimensions.md),
           ],
           Text(
@@ -151,8 +155,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       ? Icons.visibility_outlined
                       : Icons.visibility_off_outlined,
                 ),
-                onPressed: () =>
-                    setState(() => _obscurePassword = !_obscurePassword),
+                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
               ),
             ),
             validator: (value) =>
@@ -160,21 +163,51 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             onFieldSubmitted: (_) => _submit(),
           ),
           const SizedBox(height: AppDimensions.lg),
-          SizedBox(
-            height: AppDimensions.buttonHeightLarge,
-            child: FilledButton(
-              onPressed: authState.isSubmitting ? null : _submit,
-              style: FilledButton.styleFrom(
-                backgroundColor: colors.primary,
-                foregroundColor: colors.onPrimary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(
-                    AppDimensions.radiusMedium,
-                  ),
-                ),
-              ),
+          _gradientSignInButton(authState),
+          const SizedBox(height: AppDimensions.md),
+          _googleSignInButton(authState),
+        ],
+      ),
+    );
+  }
+
+  /// Raised gradient sign-in button with a press "dip" (PressableScale).
+  Widget _gradientSignInButton(AuthState authState) {
+    return PressableScale(
+      onTap: authState.isSubmitting ? null : _submit,
+      pressScale: .97,
+      child: Ink(
+        height: AppDimensions.buttonHeightLarge,
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [AppColors.primaryHover, AppColors.primary],
+          ),
+          borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+          border: Border.all(color: Colors.white.withValues(alpha: .1)),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.shadow.withValues(alpha: .3),
+              blurRadius: 12,
+              offset: const Offset(0, 5),
+            ),
+            BoxShadow(
+              color: Colors.white.withValues(alpha: .05),
+              blurRadius: 2,
+              offset: const Offset(-2, -2),
+            ),
+          ],
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+          onTap: authState.isSubmitting ? null : _submit,
+          child: Center(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
               child: authState.isSubmitting
                   ? const SizedBox(
+                      key: ValueKey('spinner'),
                       width: AppDimensions.progressIndicatorSize,
                       height: AppDimensions.progressIndicatorSize,
                       child: CircularProgressIndicator(
@@ -184,11 +217,64 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     )
                   : const Text(
                       'Sign in',
-                      style: TextStyle(fontWeight: FontWeight.w700),
+                      key: ValueKey('label'),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
                     ),
             ),
           ),
-        ],
+        ),
+      ),
+    );
+  }
+
+  /// Google sign-in button.
+  Widget _googleSignInButton(AuthState authState) {
+    return PressableScale(
+      onTap: authState.isSubmitting ? null : () => ref.read(authControllerProvider.notifier).loginWithGoogle(),
+      pressScale: .97,
+      child: Container(
+        height: AppDimensions.buttonHeightLarge,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: .1),
+          borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+          border: Border.all(color: Colors.white.withValues(alpha: .2)),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.shadow.withValues(alpha: .2),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+          onTap: authState.isSubmitting ? null : () => ref.read(authControllerProvider.notifier).loginWithGoogle(),
+          child: Padding(
+            padding: const EdgeInsets.all(AppDimensions.md),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset(
+                  'assets/images/google_logo.png',
+                  width: 28,
+                  height: 28,
+                  errorBuilder: (context, error, stackTrace) => const Icon(Icons.g_mobiledata, size: 28, color: Colors.red),
+                ),
+                const SizedBox(width: AppDimensions.sm),
+                const Text(
+                  'Sign in with Google',
+                  style: TextStyle(
+                    color: Colors.black87,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -202,20 +288,37 @@ class _BrandHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
+        // Soft-3D logo tile: gold gradient face, warm drop shadow, rim light.
         Container(
-          width: 56,
-          height: 56,
-          padding: const EdgeInsets.all(5),
+          width: 64,
+          height: 64,
+          padding: const EdgeInsets.all(7),
           decoration: BoxDecoration(
-            color: colors.surface,
-            borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
-            border: Border.all(color: colors.border),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [AppColors.goldSoft, AppColors.goldLight],
+            ),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white.withValues(alpha: .55)),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.goldLight.withValues(alpha: .4),
+                blurRadius: 14,
+                offset: const Offset(3, 6),
+              ),
+              BoxShadow(
+                color: Colors.white.withValues(alpha: .5),
+                blurRadius: 3,
+                offset: const Offset(-2, -2),
+              ),
+            ],
           ),
           child: Image.asset(
             'assets/images/logo.png',
             fit: BoxFit.contain,
             errorBuilder: (context, error, stackTrace) =>
-                Icon(Icons.school, color: colors.primary),
+                Icon(Icons.school, color: AppColors.primary),
           ),
         ),
         const SizedBox(width: AppDimensions.md),
@@ -233,9 +336,16 @@ class _BrandHeader extends StatelessWidget {
               ),
               const SizedBox(height: 3),
               Text(
-                'Student Portal',
+                'WccPortal',
                 style: AppTextStyles.headlineMedium.copyWith(
                   color: colors.textBold,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Student Portal',
+                style: AppTextStyles.bodySmall.copyWith(
+                  color: colors.textSecondary,
                 ),
               ),
             ],

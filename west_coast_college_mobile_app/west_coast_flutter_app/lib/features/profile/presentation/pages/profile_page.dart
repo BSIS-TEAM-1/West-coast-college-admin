@@ -635,7 +635,7 @@ class _LogoutButton extends ConsumerWidget {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Log Out'),
-        content: const Text('Are you sure you want to log out of WCConnect?'),
+        content: const Text('Are you sure you want to log out of WccPortal?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),

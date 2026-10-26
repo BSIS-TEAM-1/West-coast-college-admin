@@ -5,7 +5,6 @@ import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/theme_colors.dart';
 import '../../domain/entities/profile_entity.dart';
 import '../providers/profile_controller.dart';
-import 'package:go_router/go_router.dart';
 
 class EditProfilePage extends ConsumerStatefulWidget {
   const EditProfilePage({super.key, required this.profile});
@@ -387,7 +386,7 @@ class _DropdownField extends StatelessWidget {
           Text(label, style: AppTextStyles.labelMedium.copyWith(color: colors.textSecondary)),
           const SizedBox(height: 4),
           DropdownButtonFormField<String>(
-            value: value,
+            initialValue: value,
             decoration: InputDecoration(
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppDimensions.radiusSmall)),
               filled: true,

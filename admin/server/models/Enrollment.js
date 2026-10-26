@@ -326,6 +326,17 @@ const enrollmentSchema = new Schema({
     dateVerified: Date
   }],
   
+  // Program shift provenance. A program shift CLOSES the old enrollment
+  // instead of deleting it, so every subject, grade and drop record stays
+  // readable. This field records where the student moved to, and is what the
+  // Enrollment History UI uses to label the old program's subjects.
+  shiftedTo: {
+    course: { type: Number, default: null },
+    programLabel: { type: String, trim: true, default: null },
+    shiftedAt: { type: Date, default: null },
+    reason: { type: String, trim: true, default: null },
+  },
+
   // System Information
   createdBy: {
     type: Schema.Types.ObjectId,
