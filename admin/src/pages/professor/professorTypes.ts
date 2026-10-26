@@ -41,6 +41,7 @@ export interface ProfessorAssignedSubject {
   schedule: string
   room: string
   enrolledStudents: number
+  studentIds?: string[]
 }
 
 export interface ProfessorAssignedBlock {
@@ -149,4 +150,4 @@ export interface ProfessorRosterStudent extends Omit<ProfessorAssignedStudent, '
 
 export type RosterSortBy = 'name-asc' | 'name-desc' | 'id-asc' | 'id-desc'
 
-export type ProfessorView = 'courses' | 'students' | 'grades' | 'schedule' | 'profile' | 'settings' | 'personal-details' | 'subject-detail'
+export type ProfessorView = 'courses' | 'students' | 'grades' | 'schedule' | 'evaluations' | 'profile' | 'settings' | 'personal-details' | 'subject-detail'

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, LogOut, Menu, Monitor, Moon, Settings, Sun, User, UserCircle } from 'lucide-react'
 import { applyThemePreference, getStoredTheme, resolveTheme, type ThemePreference } from '../lib/theme'
-import { getAcademicTerm } from '../lib/settingsApi'
+import { getAcademicTerm, subscribeAcademicTerm } from '../lib/settingsApi'
 import './Navbar.css'
 
 type NavbarProps = {
@@ -40,15 +40,21 @@ export default function Navbar({
 
   useEffect(() => {
     let cancelled = false
+    const formatTerm = (term: { semester: string; schoolYear: string }) =>
+      `${term.semester} Sem · S.Y. ${term.schoolYear}`
     getAcademicTerm()
       .then((term) => {
-        if (!cancelled) setSchoolYearLabel(`${term.semester} Sem · S.Y. ${term.schoolYear}`)
+        if (!cancelled) setSchoolYearLabel(formatTerm(term))
       })
       .catch(() => {
         // Leave blank if the setting can't be loaded.
       })
+    const unsubscribe = subscribeAcademicTerm((term) => {
+      if (!cancelled) setSchoolYearLabel(formatTerm(term))
+    })
     return () => {
       cancelled = true
+      unsubscribe()
     }
   }, [])
 

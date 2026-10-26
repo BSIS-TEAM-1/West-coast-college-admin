@@ -27,6 +27,7 @@ import {
   X
 } from 'lucide-react'
 import { API_URL, getStoredToken } from '../lib/authApi'
+import { getAcademicTerm } from '../lib/settingsApi'
 import StudentService from '../lib/studentApi'
 import type { StudentData } from '../lib/studentApi'
 import type { WizardFormData } from './AddStudent/types'
@@ -1364,6 +1365,20 @@ function EnrollmentModal({
   const academicContext = useMemo(() => getSharedAcademicContext(students), [students])
   const [schoolYear, setSchoolYear] = useState(academicContext.sharedSchoolYear || getDefaultSchoolYear())
   const [semester, setSemester] = useState<Semester>((academicContext.sharedSemester as Semester) || '1st')
+
+  useEffect(() => {
+    let cancelled = false
+    getAcademicTerm()
+      .then((term) => {
+        if (cancelled || !term?.schoolYear) return
+        if (!academicContext.sharedSchoolYear) setSchoolYear(term.schoolYear)
+        if (!academicContext.sharedSemester) setSemester(term.semester)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [academicContext.sharedSchoolYear, academicContext.sharedSemester])
   const [subjects, setSubjects] = useState<SubjectCatalogItem[]>([])
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([])
   const [loadingSubjects, setLoadingSubjects] = useState(false)

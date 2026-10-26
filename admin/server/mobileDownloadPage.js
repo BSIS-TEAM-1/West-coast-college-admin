@@ -32,12 +32,12 @@ function readAppVersion(flutterAppDir) {
  * keeps working: scan -> this page -> tap Download.
  */
 function renderMobileDownloadPage({ available, fileName, fileSize, appVersion }) {
-  const safeFile = escapeHtml(fileName || 'WCConnect.apk');
+  const safeFile = escapeHtml(fileName || 'WCConnect-arm64.apk');
   const safeSize = escapeHtml(fileSize || '');
   const safeVersion = escapeHtml(appVersion || '');
   const statusBlock = available
-    ? `<a class="dl-btn" href="/download-apk/file" download>Download for Android${safeSize ? ` (${safeSize})` : ''}</a>
-       <p class="dl-meta">${safeFile}${safeVersion ? ` &bull; v${safeVersion}` : ''}</p>`
+    ? `<a class="dl-btn" href="/download-apk/file" download="${safeFile}">Download for Android ARM64${safeSize ? ` (${safeSize})` : ''}</a>
+       <p class="dl-meta">${safeFile} &bull; ARM64 (arm64-v8a)${safeVersion ? ` &bull; v${safeVersion}` : ''}</p>`
     : `<div class="dl-notice" role="status">No app build is published yet. Please ask the Registrar's Office or try again later.</div>`;
 
   return `<!doctype html>

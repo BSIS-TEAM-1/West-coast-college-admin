@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle, ChevronLeft, ChevronRight, RotateCcw, Trash2 } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
-import { formatBlockColumnLabel, formatBlockLabel, schoolYearFromStartYear } from '../../lib/blockAssignmentShared'
+import { formatBlockColumnLabel, formatBlockLabel, getDefaultSchoolYear, schoolYearFromStartYear } from '../../lib/blockAssignmentShared'
+import { getAcademicTerm } from '../../lib/settingsApi'
 import type { BlockGroup, BlockSection, CurriculumSubject, Semester, SubjectItem } from './registrarBlockTypes'
 
 type BlockSubjectAssignment = {
@@ -94,10 +95,23 @@ const describeHttpError = (status: number, path: string, data: any) => {
 }
 
 function AssignSubjectPage() {
-  const currentYear = new Date().getFullYear()
   const [wizardStep, setWizardStep] = useState<WizardStep>(1)
-  const [academicYear, setAcademicYear] = useState(`${currentYear}-${currentYear + 1}`)
+  const [academicYear, setAcademicYear] = useState(getDefaultSchoolYear())
   const [semester, setSemester] = useState<Semester>('1st')
+
+  useEffect(() => {
+    let cancelled = false
+    getAcademicTerm()
+      .then((term) => {
+        if (cancelled || !term?.schoolYear) return
+        setAcademicYear(term.schoolYear)
+        setSemester(term.semester)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const [course, setCourse] = useState('')
   const [yearLevel, setYearLevel] = useState('')
   const [blockGroups, setBlockGroups] = useState<BlockGroup[]>([])

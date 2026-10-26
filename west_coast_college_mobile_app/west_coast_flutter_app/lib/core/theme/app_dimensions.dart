@@ -20,7 +20,7 @@ class AppDimensions {
   static const double inputBorderRadius = 10.0;
 
   // Navigation
-  static const double bottomNavHeight = 64.0;
+  static const double bottomNavHeight = 76.0;
   static const double appBarHeight = 52.0;
   static const double tabBarHeight = 48.0;
 

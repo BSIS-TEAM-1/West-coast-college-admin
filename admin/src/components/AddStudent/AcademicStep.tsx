@@ -190,10 +190,14 @@ export default function AcademicStep({ data, onChange, errors }: AcademicStepPro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTerm])
 
+  const baseYear = currentTerm?.schoolYear
+    ? Number(currentTerm.schoolYear.split('-')[0]) || currentYear
+    : currentYear
+
   const schoolYearOptions = Array.from(new Set([
-    `${currentYear - 1}-${currentYear}`,
-    `${currentYear}-${currentYear + 1}`,
-    `${currentYear + 1}-${currentYear + 2}`,
+    `${baseYear - 1}-${baseYear}`,
+    `${baseYear}-${baseYear + 1}`,
+    `${baseYear + 1}-${baseYear + 2}`,
     ...(currentTerm ? [currentTerm.schoolYear] : [])
   ])).sort()
 

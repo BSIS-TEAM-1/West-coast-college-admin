@@ -22,6 +22,7 @@ class ApiConstants {
   static const String studentSchedule = '/student/schedule';
   static const String studentScheduleWeekly = '/student/schedule/weekly';
   static const String studentGrades = '/student/grades';
+  static const String studentEvaluations = '/student/evaluations';
   static const String studentCor = '/student/cor';
   static const String studentDocuments = '/student/documents';
   static const String studentAnnouncements = '/student/announcements';

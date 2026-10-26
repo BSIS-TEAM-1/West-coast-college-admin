@@ -4,7 +4,7 @@ import {
   ChevronDown, ChevronRight, Download, GraduationCap, History, RefreshCw, RotateCcw, Search,
   Users, AlertTriangle, Filter, X,
 } from 'lucide-react'
-import { getAcademicTerm, type AcademicSemester, type AcademicTerm } from '../../lib/settingsApi'
+import { getAcademicTerm, notifyAcademicTermChanged, type AcademicSemester, type AcademicTerm } from '../../lib/settingsApi'
 import { formatGrade } from '../../lib/gradingScale'
 import {
   executeRollover,
@@ -210,6 +210,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
    */
   const applyDefaultsForActiveTerm = (term: AcademicTerm) => {
     setActiveTerm(term)
+    notifyAcademicTermChanged(term)
     setFromSchoolYear(term.schoolYear)
     if (term.semester === '1st') {
       setToSchoolYear(term.schoolYear)

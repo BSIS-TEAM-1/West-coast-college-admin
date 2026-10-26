@@ -236,7 +236,6 @@ function ProfessorSubjectDetail({ detail, onBack, onOpenRosterClass, onOpenGrade
           <article className="professor-subject-stat-card">
             <span className="professor-subject-stat-icon"><Users size={18} /></span>
             <div>
-              <span>Enrolled Students</span>
               <strong>{detail.subject.enrolledStudents}</strong>
             </div>
           </article>

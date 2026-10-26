@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Users, Blocks, FolderOpen, UserPlus, Plus, TrendingUp, LayoutGrid, List, Archive, ClipboardCheck, CheckCircle2, ChevronDown } from 'lucide-react'
+import { User, Settings as SettingsIcon, BookOpen, FileText, GraduationCap, Bell, Users, Blocks, FolderOpen, UserPlus, Plus, TrendingUp, LayoutGrid, List, Archive, ClipboardCheck, CheckCircle2, ChevronDown, MessageSquare } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
@@ -27,6 +27,7 @@ import SubjectManagementPage from './registrar/SubjectManagementPage'
 import CurriculumManagementLayout from './registrar/CurriculumManagementLayout'
 import CurriculumDetailsPage from './registrar/CurriculumDetailsPage'
 import GradeSubmissionReviewPage from './registrar/GradeSubmissionReviewPage'
+import EvaluationManagementPage from './registrar/EvaluationManagementPage'
 import DocumentManagementPage from './registrar/DocumentManagementPage'
 import StudentWizard from '../components/AddStudent/StudentWizard'
 import './RegistrarDashboard.css'
@@ -41,7 +42,7 @@ type BlockWorkspaceSelection = {
   initialSectionId?: string | null
 }
 
-type RegistrarView = 'applicants' | 'students' | 'add-student' | 'courses' | 'course-workspace' | 'block-overview' | 'block-management' | 'assign-block' | 'view-blocks' | 'block-workspace' | 'school-year-rollover' | 'student-history' | 'shift-student' | 'subject-management' | 'add-subject' | /* 'assign-subject' | */ 'curriculum-management' | 'curriculum-overview' | 'curriculum-create' | 'curriculum-archived' | 'curriculum-details' | 'grade-submissions' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
+type RegistrarView = 'applicants' | 'students' | 'add-student' | 'courses' | 'course-workspace' | 'block-overview' | 'block-management' | 'assign-block' | 'view-blocks' | 'block-workspace' | 'school-year-rollover' | 'student-history' | 'shift-student' | 'subject-management' | 'add-subject' | /* 'assign-subject' | */ 'curriculum-management' | 'curriculum-overview' | 'curriculum-create' | 'curriculum-archived' | 'curriculum-details' | 'grade-submissions' | 'evaluations' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
 
 type RegistrarDashboardProps = {
   username: string
@@ -68,6 +69,7 @@ const REGISTRAR_NAV_SECTIONS: { label: string; items: RegistrarNavItem[] }[] = [
       { id: 'subject-management', label: 'Subject Catalog', icon: BookOpen },
       { id: 'courses', label: 'Professor Loads', icon: BookOpen },
       { id: 'grade-submissions', label: 'Grade Submissions', icon: ClipboardCheck },
+      { id: 'evaluations', label: 'Evaluation Management', icon: MessageSquare },
       { id: 'cor-docs', label: 'COR Generation', icon: CheckCircle2 },
     ],
   },
@@ -252,6 +254,8 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
         return curriculumDetailId ? <CurriculumDetailsPage curriculumId={curriculumDetailId} onBack={() => setView('curriculum-management')} /> : null
       case 'grade-submissions':
         return <GradeSubmissionReviewPage onBack={() => setView('applicants')} />
+      case 'evaluations':
+        return <EvaluationManagementPage />
       case 'documents':
         return <DocumentManagementPage />
       case 'reports':

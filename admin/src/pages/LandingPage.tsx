@@ -16,6 +16,7 @@ type LandingPageProps = {
   onOpenSignIn: () => void
   onOpenApplicantPortal: () => void
   onOpenTransfereePortal: () => void
+  onOpenDownloadApp: () => void
 }
 
 type LandingVideoItem = {
@@ -381,7 +382,8 @@ export default function LandingPage({
   onOpenCookieSystem,
   onOpenSignIn,
   onOpenApplicantPortal,
-  onOpenTransfereePortal
+  onOpenTransfereePortal,
+  onOpenDownloadApp
 }: LandingPageProps) {
   const [theme, setTheme] = useState<ThemePreference>(() => getStoredTheme(null))
   const [isApplyModalOpen, setIsApplyModalOpen] = useState(false)
@@ -934,7 +936,16 @@ export default function LandingPage({
                 <article className="landing-news-card h-100">
                   <span className="landing-section-kicker">Mobile App</span>
                   <h3>Download the WestConnect mobile app for students.</h3>
-                  <a href="/download-apk" className="landing-gold-btn" download>Download APK</a>
+                  <a
+                    href="/download-apk"
+                    className="landing-gold-btn"
+                    onClick={event => {
+                      event.preventDefault()
+                      onOpenDownloadApp()
+                    }}
+                  >
+                    Download APK
+                  </a>
                 </article>
               </div>
             </div>
@@ -1096,6 +1107,7 @@ export default function LandingPage({
                 <div className="col-6">
                   <ul className="landing-footer-link-list">
                     <li><a href="#about">Vision &amp; Mission</a></li>
+                    <li><button type="button" onClick={onOpenDownloadApp}>Download Android App</button></li>
                   </ul>
                 </div>
               </div>

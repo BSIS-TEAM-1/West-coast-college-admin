@@ -252,9 +252,12 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
 
         const targetContexts = rosterTargets.flatMap((target) => {
           const matchedSubjectContext = selectedClass?.sectionId === target.sectionId ? selectedClass : null
+          // Without a specific class selected, load every subject in the block so
+          // students not enrolled in the first subject are still included. This
+          // keeps the total consistent with the My Courses student count.
           const subjectContexts = matchedSubjectContext
             ? [matchedSubjectContext]
-            : (target.subjects.length > 0 ? [target.subjects[0]] : [])
+            : target.subjects
 
           return subjectContexts.map((subjectContext) => ({
             target,
@@ -341,7 +344,8 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
           ? normalized
           : Array.from(
               normalized.reduce((rowsByStudent, row) => {
-                const key = `${row.classSectionCode || ''}|${row._id || row.studentNumber}`
+                // Dedupe by student across all blocks/subjects so each student is counted once.
+                const key = row._id || String(row.studentNumber)
                 if (!rowsByStudent.has(key)) {
                   rowsByStudent.set(key, row)
                 }

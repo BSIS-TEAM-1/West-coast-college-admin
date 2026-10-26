@@ -5,15 +5,21 @@ function stripTrailingSlashes(url: string): string {
 }
 
 function resolveApiUrl(): string {
-  if (rawApiUrl) return stripTrailingSlashes(rawApiUrl)
-
   if (typeof window !== 'undefined') {
     const { origin, hostname } = window.location
     const localHosts = new Set(['localhost', '127.0.0.1', '::1'])
-    if (!localHosts.has(hostname)) {
+    if (localHosts.has(hostname)) {
+      if (rawApiUrl && /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(\/|$)/i.test(rawApiUrl)) {
+        return stripTrailingSlashes(rawApiUrl)
+      }
+      return 'http://localhost:3001'
+    }
+    if (origin && origin !== 'null') {
       return stripTrailingSlashes(origin)
     }
   }
+
+  if (rawApiUrl) return stripTrailingSlashes(rawApiUrl)
 
   return 'http://localhost:3001'
 }

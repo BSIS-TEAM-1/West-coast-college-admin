@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { User, Settings as SettingsIcon, BookOpen, GraduationCap, AlertCircle, Calendar, Award } from 'lucide-react'
+import { User, Settings as SettingsIcon, BookOpen, GraduationCap, AlertCircle, Calendar, Award, MessageSquare } from 'lucide-react'
 import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
@@ -12,6 +12,7 @@ import GradesManagement from './professor/GradesManagement'
 import ProfessorSubjectDetail from './professor/ProfessorSubjectDetail'
 import ScheduleManagement from './professor/ScheduleManagement'
 import StudentManagement from './professor/StudentManagement'
+import ProfessorEvaluationsPage from './professor/ProfessorEvaluationsPage'
 import type { ProfessorAssignedBlock, ProfessorAssignedCourse, ProfessorSubjectDetailState, ProfessorView } from './professor/professorTypes'
 import { buildReconnectMessage } from './professor/professorUtils'
 import './ProfessorDashboard.css'
@@ -29,6 +30,7 @@ const PROFESSOR_NAV_ITEMS: { id: ProfessorView; label: string; icon: any }[] = [
   { id: 'students', label: 'Students', icon: GraduationCap },
   { id: 'grades', label: 'Grades', icon: Award },
   { id: 'schedule', label: 'Schedule', icon: Calendar },
+  { id: 'evaluations', label: 'Evaluations', icon: MessageSquare },
   { id: 'profile', label: 'Profile', icon: User },
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
 ]
@@ -291,6 +293,8 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
             onRefresh={fetchAssignedCourses}
           />
         )
+      case 'evaluations':
+        return <ProfessorEvaluationsPage />
       case 'profile':
         return <Profile onProfileUpdated={handleProfileUpdated} onNavigate={(viewName) => {
           if (viewName === 'personal-details') {

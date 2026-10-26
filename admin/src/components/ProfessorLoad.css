@@ -692,7 +692,7 @@
 .registrar-professor-list-row-active {
   border-color: color-mix(in srgb, var(--color-primary) 44%, var(--color-border));
   box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
-  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
 }
 
 .registrar-professor-list-head,
