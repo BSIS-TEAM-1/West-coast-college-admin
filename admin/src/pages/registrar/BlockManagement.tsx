@@ -5,7 +5,6 @@ import {
   authorizedFetch,
   COURSE_OPTIONS as blockCourseOptions
 } from '../../lib/blockAssignmentShared'
-import { getAcademicTerm } from '../../lib/settingsApi'
 import '../BlockManagement.css'
 
 type BlockManagementProps = {
