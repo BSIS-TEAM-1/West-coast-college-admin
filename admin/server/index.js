@@ -3740,6 +3740,7 @@ async function studentAuthMiddleware(req, res, next) {
     }
 
     req.student = student
+    req.studentId = student._id
     next()
   } catch (error) {
     return res.status(401).json({ error: 'Invalid or expired token.' })
@@ -4768,13 +4769,14 @@ app.post('/api/student/google-login', async (req, res) => {
 // GET /api/student/re-enrollment/verification - get current re-enrollment verification for student (in-app OTP)
 async function handleGetStudentReEnrollmentVerification(req, res) {
   try {
-    console.log('[STUDENT OTP VERIFICATION] Request received', { studentId: req.studentId, query: req.query })
+    const studentId = req.studentId || req.student?._id
+    console.log('[STUDENT OTP VERIFICATION] Request received', { studentId, query: req.query })
     const reEnrollmentVerificationService = require('./services/reEnrollmentVerificationService')
     const ReEnrollmentVerification = require('./models/ReEnrollmentVerification')
     const Student = require('./models/Student')
-    const student = await Student.findById(req.studentId).select('email contactNumber').lean()
+    const student = req.student || await Student.findById(studentId).select('email contactNumber').lean()
     if (!student) {
-      console.log('[STUDENT OTP VERIFICATION] Student not found:', req.studentId)
+      console.log('[STUDENT OTP VERIFICATION] Student not found:', studentId)
       return res.status(404).json({ success: false, message: 'Student not found' })
     }
     console.log('[STUDENT OTP VERIFICATION] Student found:', student.email)
@@ -4785,7 +4787,7 @@ async function handleGetStudentReEnrollmentVerification(req, res) {
     let record = null
     if (querySy && querySem) {
       record = await ReEnrollmentVerification.findOne({
-        studentId: req.studentId,
+        studentId,
         schoolYear: querySy,
         semester: querySem,
       }).lean()
@@ -4794,7 +4796,7 @@ async function handleGetStudentReEnrollmentVerification(req, res) {
     // If not found by explicit query, search for the most recent active code (not consumed, not expired)
     if (!record) {
       record = await ReEnrollmentVerification.findOne({
-        studentId: req.studentId,
+        studentId,
         codeExpiresAt: { $gt: new Date() },
         consumedAt: null,
       }).sort({ lastSentAt: -1, createdAt: -1 }).lean()
@@ -4803,7 +4805,7 @@ async function handleGetStudentReEnrollmentVerification(req, res) {
     // If still no active code, check the active term
     if (!record) {
       record = await ReEnrollmentVerification.findOne({
-        studentId: req.studentId,
+        studentId,
         schoolYear: active.schoolYear,
         semester: active.semester,
       }).lean()
@@ -4812,7 +4814,7 @@ async function handleGetStudentReEnrollmentVerification(req, res) {
     // Fall back to most recent record overall for this student
     if (!record) {
       record = await ReEnrollmentVerification.findOne({
-        studentId: req.studentId,
+        studentId,
       }).sort({ lastSentAt: -1, createdAt: -1 }).lean()
     }
 
@@ -4855,17 +4857,18 @@ app.get('/student/re-enrollment/verification', studentAuthMiddleware, handleGetS
 // POST /api/student/send-re-enrollment-code - student requests code to see it in mobile app
 async function handleSendStudentReEnrollmentCode(req, res) {
   try {
+    const studentId = req.studentId || req.student?._id
     console.log('[STUDENT OTP] Send re-enrollment code request received', {
-      studentId: req.studentId,
+      studentId,
       body: req.body
     })
     const reEnrollmentVerificationService = require('./services/reEnrollmentVerificationService')
     const Student = require('./models/Student')
-    const student = await Student.findById(req.studentId)
+    const student = req.student || await Student.findById(studentId)
       .select('studentNumber firstName middleName lastName suffix email contactNumber')
       .lean()
     if (!student) {
-      console.log('[STUDENT OTP] Student not found:', req.studentId)
+      console.log('[STUDENT OTP] Student not found:', studentId)
       return res.status(404).json({ success: false, message: 'Student not found' })
     }
     console.log('[STUDENT OTP] Student found:', student.studentNumber, student.email)
@@ -4917,10 +4920,11 @@ app.post('/student/send-re-enrollment-code', studentAuthMiddleware, handleSendSt
 // POST /api/student/verify-re-enrollment-code - student verifies code in app
 async function handleVerifyStudentReEnrollmentCode(req, res) {
   try {
+    const studentId = req.studentId || req.student?._id
     const reEnrollmentVerificationService = require('./services/reEnrollmentVerificationService')
     const ReEnrollmentVerification = require('./models/ReEnrollmentVerification')
     const Student = require('./models/Student')
-    const student = await Student.findById(req.studentId).select('email contactNumber').lean()
+    const student = req.student || await Student.findById(studentId).select('email contactNumber').lean()
     if (!student) return res.status(404).json({ success: false, message: 'Student not found' })
     let schoolYear = String(req.body?.schoolYear || '').trim()
     let semester = String(req.body?.semester || '').trim()
@@ -4930,7 +4934,7 @@ async function handleVerifyStudentReEnrollmentCode(req, res) {
     }
     if (!schoolYear || !semester) {
       const activeRecord = await ReEnrollmentVerification.findOne({
-        studentId: req.studentId,
+        studentId,
         codeExpiresAt: { $gt: new Date() },
         consumedAt: null,
       }).sort({ lastSentAt: -1, createdAt: -1 }).lean()
@@ -4944,7 +4948,7 @@ async function handleVerifyStudentReEnrollmentCode(req, res) {
       }
     }
     const result = await reEnrollmentVerificationService.verifyCode({
-      studentId: req.studentId,
+      studentId,
       schoolYear,
       semester,
       code,
