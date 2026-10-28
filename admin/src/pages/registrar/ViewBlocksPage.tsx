@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Pencil, Save, Trash2, X } from 'lucide-react'
 import type { BlockGroup, BlockSection, BlockWorkspaceSelection } from './registrarBlockTypes'
-import BlockStatusBadge from '../../components/BlockStatusBadge'
 import CapacityIndicator from '../../components/CapacityIndicator'
 import {
   authorizedFetch,
@@ -591,7 +590,6 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
                           {courseFullLabel(getCourseAbbreviation(selectedGroup.name))}
                         </span>
                       </div>
-                      <BlockStatusBadge status="OPEN" size="md" />
                     </div>
                     <div className="block-detail-group-meta">
                       <span>{selectedYearLevel ? `Year ${selectedYearLevel}` : 'No year level'}</span>
@@ -645,7 +643,6 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
                                 <span className="block-detail-section-tag">Section</span>
                                 <strong>{sectionLabel}</strong>
                               </div>
-                              <BlockStatusBadge status={(section.status || 'OPEN') as 'OPEN' | 'CLOSED'} size="sm" showIcon={false} />
                             </div>
                             {editingSectionId === section._id ? (
                               <div className="block-detail-section-edit">

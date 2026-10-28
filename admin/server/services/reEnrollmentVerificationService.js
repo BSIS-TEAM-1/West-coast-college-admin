@@ -188,7 +188,6 @@ function serializeVerification(record, email, phone = '', { includeCode = false 
       codeExpiresAt: null,
       verifiedAt: null,
       verificationExpiresAt: null,
-      inAppCode: null,
     };
   }
 
@@ -198,9 +197,6 @@ function serializeVerification(record, email, phone = '', { includeCode = false 
     && !record.consumedAt;
   const codeLive = record.codeExpiresAt && new Date(record.codeExpiresAt).getTime() > now;
   const status = verificationLive ? 'verified' : codeLive ? 'sent' : 'expired';
-  const inAppCode = (includeCode && codeLive && !verificationLive && !record.consumedAt)
-    ? (record.inAppCode || null)
-    : null;
 
   return {
     status,
@@ -211,7 +207,6 @@ function serializeVerification(record, email, phone = '', { includeCode = false 
     codeExpiresAt: record.codeExpiresAt || null,
     verifiedAt: record.verifiedAt || null,
     verificationExpiresAt: record.verificationExpiresAt || null,
-    inAppCode,
   };
 }
 
@@ -270,17 +265,12 @@ async function sendCode({ student, schoolYear, semester, actorId = null, returnC
     }
   }
 
-  if (sentVia.length === 0) {
-    sentVia.push('app');
-  }
-
   const record = await ReEnrollmentVerification.findOneAndUpdate(
     { studentId: student._id, schoolYear, semester },
     {
       $set: {
         codeHash,
         codeExpiresAt,
-        inAppCode: code,
         attempts: 0,
         lastSentAt: now,
         sentVia,
@@ -300,10 +290,8 @@ async function sendCode({ student, schoolYear, semester, actorId = null, returnC
     expiresAt: codeExpiresAt,
     verification: serializeVerification(record, email, phone, { includeCode: returnCode }),
   };
-  
   if (returnCode) {
     response.code = code;
-    response.inAppCode = code;
   }
   
   return response;
@@ -379,7 +367,6 @@ async function verifyCode({ studentId, schoolYear, semester, code, studentEmail 
       $set: {
         verifiedAt: now,
         verificationExpiresAt,
-        inAppCode: null,
         attempts: 0,
         lastSentAt: record.lastSentAt || now,
       },
@@ -424,7 +411,7 @@ async function findVerifiedEnrollment({ studentId, schoolYear, semester, session
 async function consumeVerification({ id, session }) {
   const query = ReEnrollmentVerification.updateOne(
     { _id: id, consumedAt: null },
-    { $set: { consumedAt: new Date(), inAppCode: null } }
+    { $set: { consumedAt: new Date() } }
   );
   if (session) query.session(session);
   return query;

@@ -3784,10 +3784,10 @@ function parseScheduleDayCodes(dayPart) {
 function normalizeTimeStringTo24h(raw) {
   const trimmed = String(raw || '').trim()
   if (!trimmed) return ''
-  const ampmMatch = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
+  const ampmMatch = trimmed.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i)
   if (ampmMatch) {
     let hour = parseInt(ampmMatch[1], 10)
-    const min = ampmMatch[2]
+    const min = ampmMatch[2] || '00'
     const meridiem = ampmMatch[3].toUpperCase()
     if (meridiem === 'PM' && hour < 12) hour += 12
     if (meridiem === 'AM' && hour === 12) hour = 0
@@ -3812,40 +3812,32 @@ function parseScheduleString(schedule) {
   }
 }
 
-// Parse schedule into per-day entries. Handles both classic ("MW 07:30-09:00")
-// and per-day ("M 07:30-09:00 @ Room 205 / W 13:00-14:30 @ Lab 3") formats,
-// as well as 12-hour AM/PM formats ("M 1:30 PM - 4:00 PM @ room1").
+// Parse schedule into per-day entries. Handles classic ("MW 07:30-09:00"),
+// per-day multi-segment ("M 07:30-09:00 @ Room 205 / W 13:00-14:30 @ Lab 3"),
+// and single-day with/without room ("M 1:30 PM - 4:00 PM @ room1", "M 1:00 PM - 4:00 PM").
 // Returns array of { day, startTime, endTime, room } or null if unparseable.
 function parseScheduleEntries(schedule) {
   const trimmed = String(schedule || '').trim()
   if (!trimmed || /^TBA$/i.test(trimmed)) return null
 
-  // Per-day format: "M 07:30-09:00 @ Room 205 / W 13:00-14:30 @ Lab 3"
-  if (trimmed.includes('/')) {
-    const segments = trimmed.split('/').map((s) => s.trim()).filter(Boolean)
-    const entries = []
-    for (const segment of segments) {
-      // Extract optional @ room suffix
-      const roomMatch = segment.match(/^(.+?)\s*@\s*(.+)$/)
-      const segmentBody = roomMatch ? roomMatch[1].trim() : segment
-      const segmentRoom = roomMatch ? roomMatch[2].trim() : ''
+  const segments = trimmed.split('/').map((s) => s.trim()).filter(Boolean)
+  const entries = []
+  for (const segment of segments) {
+    // Extract optional @ room suffix
+    const roomMatch = segment.match(/^(.+?)\s*@\s*(.+)$/)
+    const segmentBody = roomMatch ? roomMatch[1].trim() : segment
+    const segmentRoom = roomMatch ? roomMatch[2].trim() : ''
 
-      const match = segmentBody.match(/^([A-Z]+)\s+(.+?)\s*-\s*(.+)$/i)
-      if (!match) continue
-      const days = parseScheduleDayCodes(match[1])
-      const startTime = normalizeTimeStringTo24h(match[2])
-      const endTime = normalizeTimeStringTo24h(match[3])
-      for (const day of days) {
-        entries.push({ day, startTime, endTime, room: segmentRoom })
-      }
+    const match = segmentBody.match(/^([A-Z]+)\s+(.+?)\s*-\s*(.+)$/i)
+    if (!match) continue
+    const days = parseScheduleDayCodes(match[1])
+    const startTime = normalizeTimeStringTo24h(match[2])
+    const endTime = normalizeTimeStringTo24h(match[3])
+    for (const day of days) {
+      entries.push({ day, startTime, endTime, room: segmentRoom })
     }
-    return entries.length > 0 ? entries : null
   }
-
-  // Classic format: "MW 07:30-09:00"
-  const parsed = parseScheduleString(trimmed)
-  if (!parsed) return null
-  return parsed.days.map((day) => ({ day, startTime: parsed.startTime, endTime: parsed.endTime, room: '' }))
+  return entries.length > 0 ? entries : null
 }
 
 // GET /api/student/dashboard — aggregated payload for the mobile app's home
@@ -4821,7 +4813,6 @@ async function handleGetStudentReEnrollmentVerification(req, res) {
     console.log('[STUDENT OTP VERIFICATION] Verification record found:', record ? {
       schoolYear: record.schoolYear,
       semester: record.semester,
-      inAppCode: record.inAppCode ? 'exists' : 'none',
       codeExpiresAt: record.codeExpiresAt,
       consumedAt: record.consumedAt,
     } : 'none')
@@ -4831,19 +4822,15 @@ async function handleGetStudentReEnrollmentVerification(req, res) {
     const verification = reEnrollmentVerificationService.serializeVerification(
       record,
       student.email,
-      student.contactNumber,
-      { includeCode: true }
+      student.contactNumber
     )
     console.log('[STUDENT OTP VERIFICATION] Serialized verification:', verification)
-    const inAppCode = verification.inAppCode || (record?.inAppCode ?? null)
     return res.json({
       success: true,
       data: {
         verification,
         schoolYear,
         semester,
-        inAppCode,
-        code: inAppCode,
       }
     })
   } catch (error) {
@@ -4882,7 +4869,7 @@ async function handleSendStudentReEnrollmentCode(req, res) {
       const sy = schoolYear || active.schoolYear
       const sem = semester || active.semester
       console.log('[STUDENT OTP] Using active term:', sy, sem)
-      result = await reEnrollmentVerificationService.sendCode({ student, schoolYear: sy, semester: sem, actorId: null, returnCode: true })
+      result = await reEnrollmentVerificationService.sendCode({ student, schoolYear: sy, semester: sem, actorId: null })
       return res.json({
         success: true,
         data: {
@@ -4890,13 +4877,11 @@ async function handleSendStudentReEnrollmentCode(req, res) {
           maskedPhone: result.maskedPhone,
           expiresAt: result.expiresAt,
           verification: result.verification,
-          code: result.code,
-          inAppCode: result.code,
         },
       })
     }
     console.log('[STUDENT OTP] Using provided term:', schoolYear, semester)
-    result = await reEnrollmentVerificationService.sendCode({ student, schoolYear, semester, actorId: null, returnCode: true })
+    result = await reEnrollmentVerificationService.sendCode({ student, schoolYear, semester, actorId: null })
     return res.json({
       success: true,
       data: {
@@ -4904,8 +4889,6 @@ async function handleSendStudentReEnrollmentCode(req, res) {
         maskedPhone: result.maskedPhone,
         expiresAt: result.expiresAt,
         verification: result.verification,
-        code: result.code,
-        inAppCode: result.code,
       },
     })
   } catch (error) {

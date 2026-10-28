@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import type { BlockGroup, BlockSection, BlockStudent, SectionStudent, BlockWorkspaceSelection } from './registrarBlockTypes'
-import BlockStatusBadge from '../../components/BlockStatusBadge'
 import CapacityIndicator from '../../components/CapacityIndicator'
 import { formatStudentNumber as formatStudentNumberShared, courseFullLabel, getCourseAbbreviation, schoolYearFromStartYear, schoolYearStartYear } from '../../lib/blockAssignmentShared'
 
@@ -537,13 +536,12 @@ function BlockWorkspace({ selection, onBack }: BlockWorkspaceProps) {
                   <div key={section._id} className="section-students-panel block-card">
                     <div className="section-students-panel-header">
                       <h4>{formatBlockColumnLabel(section.sectionCode)}</h4>
-                      <BlockStatusBadge status={(section.status || 'OPEN') as 'OPEN' | 'CLOSED'} size="sm" />
                     </div>
                     <div className="section-students-summary">
                       <CapacityIndicator
                         current={section.currentPopulation}
                         capacity={section.capacity}
-                        showLabel={true}
+                        showLabel={false}
                         showText={true}
                         size="sm"
                       />
