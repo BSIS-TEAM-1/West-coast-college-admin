@@ -192,7 +192,7 @@ export default function ShiftStudentPage({ studentId, onBack }: ShiftStudentPage
             <AlertTriangle size={24} />
             <div>
               <p style={{ margin: 0, fontWeight: 600 }}>Year Level Restriction</p>
-              <p style={{ margin: '4px 0 0 0', opacity: 0.9 }}>Course shift is only allowed for 1st year students. This student is currently in {student.yearLevel}{student.yearLevel === 2 ? 'nd' : student.yearLevel === 3 ? 'rd' : 'th'} year.</p>
+              <p style={{ margin: '4px 0 0 0', opacity: 0.9 }}>Program shift is only allowed for 1st year students. This student is currently in {student.yearLevel}{student.yearLevel === 2 ? 'nd' : student.yearLevel === 3 ? 'rd' : 'th'} year.</p>
             </div>
           </div>
         </div>
@@ -250,11 +250,11 @@ export default function ShiftStudentPage({ studentId, onBack }: ShiftStudentPage
               marginBottom: '24px' 
             }}>
               <div style={{ padding: '16px', background: 'var(--color-background)', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
-                <div style={{ fontSize: '12px', opacity: 0.7, marginBottom: '4px' }}>Previous Course</div>
+                <div style={{ fontSize: '12px', opacity: 0.7, marginBottom: '4px' }}>Previous Program</div>
                 <div style={{ fontWeight: 600 }}>{COURSE_OPTIONS.find(c => c.value === shiftResult.previousCourse)?.label || shiftResult.previousCourse}</div>
               </div>
               <div style={{ padding: '16px', background: 'var(--color-background)', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
-                <div style={{ fontSize: '12px', opacity: 0.7, marginBottom: '4px' }}>New Course</div>
+                <div style={{ fontSize: '12px', opacity: 0.7, marginBottom: '4px' }}>New Program</div>
                 <div style={{ fontWeight: 600, color: 'var(--color-primary)' }}>{COURSE_OPTIONS.find(c => c.value === shiftResult.newCourse)?.label || shiftResult.newCourse}</div>
               </div>
             </div>
@@ -344,7 +344,7 @@ export default function ShiftStudentPage({ studentId, onBack }: ShiftStudentPage
         <h2>{student.firstName} {student.lastName}</h2>
         <div className="student-history-page__summary">
           <span><strong>{student.studentNumber}</strong></span>
-          <span>Current Course: <strong>{currentCourseLabel}</strong></span>
+          <span>Current Program: <strong>{currentCourseLabel}</strong></span>
           <span>Current Block: <strong>{student.section || 'Not assigned'}</strong></span>
           <span>Current Curriculum: <strong>{student.curriculumVersion || 'Not assigned'}</strong></span>
         </div>
@@ -355,8 +355,8 @@ export default function ShiftStudentPage({ studentId, onBack }: ShiftStudentPage
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <Layers3 size={20} />
             <div>
-              <h3>Change Course and/or Block</h3>
-              <p>Select the new course and block assignment for this student. This action will be logged in the audit trail. Previous academic history will be preserved.</p>
+              <h3>Change Program and/or Block</h3>
+              <p>Select the new program and block assignment for this student. This action will be logged in the audit trail. Previous academic history will be preserved.</p>
             </div>
           </div>
         </div>
@@ -372,7 +372,7 @@ export default function ShiftStudentPage({ studentId, onBack }: ShiftStudentPage
               <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 <div>
                   <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500, fontSize: '14px' }}>
-                    New Course <span style={{ color: '#ef4444' }}>*</span>
+                    New Program <span style={{ color: '#ef4444' }}>*</span>
                   </label>
                   <select
                     value={course}
@@ -388,7 +388,7 @@ export default function ShiftStudentPage({ studentId, onBack }: ShiftStudentPage
                       color: 'var(--color-text)'
                     }}
                   >
-                    <option value="">Select a course...</option>
+                    <option value="">Select a program...</option>
                     {COURSE_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>{option.label}</option>
                     ))}
@@ -438,7 +438,7 @@ export default function ShiftStudentPage({ studentId, onBack }: ShiftStudentPage
                     }}
                   >
                     <option value="">
-                      {loadingBlocks ? 'Loading blocks...' : (course && semester) ? 'No block (assign later)' : 'Select course and semester first'}
+                      {loadingBlocks ? 'Loading blocks...' : (course && semester) ? 'No block (assign later)' : 'Select program and semester first'}
                     </option>
                     {sectionOptions.map((opt) => {
                       // Label the actual term the block lives in when the
@@ -467,7 +467,7 @@ export default function ShiftStudentPage({ studentId, onBack }: ShiftStudentPage
                       role="note"
                     >
                       {optionsHint ||
-                        `No eligible open blocks for this course and semester${student?.schoolYear ? ` in ${student.schoolYear}` : ''}`}
+                        `No eligible open blocks for this program and semester${student?.schoolYear ? ` in ${student.schoolYear}` : ''}`}
                     </div>
                   ) : null}
                 </div>

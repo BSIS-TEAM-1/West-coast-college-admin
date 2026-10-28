@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle, Archive, ArrowRight, CalendarClock, Check, CheckCircle2,
-  ChevronDown, ChevronRight, Download, GraduationCap, History, RefreshCw, RotateCcw, Search,
-  Users, AlertTriangle, Filter, X,
+  ChevronDown, ChevronRight, Download, GraduationCap, History, RefreshCw, Lock, LockOpen, Search,
+  Users, AlertTriangle, Filter, ShieldCheck, X,
 } from 'lucide-react'
 import { getAcademicTerm, notifyAcademicTermChanged, type AcademicSemester, type AcademicTerm } from '../../lib/settingsApi'
 import { formatGrade } from '../../lib/gradingScale'
@@ -11,21 +11,28 @@ import {
   getLatestRollover,
   getRolloverSnapshot,
   getSchoolYearRolloverReport,
+  getSchoolYearState,
   listRolloverBatches,
   listRolloverSnapshots,
+  listValidationRuns,
+  lockSchoolYear,
+  unlockSchoolYear,
   previewRolloverSummary,
   previewRolloverExceptions,
-  revertRollover,
+  retryRollover,
+  runPreRolloverValidation,
   type ArchiveSnapshotSummary,
   type RolloverAction,
   type RolloverBatchListItem,
   type RolloverBatchSummary,
   type RolloverGroupSummary,
-  type RolloverRevertResult,
   type RolloverSummaryPreview,
   type RolloverEvaluation,
   type RolloverResult,
   type RolloverGroupDecision,
+  type SchoolYearState,
+  type ValidationRun,
+  type ValidationRunResult,
 } from '../../lib/rolloverApi'
 import { courseShortLabel, formatStudentNumber } from '../../lib/blockAssignmentShared'
 import { downloadCsv } from '../../lib/csv'
@@ -50,7 +57,7 @@ const ROLLOVER_EXPORT_HEADERS = [
   'Middle Name',
   'Last Name',
   'Suffix',
-  'Course',
+  'Program',
   'Year Level',
   'Section',
   'Semester',
@@ -64,14 +71,14 @@ const ROLLOVER_EXPORT_HEADERS = [
   'Gender',
   'Birth Date',
   'Latest Grade',
-  'Subject Code',
-  'Subject Title',
+  'Course Code',
+  'Course Title',
   'Units',
   'Grade',
   'Grade Mark',
-  'Subject Status',
+  'Course Status',
   'Instructor',
-  'Subject Semester',
+  'Course Semester',
 ]
 
 const SEMESTERS: AcademicSemester[] = ['1st', '2nd', 'Summer']
@@ -156,13 +163,22 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
   const [executing, setExecuting] = useState(false)
   const [error, setError] = useState('')
 
-  // ---- Rollover revert ----
+  // ---- Last executed rollover (summary display + export) ----
   const [latestBatch, setLatestBatch] = useState<RolloverBatchSummary | null>(null)
-  const [latestBatchLoading, setLatestBatchLoading] = useState(false)
-  const [showRevertConfirm, setShowRevertConfirm] = useState(false)
-  const [reverting, setReverting] = useState(false)
-  const [revertError, setRevertError] = useState('')
-  const [revertSuccess, setRevertSuccess] = useState<RolloverRevertResult | null>(null)
+
+  // ---- School year lock / validate / rollover state machine ----
+  const [yearState, setYearState] = useState<SchoolYearState | null>(null)
+  const [yearStateLoading, setYearStateLoading] = useState(false)
+  const [oversightBusy, setOversightBusy] = useState(false)
+  const [oversightError, setOversightError] = useState('')
+  const [oversightNotice, setOversightNotice] = useState('')
+  const [showLockConfirm, setShowLockConfirm] = useState(false)
+  const [lockReason, setLockReason] = useState('')
+  const [showUnlockConfirm, setShowUnlockConfirm] = useState(false)
+  const [unlockReason, setUnlockReason] = useState('')
+  const [showWarningAck, setShowWarningAck] = useState(false)
+  const [warningAck, setWarningAck] = useState<Record<string, string>>({})
+  const [validationRunUi, setValidationRunUi] = useState<ValidationRun | null>(null)
 
   // ---- Step 2: card filter + group search ----
   const [cardFilter, setCardFilter] = useState<CardFilter>('all')
@@ -233,14 +249,11 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
   }, [])
 
   const loadLatestBatch = useCallback(async () => {
-    setLatestBatchLoading(true)
     try {
       const batch = await getLatestRollover()
       setLatestBatch(batch)
     } catch {
       // Keep any optimistic batch already shown; never block the rollover workflow.
-    } finally {
-      setLatestBatchLoading(false)
     }
   }, [])
 
@@ -270,15 +283,127 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
     }
   }, [expandedSnapshotId])
 
-  useEffect(() => {
-    if (!showRevertConfirm) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !reverting) setShowRevertConfirm(false)
+  // ---- School year oversight: state, lock, unlock, validation, retry ----
+  const loadYearState = useCallback(async (schoolYear: string) => {
+    if (!/^\d{4}-\d{4}$/.test(schoolYear)) {
+      setYearState(null)
+      return
     }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [showRevertConfirm, reverting])
+    setYearStateLoading(true)
+    try {
+      setYearState(await getSchoolYearState(schoolYear))
+      setOversightError('')
+    } catch (loadError) {
+      setOversightError(loadError instanceof Error ? loadError.message : 'Failed to load school year status')
+    } finally {
+      setYearStateLoading(false)
+    }
+  }, [])
 
+  // Reload the year's validation results whenever the state points at a run.
+  const activeRunId = yearState?.activeValidationRunId
+  useEffect(() => {
+    if (!activeRunId || !/^\d{4}-\d{4}$/.test(fromSchoolYear)) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const runs = await listValidationRuns(fromSchoolYear)
+        if (!cancelled) {
+          const latest = runs.find((run) => run._id === activeRunId) || null
+          setValidationRunUi(latest)
+          setWarningAck({})
+        }
+      } catch {
+        // Historical list is best-effort; the state summary still shows.
+      }
+    })()
+    return () => { cancelled = true }
+  }, [activeRunId, fromSchoolYear])
+
+  // Reload the year status whenever the closing school year input changes.
+  useEffect(() => {
+    const handle = setTimeout(() => { void loadYearState(fromSchoolYear) }, 450)
+    return () => clearTimeout(handle)
+  }, [fromSchoolYear, loadYearState])
+
+  // ---- Lock: confirm dialog → persist locked state (never triggers rollover) ----
+  const handleLock = async () => {
+    if (!fromSchoolYear) return
+    setOversightBusy(true)
+    setOversightError('')
+    try {
+      setYearState(await lockSchoolYear(fromSchoolYear, { reason: lockReason || undefined }))
+      setOversightNotice(`SY ${fromSchoolYear} is locked. Ordinary modifications to its records are now restricted — run pre-rollover validation to proceed.`)
+      setShowLockConfirm(false)
+      setLockReason('')
+    } catch (lockError) {
+      setOversightError(lockError instanceof Error ? lockError.message : 'Failed to lock school year')
+    } finally {
+      setOversightBusy(false)
+    }
+  }
+
+  // ---- Unlock: reason required; never triggers rollover, never erases history ----
+  const handleUnlock = async () => {
+    if (!fromSchoolYear) return
+    setOversightBusy(true)
+    setOversightError('')
+    try {
+      setYearState(await unlockSchoolYear(fromSchoolYear, { reason: unlockReason }))
+      setOversightNotice(`SY ${fromSchoolYear} is open for corrections. Previous validation results were retained but marked stale — lock the year again and re-run validation before rollover.`)
+      setShowUnlockConfirm(false)
+      setUnlockReason('')
+    } catch (unlockError) {
+      setOversightError(unlockError instanceof Error ? unlockError.message : 'Failed to unlock school year')
+    } finally {
+      setOversightBusy(false)
+    }
+  }
+
+  // ---- Validate: run the mandatory pre-rollover checks ----
+  const handleValidate = async () => {
+    if (!fromSchoolYear || !toSchoolYear) return
+    setOversightBusy(true)
+    setOversightError('')
+    try {
+      const outcome = await runPreRolloverValidation(fromSchoolYear, { toSchoolYear, semester })
+      setYearState(outcome.state)
+      setValidationRunUi(outcome.run)
+      setWarningAck({})
+      if (outcome.run.status === 'failed') {
+        setOversightNotice('')
+        setOversightError(`Validation failed: ${outcome.run.summary.blockingErrors} blocking error(s) must be resolved before rollover. Unlock the year to fix the records, lock it again, and re-run validation.`)
+      } else if (outcome.run.status === 'warnings') {
+        setOversightNotice(`Validation passed with ${outcome.run.summary.warnings} warning(s). Each warning must be authorized with a written justification when you proceed to rollover.`)
+      } else {
+        setOversightNotice('Validation passed. The year is ready — proceed to rollover when the setup is confirmed.')
+      }
+    } catch (validateError) {
+      setOversightError(validateError instanceof Error ? validateError.message : 'Failed to run pre-rollover validation')
+    } finally {
+      setOversightBusy(false)
+    }
+  }
+
+  // ---- Retry after a failed execution (admin reconciliation verifies no partial data) ----
+  const handleRetry = async () => {
+    if (!fromSchoolYear) return
+    setOversightBusy(true)
+    setOversightError('')
+    try {
+      setYearState(await retryRollover(fromSchoolYear, { toSchoolYear, semester }))
+      setOversightNotice('Recovery verified: no partial rollover data exists. The year is ready again — proceed to rollover unless records must be corrected first.')
+    } catch (retryError) {
+      setOversightError(retryError instanceof Error ? retryError.message : 'Failed to retry rollover')
+    } finally {
+      setOversightBusy(false)
+    }
+  }
+
+  const acknowledgedWarningsReady = useMemo(() => {
+    const warnings = validationRunUi?.results?.filter((r) => r.status === 'warning') ?? []
+    return warnings.length === 0 || warnings.every((w) => (warningAck[w.key] || '').trim().length >= 10)
+  }, [validationRunUi, warningAck])
   const loadSnapshots = async () => {
     try {
       const items = await listRolloverSnapshots()
@@ -367,7 +492,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
 
       downloadCsv(`rollover-students-grades-${schoolYear}.csv`, rows)
       setExportNotice(
-        `Exported ${report.students.length.toLocaleString()} student(s) and ${gradeCount.toLocaleString()} subject grade(s) for SY ${schoolYear}.`
+        `Exported ${report.students.length.toLocaleString()} student(s) and ${gradeCount.toLocaleString()} course grade(s) for SY ${schoolYear}.`
       )
     } catch (exportError) {
       setExportFailure(exportError instanceof Error ? exportError.message : 'Failed to export school year students')
@@ -616,7 +741,18 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
     return summaryPreview.groups.filter((g) => !approvedGroups.has(groupKey(g)))
   }, [summaryPreview, approvedGroups])
 
-  // ---- Execute ----
+  // ---- Execute (gated on the school year lock state machine) ----
+  const executeDisabledReason = useMemo(() => {
+    if (!yearState) return ''
+    if (yearState.status === 'rollover_in_progress') return 'A rollover is already in progress for this school year.'
+    if (yearState.status === 'rolled_over') return 'This school year has already been rolled over and cannot run a rollover again.'
+    if (yearState.status === 'rollover_failed') return 'The previous rollover attempt failed. Use the recovery action before proceeding.'
+    if (yearState.status === 'open') return 'Lock the school year and run pre-rollover validation before executing the rollover.'
+    if (yearState.status === 'locked') return 'Run pre-rollover validation on the locked year before executing the rollover.'
+    if (!acknowledgedWarningsReady) return 'Authorize every validation warning with a written justification before executing.'
+    return ''
+  }, [yearState, acknowledgedWarningsReady])
+
   const handleExecute = async () => {
     if (!summaryPreview) return
     setExecuting(true)
@@ -641,16 +777,19 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
           action,
         }))
 
+      const acknowledged = Object.entries(warningAck)
+        .filter(([key, justification]) => (justification || '').trim().length >= 10 && key)
+        .map(([key, justification]) => ({ key, justification }))
+
       const data = await executeRollover({
         fromSchoolYear: summaryPreview.fromSchoolYear,
         toSchoolYear: summaryPreview.toSchoolYear,
         semester: summaryPreview.semester,
         groupDecisions,
         decisionOverrides: overrides.length > 0 ? overrides : undefined,
+        acknowledgedWarnings: acknowledged.length > 0 ? acknowledged : undefined,
       })
       setResult(data)
-      setRevertSuccess(null)
-      setRevertError('')
       setLatestBatch({
         batchId: data.rolloverBatchId,
         fromSchoolYear: data.fromSchoolYear,
@@ -669,57 +808,13 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
       })
       setStep(4)
       void loadLatestBatch()
+      void loadYearState(data.fromSchoolYear)
     } catch (executeError) {
       setError(executeError instanceof Error ? executeError.message : 'Rollover failed. All changes were rolled back.')
+      // Refresh the state machine — the year is now likely "rollover_failed".
+      if (summaryPreview) void loadYearState(summaryPreview.fromSchoolYear)
     } finally {
       setExecuting(false)
-    }
-  }
-
-  // ---- Revert the most recent rollover ----
-  const handleOpenRevert = () => {
-    setRevertError('')
-    setRevertSuccess(null)
-    setShowRevertConfirm(true)
-  }
-
-  const handleRevert = async () => {
-    if (!latestBatch) return
-    setReverting(true)
-    setRevertError('')
-    try {
-      const data = await revertRollover({ batchId: latestBatch.batchId })
-      setRevertSuccess(data)
-      setLatestBatch((current) => current ? {
-        ...current,
-        status: 'reverted',
-        revertedAt: data.revertedAt,
-        revertedBy: null,
-      } : current)
-      setShowRevertConfirm(false)
-      setResult(null)
-      setSummaryPreview(null)
-      setApprovedGroups(new Set())
-      setGroupActions({})
-      setDecisionOverrides({})
-      setDecisionOverrideGroups({})
-      setExpandedGroup(null)
-      setExceptionStudents([])
-      setShowGlobalExceptions(false)
-      setStep(1)
-      setShowHistory(false)
-
-      try {
-        applyDefaultsForActiveTerm(await getAcademicTerm())
-      } catch {
-        // Keep the current form values if the term cannot be reloaded.
-      }
-
-      await loadLatestBatch()
-    } catch (revertFailure) {
-      setRevertError(revertFailure instanceof Error ? revertFailure.message : 'Failed to revert rollover. All changes were rolled back.')
-    } finally {
-      setReverting(false)
     }
   }
 
@@ -762,6 +857,16 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
           )}
         </div>
         <div className="rollover-page__header-actions">
+          {fromSchoolYear ? (
+            <button
+              type="button"
+              className="rollover-page__primary-button"
+              onClick={() => setShowLockConfirm(true)}
+              disabled={oversightBusy || yearStateLoading || (!!yearState && yearState.status !== 'open')}
+            >
+              <Lock size={16} /> Lock School Year
+            </button>
+          ) : null}
           <button type="button" className="rollover-page__ghost-button" onClick={() => setShowHistory((value) => !value)}>
             <History size={16} /> {showHistory ? 'Hide history' : 'Archive history'}
           </button>
@@ -772,6 +877,24 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
           ) : null}
         </div>
       </header>
+
+      {fromSchoolYear ? (
+        <SchoolYearOversight
+          yearState={yearState}
+          oversightBusy={oversightBusy}
+          oversightError={oversightError}
+          oversightNotice={oversightNotice}
+          validationRun={validationRunUi}
+          warningAck={warningAck}
+          setWarningAck={setWarningAck}
+          acknowledgedWarningsReady={acknowledgedWarningsReady}
+
+          onOpenUnlock={() => setShowUnlockConfirm(true)}
+          oversightSchoolYear={fromSchoolYear || activeTerm?.schoolYear || ''}
+          onValidate={() => void handleValidate()}
+          onRetry={() => void handleRetry()}
+        />
+      ) : null}
 
       {latestBatch ? (
         <section
@@ -815,16 +938,6 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
           </div>
 
           <footer className="rollover-page__status-actions">
-            {latestBatch.status === 'applied' ? (
-              <button
-                type="button"
-                className="rollover-page__danger-button"
-                onClick={handleOpenRevert}
-                disabled={reverting || latestBatchLoading}
-              >
-                <RotateCcw size={16} /> Revert this rollover
-              </button>
-            ) : null}
             <button
               type="button"
               className="rollover-page__ghost-button"
@@ -838,26 +951,10 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
             </button>
             <span className="rollover-page__hint">
               {latestBatch.status === 'applied'
-                ? 'Revert restores the previous academic term, closing enrollments, student year levels, and block assignments.'
-                : 'The previous academic term and student records have been restored. The rollover archive remains immutable.'}
+                ? 'This rollover is complete and its source year is immutable historical data. A genuine error is corrected through the audited admin recovery procedure, not through an ordinary revert.'
+                : 'This rollover was reversed through the audited admin recovery procedure. The rollover archive remains immutable.'}
             </span>
           </footer>
-
-          {revertSuccess ? (
-            <div className="rollover-page__success">
-              <CheckCircle2 size={18} />
-              <div>
-                <strong>Rollover reverted.</strong>
-                <span>
-                  Restored {revertSuccess.restoredStudents.toLocaleString()} student
-                  {revertSuccess.restoredStudents === 1 ? '' : 's'}, removed{' '}
-                  {revertSuccess.deletedEnrollments.toLocaleString()} new enrollment
-                  {revertSuccess.deletedEnrollments === 1 ? '' : 's'}, and reopened SY{' '}
-                  {revertSuccess.restoredAcademicTerm.schoolYear} ({revertSuccess.restoredAcademicTerm.semester} semester).
-                </span>
-              </div>
-            </div>
-          ) : null}
         </section>
       ) : null}
 
@@ -880,7 +977,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
           <h3><History size={16} /> Rollover history</h3>
           <p className="rollover-page__hint">
             Every executed rollover, grouped by school year. Export downloads that school year's students with
-            their subject grades (one row per subject), ready for reporting and verification.
+            their course grades (one row per course), ready for reporting and verification.
           </p>
           {batchesLoading ? (
             <div className="rollover-page__empty">
@@ -1214,7 +1311,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
                       <thead>
                         <tr>
                           <th>Student</th>
-                          <th>Course</th>
+                          <th>Program</th>
                           <th>Year</th>
                           <th>Reason</th>
                           <th>Suggested</th>
@@ -1303,7 +1400,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
               <Search size={15} />
               <input
                 type="text"
-                placeholder="Search by course, year level, or section..."
+                placeholder="Search by program, year level, or section..."
                 value={groupSearchText}
                 onChange={(e) => setGroupSearchText(e.target.value)}
               />
@@ -1334,7 +1431,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
                 <thead>
                   <tr>
                     <th></th>
-                    <th>Course</th>
+                    <th>Program</th>
                     <th>Year</th>
                     <th>Block</th>
                     <th>Total</th>
@@ -1501,6 +1598,16 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
               {unapprovedGroups.length > 0 ? (
                 <li className="rollover-page__warning"><AlertCircle size={14} /> {unapprovedGroups.length} unapproved group{unapprovedGroups.length === 1 ? '' : 's'} — students in those groups will be skipped.</li>
               ) : null}
+              <li>
+                <ShieldCheck size={14} /> Validation outcome:{' '}
+                {yearState?.status === 'rollover_ready' ? (
+                  <strong className="rollover-page__status-badge rollover-page__status-badge--ok">
+                    Passed ({yearState.validationSummary?.warnings ?? 0} authorized warning(s))
+                  </strong>
+                ) : (
+                  <strong style={{ color: 'var(--danger, #b91c1c)' }}>{executeDisabledReason || 'Pre-rollover validation has not passed yet.'}</strong>
+                )}
+              </li>
             </ul>
             <p className="rollover-page__warning">
               Closed enrollments become permanent, read-only historical records. This operation runs in a single
@@ -1509,7 +1616,18 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
           </div>
           <footer className="rollover-page__actions">
             <button type="button" className="rollover-page__ghost-button" onClick={() => setStep(2)} disabled={executing}>Back</button>
-            <button type="button" className="rollover-page__primary-button rollover-page__primary-button--danger" onClick={handleExecute} disabled={executing}>
+            {!acknowledgedWarningsReady && yearState?.status === 'rollover_ready' ? (
+              <button type="button" className="rollover-page__ghost-button" onClick={() => setShowWarningAck(true)}>
+                <AlertTriangle size={16} /> Authorize warnings
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="rollover-page__primary-button rollover-page__primary-button--danger"
+              onClick={handleExecute}
+              disabled={executing || Boolean(executeDisabledReason)}
+              title={executeDisabledReason || undefined}
+            >
               {executing ? <RefreshCw size={16} className="rollover-page__spin" /> : <Check size={16} />}
               {executing ? 'Executing rollover...' : isSemesterRollover
                 ? `Advance to the ${summaryPreview.semester} semester`
@@ -1543,16 +1661,6 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
             {result.snapshotIds.length} immutable archive snapshot(s) were generated. Batch ID: <code>{result.rolloverBatchId}</code>
           </p>
           <footer className="rollover-page__actions">
-            {latestBatch?.batchId === result.rolloverBatchId && latestBatch.status === 'applied' ? (
-              <button
-                type="button"
-                className="rollover-page__danger-button"
-                onClick={handleOpenRevert}
-                disabled={reverting}
-              >
-                <RotateCcw size={16} /> Revert this rollover
-              </button>
-            ) : null}
             <button
               type="button"
               className="rollover-page__ghost-button"
@@ -1580,91 +1688,398 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
         </section>
       ) : null}
 
-      {showRevertConfirm && latestBatch ? (
+      {showLockConfirm ? (
         <div
           className="rollover-page__modal-backdrop"
           role="presentation"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !reverting) setShowRevertConfirm(false)
+            if (event.target === event.currentTarget && !oversightBusy) setShowLockConfirm(false)
           }}
         >
-          <div
-            className="rollover-page__modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="revert-rollover-title"
-            aria-describedby="revert-rollover-description"
-          >
+          <div className="rollover-page__modal" role="dialog" aria-modal="true" aria-labelledby="lock-year-title">
             <div className="rollover-page__modal-header">
               <div>
-                <span className="rollover-page__eyebrow">Destructive action</span>
-                <h3 id="revert-rollover-title">Revert this rollover?</h3>
+                <span className="rollover-page__eyebrow">Confirm action</span>
+                <h3 id="lock-year-title">Lock school year {fromSchoolYear}?</h3>
               </div>
               <button
                 type="button"
                 className="rollover-page__ghost-button"
-                onClick={() => setShowRevertConfirm(false)}
-                disabled={reverting}
-                aria-label="Close revert confirmation"
+                onClick={() => setShowLockConfirm(false)}
+                disabled={oversightBusy}
+                aria-label="Close lock confirmation"
               >
                 <X size={18} />
               </button>
             </div>
-
-            {latestBatch.fromSchoolYear === latestBatch.toSchoolYear ? (
-              <p id="revert-rollover-description">
-                This will undo the <strong>{latestBatch.semester} semester rollover for SY {latestBatch.fromSchoolYear}</strong>{' '}
-                and return students to the previous semester of the same school year.
-              </p>
-            ) : (
-              <p id="revert-rollover-description">
-                This will undo the <strong>SY {latestBatch.fromSchoolYear} <ArrowRight size={14} /> SY {latestBatch.toSchoolYear}</strong>{' '}
-                rollover and reopen <strong>SY {latestBatch.fromSchoolYear}</strong>.
-              </p>
-            )}
-
-            <ul className="rollover-page__modal-list">
-              <li>Delete the enrollment records created for SY {latestBatch.toSchoolYear}.</li>
-              <li>Unlock and restore the closing enrollments for SY {latestBatch.fromSchoolYear}.</li>
-              <li>Restore student year levels, sections, and block assignments.</li>
-              <li>Restore the previous academic term.</li>
-            </ul>
-
-            <p className="rollover-page__warning">
-              Revert is blocked if any new enrollment already has grades or payments, if a student was changed after
-              the rollover, or if the active academic term has changed.
+            <p>
+              Locking <strong>SY {fromSchoolYear}</strong> restricts ordinary modifications to its records — grades,
+              enrollments, subject assignments, block assignments, and professor loads become read-only.
             </p>
-
-            {revertError ? (
-              <div className="rollover-page__error" role="alert">
-                <AlertCircle size={18} />
-                <span>{revertError}</span>
-              </div>
+            <p className="rollover-page__hint">
+              Locking never runs the rollover. After locking you can run pre-rollover validation; if corrections are
+              needed later you can unlock the year (with a reason) and lock it again.
+            </p>
+            <label>
+              <span>Reason (optional, recorded in the audit log)</span>
+              <input
+                value={lockReason}
+                onChange={(event) => setLockReason(event.target.value)}
+                placeholder="e.g. Closed 2nd semester, preparing rollover"
+              />
+            </label>
+            {oversightError ? (
+              <div className="rollover-page__error" role="alert"><AlertCircle size={18} /><span>{oversightError}</span></div>
             ) : null}
-
             <footer className="rollover-page__modal-actions">
+              <button type="button" className="rollover-page__ghost-button" onClick={() => setShowLockConfirm(false)} disabled={oversightBusy}>
+                Cancel
+              </button>
+              <button type="button" className="rollover-page__primary-button" onClick={() => void handleLock()} disabled={oversightBusy}>
+                {oversightBusy ? <RefreshCw size={16} className="rollover-page__spin" /> : <Lock size={16} />}
+                {oversightBusy ? 'Locking...' : 'Lock school year'}
+              </button>
+            </footer>
+          </div>
+        </div>
+      ) : null}
+
+      {showUnlockConfirm ? (
+        <div
+          className="rollover-page__modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !oversightBusy) setShowUnlockConfirm(false)
+          }}
+        >
+          <div className="rollover-page__modal" role="dialog" aria-modal="true" aria-labelledby="unlock-year-title">
+            <div className="rollover-page__modal-header">
+              <div>
+                <span className="rollover-page__eyebrow">Confirm action</span>
+                <h3 id="unlock-year-title">Unlock school year {fromSchoolYear}?</h3>
+              </div>
               <button
                 type="button"
                 className="rollover-page__ghost-button"
-                onClick={() => setShowRevertConfirm(false)}
-                disabled={reverting}
+                onClick={() => setShowUnlockConfirm(false)}
+                disabled={oversightBusy}
+                aria-label="Close unlock confirmation"
               >
+                <X size={18} />
+              </button>
+            </div>
+            <p>
+              Unlocking returns <strong>SY {fromSchoolYear}</strong> to open so authorized corrections can be made.
+            </p>
+            <ul className="rollover-page__modal-list">
+              <li>Grades, enrollments, and audit history are preserved — nothing is deleted.</li>
+              <li>This does NOT trigger the rollover.</li>
+              <li>Previous validation results are kept but marked stale — you must lock again and re-run validation before the rollover.</li>
+            </ul>
+            <label>
+              <span>Reason (required, recorded in the audit log)</span>
+              <input
+                value={unlockReason}
+                onChange={(event) => setUnlockReason(event.target.value)}
+                placeholder="e.g. Correcting a trailing grade before rollover"
+              />
+            </label>
+            {oversightError ? (
+              <div className="rollover-page__error" role="alert"><AlertCircle size={18} /><span>{oversightError}</span></div>
+            ) : null}
+            <footer className="rollover-page__modal-actions">
+              <button type="button" className="rollover-page__ghost-button" onClick={() => setShowUnlockConfirm(false)} disabled={oversightBusy}>
                 Cancel
               </button>
               <button
                 type="button"
-                className="rollover-page__primary-button rollover-page__primary-button--danger"
-                onClick={() => void handleRevert()}
-                disabled={reverting}
+                className="rollover-page__primary-button"
+                onClick={() => void handleUnlock()}
+                disabled={oversightBusy || unlockReason.trim().length < 5}
+                title={unlockReason.trim().length < 5 ? 'A reason of at least 5 characters is required' : undefined}
               >
-                {reverting ? <RefreshCw size={16} className="rollover-page__spin" /> : <RotateCcw size={16} />}
-                {reverting ? 'Reverting...' : 'Revert rollover'}
+                {oversightBusy ? <RefreshCw size={16} className="rollover-page__spin" /> : <LockOpen size={16} />}
+                {oversightBusy ? 'Unlocking...' : 'Unlock school year'}
+              </button>
+            </footer>
+          </div>
+        </div>
+      ) : null}
+
+      {showWarningAck && validationRunUi ? (
+        <div
+          className="rollover-page__modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setShowWarningAck(false)
+          }}
+        >
+          <div className="rollover-page__modal" role="dialog" aria-modal="true" aria-labelledby="warn-ack-title">
+            <div className="rollover-page__modal-header">
+              <div>
+                <span className="rollover-page__eyebrow">Authorized exceptions</span>
+                <h3 id="warn-ack-title">Authorize validation warnings</h3>
+              </div>
+              <button
+                type="button"
+                className="rollover-page__ghost-button"
+                onClick={() => setShowWarningAck(false)}
+                aria-label="Close warning authorization"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p>
+              Each warning below requires a written justification (at least 10 characters) from a registrar authorized
+              to accept the risk. Justifications are recorded in the audit log alongside the rollover execution.
+            </p>
+            <ul className="rollover-page__modal-list">
+              {validationRunUi.results.filter((r) => r.status === 'warning').map((warning) => (
+                <li key={warning.key} style={{ listStyle: 'none', marginBottom: '0.75rem' }}>
+                  <strong><AlertTriangle size={13} /> {warning.title}</strong>
+                  <p className="rollover-page__hint">{warning.message}</p>
+                  <label>
+                    <span>Justification</span>
+                    <input
+                      value={warningAck[warning.key] || ''}
+                      onChange={(event) => setWarningAck((current) => ({ ...current, [warning.key]: event.target.value }))}
+                      placeholder="Why is it acceptable to proceed with this warning?"
+                    />
+                  </label>
+                </li>
+              ))}
+            </ul>
+            <footer className="rollover-page__modal-actions">
+              <button type="button" className="rollover-page__ghost-button" onClick={() => setShowWarningAck(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rollover-page__primary-button"
+                onClick={() => setShowWarningAck(false)}
+                disabled={!acknowledgedWarningsReady}
+                title={acknowledgedWarningsReady ? undefined : 'Every warning needs a justification of at least 10 characters'}
+              >
+                <ShieldCheck size={16} /> Save justifications
               </button>
             </footer>
           </div>
         </div>
       ) : null}
     </div>
+  )
+}
+
+// ---- SchoolYearOversight: the Lock → Validate → Confirm workflow panel ----
+function SchoolYearOversight({
+  yearState,
+  oversightBusy,
+  oversightError,
+  oversightNotice,
+  validationRun,
+  warningAck,
+  setWarningAck,
+  acknowledgedWarningsReady,
+          oversightSchoolYear,
+  onOpenUnlock,
+  onValidate,
+  onRetry,
+}: {
+  yearState: SchoolYearState | null
+  oversightBusy: boolean
+  oversightError: string
+  oversightNotice: string
+  validationRun: ValidationRun | null
+  warningAck: Record<string, string>
+  setWarningAck: (update: Record<string, string>) => void
+  acknowledgedWarningsReady: boolean
+  oversightSchoolYear: string
+  onOpenUnlock: () => void
+  onValidate: () => void
+  onRetry: () => void
+}) {
+  const status = yearState?.status || 'open'
+  const STATUS_LABEL: Record<string, string> = {
+    open: 'Open — ordinary operations permitted',
+    locked: 'Locked — read-only, ordinary modifications restricted',
+    rollover_ready: 'Rollover ready — locked and validated',
+    rollover_in_progress: 'Rollover in progress',
+    rollover_failed: 'Rollover failed — recovery required',
+    rolled_over: 'Rolled over — immutable historical data',
+  }
+  const blocking = validationRun?.results?.filter((result) => result.status === 'blocking') ?? []
+  const warnings = validationRun?.results?.filter((result) => result.status === 'warning') ?? []
+  const passedCount = validationRun?.results?.filter((result) => result.status === 'passed').length ?? 0
+
+  return (
+    <section className="rollover-page__panel rollover-page__lock-panel">
+      <div className="rollover-page__status-header">
+        <div>
+          <span className="rollover-page__eyebrow">School year status</span>
+          <h3>
+            <Lock size={16} /> SY {yearState?.schoolYear || oversightSchoolYear || '—'}
+          </h3>
+          <p className="rollover-page__hint">{STATUS_LABEL[status] || status}</p>
+          {yearState?.lockedAt && status !== 'open' ? (
+            <p className="rollover-page__hint">
+              Locked {new Date(yearState.lockedAt).toLocaleString()}
+              {yearState.lockReason ? ` · ${yearState.lockReason}` : ''}
+            </p>
+          ) : null}
+          {yearState?.rolloverStartedAt && status === 'rollover_in_progress' ? (
+            <p className="rollover-page__hint">
+              Started {new Date(yearState.rolloverStartedAt).toLocaleString()} → SY {yearState.rolloverToSchoolYear} ({yearState.rolloverSemester} semester). Ordinary unlock is disabled while the rollover executes.
+            </p>
+          ) : null}
+          {yearState?.rolloverError && status === 'rollover_failed' ? (
+            <div className="rollover-page__error" role="alert">
+              <AlertCircle size={18} />
+              <span>
+                <strong>Failure ({yearState.rolloverError.stage || 'unknown stage'}):</strong> {yearState.rolloverError.message}
+              </span>
+            </div>
+          ) : null}
+        </div>
+        <span
+          className={[
+            'rollover-page__status-badge',
+            status === 'open' ? '' : '',
+            status === 'rollover_ready' || status === 'rolled_over' ? 'rollover-page__status-badge--ok' : '',
+            status === 'locked' ? 'rollover-page__status-badge--warn' : '',
+            status === 'rollover_failed' ? 'rollover-page__status-badge--fail' : '',
+          ].filter(Boolean).join(' ')}
+        >
+          {status.replace(/_/g, ' ')}
+        </span>
+      </div>
+
+      {oversightNotice ? (
+        <div className="rollover-page__success" role="status">
+          <CheckCircle2 size={18} />
+          <div><span>{oversightNotice}</span></div>
+        </div>
+      ) : null}
+      {oversightError ? (
+        <div className="rollover-page__error" role="alert">
+          <AlertCircle size={20} />
+          <span>{oversightError}</span>
+        </div>
+      ) : null}
+
+      {/* Validation summary (blocking / warnings / passed) */}
+      {validationRun ? (
+        <div className="rollover-page__validation-summary">
+          <header>
+            <ShieldCheck size={14} />
+            <strong>Pre-rollover validation</strong>
+            <span className="rollover-page__batch-meta">
+              run {new Date(validationRun.runAt || Date.now()).toLocaleString()} · {validationRun.summary.blockingErrors} blocking ·{' '}
+              {validationRun.summary.warnings} warning(s) · {validationRun.summary.passedChecks} passed
+            </span>
+          </header>
+          <ul>
+            {blocking.map((result) => <ValidationResultRow key={result.key} result={result} />)}
+            {warnings.map((result) => (
+              <ValidationResultRow key={result.key} result={result} justification={warningAck[result.key] || ''} onJustify={(value) => setWarningAck({ ...warningAck, [result.key]: value })} />
+            ))}
+          </ul>
+          {passedCount > 0 || blocking.length === 0 ? (
+            <p className="rollover-page__hint">{passedCount} check(s) passed with no action required.</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Context-sensitive actions per state */}
+      <footer className="rollover-page__status-actions">
+        {status === 'open' ? (
+          <span className="rollover-page__hint">
+            <Lock size={14} /> Use “Lock School Year” beside the Back button above to start the workflow — ordinary modifications remain permitted until then.
+          </span>
+        ) : null
+        }
+
+        {status === 'locked' || status === 'rollover_ready' ? (
+          <>
+            <button type="button" className="rollover-page__primary-button" onClick={onValidate} disabled={oversightBusy}>
+              {oversightBusy ? <RefreshCw size={16} className="rollover-page__spin" /> : <ShieldCheck size={16} />}
+              Run Pre-Rollover Validation
+            </button>
+            <button type="button" className="rollover-page__ghost-button" onClick={onOpenUnlock} disabled={oversightBusy}>
+              <LockOpen size={16} /> Unlock School Year
+            </button>
+          </>
+        ) : null}
+
+        {status === 'rollover_failed' ? (
+          <>
+            <button type="button" className="rollover-page__primary-button" onClick={onRetry} disabled={oversightBusy}>
+              {oversightBusy ? <RefreshCw size={16} className="rollover-page__spin" /> : <RefreshCw size={16} />}
+              Retry Rollover (verify recovery first)
+            </button>
+            <button type="button" className="rollover-page__ghost-button" onClick={onOpenUnlock} disabled={oversightBusy}>
+              <LockOpen size={16} /> Unlock for Corrections (admin)
+            </button>
+          </>
+        ) : null}
+
+        {status === 'rollover_in_progress' ? (
+          <span className="rollover-page__hint">
+            <RefreshCw size={14} className="rollover-page__spin" /> The rollover is executing inside a single transaction. Unlock and re-execution are blocked until it completes.
+          </span>
+        ) : null}
+
+        {status === 'rolled_over' ? (
+          <span className="rollover-page__hint">
+            <CheckCircle2 size={14} /> Rollover batch {yearState?.rolloverBatchId || ''} completed and verified. Ordinary unlock is not available; a genuine error is corrected through the audited admin recovery procedure.
+          </span>
+        ) : null}
+
+        {(status === 'locked' || status === 'rollover_ready') && !acknowledgedWarningsReady ? (
+          <span className="rollover-page__hint">{warnings.length} warning(s) awaiting a written justification.</span>
+        ) : null}
+      </footer>
+    </section>
+  )
+}
+
+function ValidationResultRow({
+  result,
+  justification,
+  onJustify,
+}: {
+  result: ValidationRunResult
+  justification?: string
+  onJustify?: (value: string) => void
+}) {
+  const isBlocking = result.status === 'blocking'
+  const isWarning = result.status === 'warning'
+  return (
+    <li className={isBlocking ? 'rollover-page__validation-block' : isWarning ? 'rollover-page__validation-warn' : ''}>
+      <div>
+        <strong>
+          {isBlocking ? <AlertCircle size={13} /> : isWarning ? <AlertTriangle size={13} /> : <Check size={13} />}
+          {' '}{result.title}
+        </strong>
+        <span className="rollover-page__hint"> {result.message}</span>
+      </div>
+      {result.actionable ? <p className="rollover-page__hint">→ {result.actionable}</p> : null}
+      {result.details.length > 0 ? (
+        <details className="rollover-page__validation-details">
+          <summary>{result.details.length} detail(s)</summary>
+          <ul>{result.details.map((detail, index) => <li key={index}>{detail}</li>)}</ul>
+        </details>
+      ) : null}
+      {isWarning && onJustify ? (
+        <label>
+          <span>Justification (required to proceed)</span>
+          <input
+            value={justification || ''}
+            onChange={(event) => onJustify(event.target.value)}
+            placeholder="Written justification recorded in the audit log"
+          />
+        </label>
+      ) : null}
+    </li>
   )
 }
 

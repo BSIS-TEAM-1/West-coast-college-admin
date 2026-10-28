@@ -73,6 +73,13 @@ const EvaluationResponseSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  // An adviser evaluation can cover every subject taught by that adviser.
+  // subjectCode/subjectTitle remain the anchor used by older admin screens;
+  // subjectCodes carries the complete group for reporting.
+  subjectCodes: {
+    type: [String],
+    default: []
+  },
   sectionId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'BlockSection',

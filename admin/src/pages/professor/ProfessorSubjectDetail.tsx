@@ -268,11 +268,11 @@ function ProfessorSubjectDetail({ detail, onBack, onOpenRosterClass, onOpenGrade
             Course Information
           </h2>
           <div className="professor-subject-info-grid">
-            <div className="professor-subject-info-item"><span>Subject Code</span><strong>{detail.subject.code}</strong></div>
+            <div className="professor-subject-info-item"><span>Course Code</span><strong>{detail.subject.code}</strong></div>
             <div className="professor-subject-info-item"><span>Block</span><strong>{detail.blockCode}</strong></div>
-            <div className="professor-subject-info-item"><span>Subject Title</span><strong>{detail.subject.title}</strong></div>
+            <div className="professor-subject-info-item"><span>Course Title</span><strong>{detail.subject.title}</strong></div>
             <div className="professor-subject-info-item"><span>Section</span><strong>{detail.sectionCode}</strong></div>
-            <div className="professor-subject-info-item"><span>Course</span><strong>{detail.courseCode}</strong></div>
+            <div className="professor-subject-info-item"><span>Program</span><strong>{detail.courseCode}</strong></div>
             <div className="professor-subject-info-item"><span>Term</span><strong>{detail.semester} {detail.schoolYear}</strong></div>
           </div>
         </div>
@@ -291,7 +291,7 @@ function ProfessorSubjectDetail({ detail, onBack, onOpenRosterClass, onOpenGrade
         ) : studentsError ? (
           <p className="professor-data-error">{studentsError}</p>
         ) : students.length === 0 ? (
-          <p>No students found for this assigned subject/block.</p>
+          <p>No students found for this assigned course/block.</p>
         ) : (
           <div className="professor-subject-table-shell">
             <table className="professor-subject-roster-table">
@@ -299,7 +299,7 @@ function ProfessorSubjectDetail({ detail, onBack, onOpenRosterClass, onOpenGrade
                 <tr>
                   <th>Student</th>
                   <th>Student No.</th>
-                  <th>Course</th>
+                  <th>Program</th>
                   <th>Year</th>
                   <th>Status</th>
                   <th>COR</th>

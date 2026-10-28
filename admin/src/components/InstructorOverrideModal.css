@@ -1,0 +1,191 @@
+.instructor-override-modal-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.instructor-override-modal-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+}
+
+.instructor-override-modal {
+  position: relative;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  max-width: 500px;
+  width: 100%;
+  animation: instructorOverrideModalFadeIn 0.2s ease-out;
+}
+
+@keyframes instructorOverrideModalFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.instructor-override-modal-header {
+  display: flex;
+  gap: 1rem;
+  padding: 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+  align-items: flex-start;
+}
+
+.instructor-override-modal-icon {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #fef3c7;
+  color: #d97706;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.instructor-override-modal-header h2 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #111827;
+  line-height: 1.4;
+}
+
+.instructor-override-modal-subcopy {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #6b7280;
+  line-height: 1.5;
+}
+
+.instructor-override-modal-subcopy strong {
+  color: #111827;
+  font-weight: 600;
+}
+
+.instructor-override-modal-close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  margin-left: auto;
+}
+
+.instructor-override-modal-close:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.instructor-override-modal-footer {
+  display: flex;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #e5e7eb;
+  justify-content: flex-end;
+}
+
+.instructor-override-btn {
+  padding: 0.625rem 1rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid transparent;
+}
+
+.instructor-override-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.instructor-override-btn--secondary {
+  background: white;
+  border-color: #d1d5db;
+  color: #374151;
+}
+
+.instructor-override-btn--secondary:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+.instructor-override-btn--primary {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: white;
+}
+
+.instructor-override-btn--primary:hover:not(:disabled) {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+
+/* Dark mode styles */
+[data-theme='dark'] .instructor-override-modal {
+  background: #1f2937;
+}
+
+[data-theme='dark'] .instructor-override-modal-header {
+  border-bottom-color: #374151;
+}
+
+[data-theme='dark'] .instructor-override-modal-header h2 {
+  color: #f9fafb;
+}
+
+[data-theme='dark'] .instructor-override-modal-subcopy {
+  color: #9ca3af;
+}
+
+[data-theme='dark'] .instructor-override-modal-subcopy strong {
+  color: #f9fafb;
+}
+
+[data-theme='dark'] .instructor-override-modal-close {
+  color: #9ca3af;
+}
+
+[data-theme='dark'] .instructor-override-modal-close:hover {
+  background: #374151;
+  color: #f9fafb;
+}
+
+[data-theme='dark'] .instructor-override-modal-footer {
+  border-top-color: #374151;
+}
+
+[data-theme='dark'] .instructor-override-btn--secondary {
+  background: #374151;
+  border-color: #4b5563;
+  color: #f9fafb;
+}
+
+[data-theme='dark'] .instructor-override-btn--secondary:hover:not(:disabled) {
+  background: #4b5563;
+  border-color: #6b7280;
+}

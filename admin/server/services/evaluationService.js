@@ -1,30 +1,25 @@
-const mongoose = require('mongoose');
 const EvaluationPeriod = require('../models/EvaluationPeriod');
 const EvaluationResponse = require('../models/EvaluationResponse');
 const EvaluationCompletion = require('../models/EvaluationCompletion');
-const EvaluationIdentityRevealLog = require('../models/EvaluationIdentityRevealLog');
 const Enrollment = require('../models/Enrollment');
 const Student = require('../models/Student');
 const Admin = require('../models/Admin');
-const StudentBlockAssignment = require('../models/StudentBlockAssignment');
-const BlockSection = require('../models/BlockSection');
 const SystemSetting = require('../models/SystemSetting');
+const { DEFAULT_SCHOOL_YEAR, DEFAULT_SEMESTER } = require('../lib/academicTerm');
 
 async function getActiveAcademicTerm() {
   try {
     const setting = await SystemSetting.findOne({ key: 'academicTerm' }).lean();
     const value = setting?.value || {};
-    const year = new Date().getFullYear();
     const schoolYear = /^\d{4}-\d{4}$/.test(String(value.schoolYear || '').trim())
       ? String(value.schoolYear).trim()
-      : `${year}-${year + 1}`;
+      : DEFAULT_SCHOOL_YEAR;
     const semester = ['1st', '2nd', 'Summer'].includes(value.semester)
       ? value.semester
-      : '1st';
+      : DEFAULT_SEMESTER;
     return { schoolYear, semester };
   } catch {
-    const year = new Date().getFullYear();
-    return { schoolYear: `${year}-${year + 1}`, semester: '1st' };
+    return { schoolYear: DEFAULT_SCHOOL_YEAR, semester: DEFAULT_SEMESTER };
   }
 }
 
@@ -136,7 +131,7 @@ async function ensurePeriodForTerm(semester, schoolYear, createIfMissing = true)
   const activeTerm = (!semester || !schoolYear) ? await getActiveAcademicTerm() : null;
   const normalizedSemester = ['1st', '2nd', 'Summer'].includes(String(semester || '').trim())
     ? String(semester).trim()
-    : (activeTerm?.semester || '1st');
+    : (activeTerm?.semester || DEFAULT_SEMESTER);
   const normalizedSchoolYear = /^\d{4}-\d{4}$/.test(String(schoolYear || '').trim())
     ? String(schoolYear).trim()
     : (activeTerm?.schoolYear || (await getActiveAcademicTerm()).schoolYear);
@@ -200,7 +195,7 @@ function resolveSubjectProfessor(subject, student, professorLookup) {
   const isPlaceholder = !rawInstructor || /^tba$/i.test(rawInstructor) || /^n\/a$/i.test(rawInstructor);
   const candidateName = !isPlaceholder
     ? rawInstructor
-    : (String(student?.assignedProfessor || '').trim() || '');
+    : String(student?.assignedProfessor || '').trim();
 
   if (candidateName) {
     const matched = professorLookup.byIdentifier.get(candidateName.toLowerCase());
@@ -216,7 +211,8 @@ function resolveSubjectProfessor(subject, student, professorLookup) {
     };
   }
 
-  // Fallback to first registered professor if subject instructor is still TBA so student can evaluate
+  // Keep the card actionable even when the registrar has not assigned a
+  // professor yet. The first registered professor is used as a safe fallback.
   if (professorLookup.professors.length > 0) {
     const first = professorLookup.professors[0];
     return {
@@ -229,6 +225,11 @@ function resolveSubjectProfessor(subject, student, professorLookup) {
     professorId: null,
     professorName: 'Assigned Faculty'
   };
+}
+
+function adviserKeyFor(professorId, professorName) {
+  if (professorId) return `id:${String(professorId)}`;
+  return `name:${String(professorName || 'Assigned Faculty').trim().toLowerCase()}`;
 }
 
 async function getStudentTermEvaluationStatus(student, enrollment, preloadedLookup = null, preloadedCompletions = null) {
@@ -250,20 +251,22 @@ async function getStudentTermEvaluationStatus(student, enrollment, preloadedLook
     (subj) => ['Enrolled', 'Incomplete', 'Completed'].includes(subj.status || 'Enrolled')
   );
 
-  // Use preloaded completions if provided (for immediate consistency after submission)
-  // Otherwise query from database
   const completions = preloadedCompletions || await EvaluationCompletion.find({
     studentId: student._id,
     semester: enrollment.semester,
     schoolYear: enrollment.schoolYear
   }).lean();
 
-  const period = await ensurePeriodForTerm(enrollment.semester, enrollment.schoolYear, Boolean(enrollment.isCurrent));
+  const period = await ensurePeriodForTerm(
+    enrollment.semester,
+    enrollment.schoolYear,
+    Boolean(enrollment.isCurrent)
+  );
 
   const completionByCode = new Map();
   for (const comp of completions) {
     const code = String(comp.subjectCode || '').trim().toUpperCase();
-    completionByCode.set(code, comp);
+    if (code) completionByCode.set(code, comp);
   }
 
   const subjectsByCode = new Map();
@@ -272,13 +275,11 @@ async function getStudentTermEvaluationStatus(student, enrollment, preloadedLook
   for (const subj of activeSubjects) {
     const code = String(subj.code || '').trim().toUpperCase();
     if (!code) continue;
+
     const prof = resolveSubjectProfessor(subj, student, professorLookup);
     const completion = completionByCode.get(code) || null;
     const isCompleted = Boolean(completion);
     const canEvaluate = !isCompleted && Boolean(period?.isOpen);
-
-    // Debug logging
-    console.log(`[Evaluation Status] Student: ${student.studentNumber}, Subject: ${code}, Completed: ${isCompleted}, Prof: ${prof.professorName}`);
 
     const item = {
       enrollmentId: String(enrollment._id),
@@ -289,8 +290,12 @@ async function getStudentTermEvaluationStatus(student, enrollment, preloadedLook
       schedule: subj.schedule || 'TBA',
       room: subj.room || 'TBA',
       instructor: prof.professorName,
-      professorName: completion?.professorName || prof.professorName,
       professorId: completion?.professorId ? String(completion.professorId) : prof.professorId,
+      professorName: completion?.professorName || prof.professorName,
+      adviserKey: adviserKeyFor(
+        completion?.professorId ? String(completion.professorId) : prof.professorId,
+        completion?.professorName || prof.professorName
+      ),
       evaluationRequired: true,
       evaluationCompleted: isCompleted,
       completedAt: completion?.completedAt || null,
@@ -318,27 +323,58 @@ async function getStudentTermEvaluationStatus(student, enrollment, preloadedLook
   };
 }
 
-async function resolveStudentSectionCode(studentId, semester, schoolYear) {
-  try {
-    const startYear = Number(String(schoolYear || '').split('-')[0]) || new Date().getFullYear();
-    const assignment = await StudentBlockAssignment.findOne({
-      studentId: String(studentId),
-      status: 'ASSIGNED',
-      $or: [
-        { semester, year: startYear },
-        { semester }
-      ]
-    }).sort({ assignedAt: -1 }).lean();
+/**
+ * Collapse per-subject evaluation rows into one card per adviser/professor.
+ * Evaluating an adviser unlocks every subject taught by that adviser.
+ */
+function groupEvaluationSubjectsByAdviser(subjectsList, period) {
+  const groups = new Map();
 
-    if (!assignment || !assignment.sectionId) return { sectionId: null, sectionCode: '' };
-    const section = await BlockSection.findById(assignment.sectionId).select('_id sectionCode').lean();
-    return {
-      sectionId: section ? section._id : null,
-      sectionCode: section?.sectionCode || ''
-    };
-  } catch {
-    return { sectionId: null, sectionCode: '' };
+  for (const item of subjectsList || []) {
+    const key = item.adviserKey || adviserKeyFor(item.professorId, item.professorName);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        professorId: item.professorId || null,
+        professorName: item.professorName || 'Assigned Faculty',
+        subjects: []
+      });
+    }
+    groups.get(key).subjects.push(item);
   }
+
+  return Array.from(groups.values())
+    .map((group) => {
+      const completedCount = group.subjects.filter((s) => s.evaluationCompleted).length;
+      const subjectCount = group.subjects.length;
+      const evaluationCompleted = subjectCount > 0 && completedCount >= subjectCount;
+      const completedDates = group.subjects
+        .map((s) => (s.completedAt ? new Date(s.completedAt).getTime() : 0))
+        .filter((value) => value > 0);
+
+      return {
+        key: group.key,
+        professorId: group.professorId,
+        professorName: group.professorName,
+        subjectCodes: group.subjects.map((s) => s.subjectCode),
+        subjectCount,
+        completedCount,
+        evaluationCompleted,
+        canEvaluate: !evaluationCompleted && Boolean(period?.isOpen),
+        evaluatedAt: completedDates.length > 0 ? new Date(Math.max(...completedDates)) : null,
+        subjects: group.subjects.map((s) => ({
+          subjectId: s.subjectId || null,
+          subjectCode: s.subjectCode,
+          subjectTitle: s.subjectTitle,
+          units: s.units,
+          schedule: s.schedule,
+          room: s.room,
+          evaluationCompleted: Boolean(s.evaluationCompleted),
+          completedAt: s.completedAt || null
+        }))
+      };
+    })
+    .sort((a, b) => String(a.professorName).localeCompare(String(b.professorName)));
 }
 
 module.exports = {
@@ -353,12 +389,12 @@ module.exports = {
   ensurePeriodForTerm,
   loadProfessorLookup,
   resolveSubjectProfessor,
+  adviserKeyFor,
   getStudentTermEvaluationStatus,
-  resolveStudentSectionCode,
+  groupEvaluationSubjectsByAdviser,
   EvaluationPeriod,
   EvaluationResponse,
   EvaluationCompletion,
-  EvaluationIdentityRevealLog,
   Enrollment,
   Student,
   Admin

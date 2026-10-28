@@ -137,7 +137,7 @@ export default function GradeChangeRequestModal({
                   <span className="gcr-context-val">{studentName}</span>
                 </div>
                 <div className="gcr-context-row">
-                  <span className="gcr-context-label">Subject</span>
+                  <span className="gcr-context-label">Course</span>
                   <span className="gcr-context-val" title={`${subjectCode} — ${subjectTitle}`}>
                     {subjectCode} — {subjectTitle}
                   </span>

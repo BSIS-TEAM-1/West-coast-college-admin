@@ -1,10 +1,13 @@
 const mongoose = require('mongoose');
 
 /**
- * EvaluationCompletion tracks whether a student has evaluated a required
- * subject/professor in a given term to unlock grade access, while keeping
- * the link to EvaluationResponse hidden by default (`select: false`) and
- * accessible only via the authorized Registrar Identity Reveal workflow.
+ * EvaluationCompletion tracks which subjects/advisers a student has already
+ * evaluated for a term so the corresponding grades can be unlocked.
+ *
+ * This collection intentionally stores no link back to the anonymous
+ * EvaluationResponse document. Completion tracking is kept separate from the
+ * response payload so professors and registrars cannot trace a rating back to
+ * the student who submitted it.
  */
 const EvaluationCompletionSchema = new mongoose.Schema({
   studentId: {
@@ -87,13 +90,6 @@ const EvaluationCompletionSchema = new mongoose.Schema({
     type: String,
     required: true,
     trim: true
-  },
-  responseId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'EvaluationResponse',
-    required: true,
-    unique: true,
-    select: false
   },
   completedAt: {
     type: Date,

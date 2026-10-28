@@ -17,6 +17,7 @@ import CurriculumManagementLayout from './registrar/CurriculumManagementLayout'
 import EvaluationManagementPage from './registrar/EvaluationManagementPage'
 import StatisticsCard from '../components/StatisticsCard'
 import MiniEventCalendar from '../components/MiniEventCalendar'
+import BackupProgressNotifier from '../components/BackupProgressNotifier'
 import { User, Users, FileText, Wrench } from 'lucide-react'
 import { getStoredToken, API_URL } from '../lib/authApi'
 import type { ProfileResponse } from '../lib/authApi'
@@ -578,6 +579,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated, initia
           )}
         </main>
       </div>
+      <BackupProgressNotifier />
     </div>
   )
 }

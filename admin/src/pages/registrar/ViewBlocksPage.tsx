@@ -149,8 +149,6 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
 
   const openSections = sections.filter((section) => (section.status || 'OPEN').toUpperCase() === 'OPEN')
   const selectedTargetSection = openSections[0] || sections[0] || null
-  const totalSectionCapacity = sections.reduce((sum, section) => sum + (Number(section.capacity) || 0), 0)
-  const totalSectionPopulation = sections.reduce((sum, section) => sum + (Number(section.currentPopulation) || 0), 0)
   const selectedYearLevel = selectedGroup ? parseBlockSlot(selectedGroup.name)?.yearLevel : null
 
   const handleRefresh = async () => {
@@ -608,11 +606,7 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
                         <strong>{linkedCurriculumName}</strong>
                       </div>
                     )}
-                    <div className="block-detail-group-capacity">
-                      <span>Capacity</span>
-                      <strong>{totalSectionPopulation} / {totalSectionCapacity || 0} students</strong>
                     </div>
-                  </div>
                 )}
 
                 {!groupEditForm && (
@@ -651,12 +645,11 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
                                 <span className="block-detail-section-tag">Section</span>
                                 <strong>{sectionLabel}</strong>
                               </div>
-                              <BlockStatusBadge status={(section.status || 'OPEN') as 'OPEN' | 'CLOSED'} size="sm" />
+                              <BlockStatusBadge status={(section.status || 'OPEN') as 'OPEN' | 'CLOSED'} size="sm" showIcon={false} />
                             </div>
                             {editingSectionId === section._id ? (
                               <div className="block-detail-section-edit">
                                 <label className="block-detail-capacity-input">
-                                  <span>Capacity</span>
                                   <input
                                     type="number"
                                     min={1}

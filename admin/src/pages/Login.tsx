@@ -27,7 +27,6 @@ type LoginProps = {
   signUpSuccess?: boolean
   loading?: boolean
   onBack?: () => void
-  onOpenStudentPortal?: () => void
 }
 
 const THEME_OPTIONS: Array<{ value: ThemePreference; label: string }> = [
@@ -80,7 +79,7 @@ const renderThemeIcon = (theme: ThemePreference) => {
   )
 }
 
-export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, error, signUpSuccess: _signUpSuccess, loading, onBack, onOpenStudentPortal: _onOpenStudentPortal }: LoginProps) {
+export default function Login({ onLogin, onGoogleLogin, onVerifyLoginEmailCode, error, signUpSuccess: _signUpSuccess, loading, onBack }: LoginProps) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)

@@ -1,31 +1,28 @@
 const mongoose = require('mongoose');
 const AuditLog = require('../models/AuditLog');
-const gradingScaleService = require('../services/gradingScaleService');
 const {
   EVALUATION_QUESTIONS,
   EMOJI_RATING_SCALE,
   RATING_BY_SCORE,
   parseDateTimeInput,
-  formatDateTimeDisplay,
   getEmojiForAverage,
   syncPeriodEffectiveStatus,
   getActiveAcademicTerm,
   ensurePeriodForTerm,
   loadProfessorLookup,
   resolveSubjectProfessor,
+  adviserKeyFor,
   getStudentTermEvaluationStatus,
-  resolveStudentSectionCode,
+  groupEvaluationSubjectsByAdviser,
   EvaluationPeriod,
   EvaluationResponse,
   EvaluationCompletion,
-  EvaluationIdentityRevealLog,
   Enrollment,
-  Student,
   Admin
 } = require('../services/evaluationService');
 
 const ANONYMITY_NOTICE =
-  'Your identity (name and student number) is strictly hidden from professors. Evaluation responses are stored separately from completion tracking. Authorized Registrar access to identity mapping is restricted and audited.';
+  'Your identity (name and student number) is strictly hidden from professors. Evaluation responses are stored separately from completion tracking.';
 
 async function writeAuditEntry({
   action = 'READ',
@@ -69,6 +66,8 @@ async function writeAuditEntry({
 
 class EvaluationController {
   // GET /api/student/evaluations
+  // Groups the student's enrolled subjects by adviser so the mobile app can
+  // present one evaluation card per adviser instead of one per subject.
   static async getStudentEvaluations(req, res) {
     try {
       const student = req.student;
@@ -121,6 +120,7 @@ class EvaluationController {
               allCompleted: true,
               gradesLocked: false
             },
+            advisers: [],
             subjects: []
           }
         });
@@ -128,46 +128,9 @@ class EvaluationController {
 
       const professorLookup = await loadProfessorLookup();
       const evalStatus = await getStudentTermEvaluationStatus(student, enrollment, professorLookup);
-      const gradeScale = await gradingScaleService.loadGradeScale();
-
-      const activeSubjects = (enrollment.subjects || []).filter(
-        (subj) => ['Enrolled', 'Incomplete', 'Completed'].includes(subj.status || 'Enrolled')
-      );
-
-      const subjects = activeSubjects.map((subj) => {
-        const code = String(subj.code || '').trim().toUpperCase();
-        const meta = evalStatus.subjectsByCode.get(code);
-        const isPublished = (subj.submissionStatus || 'Draft') === 'Published';
-        const isUnlocked = evalStatus.allCompleted && isPublished;
-
-        return {
-          enrollmentId: String(enrollment._id),
-          subjectId: subj.subjectId ? String(subj.subjectId) : null,
-          subjectCode: code,
-          subjectTitle: subj.title,
-          units: Number(subj.units || 0),
-          schedule: subj.schedule || 'TBA',
-          room: subj.room || 'TBA',
-          instructor: meta?.professorName || subj.instructor || 'Assigned Faculty',
-          professorName: meta?.professorName || subj.instructor || 'Assigned Faculty',
-          professorId: meta?.professorId || null,
-          status: subj.status || 'Enrolled',
-          evaluationRequired: true,
-          evaluationCompleted: Boolean(meta?.evaluationCompleted),
-          completedAt: meta?.completedAt || null,
-          canEvaluate: Boolean(meta?.canEvaluate),
-          gradePublished: isPublished,
-          gradeLocked: !isUnlocked,
-          lockReason: !evalStatus.allCompleted
-            ? 'Complete the required professor evaluations to access your grades.'
-            : (!isPublished ? 'Grades are not yet officially released by the Registrar.' : null),
-          grade: isUnlocked && subj.grade != null ? subj.grade : null,
-          gradeMark: isUnlocked ? (subj.gradeMark || null) : null,
-          remarks: isUnlocked
-            ? (subj.remarks || (subj.gradeMark ? subj.gradeMark : (subj.grade != null && gradingScaleService.isPassingGrade(subj.grade, gradeScale) ? 'PASSED' : 'FAILED')))
-            : 'LOCKED'
-        };
-      });
+      const advisers = groupEvaluationSubjectsByAdviser(evalStatus.subjectsList, evalStatus.period);
+      const completedAdvisers = advisers.filter((item) => item.evaluationCompleted).length;
+      const pendingAdvisers = Math.max(0, advisers.length - completedAdvisers);
 
       return res.json({
         success: true,
@@ -179,13 +142,15 @@ class EvaluationController {
           semester: enrollment.semester,
           schoolYear: enrollment.schoolYear,
           summary: {
-            requiredCount: evalStatus.requiredCount,
-            completedCount: evalStatus.completedCount,
-            pendingCount: evalStatus.pendingCount,
-            allCompleted: evalStatus.allCompleted,
-            gradesLocked: evalStatus.gradesLocked
+            requiredCount: advisers.length,
+            completedCount: completedAdvisers,
+            pendingCount: pendingAdvisers,
+            allCompleted: pendingAdvisers === 0,
+            gradesLocked: pendingAdvisers > 0
           },
-          subjects
+          advisers,
+          // Kept for older clients that still render the per-subject list.
+          subjects: evalStatus.subjectsList
         }
       });
     } catch (error) {
@@ -195,6 +160,8 @@ class EvaluationController {
   }
 
   // POST /api/student/evaluations
+  // The student chooses an adviser. A single submission records the anonymous
+  // rating and marks every subject taught by that adviser as evaluated.
   static async submitStudentEvaluation(req, res) {
     try {
       const student = req.student;
@@ -203,20 +170,32 @@ class EvaluationController {
       }
 
       const {
+        professorId: rawProfessorId,
+        professorName: rawProfessorName,
         subjectCode: rawSubjectCode,
-        subjectId: rawSubjectId,
+        subjectCodes: rawSubjectCodes,
         semester: rawSemester,
         schoolYear: rawSchoolYear,
         ratings: rawRatings,
         comment: rawComment
       } = req.body || {};
 
-      const normalizedCode = String(rawSubjectCode || '').trim().toUpperCase();
-      if (!normalizedCode && !rawSubjectId) {
-        return res.status(400).json({ error: 'Subject code or subject ID is required.' });
+      const normalizedProfessorId = String(rawProfessorId || '').trim();
+      const normalizedProfessorName = String(rawProfessorName || '').trim();
+      const requestedSubjectCodes = new Set(
+        [
+          rawSubjectCode,
+          ...(Array.isArray(rawSubjectCodes) ? rawSubjectCodes : [])
+        ]
+          .map((code) => String(code || '').trim().toUpperCase())
+          .filter(Boolean)
+      );
+
+      if (!normalizedProfessorId && !normalizedProfessorName && requestedSubjectCodes.size === 0) {
+        return res.status(400).json({ error: 'Please choose an adviser to evaluate.' });
       }
 
-      // 1. Validate ratings array (must have all 10 questions rated 1..5)
+      // 1. Validate ratings (all 10 questions, integers 1..5)
       let scores = [];
       if (Array.isArray(rawRatings)) {
         if (rawRatings.length !== 10) {
@@ -244,7 +223,7 @@ class EvaluationController {
         });
       }
 
-      // 2. Verify that the logged-in student is enrolled in the selected subject
+      // 2. Find the student's enrollment for the requested term
       const enrollmentQuery = {
         studentId: student._id,
         status: { $ne: 'Dropped' }
@@ -252,40 +231,67 @@ class EvaluationController {
       if (rawSemester) enrollmentQuery.semester = String(rawSemester).trim();
       if (rawSchoolYear) enrollmentQuery.schoolYear = String(rawSchoolYear).trim();
 
-      const enrollments = await Enrollment.find(enrollmentQuery).sort({ isCurrent: -1, createdAt: -1 });
-      let matchedEnrollment = null;
-      let matchedSubject = null;
+      let enrollment = await Enrollment.findOne(
+        rawSemester || rawSchoolYear
+          ? enrollmentQuery
+          : { ...enrollmentQuery, isCurrent: true }
+      ).sort({ isCurrent: -1, createdAt: -1 });
 
-      for (const enr of enrollments) {
-        const found = (enr.subjects || []).find((subj) => {
-          if (!['Enrolled', 'Incomplete', 'Completed'].includes(subj.status || 'Enrolled')) {
-            return false;
-          }
-          const subjCode = String(subj.code || '').trim().toUpperCase();
-          const subjId = subj.subjectId ? String(subj.subjectId) : '';
-          if (normalizedCode && subjCode === normalizedCode) return true;
-          if (rawSubjectId && subjId === String(rawSubjectId)) return true;
-          return false;
-        });
-        if (found) {
-          matchedEnrollment = enr;
-          matchedSubject = found;
-          break;
-        }
+      if (!enrollment) {
+        enrollment = await Enrollment.findOne(enrollmentQuery).sort({ isCurrent: -1, createdAt: -1 });
       }
 
-      if (!matchedEnrollment || !matchedSubject) {
+      if (!enrollment) {
+        return res.status(403).json({ error: 'You do not have an active enrollment for this term.' });
+      }
+
+      // 3. Resolve the adviser group from the enrolled subjects
+      const professorLookup = await loadProfessorLookup();
+      const activeSubjects = (enrollment.subjects || []).filter(
+        (subj) => ['Enrolled', 'Incomplete', 'Completed'].includes(subj.status || 'Enrolled')
+      );
+      const resolvedSubjects = activeSubjects
+        .map((subj) => ({
+          subject: subj,
+          professor: resolveSubjectProfessor(subj, student, professorLookup)
+        }))
+        .filter((item) => String(item.subject.code || '').trim());
+
+      let group = [];
+      if (normalizedProfessorId || normalizedProfessorName) {
+        const requestedKey = normalizedProfessorId
+          ? adviserKeyFor(normalizedProfessorId, normalizedProfessorName)
+          : adviserKeyFor(null, normalizedProfessorName);
+        group = resolvedSubjects.filter(
+          (item) => adviserKeyFor(item.professor.professorId, item.professor.professorName) === requestedKey
+        );
+      }
+
+      if (group.length === 0 && requestedSubjectCodes.size > 0) {
+        group = resolvedSubjects.filter(
+          (item) => requestedSubjectCodes.has(String(item.subject.code || '').trim().toUpperCase())
+        );
+      }
+
+      if (group.length === 0) {
         return res.status(403).json({
-          error: 'You are not enrolled in this subject for the selected academic term.'
+          error: 'You are not enrolled in any subject handled by this adviser for the selected academic term.'
         });
       }
 
-      const canonicalCode = String(matchedSubject.code || '').trim().toUpperCase();
-      const semester = matchedEnrollment.semester;
-      const schoolYear = matchedEnrollment.schoolYear;
+      const groupKey = adviserKeyFor(group[0].professor.professorId, group[0].professor.professorName);
+      group = group.filter(
+        (item) => adviserKeyFor(item.professor.professorId, item.professor.professorName) === groupKey
+      );
 
-      // 3. Enforce evaluation deadlines on the server
-      const period = await ensurePeriodForTerm(semester, schoolYear, true);
+      const semester = enrollment.semester;
+      const schoolYear = enrollment.schoolYear;
+      const groupCodes = group.map((item) => String(item.subject.code || '').trim().toUpperCase());
+      const professorName = group[0].professor.professorName;
+      const professorId = group[0].professor.professorId;
+
+      // 4. Enforce evaluation deadlines
+      const period = await ensurePeriodForTerm(semester, schoolYear, Boolean(enrollment.isCurrent));
       if (!period || !period.isOpen) {
         const statusMsg = period?.status === 'scheduled'
           ? `Evaluation period has not started yet (opens ${period.startDisplay}).`
@@ -297,26 +303,31 @@ class EvaluationController {
         });
       }
 
-      // 4. Prevent duplicate evaluation submissions
-      const existingCompletion = await EvaluationCompletion.findOne({
+      // 5. Prevent duplicate evaluations for an adviser who is fully evaluated
+      const existingCompletions = await EvaluationCompletion.find({
         studentId: student._id,
         semester,
         schoolYear,
-        subjectCode: canonicalCode
+        subjectCode: { $in: groupCodes }
       }).lean();
+      const completedCodes = new Set(
+        existingCompletions.map((item) => String(item.subjectCode || '').trim().toUpperCase())
+      );
+      const missingSubjects = group.filter(
+        (item) => !completedCodes.has(String(item.subject.code || '').trim().toUpperCase())
+      );
 
-      if (existingCompletion) {
+      if (missingSubjects.length === 0) {
         return res.status(409).json({
-          error: 'You have already submitted an evaluation for this subject and professor.',
+          error: 'You have already evaluated this adviser for the selected academic term.',
           code: 'DUPLICATE_EVALUATION'
         });
       }
 
-      // 5. Resolve professor & section info
-      const professorLookup = await loadProfessorLookup();
-      const profInfo = resolveSubjectProfessor(matchedSubject, student, professorLookup);
-      const sectionInfo = await resolveStudentSectionCode(student._id, semester, schoolYear);
-
+      // 6. Store the anonymous response. The response is intentionally not
+      // linked to the student's completion records.
+      const anchor = group[0];
+      const anchorCode = String(anchor.subject.code || '').trim().toUpperCase();
       const formattedRatings = EVALUATION_QUESTIONS.map((q, idx) => {
         const score = scores[idx];
         const scaleItem = RATING_BY_SCORE.get(score) || { emoji: '😐', label: 'Average' };
@@ -333,22 +344,21 @@ class EvaluationController {
       const averageRating = Number((sumScores / 10).toFixed(2));
       const sanitizedComment = String(rawComment || '').trim().slice(0, 2000);
 
-      // 6. Save ratings securely in EvaluationResponse BEFORE marking completion
       const savedResponse = await EvaluationResponse.create({
         periodId: period.id && mongoose.Types.ObjectId.isValid(period.id) ? period.id : null,
         semester,
         schoolYear,
-        subjectId: matchedSubject.subjectId || null,
-        subjectCode: canonicalCode,
-        subjectTitle: matchedSubject.title,
-        sectionId: sectionInfo.sectionId,
-        sectionCode: sectionInfo.sectionCode || student.section || '',
-        course: String(matchedEnrollment.course || student.course || ''),
-        yearLevel: matchedEnrollment.yearLevel || student.yearLevel || null,
-        professorId: profInfo.professorId && mongoose.Types.ObjectId.isValid(profInfo.professorId)
-          ? profInfo.professorId
-          : null,
-        professorName: profInfo.professorName,
+        subjectId: anchor.subject.subjectId || null,
+        subjectCode: anchorCode,
+        subjectTitle: group.length > 1
+          ? `Adviser Evaluation (${groupCodes.join(', ')})`
+          : anchor.subject.title,
+        subjectCodes: groupCodes,
+        sectionCode: student.section || '',
+        course: String(enrollment.course || student.course || ''),
+        yearLevel: enrollment.yearLevel || student.yearLevel || null,
+        professorId: professorId && mongoose.Types.ObjectId.isValid(professorId) ? professorId : null,
+        professorName,
         ratings: formattedRatings,
         questionScores: scores,
         averageRating,
@@ -356,77 +366,80 @@ class EvaluationController {
         submittedAt: new Date()
       });
 
-      // 7. Record completion separately (rollback response if duplicate race occurs)
-      let newCompletion = null;
-      try {
-        const fullName = [student.lastName, student.firstName, student.middleName, student.suffix]
-          .filter(Boolean)
-          .join(', ')
-          .replace(', ,', ',')
-          .trim() || student.studentNumber;
+      // 7. Mark every subject taught by this adviser as evaluated so each
+      // subject's grade unlocks independently.
+      const fullName = [student.lastName, student.firstName, student.middleName, student.suffix]
+        .filter(Boolean)
+        .join(', ')
+        .replace(', ,', ',')
+        .trim() || student.studentNumber;
 
-        newCompletion = await EvaluationCompletion.create({
-          studentId: student._id,
-          studentNumber: String(student.studentNumber || ''),
-          studentName: fullName,
-          course: String(matchedEnrollment.course || student.course || ''),
-          yearLevel: matchedEnrollment.yearLevel || student.yearLevel || null,
-          sectionCode: sectionInfo.sectionCode || student.section || '',
-          enrollmentId: matchedEnrollment._id,
-          periodId: period.id && mongoose.Types.ObjectId.isValid(period.id) ? period.id : null,
-          semester,
-          schoolYear,
-          subjectId: matchedSubject.subjectId || null,
-          subjectCode: canonicalCode,
-          subjectTitle: matchedSubject.title,
-          professorId: profInfo.professorId && mongoose.Types.ObjectId.isValid(profInfo.professorId)
-            ? profInfo.professorId
-            : null,
-          professorName: profInfo.professorName,
-          responseId: savedResponse._id,
-          completedAt: new Date()
-        });
+      try {
+        await EvaluationCompletion.bulkWrite(
+          missingSubjects.map((item) => {
+            const code = String(item.subject.code || '').trim().toUpperCase();
+            return {
+              updateOne: {
+                filter: {
+                  studentId: student._id,
+                  schoolYear,
+                  semester,
+                  subjectCode: code
+                },
+                update: {
+                  $setOnInsert: {
+                    studentId: student._id,
+                    studentNumber: String(student.studentNumber || ''),
+                    studentName: fullName,
+                    course: String(enrollment.course || student.course || ''),
+                    yearLevel: enrollment.yearLevel || student.yearLevel || null,
+                    sectionCode: student.section || '',
+                    enrollmentId: enrollment._id,
+                    periodId: period.id && mongoose.Types.ObjectId.isValid(period.id) ? period.id : null,
+                    semester,
+                    schoolYear,
+                    subjectId: item.subject.subjectId || null,
+                    subjectCode: code,
+                    subjectTitle: item.subject.title || code,
+                    professorId: item.professor.professorId && mongoose.Types.ObjectId.isValid(item.professor.professorId)
+                      ? item.professor.professorId
+                      : null,
+                    professorName: item.professor.professorName,
+                    completedAt: new Date()
+                  }
+                },
+                upsert: true
+              }
+            };
+          })
+        );
       } catch (completionError) {
         await EvaluationResponse.deleteOne({ _id: savedResponse._id }).catch(() => null);
-        if (completionError && completionError.code === 11000) {
-          return res.status(409).json({
-            error: 'You have already submitted an evaluation for this subject.',
-            code: 'DUPLICATE_EVALUATION'
-          });
-        }
         throw completionError;
       }
 
-      // Fetch existing completions excluding the newly created one to avoid duplicates
-      const existingCompletions = await EvaluationCompletion.find({
-        studentId: student._id,
-        semester,
-        schoolYear,
-        _id: { $ne: newCompletion._id }
-      }).lean();
-
-      // Combine existing completions with the newly created one for immediate consistency
-      const allCompletions = [...existingCompletions, newCompletion.toObject()];
-
-      const updatedStatus = await getStudentTermEvaluationStatus(student, matchedEnrollment, professorLookup, allCompletions);
+      const updatedStatus = await getStudentTermEvaluationStatus(student, enrollment, professorLookup);
+      const advisers = groupEvaluationSubjectsByAdviser(updatedStatus.subjectsList, updatedStatus.period);
+      const updatedAdviser = advisers.find((item) => item.key === groupKey) || null;
+      const completedAdvisers = advisers.filter((item) => item.evaluationCompleted).length;
+      const pendingAdvisers = Math.max(0, advisers.length - completedAdvisers);
 
       return res.status(201).json({
         success: true,
-        message: updatedStatus.allCompleted
-          ? 'Thank you! All required professor evaluations are complete. Published grades are now unlocked.'
-          : `Evaluation submitted! (${updatedStatus.completedCount} of ${updatedStatus.requiredCount} completed)`,
+        message: `Thank you for evaluating ${professorName}. Your responses were recorded anonymously.`,
         data: {
-          subjectCode: canonicalCode,
-          subjectTitle: matchedSubject.title,
-          professorName: profInfo.professorName,
+          professorId: professorId || null,
+          professorName,
+          subjectCodes: groupCodes,
           averageRating,
           submittedAt: savedResponse.submittedAt,
+          adviser: updatedAdviser,
           summary: {
-            requiredCount: updatedStatus.requiredCount,
-            completedCount: updatedStatus.completedCount,
-            pendingCount: updatedStatus.pendingCount,
-            allCompleted: updatedStatus.allCompleted,
-            gradesLocked: updatedStatus.gradesLocked
+            requiredCount: advisers.length,
+            completedCount: completedAdvisers,
+            pendingCount: pendingAdvisers,
+            allCompleted: pendingAdvisers === 0,
+            gradesLocked: pendingAdvisers > 0
           }
         }
       });
@@ -461,45 +474,9 @@ class EvaluationController {
       );
       const nameRegexes = nameIdentifiers.map((v) => new RegExp(`^\\s*${escapeRegExp(v)}\\s*$`, 'i'));
 
-      // Also find any subject codes assigned to this professor in Enrollment records
-      const assignedEnrollments = await Enrollment.find({
-        status: { $ne: 'Dropped' },
-        subjects: {
-          $elemMatch: {
-            instructor: { $in: nameRegexes },
-            status: { $ne: 'Dropped' }
-          }
-        }
-      }).select('semester schoolYear subjects').lean();
-
-      const activeTerm = await getActiveAcademicTerm();
-      const assignedSubjectsMap = new Map();
-      const schoolYearSet = new Set([activeTerm.schoolYear]);
-      const semesterSet = new Set(['1st', '2nd', 'Summer']);
-
-      for (const enr of assignedEnrollments) {
-        if (enr.schoolYear) schoolYearSet.add(enr.schoolYear);
-        if (enr.semester) semesterSet.add(enr.semester);
-        for (const subj of enr.subjects || []) {
-          const matchesProf = nameRegexes.some((rx) => rx.test(String(subj.instructor || '')));
-          if (matchesProf && subj.code) {
-            const code = String(subj.code).trim().toUpperCase();
-            if (!assignedSubjectsMap.has(code)) {
-              assignedSubjectsMap.set(code, {
-                subjectCode: code,
-                subjectTitle: subj.title || code
-              });
-            }
-          }
-        }
-      }
-
       const orFilters = [{ professorId: professor._id }];
       if (nameRegexes.length > 0) {
         orFilters.push({ professorName: { $in: nameRegexes } });
-      }
-      if (assignedSubjectsMap.size > 0) {
-        orFilters.push({ subjectCode: { $in: Array.from(assignedSubjectsMap.keys()) } });
       }
 
       const filterSubject = String(req.query.subjectCode || req.query.subject || '').trim().toUpperCase();
@@ -512,19 +489,33 @@ class EvaluationController {
         .sort({ submittedAt: -1 })
         .lean();
 
+      const activeTerm = await getActiveAcademicTerm();
+      const assignedSubjectsMap = new Map();
+      const schoolYearSet = new Set([activeTerm.schoolYear]);
+      const semesterSet = new Set(['1st', '2nd', 'Summer']);
+
+      const responseSubjectCodes = (resp) => {
+        const codes = Array.isArray(resp?.subjectCodes) && resp.subjectCodes.length > 0
+          ? resp.subjectCodes
+          : [resp?.subjectCode];
+        return codes.map((code) => String(code || '').trim().toUpperCase()).filter(Boolean);
+      };
+
       for (const resp of allProfResponses) {
         if (resp.schoolYear) schoolYearSet.add(resp.schoolYear);
         if (resp.semester) semesterSet.add(resp.semester);
-        if (resp.subjectCode && !assignedSubjectsMap.has(resp.subjectCode)) {
-          assignedSubjectsMap.set(resp.subjectCode, {
-            subjectCode: resp.subjectCode,
-            subjectTitle: resp.subjectTitle || resp.subjectCode
-          });
+        for (const code of responseSubjectCodes(resp)) {
+          if (!assignedSubjectsMap.has(code)) {
+            assignedSubjectsMap.set(code, {
+              subjectCode: code,
+              subjectTitle: resp.subjectTitle || code
+            });
+          }
         }
       }
 
       const filteredResponses = allProfResponses.filter((resp) => {
-        if (filterSubject && filterSubject !== 'ALL' && String(resp.subjectCode).toUpperCase() !== filterSubject) {
+        if (filterSubject && filterSubject !== 'ALL' && !responseSubjectCodes(resp).includes(filterSubject)) {
           return false;
         }
         if (filterSemester && filterSemester !== 'ALL' && resp.semester !== filterSemester) {
@@ -542,28 +533,10 @@ class EvaluationController {
         : 0;
       const overallEmoji = getEmojiForAverage(overallAverage);
 
-      // Compute expected responses from assigned enrollments for completion percentage
-      let expectedFromEnrollments = 0;
-      for (const enr of assignedEnrollments) {
-        if (filterSemester && filterSemester !== 'ALL' && enr.semester !== filterSemester) continue;
-        if (filterSchoolYear && filterSchoolYear !== 'ALL' && enr.schoolYear !== filterSchoolYear) continue;
-        for (const subj of enr.subjects || []) {
-          const code = String(subj.code || '').trim().toUpperCase();
-          if (filterSubject && filterSubject !== 'ALL' && code !== filterSubject) continue;
-          const matchesProf = nameRegexes.some((rx) => rx.test(String(subj.instructor || '')));
-          if (matchesProf) {
-            expectedFromEnrollments += 1;
-          }
-        }
-      }
-      const totalExpectedResponses = Math.max(expectedFromEnrollments, totalResponses);
-      const completionPercentage = totalExpectedResponses > 0
-        ? Math.min(100, Math.round((totalResponses / totalExpectedResponses) * 100))
-        : 0;
       const activeTermPeriod = await ensurePeriodForTerm(
         filterSemester && filterSemester !== 'ALL' ? filterSemester : activeTerm.semester,
         filterSchoolYear && filterSchoolYear !== 'ALL' ? filterSchoolYear : activeTerm.schoolYear,
-        true
+        false
       );
 
       const questionSummaries = EVALUATION_QUESTIONS.map((q, idx) => {
@@ -598,20 +571,22 @@ class EvaluationController {
 
       const subjectGroupMap = new Map();
       for (const resp of filteredResponses) {
-        const key = `${resp.subjectCode}|${resp.semester}|${resp.schoolYear}`;
-        if (!subjectGroupMap.has(key)) {
-          subjectGroupMap.set(key, {
-            subjectCode: resp.subjectCode,
-            subjectTitle: resp.subjectTitle,
-            semester: resp.semester,
-            schoolYear: resp.schoolYear,
-            responseCount: 0,
-            ratingSum: 0
-          });
+        for (const code of responseSubjectCodes(resp)) {
+          const key = `${code}|${resp.semester}|${resp.schoolYear}`;
+          if (!subjectGroupMap.has(key)) {
+            subjectGroupMap.set(key, {
+              subjectCode: code,
+              subjectTitle: resp.subjectTitle || code,
+              semester: resp.semester,
+              schoolYear: resp.schoolYear,
+              responseCount: 0,
+              ratingSum: 0
+            });
+          }
+          const entry = subjectGroupMap.get(key);
+          entry.responseCount += 1;
+          entry.ratingSum += Number(resp.averageRating || 0);
         }
-        const entry = subjectGroupMap.get(key);
-        entry.responseCount += 1;
-        entry.ratingSum += Number(resp.averageRating || 0);
       }
 
       const subjectSummaries = Array.from(subjectGroupMap.values()).map((item) => {
@@ -637,7 +612,7 @@ class EvaluationController {
           anonymousLabel: `Anonymous Response #${filteredResponses.length - index}`,
           subjectCode: resp.subjectCode,
           subjectTitle: resp.subjectTitle,
-          sectionCode: resp.sectionCode || '',
+          subjectCodes: responseSubjectCodes(resp),
           semester: resp.semester,
           schoolYear: resp.schoolYear,
           averageRating: resp.averageRating,
@@ -654,8 +629,6 @@ class EvaluationController {
         data: {
           professorName: professor.displayName || professor.username,
           totalResponses,
-          totalExpectedResponses,
-          completionPercentage,
           subjectsWithFeedbackCount: subjectSummaries.length,
           overallAverage,
           overallEmoji: overallEmoji.emoji,
@@ -684,7 +657,7 @@ class EvaluationController {
   static async listEvaluationPeriods(req, res) {
     try {
       const activeTerm = await getActiveAcademicTerm();
-      await ensurePeriodForTerm(activeTerm.semester, activeTerm.schoolYear, true);
+      await ensurePeriodForTerm(activeTerm.semester, activeTerm.schoolYear, false);
       const rawPeriods = await EvaluationPeriod.find({})
         .sort({ schoolYear: -1, semester: 1, createdAt: -1 })
         .lean();
@@ -692,34 +665,26 @@ class EvaluationController {
       const periods = [];
       for (const p of rawPeriods) {
         const synced = await syncPeriodEffectiveStatus(p);
-        const [enrollments, completionsCount] = await Promise.all([
-          Enrollment.find({
-            semester: p.semester,
-            schoolYear: p.schoolYear,
-            status: { $ne: 'Dropped' }
-          }).select('subjects').lean(),
-          EvaluationCompletion.countDocuments({
-            semester: p.semester,
-            schoolYear: p.schoolYear
-          })
+        const statsRows = await EvaluationResponse.aggregate([
+          { $match: { semester: p.semester, schoolYear: p.schoolYear } },
+          {
+            $group: {
+              _id: null,
+              totalResponses: { $sum: 1 },
+              averageRating: { $avg: '$averageRating' },
+              professors: { $addToSet: '$professorName' },
+              subjects: { $addToSet: '$subjectCode' }
+            }
+          }
         ]);
-
-        const totalRequired = enrollments.reduce((sum, enr) => {
-          const activeCount = (enr.subjects || []).filter(
-            (s) => ['Enrolled', 'Incomplete', 'Completed'].includes(s.status || 'Enrolled')
-          ).length;
-          return sum + activeCount;
-        }, 0);
+        const stats = statsRows[0] || {};
 
         periods.push({
           ...synced,
-          totalEnrolledStudents: enrollments.length,
-          totalRequiredEvaluations: totalRequired,
-          completedEvaluations: completionsCount,
-          incompleteEvaluations: Math.max(0, totalRequired - completionsCount),
-          completionRate: totalRequired > 0
-            ? Math.min(100, Math.round((completionsCount / totalRequired) * 100))
-            : 0
+          totalResponses: stats.totalResponses || 0,
+          averageRating: stats.averageRating ? Number(Number(stats.averageRating).toFixed(2)) : 0,
+          professorCount: Array.isArray(stats.professors) ? stats.professors.filter(Boolean).length : 0,
+          subjectCount: Array.isArray(stats.subjects) ? stats.subjects.filter(Boolean).length : 0
         });
       }
 
@@ -957,14 +922,84 @@ class EvaluationController {
         severity: 'MEDIUM'
       });
 
+      const actionLabel = {
+        draft: 'saved as draft',
+        start: 'started',
+        close: 'closed',
+        extend: 'extended',
+        reopen: 'reopened'
+      }[String(action || '').toLowerCase()] || 'updated';
+
       return res.json({
         success: true,
-        message: `Evaluation period ${action}ed successfully.`,
+        message: `Evaluation period ${actionLabel} successfully.`,
         data: synced
       });
     } catch (error) {
       console.error('Update evaluation period status error:', error);
       return res.status(500).json({ error: 'Failed to update evaluation period.' });
+    }
+  }
+
+  // DELETE /api/registrar/evaluation-periods/:id
+  static async deleteEvaluationPeriod(req, res) {
+    try {
+      const { id } = req.params;
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ error: 'Invalid evaluation period ID.' });
+      }
+
+      const period = await EvaluationPeriod.findById(id);
+      if (!period) {
+        return res.status(404).json({ error: 'Evaluation period not found.' });
+      }
+
+      const actor = req.adminId ? await Admin.findById(req.adminId).select('username displayName').lean() : null;
+      const actorName = actor?.displayName || actor?.username || 'Registrar';
+      const previousState = period.toObject();
+
+      // If this is the only period for the term, older responses without a
+      // periodId also belong to it and should be removed with it.
+      const siblingCount = await EvaluationPeriod.countDocuments({
+        _id: { $ne: period._id },
+        semester: period.semester,
+        schoolYear: period.schoolYear
+      });
+      const responseFilter = siblingCount > 0
+        ? { periodId: period._id }
+        : {
+            $or: [
+              { periodId: period._id },
+              { periodId: null, semester: period.semester, schoolYear: period.schoolYear }
+            ]
+          };
+
+      const deletedResponses = await EvaluationResponse.deleteMany(responseFilter);
+      await EvaluationPeriod.findByIdAndDelete(period._id);
+
+      await writeAuditEntry({
+        action: 'DELETE',
+        resourceType: 'EVALUATION_PERIOD',
+        resourceId: String(period._id),
+        resourceName: period.title,
+        description: `Registrar ${actorName} removed evaluation period (${period.semester} ${period.schoolYear}) and ${deletedResponses.deletedCount || 0} anonymous response(s)`,
+        req,
+        oldValue: previousState,
+        newValue: null,
+        severity: 'HIGH'
+      });
+
+      return res.json({
+        success: true,
+        message: 'Evaluation period removed successfully.',
+        data: {
+          id: String(period._id),
+          deletedResponses: deletedResponses.deletedCount || 0
+        }
+      });
+    } catch (error) {
+      console.error('Delete evaluation period error:', error);
+      return res.status(500).json({ error: 'Failed to remove evaluation period.' });
     }
   }
 
@@ -980,97 +1015,26 @@ class EvaluationController {
       const activePeriod = await ensurePeriodForTerm(
         semester === 'ALL' ? activeTerm.semester : semester,
         schoolYear === 'ALL' ? activeTerm.schoolYear : schoolYear,
-        true
+        false
       );
 
       const termQuery = {};
       if (semester && semester !== 'ALL') termQuery.semester = semester;
       if (schoolYear && schoolYear !== 'ALL') termQuery.schoolYear = schoolYear;
 
-      const professorLookup = await loadProfessorLookup();
+      const responses = await EvaluationResponse.find(termQuery)
+        .sort({ submittedAt: -1 })
+        .lean();
 
-      const [enrollments, completions, responses, revealLogs] = await Promise.all([
-        Enrollment.find({
-          ...termQuery,
-          status: { $ne: 'Dropped' }
-        }).populate('studentId', 'studentNumber firstName middleName lastName suffix course yearLevel section').lean(),
-        EvaluationCompletion.find(termQuery).lean(),
-        EvaluationResponse.find(termQuery).sort({ submittedAt: -1 }).lean(),
-        EvaluationIdentityRevealLog.find(termQuery).sort({ revealedAt: -1 }).lean()
-      ]);
-
-      const completionSet = new Set(
-        completions.map((c) => `${String(c.studentId)}|${c.semester}|${c.schoolYear}|${String(c.subjectCode).toUpperCase()}`)
-      );
-
-      let totalRequiredEvaluations = 0;
-      let totalSubmittedEvaluations = 0;
-      let studentsFullyCompleted = 0;
-      let studentsIncomplete = 0;
-      const incompleteEvaluations = [];
-
-      for (const enr of enrollments) {
-        const studentDoc = enr.studentId && typeof enr.studentId === 'object' ? enr.studentId : null;
-        const studentIdStr = studentDoc ? String(studentDoc._id) : String(enr.studentId || '');
-        const studentNumber = studentDoc?.studentNumber || enr.studentNumber || 'N/A';
-        const studentName = studentDoc
-          ? [studentDoc.lastName, studentDoc.firstName, studentDoc.middleName, studentDoc.suffix].filter(Boolean).join(', ')
-          : studentNumber;
-
-        const activeSubjects = (enr.subjects || []).filter(
-          (s) => ['Enrolled', 'Incomplete', 'Completed'].includes(s.status || 'Enrolled')
-        );
-        if (activeSubjects.length === 0) continue;
-
-        const pendingSubjects = [];
-        let completedForStudent = 0;
-
-        for (const subj of activeSubjects) {
-          const code = String(subj.code || '').trim().toUpperCase();
-          if (!code) continue;
-          totalRequiredEvaluations += 1;
-          const prof = resolveSubjectProfessor(subj, studentDoc, professorLookup);
-          const key = `${studentIdStr}|${enr.semester}|${enr.schoolYear}|${code}`;
-          if (completionSet.has(key)) {
-            completedForStudent += 1;
-            totalSubmittedEvaluations += 1;
-          } else {
-            pendingSubjects.push({
-              subjectCode: code,
-              subjectTitle: subj.title || code,
-              professorName: prof.professorName
-            });
-          }
-        }
-
-        if (pendingSubjects.length === 0) {
-          studentsFullyCompleted += 1;
-        } else {
-          studentsIncomplete += 1;
-          incompleteEvaluations.push({
-            studentId: studentIdStr,
-            studentNumber,
-            studentName,
-            course: enr.course || studentDoc?.course || '',
-            yearLevel: enr.yearLevel || studentDoc?.yearLevel || null,
-            semester: enr.semester,
-            schoolYear: enr.schoolYear,
-            requiredCount: activeSubjects.length,
-            completedCount: completedForStudent,
-            pendingCount: pendingSubjects.length,
-            pendingSubjects
-          });
-        }
-      }
-
-      const revealCountByResponseId = new Map();
-      for (const log of revealLogs) {
-        const rId = String(log.responseId);
-        revealCountByResponseId.set(rId, (revealCountByResponseId.get(rId) || 0) + 1);
-      }
+      const responseSubjectCodes = (resp) => {
+        const codes = Array.isArray(resp?.subjectCodes) && resp.subjectCodes.length > 0
+          ? resp.subjectCodes
+          : [resp?.subjectCode];
+        return codes.map((code) => String(code || '').trim().toUpperCase()).filter(Boolean);
+      };
 
       const filteredResponses = responses.filter((resp) => {
-        if (subjectFilter && subjectFilter !== 'ALL' && String(resp.subjectCode).toUpperCase() !== subjectFilter) {
+        if (subjectFilter && subjectFilter !== 'ALL' && !responseSubjectCodes(resp).includes(subjectFilter)) {
           return false;
         }
         if (professorFilter && professorFilter !== 'all' && !String(resp.professorName || '').toLowerCase().includes(professorFilter)) {
@@ -1079,7 +1043,6 @@ class EvaluationController {
         return true;
       });
 
-      // Student identities are hidden by default until authorized Reveal Identity is executed
       const evaluations = filteredResponses.map((resp, idx) => {
         const emojiMeta = getEmojiForAverage(resp.averageRating);
         const rId = String(resp._id);
@@ -1089,14 +1052,13 @@ class EvaluationController {
           id: rId,
           _id: rId,
           recordNumber: `EV-${yearPrefix}-${seqNum}`,
-          submissionStatus: 'Completed',
           semester: resp.semester,
           schoolYear: resp.schoolYear,
           subjectCode: resp.subjectCode,
           subjectTitle: resp.subjectTitle,
+          subjectCodes: responseSubjectCodes(resp),
           sectionCode: resp.sectionCode || '',
           course: resp.course || '',
-          yearLevel: resp.yearLevel || null,
           professorId: resp.professorId ? String(resp.professorId) : null,
           professorName: resp.professorName,
           averageRating: resp.averageRating,
@@ -1104,33 +1066,28 @@ class EvaluationController {
           ratingLabel: emojiMeta.label,
           ratings: resp.ratings || [],
           comment: resp.comment || '',
-          submittedAt: resp.submittedAt,
-          revealCount: revealCountByResponseId.get(rId) || 0,
-          studentIdentity: {
-            isRevealed: false,
-            maskedLabel: 'Anonymous Student (Protected)'
-          }
+          submittedAt: resp.submittedAt
         };
       });
 
-      const profMap = new Map();
-      for (const resp of responses) {
+      const professorMap = new Map();
+      for (const resp of filteredResponses) {
         const key = String(resp.professorName || 'Assigned Faculty');
-        if (!profMap.has(key)) {
-          profMap.set(key, {
+        if (!professorMap.has(key)) {
+          professorMap.set(key, {
             professorName: key,
             responseCount: 0,
             ratingSum: 0,
             subjects: new Set()
           });
         }
-        const entry = profMap.get(key);
+        const entry = professorMap.get(key);
         entry.responseCount += 1;
         entry.ratingSum += Number(resp.averageRating || 0);
-        if (resp.subjectCode) entry.subjects.add(resp.subjectCode);
+        for (const code of responseSubjectCodes(resp)) entry.subjects.add(code);
       }
 
-      const professorSummaries = Array.from(profMap.values()).map((p) => {
+      const professorSummaries = Array.from(professorMap.values()).map((p) => {
         const avg = p.responseCount > 0 ? Number((p.ratingSum / p.responseCount).toFixed(2)) : 0;
         const emojiMeta = getEmojiForAverage(avg);
         return {
@@ -1144,8 +1101,47 @@ class EvaluationController {
         };
       });
 
-      const completionPercentage = totalRequiredEvaluations > 0
-        ? Math.min(100, Math.round((totalSubmittedEvaluations / totalRequiredEvaluations) * 100))
+      const subjectMap = new Map();
+      for (const resp of filteredResponses) {
+        for (const code of responseSubjectCodes(resp)) {
+          const key = `${code}|${resp.semester}|${resp.schoolYear}`;
+          if (!subjectMap.has(key)) {
+            subjectMap.set(key, {
+              subjectCode: code,
+              subjectTitle: resp.subjectTitle || code,
+              semester: resp.semester,
+              schoolYear: resp.schoolYear,
+              responseCount: 0,
+              ratingSum: 0,
+              professors: new Set()
+            });
+          }
+          const entry = subjectMap.get(key);
+          entry.responseCount += 1;
+          entry.ratingSum += Number(resp.averageRating || 0);
+          if (resp.professorName) entry.professors.add(resp.professorName);
+        }
+      }
+
+      const subjectSummaries = Array.from(subjectMap.values()).map((s) => {
+        const avg = s.responseCount > 0 ? Number((s.ratingSum / s.responseCount).toFixed(2)) : 0;
+        const emojiMeta = getEmojiForAverage(avg);
+        return {
+          subjectCode: s.subjectCode,
+          subjectTitle: s.subjectTitle,
+          semester: s.semester,
+          schoolYear: s.schoolYear,
+          responseCount: s.responseCount,
+          professorCount: s.professors.size,
+          averageRating: avg,
+          emoji: emojiMeta.emoji,
+          label: emojiMeta.label
+        };
+      });
+
+      const totalResponses = filteredResponses.length;
+      const averageRating = totalResponses > 0
+        ? Number((filteredResponses.reduce((sum, r) => sum + Number(r.averageRating || 0), 0) / totalResponses).toFixed(2))
         : 0;
 
       return res.json({
@@ -1155,170 +1151,21 @@ class EvaluationController {
           questions: EVALUATION_QUESTIONS,
           emojiScale: EMOJI_RATING_SCALE,
           progress: {
-            totalStudentsEnrolled: studentsFullyCompleted + studentsIncomplete,
-            studentsFullyCompleted,
-            studentsIncomplete,
-            totalRequiredEvaluations,
-            totalSubmittedEvaluations,
-            pendingEvaluations: Math.max(0, totalRequiredEvaluations - totalSubmittedEvaluations),
-            completionPercentage
+            totalResponses,
+            averageRating,
+            professorCount: professorSummaries.length,
+            subjectCount: subjectSummaries.length,
+            semester: semester === 'ALL' ? 'All Semesters' : semester,
+            schoolYear: schoolYear === 'ALL' ? 'All School Years' : schoolYear
           },
-          incompleteEvaluations,
           evaluations,
           professorSummaries,
-          revealLogs: revealLogs.slice(0, 50)
+          subjectSummaries
         }
       });
     } catch (error) {
       console.error('Get registrar evaluation overview error:', error);
       return res.status(500).json({ error: 'Failed to load evaluation overview.' });
-    }
-  }
-
-  // POST /api/registrar/evaluations/:responseId/reveal-identity
-  static async revealStudentIdentity(req, res) {
-    try {
-      const { responseId } = req.params;
-      const reason = String(req.body?.reason || '').trim();
-
-      if (!mongoose.Types.ObjectId.isValid(responseId)) {
-        return res.status(400).json({ error: 'Invalid evaluation response ID.' });
-      }
-
-      if (reason.length < 5) {
-        return res.status(400).json({
-          error: 'A valid authorization reason (at least 5 characters) is required to reveal a student identity.'
-        });
-      }
-
-      const registrar = await Admin.findById(req.adminId)
-        .select('_id username displayName accountType')
-        .lean();
-
-      if (!registrar || !['admin', 'registrar'].includes(String(registrar.accountType || '').toLowerCase())) {
-        return res.status(403).json({
-          error: 'Forbidden. Authorized Registrar or Admin access is required to reveal student identity.'
-        });
-      }
-
-      const [responseDoc, completionDoc] = await Promise.all([
-        EvaluationResponse.findById(responseId).lean(),
-        EvaluationCompletion.findOne({ responseId: new mongoose.Types.ObjectId(responseId) })
-          .select('+responseId')
-          .lean()
-      ]);
-
-      if (!responseDoc || !completionDoc) {
-        return res.status(404).json({
-          error: 'Evaluation record or identity mapping not found.'
-        });
-      }
-
-      const ipAddress = String(req.ip || req.headers['x-forwarded-for'] || 'unknown');
-      const userAgent = String(req.headers['user-agent'] || 'unknown');
-
-      const revealLog = await EvaluationIdentityRevealLog.create({
-        responseId: responseDoc._id,
-        completionId: completionDoc._id,
-        periodId: responseDoc.periodId || completionDoc.periodId || null,
-        semester: responseDoc.semester,
-        schoolYear: responseDoc.schoolYear,
-        subjectCode: responseDoc.subjectCode,
-        subjectTitle: responseDoc.subjectTitle,
-        professorName: responseDoc.professorName,
-        revealedStudentId: completionDoc.studentId,
-        revealedStudentNumber: completionDoc.studentNumber,
-        revealedStudentName: completionDoc.studentName,
-        registrarId: registrar._id,
-        registrarUsername: registrar.username,
-        registrarDisplayName: registrar.displayName || registrar.username,
-        registrarRole: registrar.accountType,
-        reason,
-        ipAddress,
-        userAgent,
-        revealedAt: new Date()
-      });
-
-      await writeAuditEntry({
-        action: 'READ',
-        resourceType: 'EVALUATION_IDENTITY_REVEAL',
-        resourceId: String(responseDoc._id),
-        resourceName: `${responseDoc.subjectCode} - ${responseDoc.professorName}`,
-        description: `Registrar ${registrar.displayName || registrar.username} revealed student identity (${completionDoc.studentNumber} - ${completionDoc.studentName}) for evaluation ${responseDoc._id}. Reason: ${reason}`,
-        req,
-        newValue: {
-          evaluationResponseId: String(responseDoc._id),
-          studentNumber: completionDoc.studentNumber,
-          studentName: completionDoc.studentName,
-          subjectCode: responseDoc.subjectCode,
-          professorName: responseDoc.professorName,
-          reason,
-          revealedAt: revealLog.revealedAt
-        },
-        severity: 'HIGH'
-      });
-
-      return res.json({
-        success: true,
-        message: 'Student identity revealed and recorded in the audit log.',
-        data: {
-          responseId: String(responseDoc._id),
-          studentIdentity: {
-            isRevealed: true,
-            studentId: String(completionDoc.studentId),
-            studentNumber: completionDoc.studentNumber,
-            studentName: completionDoc.studentName,
-            course: completionDoc.course || '',
-            yearLevel: completionDoc.yearLevel || null,
-            sectionCode: completionDoc.sectionCode || '',
-            completedAt: completionDoc.completedAt
-          },
-          auditRecord: {
-            id: String(revealLog._id),
-            registrarUsername: registrar.username,
-            registrarDisplayName: registrar.displayName || registrar.username,
-            reason,
-            revealedAt: revealLog.revealedAt
-          }
-        }
-      });
-    } catch (error) {
-      console.error('Reveal student identity error:', error);
-      return res.status(500).json({ error: 'Failed to reveal student identity.' });
-    }
-  }
-
-  // GET /api/registrar/evaluations/reveal-logs
-  static async getIdentityRevealLogs(req, res) {
-    try {
-      const logs = await EvaluationIdentityRevealLog.find({})
-        .sort({ revealedAt: -1 })
-        .limit(200)
-        .lean();
-
-      return res.json({
-        success: true,
-        data: logs.map((log) => ({
-          id: String(log._id),
-          responseId: String(log.responseId),
-          semester: log.semester,
-          schoolYear: log.schoolYear,
-          subjectCode: log.subjectCode,
-          subjectTitle: log.subjectTitle,
-          professorName: log.professorName,
-          revealedStudentNumber: log.revealedStudentNumber,
-          revealedStudentName: log.revealedStudentName,
-          registrarUsername: log.registrarUsername,
-          registrarDisplayName: log.registrarDisplayName || log.registrarUsername,
-          registrarRole: log.registrarRole,
-          reason: log.reason,
-          ipAddress: log.ipAddress,
-          revealedAt: log.revealedAt
-        }))
-      });
-    } catch (error) {
-      console.error('Get identity reveal logs error:', error);
-      return res.status(500).json({ error: 'Failed to load identity reveal audit logs.' });
     }
   }
 }

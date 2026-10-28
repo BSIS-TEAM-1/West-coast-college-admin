@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, BookOpen, ChevronDown, ChevronRight, Copy, Plus, Search, Trash2, GraduationCap, BookPlus, Info, X, CheckCircle, RefreshCw } from 'lucide-react'
+import { ArrowLeft, BookOpen, ChevronDown, ChevronRight, Copy, Plus, Search, Trash2, GraduationCap, BookPlus, Info, X, CheckCircle } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import type { CurriculumStructure, Semester, SubjectItem } from './registrarBlockTypes'
 import SectionSkeleton from '../../components/SectionSkeleton'
+import NotificationToast from '../../components/NotificationToast'
 import '../../components/SectionSkeleton.css'
 import '../CurriculumManagement.css'
 
@@ -52,7 +53,7 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
   const [addSelectedIds, setAddSelectedIds] = useState<Set<string>>(new Set())
   const [addSubjectConfigs, setAddSubjectConfigs] = useState<Record<string, { type: string; isRequired: boolean; displayOrder: string }>>({})
   const [saving, setSaving] = useState(false)
-  const [syncing, setSyncing] = useState(false)
+  const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'warning'; title: string; message: string } | null>(null)
 
   // ─── Copy-from-another-curriculum (same program, full years) ─────────────
   type CopyCandidate = { _id: string; name?: string; version: string; status: string; programName?: string }
@@ -133,6 +134,30 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
     void fetchStructure()
   }, [curriculumId])
 
+  // Auto-sync curriculum to all linked block sections when structure is loaded
+  useEffect(() => {
+    const autoSyncCurriculum = async () => {
+      if (!structure?.curriculum) return
+      try {
+        const data = await authorizedFetch(`/api/registrar/curriculums/${curriculumId}/sync-block-subjects`, {
+          method: 'POST',
+        })
+        const summary = data.summary
+        if (summary && summary.blockGroups > 0 && summary.created > 0) {
+          setNotification({
+            type: 'success',
+            title: 'Curriculum Auto-Synced',
+            message: `${summary.created} course assignment${summary.created === 1 ? '' : 's'} added across ${summary.sections} section${summary.sections === 1 ? '' : 's'} in ${summary.blockGroups} block group${summary.blockGroups === 1 ? '' : 's'}.`
+          })
+        }
+      } catch (err) {
+        // Silent fail on auto-sync - don't show errors to user
+        console.error('Auto-sync curriculum failed:', err)
+      }
+    }
+    void autoSyncCurriculum()
+  }, [structure])
+
   useEffect(() => {
     if (showAddModal) {
       void fetchSubjects()
@@ -157,7 +182,7 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
 
   const handleAddSubjects = async () => {
     if (addSelectedIds.size === 0) {
-      setError('Please select at least one subject')
+      setError('Please select at least one course')
       return
     }
     setSaving(true)
@@ -180,13 +205,30 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ subjects: payload }),
       })
-      setSuccess(data?.message || 'Subjects added to curriculum')
+      setSuccess(data?.message || 'Courses added to curriculum')
       setShowAddModal(false)
       setAddSelectedIds(new Set())
       setAddSubjectConfigs({})
       await fetchStructure()
+      // Auto-sync after adding subjects
+      try {
+        const syncData = await authorizedFetch(`/api/registrar/curriculums/${curriculumId}/sync-block-subjects`, {
+          method: 'POST',
+        })
+        const summary = syncData.summary
+        if (summary && summary.blockGroups > 0 && summary.created > 0) {
+          setNotification({
+            type: 'success',
+            title: 'Block Sections Auto-Synced',
+            message: `${summary.created} course assignment${summary.created === 1 ? '' : 's'} added to linked block sections.`
+          })
+          setSuccess(`${data?.message || 'Courses added to curriculum'} · Auto-synced: ${summary.created} course assignment${summary.created === 1 ? '' : 's'} added to block sections.`)
+        }
+      } catch (err) {
+        console.error('Auto-sync after add failed:', err)
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add subjects')
+      setError(err instanceof Error ? err.message : 'Failed to add courses')
     } finally {
       setSaving(false)
     }
@@ -388,32 +430,6 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
     }
   }
 
-  const handleSyncCurriculum = async () => {
-    if (!structure?.curriculum) return
-    if (!window.confirm('Sync this curriculum’s required subjects to all linked block sections? Existing section subjects will not be removed.')) return
-
-    setSyncing(true)
-    setError('')
-    setSuccess('')
-    try {
-      const data = await authorizedFetch(`/api/registrar/curriculums/${curriculumId}/sync-block-subjects`, {
-        method: 'POST',
-      })
-      const summary = data.summary
-      if (!summary || summary.blockGroups === 0) {
-        setSuccess('No block groups are linked to this curriculum yet.')
-      } else {
-        setSuccess(`Sync complete: ${summary.created} subject assignment${summary.created === 1 ? '' : 's'} added across ${summary.sections} section${summary.sections === 1 ? '' : 's'} in ${summary.blockGroups} block group${summary.blockGroups === 1 ? '' : 's'}. ${summary.skipped} already assigned.`)
-      }
-      if (summary?.errors?.length) setError(summary.errors.join(' '))
-      else if (summary?.warnings?.length) setError(summary.warnings.join(' '))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to sync curriculum')
-    } finally {
-      setSyncing(false)
-    }
-  }
-
   const openAddModal = (yearLevel: number, semester: Semester) => {
     setAddYearLevel(yearLevel)
     setAddSemester(semester)
@@ -508,10 +524,6 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
         </div>
         {!isArchived && (
           <div className="curriculum-details-actions">
-            <button className="registrar-btn registrar-btn-secondary" type="button" onClick={handleSyncCurriculum} disabled={syncing}>
-              <RefreshCw size={16} />
-              {syncing ? 'Syncing...' : 'Sync Curriculum'}
-            </button>
             <button className="registrar-btn registrar-btn-secondary" type="button" onClick={handleDuplicate}>
               <Copy size={16} />
               Duplicate
@@ -815,8 +827,8 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
               {addSelectedIds.size > 0 && (
                 <div className="add-subject-config-section">
                   <div className="add-subject-config-header">
-                    <span>Configure Selected Subjects</span>
-                    <small>Type · Required · Order — per subject</small>
+                    <span>Configure Selected Courses</span>
+                    <small>Type · Required · Order — per course</small>
                   </div>
                   <div className="add-subject-config-list">
                     {Array.from(addSelectedIds).map((subjectId) => {
@@ -832,7 +844,7 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
                             value={cfg.type}
                             onChange={(e) => updateAddSubjectConfig(subjectId, 'type', e.target.value)}
                             disabled={saving}
-                            aria-label={`Subject type for ${subject?.code}`}
+                            aria-label={`Course type for ${subject?.code}`}
                           >
                             <option value="General">General</option>
                             <option value="Major">Major</option>
@@ -870,7 +882,7 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
                 Cancel
               </button>
               <button className="registrar-btn" type="button" onClick={handleAddSubjects} disabled={saving || addSelectedIds.size === 0}>
-                {saving ? 'Adding...' : `Add Subjects (${addSelectedIds.size})`}
+                {saving ? 'Adding...' : `Add Courses (${addSelectedIds.size})`}
               </button>
             </div>
           </div>
@@ -956,7 +968,7 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
               <div className="block-assignment-modal-header prereq-picker-header">
                 <div>
                   <h3>Select Prerequisites</h3>
-                  <p>Select subjects from this curriculum that must be completed before this subject.</p>
+                  <p>Select courses from this curriculum that must be completed before this course.</p>
                 </div>
                 <button
                   type="button"
@@ -1003,7 +1015,7 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
                     <select
                       value={prereqPicker.typeFilter}
                       onChange={(e) => setPrereqPicker((prev) => prev ? { ...prev, typeFilter: e.target.value } : null)}
-                      aria-label="Filter by subject type"
+                      aria-label="Filter by course type"
                     >
                       <option value="">Type: All</option>
                       {typeOptions.map((t) => (
@@ -1018,10 +1030,10 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
 
                 <div className="prereq-picker-results">
                   {allItems.length === 0 && (
-                    <p className="assignment-empty-copy">No eligible subjects found.</p>
+                    <p className="assignment-empty-copy">No eligible courses found.</p>
                   )}
                   {allItems.length > 0 && filtered.length === 0 && (
-                    <p className="assignment-empty-copy">No subjects match your search.</p>
+                    <p className="assignment-empty-copy">No courses match your search.</p>
                   )}
                   {groups.map((group) => (
                     <div key={`${group.yearLevel}-${group.semester}`} className="prereq-picker-group">
@@ -1091,7 +1103,7 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
               <div className="block-assignment-modal-header">
                 <h3>Preview Copy — {preview.source.name || `Curriculum ${preview.source.version}`}</h3>
                 <p>
-                  {preview.source.version ? `Version ${preview.source.version}` : ''} {preview.source.status} — this copy carries every subject with its year &amp; semester placement.
+                  {preview.source.version ? `Version ${preview.source.version}` : ''} {preview.source.status} — this copy carries every course with its year &amp; semester placement.
                 </p>
               </div>
 
@@ -1103,14 +1115,14 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
                 {!preview.loading && previewSummary && (
                   <>
                     <div className="curriculum-copy-preview-stats">
-                      <span><BookOpen size={14} /> {previewSummary.totalSubjects} subjects</span>
+                      <span><BookOpen size={14} /> {previewSummary.totalSubjects} courses</span>
                       <span><GraduationCap size={14} /> {previewSummary.totalUnits} units</span>
                       <span>{previewSummary.yearsCovered} year(s) covered</span>
                     </div>
 
                     {previewYears.length === 0 ? (
                       <p className="assignment-empty-copy" style={{ padding: '8px 0' }}>
-                        This curriculum has no subjects to copy.
+                        This curriculum has no courses to copy.
                       </p>
                     ) : (
                       <div className="curriculum-copy-preview-years">
@@ -1124,7 +1136,7 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
                               <div key={sem.semester} className="curriculum-copy-preview-sem">
                                 <div className="curriculum-copy-preview-sem-head">
                                   <span>{sem.semester === '1st' ? '1st Sem' : sem.semester === '2nd' ? '2nd Sem' : 'Summer'}</span>
-                                  <small>{sem.subjects.length} subject(s) · {sem.totalUnits} units</small>
+                                  <small>{sem.subjects.length} course(s) · {sem.totalUnits} units</small>
                                 </div>
                                 <div className="curriculum-copy-preview-chips">
                                   {sem.subjects.map((cs) => (
@@ -1142,7 +1154,7 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
 
                     {targetTotal > 0 && (
                       <p className="curriculum-copy-preview-note">
-                        This curriculum currently has <strong>{targetTotal}</strong> subject(s). Replacing keeps the copy exactly as previewed above.
+                        This curriculum currently has <strong>{targetTotal}</strong> course(s). Replacing keeps the copy exactly as previewed above.
                       </p>
                     )}
                   </>
@@ -1167,7 +1179,7 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
                         onClick={() => void executeCopy('append')}
                         disabled={copying}
                       >
-                        Append missing subjects
+                        Append missing courses
                       </button>
                       <button
                         className="registrar-btn"
@@ -1187,7 +1199,7 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
                       disabled={copying}
                     >
                       <Copy size={16} />
-                      {copying ? 'Copying…' : 'Copy all subjects'}
+                      {copying ? 'Copying…' : 'Copy all courses'}
                     </button>
                   )
                 )}
@@ -1196,6 +1208,17 @@ function CurriculumDetailsPage({ curriculumId, onBack }: CurriculumDetailsPagePr
           </div>
         )
       })()}
+
+      {notification && (
+        <NotificationToast
+          type={notification.type}
+          title={notification.title}
+          message={notification.message}
+          duration={4000}
+          onClose={() => setNotification(null)}
+          className="curriculum-details-notification"
+        />
+      )}
     </div>
   )
 }

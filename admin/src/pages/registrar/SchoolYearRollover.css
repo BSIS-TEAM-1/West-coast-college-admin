@@ -899,9 +899,16 @@
 }
 
 .rollover-page__status-badge--warn {
-  background: color-mix(in srgb, var(--color-warning, #f59e0b) 25%, transparent);
+  background: transparent;
   color: #b45309;
-  border-color: color-mix(in srgb, var(--color-warning, #f59e0b) 35%, transparent);
+  border: none;
+  border-color: transparent;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+[data-theme="dark"] .rollover-page__status-badge--warn {
+  color: #f59e0b;
 }
 
 .rollover-page__status-badge--ready {
@@ -1286,4 +1293,118 @@
     justify-content: center;
     width: 100%;
   }
+}
+
+/* ---- School year lock / validate / rollover oversight panel ---- */
+
+.rollover-page__lock-panel {
+  gap: 0.85rem;
+}
+
+.rollover-page__lock-panel .rollover-page__status-header {
+  gap: 0.75rem;
+}
+
+.rollover-page__status-badge--fail {
+  background: color-mix(in srgb, var(--color-danger, #ef4444) 18%, transparent);
+  color: #b91c1c;
+  border-color: color-mix(in srgb, var(--color-danger, #ef4444) 30%, transparent);
+}
+
+[data-theme="dark"] .rollover-page__status-badge--fail {
+  color: #f87171;
+}
+
+.rollover-page__validation-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-border, #e2e8f0) 70%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-surface, #ffffff) 60%, transparent);
+}
+
+.rollover-page__validation-summary > header {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.rollover-page__validation-summary ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.rollover-page__validation-summary li {
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+}
+
+.rollover-page__validation-block {
+  border-color: color-mix(in srgb, var(--color-danger, #ef4444) 35%, transparent) !important;
+  background: color-mix(in srgb, var(--color-danger, #ef4444) 8%, transparent) !important;
+}
+
+.rollover-page__validation-warn {
+  border-color: color-mix(in srgb, var(--color-warning, #f59e0b) 35%, transparent) !important;
+  background: color-mix(in srgb, var(--color-warning, #f59e0b) 8%, transparent) !important;
+}
+
+.rollover-page__validation-summary li strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.rollover-page__validation-summary li label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+}
+
+.rollover-page__validation-summary li label input {
+  width: 100%;
+}
+
+.rollover-page__validation-details {
+  margin-top: 0.35rem;
+}
+
+.rollover-page__validation-details summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--color-muted, #64748b);
+}
+
+.rollover-page__validation-details ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+}
+
+.rollover-page__validation-summary label > span,
+.rollover-page__modal label > span,
+.rollover-page__lock-panel label > span {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-muted, #64748b);
+}
+
+.rollover-page__modal label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.rollover-page__modal label input {
+  width: 100%;
 }

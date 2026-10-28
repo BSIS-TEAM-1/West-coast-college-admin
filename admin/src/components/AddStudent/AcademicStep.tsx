@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { WizardFormData, ValidationError, Semester, SchoolRecord } from './types'
 import { getFieldError } from './validation'
 import { getAcademicTerm } from '../../lib/settingsApi'
+import { DEFAULT_SCHOOL_YEAR } from '../../lib/academicDefaults'
 
 interface AcademicStepProps {
   data: Partial<WizardFormData>
@@ -37,7 +38,8 @@ const LIFECYCLE_STATUS_OPTIONS = [
   { value: 'Not Enrolled', label: 'Not Enrolled' },
   { value: 'Irregular', label: 'Irregular' },
   { value: 'Inactive', label: 'Inactive' },
-  { value: 'Graduated', label: 'Graduated' }
+  { value: 'Graduated', label: 'Graduated' },
+  { value: 'Leave of Absence', label: 'Leave of Absence' }
 ]
 
 const APPLICANT_TYPE_OPTIONS = [
@@ -166,7 +168,7 @@ function SchoolRecordCard({
 }
 
 export default function AcademicStep({ data, onChange, errors }: AcademicStepProps) {
-  const currentYear = new Date().getFullYear()
+  const currentYear = Number(DEFAULT_SCHOOL_YEAR.slice(0, 4))
   const [currentTerm, setCurrentTerm] = useState<{ schoolYear: string; semester: Semester } | null>(null)
 
   useEffect(() => {
@@ -277,10 +279,10 @@ export default function AcademicStep({ data, onChange, errors }: AcademicStepPro
             </select>
           </div>
 
-          {/* Course */}
+          {/* Program */}
           <div className="form-group">
             <label htmlFor="course">
-              Course <span className="required">*</span>
+              Program <span className="required">*</span>
             </label>
             <select
               id="course"
@@ -288,7 +290,7 @@ export default function AcademicStep({ data, onChange, errors }: AcademicStepPro
               onChange={(e) => onChange('course', e.target.value)}
               className={getFieldError('course', errors) ? 'input-error' : ''}
             >
-              <option value="">Select course</option>
+              <option value="">Select program</option>
               {COURSE_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.fullLabel}

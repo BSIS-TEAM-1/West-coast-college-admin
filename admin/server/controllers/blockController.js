@@ -15,11 +15,14 @@ const Subject = require('../models/Subject');
 const CurriculumSubject = require('../models/CurriculumSubject');
 const BlockSubjectAssignment = require('../models/BlockSubjectAssignment');
 const { autoAssignSubjectsFromCurriculum } = require('../services/blockSubjectAutoAssignService');
-const { autoAssignCurriculumSubjects, applySectionScheduleDefaults } = require('../services/subjectEnrollmentService');
+const { autoAssignCurriculumSubjects, applySectionScheduleDefaults, isLaterTerm } = require('../services/subjectEnrollmentService');
 const { convertToSchoolYear } = require('../services/dateUtils');
+const schoolYearLockService = require('../services/schoolYearLockService');
+const reEnrollmentVerificationService = require('../services/reEnrollmentVerificationService');
 const enrollmentGuard = require('../services/enrollmentGuard');
 const { describeAssignmentFailure } = require('../services/assignmentFailure');
 const { normalizeSchoolYear } = require('../services/blockTerm');
+const { validateTeachingHours, shouldTriggerWarning } = require('../services/teachingHoursValidationService');
 
 class BlockController {
   extractBlockSlotFromName(value) {
@@ -1030,12 +1033,15 @@ class BlockController {
   // GET /api/blocks/eligible
   async getEligibleBlocks(req, res) {
     try {
-      const { studentId } = req.query;
+      const { studentId, schoolYear, semester } = req.query;
       if (!studentId || !mongoose.Types.ObjectId.isValid(studentId)) {
         return res.status(400).json({ success: false, error: 'Valid studentId is required' });
       }
 
-      const result = await blockEligibilityService.getEligibleBlocks(studentId);
+      const result = await blockEligibilityService.getEligibleBlocks(studentId, {
+        schoolYear: String(schoolYear || '').trim() || undefined,
+        semester: String(semester || '').trim() || undefined,
+      });
       res.json({ success: true, data: result });
     } catch (error) {
       console.error('Get eligible blocks error:', error);
@@ -1178,10 +1184,23 @@ class BlockController {
   }
 
   // POST /api/blocks/assign-student
-  async performAssignment({ studentId, sectionId, semester, year, actorId, session }) {
+  async performAssignment({
+    studentId,
+    sectionId,
+    semester,
+    year,
+    actorId,
+    session,
+    enforceReEnrollmentVerification = false,
+    forceReEnrollmentVerification = false,
+  }) {
     if (!session) {
       throw new Error('performAssignment requires an active session');
     }
+
+    // School-year lock enforcement: block assignments for a locked or
+    // rolled-over school year are immutable (see schoolYearLockService.js).
+    await schoolYearLockService.assertSchoolYearWritable(year, 'block assignment');
 
     try {
       // Get section
@@ -1222,6 +1241,63 @@ class BlockController {
       const assignmentYear = normalizeSchoolYear(group.year) ||
         normalizeSchoolYear(year) ||
         normalizeSchoolYear(group.schoolYear);
+
+      // Re-enrollment gate. The registrar cannot bypass the student verification
+      // challenge by calling the assignment endpoint directly: a later-term
+      // (or explicitly re-enrollment) assignment needs a live, unconsumed
+      // verification record for this exact student + term. The record is
+      // consumed inside this transaction, so a code can never be replayed.
+      const targetSchoolYear = normalizeSchoolYear(blockSchoolYear) ||
+        assignmentYear ||
+        normalizeSchoolYear(student.schoolYear);
+      const targetSemester = blockSemester || group.semester || student.semester;
+      const isLaterTermAssignment = isLaterTerm(
+        targetSchoolYear,
+        targetSemester,
+        normalizeSchoolYear(student.schoolYear),
+        student.semester
+      );
+
+      if (enforceReEnrollmentVerification && (forceReEnrollmentVerification || isLaterTermAssignment)) {
+        const activeTerm = await reEnrollmentVerificationService.getActiveTerm();
+        const readiness = reEnrollmentVerificationService.getRolloverReadiness({
+          schoolYear: targetSchoolYear,
+          semester: targetSemester,
+          activeTerm,
+        });
+        if (!readiness.ready) {
+          return {
+            ok: false,
+            httpStatus: 409,
+            error: readiness.message,
+            reasons: [readiness.message],
+            checks: { rolloverReady: false },
+          };
+        }
+
+        const verification = await reEnrollmentVerificationService.findVerifiedEnrollment({
+          studentId,
+          schoolYear: targetSchoolYear,
+          semester: targetSemester,
+          session,
+        });
+        if (!verification) {
+          return {
+            ok: false,
+            httpStatus: 428,
+            error: 'Re-enrollment verification required',
+            reasons: [
+              `Send the student a re-enrollment verification code by email and/or SMS and enter it before enrolling them for ${targetSemester} ${targetSchoolYear}.`,
+            ],
+            checks: { reEnrollmentVerified: false },
+          };
+        }
+
+        await reEnrollmentVerificationService.consumeVerification({
+          id: verification._id,
+          session,
+        });
+      }
 
       let enrollment = await blockEligibilityService.findActiveEnrollment(
         studentId,
@@ -1463,7 +1539,7 @@ class BlockController {
    * workflow can run the identical checks inside its own transaction.
    */
   async assignStudent(req, res) {
-    const { studentId, sectionId, semester, year } = req.body;
+    const { studentId, sectionId, semester, year, reEnrollment } = req.body;
     const actorId = req.registrarId || req.adminId;
 
     const session = await mongoose.startSession();
@@ -1477,6 +1553,8 @@ class BlockController {
         year,
         actorId,
         session,
+        enforceReEnrollmentVerification: true,
+        forceReEnrollmentVerification: Boolean(reEnrollment),
       });
 
       if (!result.ok) {

@@ -50,9 +50,21 @@ export type EligibilityResult = {
   recommended: EligibleBlock | null
 }
 
-export async function fetchEligibleBlocks(studentId: string): Promise<EligibilityResult> {
+export type EligibilityTermOverride = {
+  schoolYear: string
+  semester: string
+}
+
+export async function fetchEligibleBlocks(
+  studentId: string,
+  termOverride?: EligibilityTermOverride
+): Promise<EligibilityResult> {
+  const params = new URLSearchParams({ studentId })
+  if (termOverride?.schoolYear) params.set('schoolYear', termOverride.schoolYear)
+  if (termOverride?.semester) params.set('semester', termOverride.semester)
+
   const data = await authorizedFetch<{ success: boolean; data: EligibilityResult }>(
-    `/api/blocks/eligible?studentId=${encodeURIComponent(studentId)}`
+    `/api/blocks/eligible?${params.toString()}`
   )
   return data.data
 }

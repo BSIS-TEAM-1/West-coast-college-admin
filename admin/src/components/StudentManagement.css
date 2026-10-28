@@ -493,9 +493,14 @@ body.student-workspace-overlay-open #root * {
 }
 
 .student-workspace__message--warning {
+  justify-content: flex-start;
   background: #fff7ed;
   border-color: #fed7aa;
   color: #9a3412;
+}
+
+.student-workspace__message--warning svg {
+  flex: 0 0 auto;
 }
 
 [data-theme='dark'] .student-workspace__message--warning {
@@ -550,6 +555,51 @@ body.student-workspace-overlay-open #root * {
   background: rgba(248, 113, 113, 0.14);
   border-color: rgba(248, 113, 113, 0.24);
   color: #fecaca;
+}
+
+.student-workspace__lifecycle-text {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+  color: var(--color-text);
+}
+
+.student-workspace__lifecycle-text--neutral {
+  color: var(--color-text-muted);
+}
+
+.student-workspace__lifecycle-text--info {
+  color: #2563eb;
+}
+
+.student-workspace__lifecycle-text--success {
+  color: var(--color-success);
+}
+
+.student-workspace__lifecycle-text--warning {
+  color: #b45309;
+}
+
+.student-workspace__lifecycle-text--accent {
+  color: var(--color-primary);
+}
+
+.student-workspace__lifecycle-text--danger {
+  color: #dc2626;
+}
+
+[data-theme='dark'] .student-workspace__lifecycle-text--info {
+  color: #60a5fa;
+}
+
+[data-theme='dark'] .student-workspace__lifecycle-text--warning {
+  color: #fbbf24;
+}
+
+[data-theme='dark'] .student-workspace__lifecycle-text--danger {
+  color: #f87171;
 }
 
 .student-workspace__empty-state {
@@ -2442,6 +2492,18 @@ body.student-workspace-overlay-open #root * {
   width: 13%;
 }
 
+.student-workspace__col-grades {
+  width: 14%;
+}
+
+.student-workspace__col-status {
+  width: 11%;
+}
+
+.student-workspace__col-verification {
+  width: 12%;
+}
+
 .student-workspace__col-lifecycle {
   width: 15%;
 }
@@ -2532,6 +2594,23 @@ body.student-workspace-overlay-open #root * {
 
 .student-workspace__student-id {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.student-workspace__retake-flag {
+  display: block;
+  margin-top: 2px;
+  color: #b42318;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-workspace__retake-flag--clear {
+  color: var(--student-registry-muted);
+  font-weight: 600;
 }
 
 .student-workspace__year-block-cell strong {
@@ -3724,4 +3803,526 @@ body.student-workspace-overlay-open #root * {
   font-size: 0.75rem;
   line-height: 1.3;
   padding-top: 0.1rem;
+}
+
+/* --- Re-enrollment: grade, status and email-verification details --- */
+.student-workspace__grade-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.student-workspace__grade-cell strong {
+  display: block;
+  color: var(--student-registry-text);
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.student-workspace__grade-cell span {
+  display: block;
+  color: var(--student-registry-muted);
+  font-size: 0.72rem;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-workspace__grade-cell em {
+  color: #1d4ed8;
+  font-size: 0.71rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.student-workspace__grade-cell:hover em {
+  text-decoration: underline;
+}
+
+.student-workspace__status-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+}
+
+.student-workspace__status-cell > span:not(.student-workspace__status-badge) {
+  max-width: 100%;
+  color: var(--student-registry-muted);
+  font-size: 0.72rem;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-workspace__status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.52rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.student-workspace__status-badge--enrolled {
+  background: #ecfdf3;
+  border-color: #abefc6;
+  color: #027a48;
+}
+
+.student-workspace__status-badge--irregular {
+  background: #fff1f3;
+  border-color: #fecdd3;
+  color: #be123c;
+}
+
+.student-workspace__status-badge--pending {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #9a3412;
+}
+
+.student-workspace__status-badge--neutral {
+  background: #f2f4f7;
+  border-color: #e4e7ec;
+  color: #475467;
+}
+
+.student-workspace__status-retake {
+  color: #b42318 !important;
+  font-weight: 700;
+}
+
+.student-workspace__verification-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+}
+
+.student-workspace__verification-cell > span:not(.student-workspace__verification-badge) {
+  max-width: 100%;
+  color: var(--student-registry-muted);
+  font-size: 0.7rem;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-workspace__verification-button,
+.student-workspace__verification-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.student-workspace__verification-button {
+  border: 1px solid #b2ddff;
+  background: #eff8ff;
+  color: #175cd3;
+  cursor: pointer;
+}
+
+.student-workspace__verification-button:hover:not(:disabled) {
+  background: #d1e9ff;
+}
+
+.student-workspace__verification-button:disabled {
+  border-color: #e4e7ec;
+  background: #f9fafb;
+  color: #98a2b3;
+  cursor: not-allowed;
+}
+
+.student-workspace__verification-badge {
+  border: 1px solid #abefc6;
+  background: #ecfdf3;
+  color: #027a48;
+}
+
+.student-workspace__verification-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.student-workspace__verification-state--verified {
+  color: #027a48;
+  font-weight: 700;
+}
+
+.student-workspace__verification-state--sent {
+  color: #175cd3;
+  font-weight: 700;
+}
+
+.student-workspace__verification-state--expired {
+  color: #b42318;
+  font-weight: 700;
+}
+
+.student-workspace__verification-detail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.student-workspace__bulk-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.2rem;
+  color: var(--student-registry-muted);
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.student-workspace__popup-section {
+  margin-top: 0.85rem;
+  padding: 0.85rem;
+  border: 1px solid var(--student-border);
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, var(--student-surface, #ffffff) 88%, #f8fafc);
+}
+
+.student-workspace__popup-section--warning {
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
+.student-workspace__popup-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+
+.student-workspace__popup-section-head h3 {
+  margin: 0.2rem 0 0;
+  color: var(--color-text, #0f172a);
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.student-workspace__popup-section-head .student-workspace__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.student-workspace__gwa-badge {
+  flex: 0 0 auto;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid #b2ddff;
+  border-radius: 999px;
+  background: #eff8ff;
+  color: #175cd3;
+  font-size: 0.76rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.student-workspace__grade-table-wrap {
+  overflow-x: auto;
+}
+
+.student-workspace__grade-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.76rem;
+}
+
+.student-workspace__grade-table th,
+.student-workspace__grade-table td {
+  padding: 0.42rem 0.45rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--student-border) 60%, transparent);
+  text-align: left;
+  vertical-align: top;
+}
+
+.student-workspace__grade-table th {
+  color: var(--student-text-soft);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.student-workspace__grade-table tr:last-child td {
+  border-bottom: none;
+}
+
+.student-workspace__grade-table td strong,
+.student-workspace__grade-table td span {
+  display: block;
+}
+
+.student-workspace__grade-table td span {
+  color: var(--student-registry-muted);
+  font-size: 0.7rem;
+  line-height: 1.25;
+}
+
+.student-workspace__popup-empty {
+  margin: 0;
+  color: var(--student-registry-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.student-workspace__retake-list {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.student-workspace__retake-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: baseline;
+  color: #7c2d12;
+  font-size: 0.76rem;
+}
+
+.student-workspace__retake-list li span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-workspace__retake-list li em {
+  font-style: normal;
+  font-weight: 700;
+}
+
+/* --- Re-enrollment verification modal --- */
+.student-workspace__modal--verification {
+  width: min(92vw, 480px);
+  max-width: 480px;
+}
+
+.student-workspace__verification-intro {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.student-workspace__verification-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.7rem;
+  height: 2.7rem;
+  flex: 0 0 auto;
+  border-radius: 0.85rem;
+  background: #eff8ff;
+  color: #175cd3;
+}
+
+.student-workspace__verification-intro div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.student-workspace__verification-intro strong {
+  color: var(--color-text, #0f172a);
+  font-size: 0.92rem;
+}
+
+.student-workspace__verification-intro span {
+  color: var(--student-registry-muted);
+  font-size: 0.76rem;
+}
+
+.student-workspace__verification-panel {
+  padding: 0.8rem;
+  border: 1px solid var(--student-border);
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, var(--student-surface, #ffffff) 90%, #f8fafc);
+}
+
+.student-workspace__verification-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.student-workspace__verification-panel-head .label {
+  display: block;
+  color: var(--student-text-soft);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.student-workspace__verification-panel-head strong {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--color-text, #0f172a);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.student-workspace__verification-meta {
+  margin: 0.55rem 0 0;
+  color: var(--student-registry-muted);
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.student-workspace__code-label {
+  color: var(--student-text-soft);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.student-workspace__code-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.55rem;
+}
+
+.student-workspace__code-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 2.7rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--student-border);
+  border-radius: 0.75rem;
+  background: var(--student-surface, #ffffff);
+  color: var(--color-text, #0f172a);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: 0.35em;
+  text-align: center;
+}
+
+.student-workspace__code-input:focus {
+  outline: 2px solid color-mix(in srgb, var(--theme-accent-base, #2563eb) 45%, transparent);
+  outline-offset: 1px;
+}
+
+.student-workspace__verification-success {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid #abefc6;
+  border-radius: 0.9rem;
+  background: #ecfdf3;
+  color: #027a48;
+}
+
+.student-workspace__verification-success svg {
+  flex: 0 0 auto;
+  margin-top: 0.05rem;
+}
+
+.student-workspace__verification-success strong {
+  display: block;
+  font-size: 0.88rem;
+}
+
+.student-workspace__verification-success p {
+  margin: 0.25rem 0 0;
+  color: #05603a;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.student-workspace__verification-error {
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #fecdd3;
+  border-radius: 0.75rem;
+  background: #fff1f3;
+  color: #be123c;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.student-workspace__spin {
+  animation: student-workspace-spin 0.8s linear infinite;
+}
+
+@keyframes student-workspace-spin {
+  to { transform: rotate(360deg); }
+}
+
+[data-theme='dark'] .student-workspace__popup-section,
+[data-theme='dark'] .student-workspace__verification-panel {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+[data-theme='dark'] .student-workspace__popup-section--warning {
+  background: rgba(245, 158, 11, 0.12);
+}
+
+[data-theme='dark'] .student-workspace__status-badge--neutral {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #d0d5dd;
+}
+
+[data-theme='dark'] .student-workspace__verification-error {
+  background: rgba(244, 63, 94, 0.12);
+  border-color: rgba(244, 63, 94, 0.28);
+  color: #fda4af;
+}
+
+[data-theme='dark'] .student-workspace__verification-success {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #6ee7b7;
+}
+
+[data-theme='dark'] .student-workspace__verification-success p {
+  color: #a7f3d0;
+}
+
+@media (max-width: 1100px) {
+  .student-workspace__col-grades {
+    width: 16%;
+  }
+
+  .student-workspace__col-status {
+    width: 12%;
+  }
+
+  .student-workspace__col-verification {
+    width: 13%;
+  }
 }

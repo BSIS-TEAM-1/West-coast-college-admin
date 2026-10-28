@@ -196,6 +196,7 @@ export type UpdateStatusResponse = {
 
 export type StudentNotification = {
   upserted: boolean
+  preserved?: boolean
   updated?: boolean
   created?: boolean
   alreadyEnrolled?: boolean

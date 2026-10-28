@@ -18,8 +18,12 @@ const Curriculum = require('../models/Curriculum');
 const CurriculumSubject = require('../models/CurriculumSubject');
 const CorPdfService = require('../services/corPdfService');
 const { convertToSchoolYear, extractStartYear } = require('../services/dateUtils');
+const { DEFAULT_SCHOOL_YEAR } = require('../lib/academicTerm');
 const enrollmentGuard = require('../services/enrollmentGuard');
 const { autoAssignCurriculumSubjects, verifyRetakeReferences } = require('../services/subjectEnrollmentService');
+const { calculateWeeklyContactHours, validateTeachingHours, shouldTriggerWarning } = require('../services/teachingHoursValidationService');
+const TeachingHoursOverride = require('../models/TeachingHoursOverride');
+const { hasAnyRole } = require('../authorization');
 
 const STUDENT_MUTABLE_FIELDS = [
   'firstName',
@@ -145,7 +149,7 @@ function normalizeEmergencyContact(emergencyContact) {
 }
 
 class StudentController {
-  static lifecycleStatuses = ['Pending', 'Enrolled', 'Not Enrolled', 'Irregular', 'Inactive', 'Graduated'];
+  static lifecycleStatuses = ['Pending', 'Enrolled', 'Not Enrolled', 'Irregular', 'Inactive', 'Graduated', 'Leave of Absence'];
 
   static deriveLifecycleStatus(student) {
     const explicit = String(student?.lifecycleStatus || '').trim();
@@ -329,7 +333,7 @@ class StudentController {
         data: {
           professors: Array.from(professorLoads.values()).map((professor) => ({
             ...professor,
-            totals: { courses: 0, sections: 0, subjects: 0, students: 0 },
+            totals: { courses: 0, sections: 0, subjects: 0, students: 0, totalTeachingUnits: 0, totalContactHours: 0, discrepancyCount: 0, isOverloaded: false, maxTeachingUnits: 24, maxContactHours: 30 },
             courseSummaries: []
           })),
           stats: {
@@ -339,7 +343,9 @@ class StudentController {
             studentsCovered: 0,
             unassignedSubjects: 0,
             unmatchedInstructors: 0,
-            orphanedSubjects: 0
+            orphanedSubjects: 0,
+            totalDiscrepancies: 0,
+            overloadedProfessors: 0
           },
           unassignedSubjects: [],
           filterOptions: {
@@ -359,10 +365,9 @@ class StudentController {
         .sort({ schoolYear: -1, year: -1, semester: 1, name: 1 })
         .lean();
 
-      // Get current academic year (e.g., if it's 2026, current year is 2026-2027)
-      const currentYear = new Date().getFullYear();
-      const currentMonth = new Date().getMonth() + 1; // 1-12
-      const currentSchoolYear = currentMonth >= 6 ? `${currentYear}-${currentYear + 1}` : `${currentYear - 1}-${currentYear}`;
+      // Use the configured default academic year so block groups are scoped
+      // to the active SY instead of whatever the server clock happens to be.
+      const currentSchoolYear = DEFAULT_SCHOOL_YEAR;
 
       // Filter to show only block groups from the current academic year
       const filteredGroups = rawGroups.filter(g => {
@@ -458,15 +463,17 @@ class StudentController {
       const groupById = new Map(blockGroups.map((group) => [String(group._id), group]));
       const curriculumPlacements = curriculumIds.length > 0
         ? await CurriculumSubject.find({ curriculumId: { $in: curriculumIds } })
-            .select('curriculumId subjectId yearLevel semester')
+            .select('curriculumId subjectId yearLevel semester units lecturePeriods labPeriods')
             .lean()
         : [];
       const placementIdsByTerm = new Map();
+      const curriculumPlacementBySubject = new Map();
       curriculumPlacements.forEach((placement) => {
         const key = `${String(placement.curriculumId)}|${Number(placement.yearLevel)}|${String(placement.semester || '').trim()}`;
         const ids = placementIdsByTerm.get(key) || new Set();
         ids.add(String(placement.subjectId));
         placementIdsByTerm.set(key, ids);
+        curriculumPlacementBySubject.set(`${String(placement.curriculumId)}|${String(placement.subjectId)}`, placement);
       });
       const curriculumSubjectIdsByGroup = new Map(
         blockGroups.map((group) => {
@@ -626,10 +633,11 @@ class StudentController {
       );
       const activeSubjectDocs = enrollmentSubjectIds.length > 0
         ? await Subject.find({ _id: { $in: enrollmentSubjectIds }, isActive: { $ne: false } })
-            .select('_id')
+            .select('_id code title units lecturePeriods labPeriods')
             .lean()
         : [];
       const activeSubjectIds = new Set(activeSubjectDocs.map((doc) => String(doc._id)));
+      const activeSubjectMap = new Map(activeSubjectDocs.map((doc) => [String(doc._id), doc]));
       const isEnrollmentSubjectActive = (subjectEntry) => {
         const sid = String(subjectEntry?.subjectId || '').trim();
         if (!sid) return true; // no subjectId link — keep legacy code-only entries
@@ -695,6 +703,20 @@ class StudentController {
           if (!curriculumSubjectIds.has(subjectId)) return;
           const subjectCode = String(subjectEntry?.code || '').trim() || 'SUBJECT';
           const sectionSubjectKey = `${String(section._id)}|${subjectId}`;
+          const placement = curriculumPlacementBySubject.get(`${String(blockGroup.curriculumId || '')}|${subjectId}`);
+          const subjectDoc = activeSubjectMap.get(subjectId);
+          const units = Number(placement?.units ?? subjectDoc?.units ?? subjectEntry?.units ?? 0);
+          const lecturePeriods = Number(placement?.lecturePeriods ?? subjectDoc?.lecturePeriods ?? 0);
+          const labPeriods = Number(placement?.labPeriods ?? subjectDoc?.labPeriods ?? 0);
+          const expectedContactHours = (lecturePeriods > 0 || labPeriods > 0)
+            ? (lecturePeriods + labPeriods)
+            : (units > 0 ? units : 0);
+          const weeklyContactHours = calculateWeeklyContactHours(subjectEntry?.schedule || '');
+          const hoursDiscrepancy = (weeklyContactHours > 0 && expectedContactHours > 0)
+            ? Math.round((weeklyContactHours - expectedContactHours) * 10) / 10
+            : 0;
+          const hasHoursDiscrepancy = hoursDiscrepancy > 0;
+
           const basePayload = {
             subjectId,
             subjectCode,
@@ -712,7 +734,13 @@ class StudentController {
             courseShortLabel: blockGroup.meta.courseShortLabel || 'N/A',
             courseLabel: blockGroup.meta.courseLabel || blockGroup.meta.courseShortLabel || 'N/A',
             yearLevel: blockGroup.meta.yearLevel || null,
-            units: Number(subjectEntry?.units) || 0
+            units,
+            lecturePeriods,
+            labPeriods,
+            expectedContactHours,
+            weeklyContactHours,
+            hoursDiscrepancy,
+            hasHoursDiscrepancy
           };
 
           const professorId = normalizedInstructor ? professorIdentifierMap.get(normalizedInstructor) : '';
@@ -812,6 +840,12 @@ class StudentController {
           courseLabel: bucket.courseLabel,
           yearLevel: bucket.yearLevel,
           units: bucket.units,
+          lecturePeriods: bucket.lecturePeriods,
+          labPeriods: bucket.labPeriods,
+          expectedContactHours: bucket.expectedContactHours,
+          weeklyContactHours: bucket.weeklyContactHours,
+          hoursDiscrepancy: bucket.hoursDiscrepancy,
+          hasHoursDiscrepancy: bucket.hasHoursDiscrepancy,
           studentCount: bucket.studentIds.size
         });
       });
@@ -848,12 +882,26 @@ class StudentController {
           return {
             ...professor,
             assignments,
-            totals: {
-              courses: courseSummaryMap.size,
-              sections: sectionIds.size,
-              subjects: assignments.length,
-              students: assignments.reduce((sum, assignment) => sum + (Number(assignment.studentCount) || 0), 0)
-            },
+            totals: (() => {
+              const totalTeachingUnits = assignments.reduce((sum, a) => sum + (Number(a.units) || 0), 0);
+              const totalContactHours = Math.round(assignments.reduce((sum, a) => sum + (Number(a.weeklyContactHours) || 0), 0) * 10) / 10;
+              const discrepancyCount = assignments.filter((a) => a.hasHoursDiscrepancy).length;
+              const maxTeachingUnits = 24;
+              const maxContactHours = 30;
+              const isOverloaded = totalTeachingUnits > maxTeachingUnits || totalContactHours > maxContactHours;
+              return {
+                courses: courseSummaryMap.size,
+                sections: sectionIds.size,
+                subjects: assignments.length,
+                students: assignments.reduce((sum, assignment) => sum + (Number(assignment.studentCount) || 0), 0),
+                totalTeachingUnits,
+                totalContactHours,
+                discrepancyCount,
+                isOverloaded,
+                maxTeachingUnits,
+                maxContactHours
+              };
+            })(),
             courseSummaries: Array.from(courseSummaryMap.values())
               .map((summary) => ({
                 courseCode: summary.courseCode,
@@ -1886,6 +1934,9 @@ class StudentController {
     } else if (requestedLifecycleStatus === 'Inactive') {
       set.isActive = false;
       // enrollmentStatus is deprecated - managed via Enrollment records
+    } else if (requestedLifecycleStatus === 'Leave of Absence') {
+      set.isActive = false;
+      if (!set.enrollmentStatus) set.enrollmentStatus = 'On Leave';
     } else if (requestedLifecycleStatus === 'Graduated') {
       set.isActive = false;
       // enrollmentStatus is deprecated - managed via Enrollment records
@@ -2214,6 +2265,7 @@ class StudentController {
   }
 
   static async updateStudent(req, res) {
+    const schoolYearLockService = require('../services/schoolYearLockService');
     try {
       const { id } = req.params;
       const previous = await StudentController.getStudentByIdRecord(id);
@@ -2223,6 +2275,10 @@ class StudentController {
           message: 'Student not found'
         });
       }
+
+      // School-year lock enforcement: a record belonging to a locked or
+      // rolled-over school year cannot be edited (see schoolYearLockService.js).
+      await schoolYearLockService.assertSchoolYearWritable(previous?.schoolYear, 'student record edit');
 
       const requestedCorStatus = String(req.body?.corStatus || '').trim();
       const previousCorStatus = String(previous.corStatus || '').trim();
@@ -2675,7 +2731,7 @@ class StudentController {
   static async assignSubjectInstructorToSection(req, res) {
     try {
       const { sectionId } = req.params;
-      const { subjectId, instructor, schedule, room, semester, schoolYear } = req.body || {};
+      const { subjectId, instructor, schedule, room, semester, schoolYear, overrideJustification, overrideExistingInstructor } = req.body || {};
 
       if (!mongoose.Types.ObjectId.isValid(sectionId)) {
         return res.status(400).json({
@@ -2702,11 +2758,42 @@ class StudentController {
       const context = await StudentController.getSectionEnrollmentContext(sectionId, { semester, schoolYear });
       const section = context.section;
 
-      const subject = await Subject.findById(securityMiddleware.safeObjectId(subjectId)).select('_id code title');
-      if (!subject) {
-        return res.status(404).json({
+      // Check if subject is already assigned to a different instructor.
+      // "TBA" is the placeholder for an unassigned subject, so it must not be
+      // treated as an existing instructor that requires an override.
+      const normalizedSubjectId = String(subjectId);
+      const normalizedInstructorKey = normalizedInstructor.toLowerCase();
+      const isPlaceholderInstructor = (value) => {
+        const normalizedValue = String(value || '').trim();
+        return normalizedValue === '' || /^TBA$/i.test(normalizedValue);
+      };
+      let existingInstructor = null;
+      for (const enrollment of context.enrollments) {
+        const subjectEntry = (enrollment.subjects || []).find(
+          (entry) => String(entry?.subjectId || '') === normalizedSubjectId
+        );
+        const currentInstructor = String(subjectEntry?.instructor || '').trim();
+        if (
+          currentInstructor &&
+          !isPlaceholderInstructor(currentInstructor) &&
+          currentInstructor.toLowerCase() !== normalizedInstructorKey
+        ) {
+          existingInstructor = currentInstructor;
+          break;
+        }
+      }
+
+      // If subject is already assigned to a different instructor and no override is provided
+      if (existingInstructor && !overrideExistingInstructor) {
+        return res.status(409).json({
           success: false,
-          message: 'Subject not found'
+          warning: 'instructor_override_required',
+          message: `Subject is already assigned to instructor "${existingInstructor}". Assigning to "${normalizedInstructor}" will replace the existing assignment.`,
+          data: {
+            existingInstructor,
+            newInstructor: normalizedInstructor,
+            subjectId: normalizedSubjectId
+          }
         });
       }
 
@@ -2725,7 +2812,149 @@ class StudentController {
         });
       }
 
-      const normalizedSubjectId = String(subject._id);
+      // Fetch subject with lecturePeriods and labPeriods for teaching hours validation
+      const subject = await Subject.findById(securityMiddleware.safeObjectId(subjectId))
+        .select('_id code title units lecturePeriods labPeriods');
+      if (!subject) {
+        return res.status(404).json({
+          success: false,
+          message: 'Subject not found'
+        });
+      }
+
+      // Fetch placement details if available to ensure snapshot periods are used
+      let validationSubject = subject;
+      if (context.blockGroup?.curriculumId) {
+        const placement = await CurriculumSubject.findOne({
+          curriculumId: context.blockGroup.curriculumId,
+          subjectId: subject._id
+        }).select('units lecturePeriods labPeriods').lean();
+        if (placement) {
+          validationSubject = {
+            ...subject.toObject(),
+            units: placement.units ?? subject.units,
+            lecturePeriods: placement.lecturePeriods ?? subject.lecturePeriods,
+            labPeriods: placement.labPeriods ?? subject.labPeriods
+          };
+        }
+      }
+
+      // Teaching hours validation
+      const validation = validateTeachingHours({
+        schedule: schedule || '',
+        subject: validationSubject
+      });
+
+      console.log('[Teaching Hours Validation]', {
+        schedule: schedule || '',
+        subjectCode: validationSubject.code,
+        units: validationSubject.units,
+        lecturePeriods: validationSubject.lecturePeriods,
+        labPeriods: validationSubject.labPeriods,
+        expectedHours: validation.expectedHours,
+        scheduledHours: validation.scheduledHours,
+        discrepancy: validation.discrepancy,
+        shouldTrigger: shouldTriggerWarning(validation),
+        hasOverride: !!overrideJustification
+      });
+
+      // If there's a discrepancy and no override justification is provided, return a warning
+      if (shouldTriggerWarning(validation) && !overrideJustification) {
+        return res.status(409).json({
+          success: false,
+          warning: 'teaching_hours_exceeded',
+          message: 'The assigned schedule exceeds the expected weekly contact hours for this subject.',
+          data: {
+            subjectId: String(subject._id),
+            subjectCode: validationSubject.code,
+            subjectTitle: validationSubject.title,
+            professorName: normalizedInstructor,
+            sectionCode: section.sectionCode,
+            blockGroupName: context.blockGroup?.name || '',
+            units: validationSubject.units,
+            lecturePeriods: validationSubject.lecturePeriods || 0,
+            labPeriods: validationSubject.labPeriods || 0,
+            expectedContactHours: validation.expectedHours,
+            assignedContactHours: validation.scheduledHours,
+            discrepancy: validation.discrepancy,
+            schedule: schedule || 'TBA',
+            room: room || 'TBA'
+          }
+        });
+      }
+
+      // If override justification is provided, verify authorization and record the override
+      if (shouldTriggerWarning(validation) && overrideJustification) {
+        if (!hasAnyRole(req, ['admin', 'registrar'])) {
+          return res.status(403).json({
+            success: false,
+            message: 'Forbidden. Teaching hours override authorization requires registrar or admin role.'
+          });
+        }
+        if (String(overrideJustification).trim().length < 10) {
+          return res.status(400).json({
+            success: false,
+            message: 'Override justification must be at least 10 characters.'
+          });
+        }
+        const authorizedUser = await Admin.findById(req.adminId).select('_id username displayName');
+        const professorDoc = await Admin.findOne({
+          $or: [
+            { displayName: normalizedInstructor },
+            { username: normalizedInstructor },
+            { uid: normalizedInstructor }
+          ]
+        }).select('_id username displayName');
+
+        // An override is only valid when it can be tied to a real professor
+        // account in the audit trail. Never fall back to a random ObjectId.
+        if (!professorDoc) {
+          return res.status(400).json({
+            success: false,
+            message: `Cannot record a teaching hours override: instructor account "${normalizedInstructor}" was not found.`
+          });
+        }
+
+        if (!authorizedUser) {
+          return res.status(403).json({
+            success: false,
+            message: 'Forbidden. Authorizing account could not be resolved.'
+          });
+        }
+
+        try {
+          await TeachingHoursOverride.create({
+            professorId: professorDoc._id,
+            professorName: normalizedInstructor,
+            subjectId: subject._id,
+            subjectCode: subject.code,
+            subjectTitle: subject.title,
+            sectionId: section._id,
+            sectionCode: section.sectionCode,
+            semester: context.resolvedSemester || semester || '1st',
+            schoolYear: context.resolvedSchoolYear || schoolYear || '2026-2027',
+            expectedContactHours: validation.expectedHours,
+            assignedContactHours: validation.scheduledHours,
+            discrepancy: validation.discrepancy,
+            schedule: String(schedule || 'TBA').trim(),
+            room: String(room || 'TBA').trim(),
+            units: Number(validationSubject.units) || 0,
+            lecturePeriods: Number(validationSubject.lecturePeriods) || 0,
+            labPeriods: Number(validationSubject.labPeriods) || 0,
+            authorizedBy: req.adminId,
+            authorizedByName: authorizedUser.displayName || authorizedUser.username || 'Registrar',
+            justification: String(overrideJustification).trim()
+          });
+        } catch (auditErr) {
+          // The schedule change must not be committed without its audit record.
+          console.error('Failed to create teaching hours override audit record:', auditErr);
+          return res.status(500).json({
+            success: false,
+            message: 'Failed to record the teaching hours override in the audit trail. The schedule was not changed.'
+          });
+        }
+      }
+
       const normalizedSchedule = String(schedule || '').trim();
       const normalizedRoom = String(room || '').trim();
       const updatedEnrollmentIds = [];

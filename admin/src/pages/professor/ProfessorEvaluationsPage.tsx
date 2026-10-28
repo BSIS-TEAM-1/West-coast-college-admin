@@ -73,12 +73,10 @@ export default function ProfessorEvaluationsPage() {
     return { totals, sumAll }
   }, [questionList])
 
-  const completionPct =
-    data?.completionPercentage !== undefined
-      ? data.completionPercentage
-      : data?.totalResponses
-        ? 100
-        : 0
+  const termsWithFeedback = useMemo(
+    () => new Set((data?.subjectSummaries || []).map((item) => `${item.semester}|${item.schoolYear}`)).size,
+    [data]
+  )
 
   const subjectsWithFeedback =
     data?.subjectsWithFeedbackCount !== undefined
@@ -96,7 +94,7 @@ export default function ProfessorEvaluationsPage() {
           </div>
           <h1 className="prof-eval-title">Teaching Effectiveness Evaluations</h1>
           <p className="prof-eval-subtitle">
-            Aggregated student ratings, 10-question diagnostic summaries, and anonymized feedback for your assigned classes.
+            Aggregated anonymous ratings, 10-question diagnostic summaries, and anonymized feedback for your assigned classes.
           </p>
         </div>
 
@@ -140,7 +138,7 @@ export default function ProfessorEvaluationsPage() {
         <div className="prof-eval-period-item prof-eval-period-privacy">
           <ShieldCheck size={16} className="prof-eval-bar-icon" />
           <span>
-            Student identities, student numbers, and account IDs are strictly omitted from faculty evaluation reports.
+            Student identities, student numbers, and account IDs are not collected or stored with evaluation responses.
           </span>
         </div>
       </section>
@@ -154,13 +152,13 @@ export default function ProfessorEvaluationsPage() {
 
         <div className="prof-eval-filter-controls">
           <div className="prof-eval-filter-field">
-            <label htmlFor="prof-eval-subject">Subject</label>
+            <label htmlFor="prof-eval-subject">Course</label>
             <select
               id="prof-eval-subject"
               value={subjectFilter}
               onChange={(e) => setSubjectFilter(e.target.value)}
             >
-              <option value="ALL">All Assigned Subjects</option>
+              <option value="ALL">All Assigned Courses</option>
               {(data?.filters?.subjects || []).map((subj) => (
                 <option key={subj.subjectCode} value={subj.subjectCode}>
                   {subj.subjectCode} — {subj.subjectTitle}
@@ -252,14 +250,9 @@ export default function ProfessorEvaluationsPage() {
               <CheckCircle2 size={20} />
             </div>
             <div className="prof-eval-kpi-content">
-              <span className="prof-eval-kpi-label">Evaluation Completion</span>
-              <strong className="prof-eval-kpi-value">{completionPct}%</strong>
-              <div className="prof-eval-mini-progress">
-                <div
-                  className="prof-eval-mini-progress-fill"
-                  style={{ width: `${Math.min(100, Math.max(0, completionPct))}%` }}
-                />
-              </div>
+              <span className="prof-eval-kpi-label">Terms with Feedback</span>
+              <strong className="prof-eval-kpi-value">{termsWithFeedback}</strong>
+              <span className="prof-eval-kpi-sub">Per-semester evaluation results</span>
             </div>
           </div>
 
@@ -434,7 +427,7 @@ export default function ProfessorEvaluationsPage() {
             <div className="prof-eval-empty">
               <BookOpen size={30} />
               <h3>No Subject Evaluations Recorded</h3>
-              <p>Aggregated subject feedback will appear here once students submit their evaluations.</p>
+              <p>Aggregated subject feedback will appear here once evaluations are submitted.</p>
             </div>
           ) : (
             <div className="prof-eval-table-wrap">
@@ -476,12 +469,12 @@ export default function ProfessorEvaluationsPage() {
           )}
         </section>
       ) : (
-        <section className="prof-eval-panel" aria-label="Anonymous student comments">
+        <section className="prof-eval-panel" aria-label="Anonymous comments">
           {!data?.responses?.length ? (
             <div className="prof-eval-empty">
               <MessageSquare size={30} />
               <h3>No Anonymous Feedback Submitted Yet</h3>
-              <p>Anonymous student comments for your assigned classes will be listed here.</p>
+              <p>Anonymous comments for your assigned classes will be listed here.</p>
             </div>
           ) : (
             <div className="prof-eval-comments-list">

@@ -1,13 +1,13 @@
 const SystemSetting = require('../models/SystemSetting');
 const gradingScaleService = require('../services/gradingScaleService');
+const { DEFAULT_SCHOOL_YEAR } = require('../lib/academicTerm');
 
 const ACADEMIC_TERM_KEY = 'academicTerm';
 const VALID_SEMESTERS = ['1st', '2nd', 'Summer'];
 const DEFAULT_SEMESTER = '1st';
 
 function getDefaultSchoolYear() {
-  const year = new Date().getFullYear();
-  return `${year}-${year + 1}`;
+  return DEFAULT_SCHOOL_YEAR;
 }
 
 class SettingsController {

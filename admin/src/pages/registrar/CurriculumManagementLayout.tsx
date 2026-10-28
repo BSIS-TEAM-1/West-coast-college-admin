@@ -179,7 +179,7 @@ function CurriculumOverview({ onNavigate, onOpenCurriculum }: { onNavigate: (v: 
           <div className="curriculum-overview-stat-icon"><Layers size={20} /></div>
           <div>
             <strong>{stats.totalSubjects}</strong>
-            <span>Total Subjects</span>
+            <span>Total Courses</span>
           </div>
         </div>
         <div className="curriculum-overview-stat-card">
@@ -239,7 +239,7 @@ function CurriculumOverview({ onNavigate, onOpenCurriculum }: { onNavigate: (v: 
                   {c.effectiveSchoolYear && (<><span> · </span><span>{c.effectiveSchoolYear}</span></>)}
                 </p>
                 <div className="curriculum-overview-card-stats">
-                  <span><Layers size={13} /> {c.subjectCount || 0} subjects</span>
+                  <span><Layers size={13} /> {c.subjectCount || 0} courses</span>
                   {c.totalUnits ? <span><BookOpen size={13} /> {c.totalUnits} units</span> : null}
                 </div>
               </div>
@@ -266,7 +266,7 @@ function CurriculumOverview({ onNavigate, onOpenCurriculum }: { onNavigate: (v: 
                   <span>v{c.version}</span>
                 </p>
                 <div className="curriculum-overview-card-stats">
-                  <span><Layers size={13} /> {c.subjectCount || 0} subjects</span>
+                  <span><Layers size={13} /> {c.subjectCount || 0} courses</span>
                 </div>
               </div>
             ))}

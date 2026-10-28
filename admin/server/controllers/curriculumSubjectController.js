@@ -9,6 +9,7 @@ const StudentBlockAssignment = require('../models/StudentBlockAssignment');
 const Enrollment = require('../models/Enrollment');
 const AuditLog = require('../models/AuditLog');
 const { normalizeSchoolYear } = require('../services/blockTerm');
+const { autoAssignSubjectsFromCurriculum } = require('../services/blockSubjectAutoAssignService');
 const {
   MIN_YEAR_LEVEL,
   MAX_YEAR_LEVEL,
@@ -255,6 +256,36 @@ class CurriculumSubjectController {
         .populate({ path: 'prerequisiteSubjectIds', select: SUBJECT_SELECT })
         .lean();
 
+      // Auto-sync to linked block groups
+      try {
+        const groups = await BlockGroup.find({ curriculumId: id }).lean();
+        if (groups.length > 0) {
+          const sections = await BlockSection.find({
+            blockGroupId: { $in: groups.map((g) => g._id) },
+          }).lean();
+          const sectionsByGroup = new Map();
+          for (const section of sections) {
+            const key = String(section.blockGroupId);
+            const groupSections = sectionsByGroup.get(key) || [];
+            groupSections.push(section);
+            sectionsByGroup.set(key, groupSections);
+          }
+          for (const group of groups) {
+            try {
+              await autoAssignSubjectsFromCurriculum(
+                group,
+                sectionsByGroup.get(String(group._id)) || [],
+                req.adminId
+              );
+            } catch (syncError) {
+              console.error(`Failed to sync curriculum to block group ${group.name}:`, syncError);
+            }
+          }
+        }
+      } catch (syncError) {
+        console.error('Auto-sync curriculum subjects error:', syncError);
+      }
+
       res.status(201).json({
         success: true,
         data: populated,
@@ -348,6 +379,38 @@ class CurriculumSubjectController {
         created = await CurriculumSubject.insertMany(toCreate);
       }
 
+      // Auto-sync to linked block groups
+      if (created.length > 0) {
+        try {
+          const groups = await BlockGroup.find({ curriculumId: id }).lean();
+          if (groups.length > 0) {
+            const sections = await BlockSection.find({
+              blockGroupId: { $in: groups.map((g) => g._id) },
+            }).lean();
+            const sectionsByGroup = new Map();
+            for (const section of sections) {
+              const key = String(section.blockGroupId);
+              const groupSections = sectionsByGroup.get(key) || [];
+              groupSections.push(section);
+              sectionsByGroup.set(key, groupSections);
+            }
+            for (const group of groups) {
+              try {
+                await autoAssignSubjectsFromCurriculum(
+                  group,
+                  sectionsByGroup.get(String(group._id)) || [],
+                  req.adminId
+                );
+              } catch (syncError) {
+                console.error(`Failed to sync curriculum to block group ${group.name}:`, syncError);
+              }
+            }
+          }
+        } catch (syncError) {
+          console.error('Auto-sync curriculum subjects error:', syncError);
+        }
+      }
+
       res.json({
         success: true,
         data: {
@@ -431,6 +494,36 @@ class CurriculumSubjectController {
       cs.updatedBy = req.adminId;
 
       await cs.save();
+
+      // Auto-sync to linked block groups
+      try {
+        const groups = await BlockGroup.find({ curriculumId: id }).lean();
+        if (groups.length > 0) {
+          const sections = await BlockSection.find({
+            blockGroupId: { $in: groups.map((g) => g._id) },
+          }).lean();
+          const sectionsByGroup = new Map();
+          for (const section of sections) {
+            const key = String(section.blockGroupId);
+            const groupSections = sectionsByGroup.get(key) || [];
+            groupSections.push(section);
+            sectionsByGroup.set(key, groupSections);
+          }
+          for (const group of groups) {
+            try {
+              await autoAssignSubjectsFromCurriculum(
+                group,
+                sectionsByGroup.get(String(group._id)) || [],
+                req.adminId
+              );
+            } catch (syncError) {
+              console.error(`Failed to sync curriculum to block group ${group.name}:`, syncError);
+            }
+          }
+        }
+      } catch (syncError) {
+        console.error('Auto-sync curriculum subjects error:', syncError);
+      }
 
       const populated = await CurriculumSubject.findById(cs._id)
         .populate({ path: 'subjectId', select: SUBJECT_SELECT })

@@ -86,7 +86,7 @@ export default function ReviewStep({ data, onEditStep }: ReviewStepProps) {
       onEdit: () => onEditStep('academic'),
       fields: [
         { label: 'Student Type', value: data.applicantType || 'N/A' },
-        { label: 'Course', value: COURSE_LABELS[data.course || ''] || data.course || 'N/A' },
+        { label: 'Program', value: COURSE_LABELS[data.course || ''] || data.course || 'N/A' },
         { label: 'School Year', value: data.schoolYear || 'N/A' },
         { label: 'Semester', value: data.semester || 'N/A' },
         { label: 'Year Level', value: data.yearLevel || 'N/A' },

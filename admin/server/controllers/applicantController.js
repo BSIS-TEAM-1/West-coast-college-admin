@@ -5,6 +5,7 @@ const { apiCache } = require('../services/apiCache');
 const ApplicantEmailService = require('../services/applicantEmailService');
 const { createOrReactivateEnrollment } = require('../services/enrollmentService');
 const { getCourseOptions, normalizeCourseCode } = require('../lib/programMapping');
+const { DEFAULT_SCHOOL_YEAR } = require('../lib/academicTerm');
 
 const applicantEmailService = new ApplicantEmailService();
 
@@ -184,13 +185,6 @@ function collectValidationErrors(body) {
     }
   }
 
-  const schoolYear = cleanString(body.schoolYear);
-  if (!schoolYear) {
-    errors.push('School year is required.');
-  } else if (!/^\d{4}-\d{4}$/.test(schoolYear)) {
-    errors.push('School year must be in YYYY-YYYY format.');
-  }
-
   return errors;
 }
 
@@ -315,8 +309,7 @@ class ApplicantController {
         academicDetails,
         selectedCourse,
         requestedYearLevel: Number(body.requestedYearLevel) || 1,
-        semester: cleanString(body.semester) || '1st',
-        schoolYear: cleanString(body.schoolYear)
+        semester: cleanString(body.semester) || '1st'
       });
 
       apiCache.invalidatePrefix('/api/registrar/applicants');
@@ -497,7 +490,7 @@ class ApplicantController {
                 course: applicant.selectedCourse,
                 yearLevel: applicant.requestedYearLevel || 1,
                 semester: applicant.semester || '1st',
-                schoolYear: applicant.schoolYear,
+                schoolYear: DEFAULT_SCHOOL_YEAR,
                 studentStatus,
                 lifecycleStatus,
                 enrollmentStatus,
@@ -531,7 +524,7 @@ class ApplicantController {
                 programCode: Number(applicant.selectedCourse),
                 yearLevel: Number(applicant.requestedYearLevel || studentRecord.yearLevel || 1),
                 semester: applicant.semester || studentRecord.semester || '1st',
-                schoolYear: applicant.schoolYear || studentRecord.schoolYear,
+                schoolYear: DEFAULT_SCHOOL_YEAR,
                 curriculumVersion: studentRecord.curriculumVersion,
                 status: 'Pending',
                 createdBy: req.adminId,
@@ -555,6 +548,21 @@ class ApplicantController {
         applicant.reviewedBy = req.adminId;
         applicant.reviewedAt = new Date();
         await applicant.save();
+
+        // If an associated student record already exists (e.g. from prior approval),
+        // ensure it is preserved and report its status
+        const existingStudent = await Student.findOne({ email: applicant.email });
+        if (existingStudent) {
+          studentNotification = {
+            upserted: false,
+            updated: false,
+            created: false,
+            preserved: true,
+            studentNumber: existingStudent.studentNumber || '',
+            lifecycleStatus: existingStudent.lifecycleStatus,
+            fullName: `${existingStudent.firstName || ''} ${existingStudent.lastName || ''}`.trim()
+          };
+        }
       }
 
       apiCache.invalidatePrefix('/api/registrar/applicants');

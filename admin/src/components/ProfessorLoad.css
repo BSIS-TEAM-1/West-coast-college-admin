@@ -1773,6 +1773,35 @@
   to { transform: rotate(360deg); }
 }
 
+/* Loading skeletons (mirror the evaluation page shimmer) */
+.professor-load-skeleton-card {
+  height: 72px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--color-bg-soft, #f1f5f9) 25%, var(--color-border, #e2e8f0) 50%, var(--color-bg-soft, #f1f5f9) 75%);
+  background-size: 200% 100%;
+  animation: professorLoadShimmer 1.4s infinite;
+}
+
+.professor-load-skeleton-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.25rem;
+}
+
+.professor-load-skeleton-row {
+  height: 100px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--color-bg-soft, #f1f5f9) 25%, var(--color-border, #e2e8f0) 50%, var(--color-bg-soft, #f1f5f9) 75%);
+  background-size: 200% 100%;
+  animation: professorLoadShimmer 1.4s infinite;
+}
+
+@keyframes professorLoadShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 /* Stats bar */
 .professor-load-stats-bar {
   display: grid;
@@ -2319,6 +2348,33 @@
   opacity: 0.55;
 }
 
+.professor-load-hours {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.professor-load-hours--warning {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.professor-load-hours-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #b45309;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
 .professor-load-card-detail-footer {
   display: flex;
   align-items: center;
@@ -2396,4 +2452,82 @@
   .professor-load-attention-scroll {
     flex-wrap: nowrap;
   }
+}
+
+
+/* Teaching Hours Validation & Discrepancy Styles */
+.professor-load-badge-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.professor-load-term-label {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--color-text-muted, #6b7280);
+  font-weight: 500;
+  margin-top: 0.1rem;
+}
+
+.professor-load-badge--warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+}
+
+.professor-load-badge--danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+}
+
+.professor-load-discrepancy-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: 0.35rem;
+}
+
+.professor-load-status-normal {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.72rem;
+  color: #15803d;
+  font-weight: 500;
+}
+
+.professor-load-row--warning {
+  background-color: rgba(254, 243, 199, 0.25);
+}
+
+.professor-load-stat-card--warning {
+  border-color: #fde68a;
+  background: #fffdf5;
+}
+
+.professor-load-stat-icon-circle--warning {
+  background: #fef3c7;
+  color: #d97706;
 }

@@ -1,0 +1,371 @@
+.teaching-hours-warning-modal-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.teaching-hours-warning-modal-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+}
+
+.teaching-hours-warning-modal {
+  position: relative;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  max-width: 600px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  animation: teachingHoursModalFadeIn 0.2s ease-out;
+}
+
+@keyframes teachingHoursModalFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.teaching-hours-warning-modal-header {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+  align-items: flex-start;
+}
+
+.teaching-hours-warning-modal-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #111827;
+  line-height: 1.4;
+}
+
+.teaching-hours-warning-modal-close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  margin-left: auto;
+}
+
+.teaching-hours-warning-modal-close:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.teaching-hours-warning-modal-body {
+  padding: 1rem 1.5rem;
+}
+
+.teaching-hours-warning-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.teaching-hours-warning-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.teaching-hours-warning-detail-row:last-child {
+  border-bottom: none;
+}
+
+.teaching-hours-warning-detail-row--highlight {
+  background: #fef3c7;
+  padding: 0.75rem 0.5rem;
+  border-radius: 6px;
+  border-bottom: none;
+  margin: 0.25rem 0;
+}
+
+.teaching-hours-warning-detail-row--discrepancy {
+  background: #fee2e2;
+  padding: 0.75rem 0.5rem;
+  border-radius: 6px;
+  border-bottom: none;
+  margin: 0.25rem 0;
+}
+
+.teaching-hours-warning-detail-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #6b7280;
+}
+
+.teaching-hours-warning-detail-value {
+  font-size: 0.875rem;
+  color: #111827;
+  text-align: right;
+}
+
+.teaching-hours-warning-detail-value--expected {
+  font-weight: 600;
+  color: #059669;
+}
+
+.teaching-hours-warning-detail-value--assigned {
+  font-weight: 600;
+  color: #dc2626;
+}
+
+.teaching-hours-warning-detail-value--discrepancy {
+  font-weight: 700;
+  color: #dc2626;
+}
+
+.teaching-hours-override-form {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.teaching-hours-override-label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #111827;
+  margin-bottom: 0.5rem;
+}
+
+.teaching-hours-override-required {
+  color: #dc2626;
+  margin-left: 0.25rem;
+}
+
+.teaching-hours-override-textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  resize: vertical;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.teaching-hours-override-textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.teaching-hours-override-textarea:disabled {
+  background: #f9fafb;
+  cursor: not-allowed;
+}
+
+.teaching-hours-warning-message {
+  margin: 0.75rem 0 0 0;
+  padding: 0.75rem;
+  border-left: 3px solid #dc2626;
+  background: rgba(220, 38, 38, 0.06);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: inherit;
+}
+
+.teaching-hours-override-hint {
+  margin: 0.5rem 0 0 0;
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.teaching-hours-warning-modal-footer {
+  display: flex;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #e5e7eb;
+  justify-content: flex-end;
+}
+
+.teaching-hours-warning-btn {
+  padding: 0.625rem 1rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid transparent;
+}
+
+.teaching-hours-warning-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.teaching-hours-warning-btn--secondary {
+  background: white;
+  border-color: #d1d5db;
+  color: #374151;
+}
+
+.teaching-hours-warning-btn--secondary:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+.teaching-hours-warning-btn--primary {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: white;
+}
+
+.teaching-hours-warning-btn--primary:hover:not(:disabled) {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Dark mode styles */
+[data-theme='dark'] .teaching-hours-warning-modal {
+  background: #1f2937;
+}
+
+[data-theme='dark'] .teaching-hours-warning-modal-header {
+  border-bottom-color: #374151;
+}
+
+[data-theme='dark'] .teaching-hours-warning-modal-header h2 {
+  color: #f9fafb;
+}
+
+[data-theme='dark'] .teaching-hours-warning-modal-close {
+  color: #9ca3af;
+}
+
+[data-theme='dark'] .teaching-hours-warning-modal-close:hover {
+  background: #374151;
+  color: #f9fafb;
+}
+
+[data-theme='dark'] .teaching-hours-warning-detail-row {
+  border-bottom-color: #374151;
+}
+
+[data-theme='dark'] .teaching-hours-warning-detail-row--highlight {
+  background: #422006;
+}
+
+[data-theme='dark'] .teaching-hours-warning-detail-row--discrepancy {
+  background: #450a0a;
+}
+
+[data-theme='dark'] .teaching-hours-warning-detail-label {
+  color: #9ca3af;
+}
+
+[data-theme='dark'] .teaching-hours-warning-detail-value {
+  color: #f9fafb;
+}
+
+[data-theme='dark'] .teaching-hours-override-form {
+  border-top-color: #374151;
+}
+
+[data-theme='dark'] .teaching-hours-override-label {
+  color: #f9fafb;
+}
+
+[data-theme='dark'] .teaching-hours-override-textarea {
+  background: #111827;
+  border-color: #4b5563;
+  color: #f9fafb;
+}
+
+[data-theme='dark'] .teaching-hours-override-textarea:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
+}
+
+[data-theme='dark'] .teaching-hours-override-textarea:disabled {
+  background: #1f2937;
+}
+
+[data-theme='dark'] .teaching-hours-override-hint {
+  color: #9ca3af;
+}
+
+[data-theme='dark'] .teaching-hours-warning-modal-footer {
+  border-top-color: #374151;
+}
+
+[data-theme='dark'] .teaching-hours-warning-btn--secondary {
+  background: #374151;
+  border-color: #4b5563;
+  color: #f9fafb;
+}
+
+[data-theme='dark'] .teaching-hours-warning-btn--secondary:hover:not(:disabled) {
+  background: #4b5563;
+  border-color: #6b7280;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .teaching-hours-warning-modal {
+    max-height: 95vh;
+  }
+
+  .teaching-hours-warning-modal-header {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .teaching-hours-warning-modal-close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+  }
+
+  .teaching-hours-warning-modal-footer {
+    flex-direction: column;
+  }
+
+  .teaching-hours-warning-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

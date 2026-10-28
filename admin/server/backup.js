@@ -120,6 +120,24 @@ class BackupSystem {
     return this.activeOperation ? { ...this.activeOperation } : null;
   }
 
+  /**
+   * Update the live progress of the operation currently holding the lock.
+   *
+   * The admin UI polls this to render a progress popup, so the update must be
+   * cheap and must never extend the lock: it only mutates the in-memory
+   * snapshot that getOperationStatus() copies out. Progress values are
+   * per-stage estimates ("is it still moving?") rather than byte counters.
+   */
+  setOperationProgress(stage, progress, label) {
+    if (!this.activeOperation) return;
+    Object.assign(this.activeOperation, {
+      stage,
+      progress: Math.max(0, Math.min(100, Math.round(progress))),
+      label,
+      updatedAt: new Date()
+    });
+  }
+
   invalidateCaches() {
     this.statsCache = null;
   }
@@ -666,6 +684,7 @@ class BackupSystem {
 
     try {
       if (mongoose.connection.readyState !== 1 || !mongoose.connection.db) throw new Error('Database is not connected');
+      this.setOperationProgress('preparing', 5, 'Preparing backup record');
       record = await Backup.create({
         fileName: finalFileName,
         originalFileName: jsonFileName,
@@ -687,23 +706,28 @@ class BackupSystem {
       });
 
       const exportStartedAt = Date.now();
+      this.setOperationProgress('exporting', 12, 'Exporting database collections');
       const { collectionStats, documentCount } = await this.streamDatabaseToJson(tempJsonName);
       const exportDurationMs = Date.now() - exportStartedAt;
       const size = this.storage.stat(tempJsonName).size;
       const compressionStartedAt = Date.now();
+      this.setOperationProgress('compressing', 55, 'Compressing archive');
       await this.compressBackup(tempJsonName, tempGzipName);
       const compressionDurationMs = Date.now() - compressionStartedAt;
       let encryptionDurationMs = 0;
       if (isEncrypted) {
+        this.setOperationProgress('encrypting', 72, 'Encrypting archive');
         const encryptionStartedAt = Date.now();
         await this.encryption.encryptFile(this.storage.resolve(tempGzipName), this.storage.resolve(tempArchiveName));
         encryptionDurationMs = Date.now() - encryptionStartedAt;
         this.storage.remove(tempGzipName);
       }
       const verificationStartedAt = Date.now();
+      this.setOperationProgress('verifying', 82, 'Verifying archive integrity');
       const verification = await this.verifyFilesThreaded(tempJsonName, tempArchiveName, { collections: collectionStats, isEncrypted });
       const verificationDurationMs = Date.now() - verificationStartedAt;
 
+      this.setOperationProgress('finalizing', 95, 'Finalizing backup archive');
       if (isEncrypted) {
         this.storage.remove(tempJsonName);
       } else {
@@ -753,9 +777,11 @@ class BackupSystem {
       // Retention is on by default now that archives live on durable storage;
       // set BACKUP_AUTO_RETENTION=false to keep every archive forever.
       if (String(process.env.BACKUP_AUTO_RETENTION ?? 'true').toLowerCase() !== 'false') {
+        this.setOperationProgress('retention', 98, 'Applying retention policy');
         await this.cleanupOldBackups();
       }
       await this.notifications.notify('backup.completed', { backupId: String(record._id), fileName: finalFileName, backupType: type, durationMs, isEncrypted });
+      this.setOperationProgress('completed', 100, 'Backup complete');
       return {
         success: true,
         fileName: finalFileName,

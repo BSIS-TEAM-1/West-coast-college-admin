@@ -7,6 +7,7 @@ const StudentBlockAssignment = require('../models/StudentBlockAssignment');
 const BlockSection = require('../models/BlockSection');
 const Student = require('../models/Student');
 const gradingScaleService = require('../services/gradingScaleService');
+const { assertSchoolYearWritable } = require('../services/schoolYearLockService');
 
 /**
  * GET /registrar/grade-submissions
@@ -46,9 +47,7 @@ async function listSubmissions(req, res) {
       if (activeSubjects.length === 0) continue;
 
       for (const subject of activeSubjects) {
-        const subStatus = subject.submissionStatus !== undefined && subject.submissionStatus !== null
-          ? subject.submissionStatus
-          : (enrollment.gradeSubmission?.status || 'Draft');
+        const subStatus = subject.submissionStatus || 'Draft';
 
         if (status && subStatus !== status) continue;
         if (!status && subStatus === 'Draft') continue;
@@ -146,9 +145,7 @@ async function getClassSubmissions(req, res) {
         if (subjectId && String(subject.subjectId) !== String(subjectId)) continue;
         if (subjectCode && subject.code !== subjectCode) continue;
 
-        const subStatus = subject.submissionStatus !== undefined && subject.submissionStatus !== null
-          ? subject.submissionStatus
-          : (enrollment.gradeSubmission?.status || 'Draft');
+        const subStatus = subject.submissionStatus || 'Draft';
 
         if (status && subStatus !== status) continue;
 
@@ -196,6 +193,7 @@ async function submitGrades(req, res) {
     const enrollment = await Enrollment.findById(req.params.enrollmentId);
     if (!enrollment) return res.status(404).json({ error: 'Enrollment not found.' });
     if (enrollment.lockedAt) return res.status(400).json({ error: 'Enrollment is locked.' });
+    await assertSchoolYearWritable(enrollment.schoolYear, 'grade submission');
 
     // Per-subject submission: only submit subjects targeted by THIS submission.
     // If targetSubjectId or req.body.subjectId is specified, submit ONLY that subject.
@@ -332,6 +330,7 @@ async function verifyGrades(req, res) {
     const enrollment = await Enrollment.findById(req.params.enrollmentId);
     if (!enrollment) return res.status(404).json({ error: 'Enrollment not found.' });
     if (enrollment.lockedAt) return res.status(400).json({ error: 'Enrollment is already locked.' });
+    await assertSchoolYearWritable(enrollment.schoolYear, 'grade verification');
 
     // Verify all subjects with submissionStatus='Submitted'
     // If instructor is provided, only verify that professor's subjects.
@@ -403,6 +402,7 @@ async function publishGrades(req, res) {
     const enrollment = await Enrollment.findById(req.params.enrollmentId);
     if (!enrollment) return res.status(404).json({ error: 'Enrollment not found.' });
     if (enrollment.lockedAt) return res.status(400).json({ error: 'Enrollment is already locked.' });
+    await assertSchoolYearWritable(enrollment.schoolYear, 'grade publication');
 
     // Publish all subjects with submissionStatus='Verified'
     // If instructor is provided, only publish that professor's subjects.
@@ -475,6 +475,7 @@ async function returnGrades(req, res) {
     const enrollment = await Enrollment.findById(req.params.enrollmentId);
     if (!enrollment) return res.status(404).json({ error: 'Enrollment not found.' });
     if (enrollment.lockedAt) return res.status(400).json({ error: 'Enrollment is already locked.' });
+    await assertSchoolYearWritable(enrollment.schoolYear, 'grade return');
 
     const currentStatus = enrollment.gradeSubmission?.status || 'Draft';
     // When returning per-professor, the aggregate status may not be Submitted/Verified
@@ -562,6 +563,7 @@ async function revertToDraft(req, res) {
     const enrollment = await Enrollment.findById(req.params.enrollmentId);
     if (!enrollment) return res.status(404).json({ error: 'Enrollment not found.' });
     if (enrollment.lockedAt) return res.status(400).json({ error: 'Enrollment is locked.' });
+    await assertSchoolYearWritable(enrollment.schoolYear, 'grade reopen');
 
     const instructorFilter = req.body?.instructor || null;
     const subjectIdFilter = req.body?.subjectId || null;
@@ -649,9 +651,9 @@ async function createGradeChangeRequest(req, res) {
       return res.status(404).json({ error: 'Subject not found in this enrollment.' });
     }
 
-    const effectiveStatus = subjectEntry.submissionStatus || enrollment.gradeSubmission?.status || 'Draft';
+    const effectiveStatus = subjectEntry.submissionStatus || 'Draft';
     const allowedStatuses = ['Submitted', 'Verified', 'Published'];
-    if (!allowedStatuses.includes(effectiveStatus) && !allowedStatuses.includes(enrollment.gradeSubmission?.status)) {
+    if (!allowedStatuses.includes(effectiveStatus)) {
       return res.status(400).json({
         error: `Grade change requests can only be made for submitted, verified, or published grades. Current status: ${effectiveStatus}.`
       });

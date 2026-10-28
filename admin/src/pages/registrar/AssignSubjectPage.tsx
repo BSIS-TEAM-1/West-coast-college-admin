@@ -3,6 +3,7 @@ import { CheckCircle, ChevronLeft, ChevronRight, RotateCcw, Trash2 } from 'lucid
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import { formatBlockColumnLabel, formatBlockLabel, getDefaultSchoolYear, schoolYearFromStartYear } from '../../lib/blockAssignmentShared'
 import { getAcademicTerm } from '../../lib/settingsApi'
+import NotificationToast from '../../components/NotificationToast'
 import type { BlockGroup, BlockSection, CurriculumSubject, Semester, SubjectItem } from './registrarBlockTypes'
 
 type BlockSubjectAssignment = {
@@ -129,6 +130,7 @@ function AssignSubjectPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'warning'; title: string; message: string } | null>(null)
 
   const selectedGroup = blockGroups.find((group) => group._id === selectedGroupId) || null
   const selectedSection = sections.find((section) => section._id === selectedSectionId) || null
@@ -290,6 +292,48 @@ function AssignSubjectPage() {
     }
     void fetchCurriculumSubjects()
   }, [selectedGroup?.curriculumId, yearLevel, semester])
+
+  // Auto-sync from curriculum when a curriculum-linked block group is selected
+  useEffect(() => {
+    const autoSyncFromCurriculum = async () => {
+      if (!selectedGroup?._id || !selectedGroup.curriculumId) return
+      setSyncing(true)
+      try {
+        const data = await authorizedFetch<{
+          success: boolean
+          summary: {
+            sections: number
+            curriculumSubjectsFound: number
+            created: number
+            skipped: number
+            warnings: string[]
+            errors: string[]
+          }
+        }>(`/api/blocks/groups/${selectedGroup._id}/sync-subjects`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ includeElectives: false })
+        })
+        const summary = data?.summary
+        if (summary && summary.created > 0) {
+          setNotification({
+            type: 'success',
+            title: 'Curriculum Auto-Synced',
+            message: `${summary.created} course${summary.created !== 1 ? 's' : ''} assigned across ${summary.sections} section${summary.sections !== 1 ? 's' : ''}.`
+          })
+        }
+        if (selectedSectionId) {
+          await fetchAssignments()
+        }
+      } catch (err) {
+        // Silent fail on auto-sync - don't show errors to user
+        console.error('Auto-sync from curriculum failed:', err)
+      } finally {
+        setSyncing(false)
+      }
+    }
+    void autoSyncFromCurriculum()
+  }, [selectedGroup?._id, selectedGroup?.curriculumId])
 
   useEffect(() => {
     setShowAllCurriculumSubjects(false)
@@ -460,9 +504,19 @@ function AssignSubjectPage() {
       const summary = data?.summary
       if (summary) {
         if (summary.created > 0) {
-          setSuccess(`Synced from curriculum: ${summary.created} subjects assigned across ${summary.sections} section${summary.sections !== 1 ? 's' : ''}.`)
+          setNotification({
+            type: 'success',
+            title: 'Curriculum Synced',
+            message: `Synced ${summary.created} course${summary.created !== 1 ? 's' : ''} across ${summary.sections} section${summary.sections !== 1 ? 's' : ''}.`
+          })
+          setSuccess(`Synced from curriculum: ${summary.created} courses assigned across ${summary.sections} section${summary.sections !== 1 ? 's' : ''}.`)
         } else {
-          setSuccess(`Sync complete. All ${summary.skipped} curriculum subjects were already assigned.`)
+          setNotification({
+            type: 'success',
+            title: 'Curriculum Up to Date',
+            message: `All ${summary.skipped} curriculum courses are already assigned.`
+          })
+          setSuccess(`Sync complete. All ${summary.skipped} curriculum courses were already assigned.`)
         }
         if (summary.warnings.length > 0) {
           setError(summary.warnings.join(' '))
@@ -474,7 +528,12 @@ function AssignSubjectPage() {
         await fetchAssignments()
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to sync subjects from curriculum')
+      setNotification({
+        type: 'error',
+        title: 'Sync Failed',
+        message: err instanceof Error ? err.message : 'Failed to sync courses from curriculum'
+      })
+      setError(err instanceof Error ? err.message : 'Failed to sync courses from curriculum')
     } finally {
       setSyncing(false)
     }
@@ -540,7 +599,7 @@ function AssignSubjectPage() {
                     </select>
                   </label>
                   <label>
-                    <span>Program/Course</span>
+                    <span>Program</span>
                     <select value={course} onChange={(event) => setCourse(event.target.value)}>
                       <option value="">Select program</option>
                       {courseOptions.map((option) => (
@@ -603,7 +662,7 @@ function AssignSubjectPage() {
           {wizardStep === 2 && (
             <div className="sis-wizard-panel">
               <div className="block-wizard-panel-head">
-                <h3>Choose Subjects</h3>
+                <h3>Choose Courses</h3>
               </div>
 
               {selectedGroup?.curriculumId && (
@@ -611,18 +670,11 @@ function AssignSubjectPage() {
                   <div className="curriculum-context-info">
                     <strong>Curriculum-linked block</strong>
                     <span>
-                      {curriculumSubjects.length} subjects available from curriculum for Year {yearLevel}, {semester} Semester
+                      {curriculumSubjects.length} courses available from curriculum for Year {yearLevel}, {semester} Semester
                       {assignedSubjectIds.size > 0 && ` · ${assignedSubjectIds.size} already assigned`}
+                      {syncing && ' · Auto-syncing...'}
                     </span>
                   </div>
-                  <button
-                    className="registrar-btn registrar-btn-secondary"
-                    type="button"
-                    onClick={handleSyncFromCurriculum}
-                    disabled={syncing}
-                  >
-                    {syncing ? 'Syncing...' : 'Sync from Curriculum'}
-                  </button>
                 </div>
               )}
 
@@ -644,9 +696,14 @@ function AssignSubjectPage() {
                       <h4>Recommended from Curriculum</h4>
                       <p>{curriculumSubjects.length} subjects match this block's curriculum, year, and semester</p>
                     </div>
-                    <button className="registrar-btn registrar-btn-secondary" type="button" onClick={handleSelectAllRecommended}>
-                      Select All Recommended
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button className="registrar-btn registrar-btn-secondary" type="button" onClick={handleSelectAllRecommended}>
+                        Select All Recommended
+                      </button>
+                      <button className="registrar-btn registrar-btn-secondary" type="button" onClick={handleSyncFromCurriculum} disabled={syncing}>
+                        {syncing ? 'Syncing...' : 'Sync Curriculum'}
+                      </button>
+                    </div>
                   </div>
                   <div className="curriculum-recommended-list">
                     {curriculumSubjects.map((cs) => {
@@ -682,7 +739,7 @@ function AssignSubjectPage() {
                 <section className="assignment-section assignment-wizard-list">
                   <div className="assignment-panel-head">
                     <div>
-                      <h3>Available Subjects</h3>
+                      <h3>Available Courses</h3>
                       <p>{selectedSubjectIds.length} selected for {selectedSection ? formatBlockColumnLabel(selectedSection.sectionCode) : ''}</p>
                     </div>
                     <span className="assignment-count-pill">{availableSubjects.length} available</span>
@@ -714,7 +771,7 @@ function AssignSubjectPage() {
                   </div>
                   {availableSubjects.length === 0 && (
                     <p className="assignment-empty-copy">
-                      {course && yearLevel ? 'No unassigned subjects match this term and program.' : 'Select program and year level to show available subjects.'}
+                      {course && yearLevel ? 'No unassigned courses match this term and program.' : 'Select program and year level to show available courses.'}
                     </p>
                   )}
                 </section>
@@ -723,14 +780,14 @@ function AssignSubjectPage() {
                   <div className="assignment-panel-head">
                     <div>
                       <h3>Assignment Summary</h3>
-                      <p>{loading ? 'Loading assigned subjects...' : `${assignments.length} already assigned`}</p>
+                      <p>{loading ? 'Loading assigned courses...' : `${assignments.length} already assigned`}</p>
                     </div>
                   </div>
 
                   <div className="block-wizard-review assignment-review-card">
                     <div><span>Block Section</span><strong>{selectedSection ? formatBlockColumnLabel(selectedSection.sectionCode) : 'N/A'}</strong></div>
                     <div><span>Term</span><strong>{semester} / {academicYear}</strong></div>
-                    <div><span>New Subjects</span><strong>{selectedSubjects.length}</strong></div>
+                    <div><span>New Courses</span><strong>{selectedSubjects.length}</strong></div>
                   </div>
 
                   <div className="assigned-subject-list">
@@ -751,7 +808,7 @@ function AssignSubjectPage() {
                     ))}
                   </div>
                   {assignments.length === 0 && (
-                    <p className="assignment-empty-copy">No subjects assigned to this block section for the selected term.</p>
+                    <p className="assignment-empty-copy">No courses assigned to this block section for the selected term.</p>
                   )}
                 </section>
               </div>
@@ -762,7 +819,7 @@ function AssignSubjectPage() {
                   Back
                 </button>
                 <button className="registrar-btn" onClick={handleAssignSelected} disabled={saving || selectedSubjectIds.length === 0 || !selectedSectionId}>
-                  {saving ? 'Assigning...' : 'Assign Selected Subjects'}
+                  {saving ? 'Assigning...' : 'Assign Selected Courses'}
                 </button>
               </div>
             </div>
@@ -771,11 +828,11 @@ function AssignSubjectPage() {
           {wizardStep === 3 && (
             <div className="block-wizard-panel block-wizard-success">
               <CheckCircle size={52} />
-              <h3>Subjects Assigned Successfully</h3>
-              <p>The selected subjects have been linked to {selectedSection ? formatBlockColumnLabel(selectedSection.sectionCode) : 'the block section'}.</p>
+              <h3>Courses Assigned Successfully</h3>
+              <p>The selected courses have been linked to {selectedSection ? formatBlockColumnLabel(selectedSection.sectionCode) : 'the block section'}.</p>
               <div className="block-wizard-success-actions">
                 <button className="registrar-btn" type="button" onClick={() => setWizardStep(2)}>
-                  Assign More Subjects
+                  Assign More Courses
                 </button>
                 <button className="registrar-btn registrar-btn-secondary" type="button" onClick={resetTarget}>
                   <RotateCcw size={16} />
@@ -786,6 +843,17 @@ function AssignSubjectPage() {
           )}
         </section>
       </div>
+
+      {notification && (
+        <NotificationToast
+          type={notification.type}
+          title={notification.title}
+          message={notification.message}
+          duration={4000}
+          onClose={() => setNotification(null)}
+          className="assign-subject-notification"
+        />
+      )}
     </div>
   )
 }

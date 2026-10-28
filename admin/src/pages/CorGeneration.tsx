@@ -321,7 +321,7 @@ export default function CorGeneration() {
       <div className="cor-generation-header">
         <div>
           <h2>Certificate of registration Authorization</h2>
-          <p>Filter by course, choose a block card, view each COR, then approve it for registrar workflow.</p>
+          <p>Filter by program, choose a block card, view each COR, then approve it for registrar workflow.</p>
         </div>
         <button className="cor-refresh-btn" onClick={() => void fetchBlocks()} disabled={loading}>
           <RefreshCw size={16} className={loading ? 'spin' : ''} />
@@ -332,7 +332,7 @@ export default function CorGeneration() {
       <div className="cor-filter-bar">
         <div className="cor-filter-title">
           <Filter size={14} />
-          <span>Courses</span>
+          <span>Programs</span>
         </div>
         <div className="cor-course-chips">
           <button
@@ -340,7 +340,7 @@ export default function CorGeneration() {
             className={`cor-chip ${selectedCourse === 'all' ? 'active' : ''}`}
             onClick={() => setSelectedCourse('all')}
           >
-            All Courses
+            All Programs
           </button>
           {courseOptions.map((course) => (
             <button
@@ -366,7 +366,7 @@ export default function CorGeneration() {
           </div>
 
           {filteredSections.length === 0 ? (
-            <div className="cor-empty-state">No blocks found for this course.</div>
+            <div className="cor-empty-state">No blocks found for this program.</div>
           ) : (
             <div className="cor-block-grid">
               {filteredSections.map((section) => (
@@ -412,7 +412,7 @@ export default function CorGeneration() {
                 <thead>
                   <tr>
                     <th>Student</th>
-                    <th>Course</th>
+                    <th>Program</th>
                     <th>Actions</th>
                   </tr>
                 </thead>

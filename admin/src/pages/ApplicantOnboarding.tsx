@@ -7,6 +7,7 @@ import {
   type ApplicantPayload,
   type CourseOption
 } from '../lib/applicantApi'
+
 import './ApplicantOnboarding.css'
 
 type Props = {
@@ -14,8 +15,8 @@ type Props = {
   isTransferee?: boolean
 }
 
-const steps = ['Contact', 'Personal', 'Academic', 'Course']
-const transfereeSteps = ['Contact', 'Personal', 'College', 'Course']
+const steps = ['Contact', 'Personal', 'Academic', 'Program']
+const transfereeSteps = ['Contact', 'Personal', 'College', 'Program']
 const suffixOptions = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV', 'V']
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -72,12 +73,6 @@ function FieldError({ message }: { message?: string }) {
   if (!message) return null
   return <span className="applicant-field-error">{message}</span>
 }
-
-const defaultSchoolYear = (() => {
-  const now = new Date()
-  const startYear = now.getMonth() >= 5 ? now.getFullYear() : now.getFullYear() - 1
-  return `${startYear}-${startYear + 1}`
-})()
 
 const initialForm: ApplicantPayload = {
   applicantType: 'New',
@@ -163,8 +158,7 @@ const initialForm: ApplicantPayload = {
   },
   selectedCourse: 101,
   requestedYearLevel: 1,
-  semester: '1st',
-  schoolYear: defaultSchoolYear
+  semester: '1st'
 }
 
 function setNestedValue(source: ApplicantPayload, path: string, value: unknown): ApplicantPayload {
@@ -332,7 +326,7 @@ export default function ApplicantOnboarding({ onBack, isTransferee = false }: Pr
         }
       })
       .catch((err) => {
-        if (mounted) setError(err instanceof Error ? err.message : 'Failed to load courses.')
+        if (mounted) setError(err instanceof Error ? err.message : 'Failed to load programs.')
       })
       .finally(() => {
         if (mounted) setLoadingCourses(false)
@@ -471,12 +465,7 @@ export default function ApplicantOnboarding({ onBack, isTransferee = false }: Pr
     }
 
     if (stepIndex === 3) {
-      if (!form.selectedCourse) errors.selectedCourse = 'Please choose a course.'
-      if (!form.schoolYear?.trim()) {
-        errors.schoolYear = 'School year is required.'
-      } else if (!/^\d{4}-\d{4}$/.test(form.schoolYear.trim())) {
-        errors.schoolYear = 'School year must be in YYYY-YYYY format.'
-      }
+      if (!form.selectedCourse) errors.selectedCourse = 'Please choose a program.'
     }
 
     setFieldErrors(errors)
@@ -953,7 +942,7 @@ export default function ApplicantOnboarding({ onBack, isTransferee = false }: Pr
 
           {stepIndex === 3 ? (
             <>
-              <h2 className="applicant-section-title">Course Selection</h2>
+              <h2 className="applicant-section-title">Program Selection</h2>
               <div className="applicant-grid-2 applicant-spacer">
                 <div className="applicant-field">
                   <label className="applicant-field-label"><RequiredLabel>Applicant type</RequiredLabel></label>
@@ -964,7 +953,7 @@ export default function ApplicantOnboarding({ onBack, isTransferee = false }: Pr
                   </select>
                 </div>
                 <div className="applicant-field">
-                  <label className="applicant-field-label"><RequiredLabel>Course</RequiredLabel></label>
+                  <label className="applicant-field-label"><RequiredLabel>Program</RequiredLabel></label>
                   <select className="form-select" value={form.selectedCourse} onChange={(e) => update('selectedCourse', Number(e.target.value))} disabled={loadingCourses} required>
                     {courses.map((course) => (
                       <option key={course.id} value={course.id}>{course.code} - {course.name}</option>
@@ -988,14 +977,10 @@ export default function ApplicantOnboarding({ onBack, isTransferee = false }: Pr
                     <option value="Summer">Summer</option>
                   </select>
                 </div>
-                <div className="applicant-field">
-                  <label className="applicant-field-label"><RequiredLabel>School year</RequiredLabel></label>
-                  <input className="form-input" value={form.schoolYear} onChange={(e) => update('schoolYear', e.target.value)} required type="text" />
-                </div>
               </div>
               <div className="applicant-review-box">
-                    <span>Selected course</span>
-                    <strong>{selectedCourse ? `${selectedCourse.code} - ${selectedCourse.name}` : 'Loading courses...'}</strong>
+                    <span>Selected program</span>
+                    <strong>{selectedCourse ? `${selectedCourse.code} - ${selectedCourse.name}` : 'Loading programs...'}</strong>
                   </div>
                 </>
               ) : null}

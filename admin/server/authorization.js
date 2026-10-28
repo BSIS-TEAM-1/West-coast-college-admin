@@ -35,10 +35,21 @@ function isOwnerOrAdmin(req, ownerId) {
   return hasAnyRole(req, ['admin']) || String(ownerId || '') === String(req?.adminId || '')
 }
 
+function requireTeachingHoursOverrideAuth(req, res, next) {
+  // Only admins and registrars can authorize teaching hours overrides
+  if (!hasAnyRole(req, ['admin', 'registrar'])) {
+    return res.status(403).json({
+      error: 'Forbidden. Teaching hours override authorization requires registrar or admin role.'
+    })
+  }
+  next()
+}
+
 module.exports = {
   normalizeAccountType,
   hasAnyRole,
   requireAnyRole,
   requireAdminRole,
-  isOwnerOrAdmin
+  isOwnerOrAdmin,
+  requireTeachingHoursOverrideAuth
 }

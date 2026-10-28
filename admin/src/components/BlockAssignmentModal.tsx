@@ -15,6 +15,7 @@ import {
   fetchEligibleBlocks,
   fetchBulkEligibility,
   type EligibilityResult,
+  type EligibilityTermOverride,
   type EligibleBlock,
   type IneligibleBlock,
   type BulkEligibilityResult
@@ -39,12 +40,16 @@ export default function BlockAssignmentModal({
   students,
   onClose,
   onSaved,
-  initialStep = 1
+  initialStep = 1,
+  termOverride,
+  requireReEnrollmentVerification = false
 }: {
   students: StudentData[]
   onClose: () => void
   onSaved: (message: string) => Promise<void> | void
   initialStep?: 1 | 2
+  termOverride?: EligibilityTermOverride
+  requireReEnrollmentVerification?: boolean
 }) {
   const isSingleStudent = students.length === 1
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(initialStep)
@@ -69,7 +74,7 @@ export default function BlockAssignmentModal({
     setLoading(true)
     setError('')
     try {
-      const result = await fetchEligibleBlocks(students[0]._id)
+      const result = await fetchEligibleBlocks(students[0]._id, termOverride)
       setEligibilityResult(result)
       setSelectedSectionId(result.recommended?.section._id || result.eligible[0]?.section._id || '')
     } catch (loadError) {
@@ -90,13 +95,15 @@ export default function BlockAssignmentModal({
         try {
           const fetchedGroups = await authorizedFetch<BlockGroup[]>('/api/blocks/groups')
           const firstStudent = students[0]
+          const targetSemester = termOverride?.semester || firstStudent.semester
+          const targetSchoolYear = termOverride?.schoolYear || firstStudent.schoolYear
           const compatibleGroups = fetchedGroups.filter((group) => {
             const groupSchoolYear = group.schoolYear || schoolYearFromStartYear(group.year)
             return (
               (!firstStudent.course || !group.courseId || String(group.courseId) === String(firstStudent.course)) &&
               (!firstStudent.yearLevel || !group.yearLevel || Number(group.yearLevel) === Number(firstStudent.yearLevel)) &&
-              (!firstStudent.semester || !group.semester || group.semester === firstStudent.semester) &&
-              (!firstStudent.schoolYear || !groupSchoolYear || groupSchoolYear === firstStudent.schoolYear)
+              (!targetSemester || !group.semester || group.semester === targetSemester) &&
+              (!targetSchoolYear || !groupSchoolYear || groupSchoolYear === targetSchoolYear)
             )
           })
 
@@ -124,7 +131,7 @@ export default function BlockAssignmentModal({
         }
       })()
     }
-  }, [currentStep, isSingleStudent])
+  }, [currentStep, isSingleStudent, termOverride?.schoolYear, termOverride?.semester])
 
   const selectedEligibleBlock = useMemo(() => {
     if (!eligibilityResult) return null
@@ -219,7 +226,8 @@ export default function BlockAssignmentModal({
                 studentId: student._id,
                 sectionId: target.section._id,
                 semester: target.blockGroup.semester,
-                year: target.blockGroup.year
+                year: target.blockGroup.year,
+                reEnrollment: requireReEnrollmentVerification
               })
             }
           )
@@ -284,7 +292,8 @@ export default function BlockAssignmentModal({
                   studentId: student._id,
                   sectionId: targetSection._id,
                   semester: selectedGroup?.semester,
-                  year: selectedGroup?.year
+                  year: selectedGroup?.year,
+                  reEnrollment: requireReEnrollmentVerification
                 })
               }
             )

@@ -7,8 +7,9 @@ const BlockSubjectAssignmentController = require('../controllers/blockSubjectAss
 const CurriculumController = require('../controllers/curriculumController');
 const CurriculumSubjectController = require('../controllers/curriculumSubjectController');
 const EnrollmentManagementController = require('../controllers/enrollmentManagementController');
+const TeachingHoursOverrideController = require('../controllers/teachingHoursOverrideController');
 const securityMiddleware = require('../securityMiddleware');
-const { requireAnyRole } = require('../authorization');
+const { requireAnyRole, requireTeachingHoursOverrideAuth } = require('../authorization');
 const { apiCache, cacheMiddleware } = require('../services/apiCache');
 
 // Rate limiter for registrar routes
@@ -67,6 +68,9 @@ router.post('/students/:id/shift', invalidateCacheOnSuccess(...studentCachePrefi
 // These act on the subjects inside one term's enrollment record and always
 // leave the records they touch intact.
 router.get('/students/:id/academic-progress', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.idParam), EnrollmentManagementController.getAcademicProgress);
+router.get('/re-enrollment/candidates', EnrollmentManagementController.getReEnrollmentCandidates);
+router.post('/re-enrollment/send-code', EnrollmentManagementController.sendReEnrollmentCode);
+router.post('/re-enrollment/verify-code', EnrollmentManagementController.verifyReEnrollmentCode);
 router.post('/students/:id/retake', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.idParam), invalidateCacheOnSuccess(...enrollmentCachePrefixes), EnrollmentManagementController.retakeSubject);
 router.get('/curriculum-suggestions', cacheMiddleware({ ttlMs: 30 * 1000 }), EnrollmentManagementController.getSuggestedSubjects);
 router.post('/enrollments/:enrollmentId/subjects/validate', EnrollmentManagementController.validateEnrollmentSubjects);
@@ -75,6 +79,11 @@ router.post('/enrollments/:enrollmentId/subjects/:subjectId/drop', invalidateCac
 router.post('/sections/:sectionId/subject-assignment', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.assignSubjectInstructor), invalidateCacheOnSuccess(...courseLoadCachePrefixes), StudentController.assignSubjectInstructorToSection);
 router.put('/sections/:sectionId/subject-assignment', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.assignSubjectInstructor), invalidateCacheOnSuccess(...courseLoadCachePrefixes), StudentController.assignSubjectInstructorToSection);
 router.delete('/sections/:sectionId/subject-assignment/:subjectId', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.sectionAssignmentTarget), invalidateCacheOnSuccess(...courseLoadCachePrefixes), StudentController.clearSubjectInstructorForSection);
+
+// Teaching Hours Override Routes (admin-only for override authorization)
+router.post('/teaching-hours-override', requireTeachingHoursOverrideAuth, TeachingHoursOverrideController.recordOverride);
+router.get('/teaching-hours-overrides/professor/:professorId', TeachingHoursOverrideController.getProfessorOverrides);
+router.get('/teaching-hours-overrides', TeachingHoursOverrideController.getAllOverrides);
 router.get('/block-subject-assignments', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.blockSubjectAssignment.query), cacheMiddleware({ ttlMs: 20 * 1000 }), BlockSubjectAssignmentController.getAssignments);
 router.post('/block-subject-assignments', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.blockSubjectAssignment.create), invalidateCacheOnSuccess(...subjectAssignmentCachePrefixes, ...courseLoadCachePrefixes), BlockSubjectAssignmentController.assignSubjects);
 router.delete('/block-subject-assignments/:id', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.blockSubjectAssignment.idParam), invalidateCacheOnSuccess(...subjectAssignmentCachePrefixes, ...courseLoadCachePrefixes), BlockSubjectAssignmentController.deleteAssignment);

@@ -918,7 +918,7 @@ export default function CreateCurriculumPage({ onBack, onCreated }: CreateCurric
 
               {/* Live totals bar */}
               <div className="curriculum-draft-totals">
-                <span><BookOpen size={14} /> {placements.length} subjects</span>
+                <span><BookOpen size={14} /> {placements.length} courses</span>
                 <span><GraduationCap size={14} /> {reviewTotals.totalUnits} units</span>
                 <span>{reviewTotals.totalLecture} lec / {reviewTotals.totalLab} lab</span>
               </div>
@@ -1027,14 +1027,14 @@ export default function CreateCurriculumPage({ onBack, onCreated }: CreateCurric
           </div>
 
           <div className="curriculum-review-section">
-            <h4>Subject Placements ({placements.length})</h4>
+            <h4>Course Placements ({placements.length})</h4>
             {placements.length === 0 ? (
-              <p className="assignment-empty-copy">No subjects added. The curriculum will be created as an empty Draft — you can add subjects later from the details page.</p>
+              <p className="assignment-empty-copy">No courses added. The curriculum will be created as an empty Draft — you can add courses later from the details page.</p>
             ) : (
               <>
                 <div className="curriculum-overview-stats">
                   <div className="curriculum-stat-card">
-                    <div className="curriculum-stat-card-label"><BookOpen size={18} />Total Subjects</div>
+                    <div className="curriculum-stat-card-label"><BookOpen size={18} />Total Courses</div>
                     <strong>{placements.length}</strong>
                   </div>
                   <div className="curriculum-stat-card">
@@ -1223,7 +1223,7 @@ function PlacementEditorModal({
                 </select>
               </label>
               <label>
-                <span>Subject Type</span>
+                <span>Course Type</span>
                 <select
                   value={placement.type}
                   onChange={(e) => onUpdate({ type: e.target.value })}
@@ -1265,7 +1265,7 @@ function PlacementEditorModal({
                     checked={placement.prereqMode === 'default'}
                     onChange={() => onSetPrereqMode('default')}
                   />
-                  Use subject defaults
+                  Use course defaults
                   {defaultPrereqs.length > 0 && (
                     <span className="curriculum-prereq-default-list">
                       ({defaultPrereqs.map((id) => getSubject(id)?.code || id).join(', ')})
@@ -1342,7 +1342,7 @@ function PlacementEditorModal({
                     )}
                     {!prereqLoading && !prereqSearch && (
                       <p className="curriculum-search-status curriculum-search-status-hint">
-                        Search by course code or title to find subjects to add as prerequisites.
+                        Search by course code or title to find courses to add as prerequisites.
                       </p>
                     )}
                   </div>
@@ -1446,7 +1446,7 @@ function BulkConfigureModal({ selectedCount, onApply, onClose }: BulkConfigureMo
 
               <label className="curriculum-bulk-config-field">
                 <input type="checkbox" checked={applyType} onChange={(e) => setApplyType(e.target.checked)} />
-                <span>Subject Type</span>
+                <span>Course Type</span>
                 <select value={type} onChange={(e) => setType(e.target.value)} disabled={!applyType}>
                   {subjectTypeOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -1492,7 +1492,7 @@ function BulkConfigureModal({ selectedCount, onApply, onClose }: BulkConfigureMo
             </div>
 
             <p className="curriculum-bulk-config-note">
-              Prerequisites are not part of bulk configuration — each subject maintains its own independent prerequisites. Use the Edit button on individual placements to configure prerequisites.
+              Prerequisites are not part of bulk configuration — each course maintains its own independent prerequisites. Use the Edit button on individual placements to configure prerequisites.
             </p>
           </div>
 

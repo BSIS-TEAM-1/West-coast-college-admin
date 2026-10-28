@@ -19,7 +19,7 @@ const auditLogSchema = new mongoose.Schema({
     enum: [
       'ADMIN', 'STUDENT', 'FACULTY', 'COURSE', 'REGISTRATION', 
       'ANNOUNCEMENT', 'DOCUMENT', 'SYSTEM', 'PROFILE', 'ACCOUNT',
-      'SECURITY', 'ENROLLMENT', 'CURRICULUM'
+      'SECURITY', 'ENROLLMENT', 'CURRICULUM', 'EVALUATION', 'EVALUATION_PERIOD'
     ]
   },
   resourceId: {

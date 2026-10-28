@@ -8,11 +8,32 @@ import {
 } from '../lib/applicantApi'
 import './ApplicantQueue.css'
 
-const MENU_WIDTH = 170
-const MENU_HEIGHT_ESTIMATE = 130
+const MENU_WIDTH = 210
+const MENU_HEIGHT_ESTIMATE = 180
 const MENU_MARGIN = 8
 
-const statuses: Array<ApplicantStatus | 'all'> = [
+export type QueueTabKey =
+  | 'all'
+  | 'Submitted'
+  | 'For Evaluation'
+  | 'Approved'
+  | 'Incomplete Requirements'
+  | 'Rejected'
+
+export const QUEUE_TABS: Array<{
+  key: QueueTabKey
+  label: string
+  shortLabel: string
+}> = [
+  { key: 'all', label: 'All', shortLabel: 'All' },
+  { key: 'Submitted', label: 'Submitted', shortLabel: 'Submitted' },
+  { key: 'For Evaluation', label: 'For Evaluation', shortLabel: 'Evals' },
+  { key: 'Approved', label: 'Approved', shortLabel: 'Approved' },
+  { key: 'Incomplete Requirements', label: 'Incomplete', shortLabel: 'Incomplete' },
+  { key: 'Rejected', label: 'Rejected', shortLabel: 'Rejected' }
+]
+
+const reviewStatuses: ApplicantStatus[] = [
   'Submitted',
   'Incomplete Requirements',
   'For Evaluation',
@@ -21,8 +42,6 @@ const statuses: Array<ApplicantStatus | 'all'> = [
   'Rejected',
   'Cancelled'
 ]
-
-const reviewStatuses = statuses.filter((status): status is ApplicantStatus => status !== 'all')
 
 const formatDate = (date: string) => {
   const parsed = new Date(date)
@@ -65,7 +84,8 @@ const getStatusClass = (status: ApplicantStatus) => {
 export default function ApplicantQueue() {
   const [applicants, setApplicants] = useState<ApplicantRecord[]>([])
   const [selectedId, setSelectedId] = useState('')
-  const [statusFilter, setStatusFilter] = useState<ApplicantStatus | 'all'>('Submitted')
+  const [activeTab, setActiveTab] = useState<QueueTabKey>('all')
+  const [justUpdatedIds, setJustUpdatedIds] = useState<Set<string>>(new Set())
   const [programFilter, setProgramFilter] = useState('all')
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
@@ -166,22 +186,53 @@ export default function ApplicantQueue() {
       .sort((left, right) => left.label.localeCompare(right.label))
   }, [applicants])
 
+  const tabCounts = useMemo(() => {
+    const counts: Record<QueueTabKey, number> = {
+      all: applicants.length,
+      Submitted: 0,
+      'For Evaluation': 0,
+      Approved: 0,
+      'Incomplete Requirements': 0,
+      Rejected: 0
+    }
+
+    for (const applicant of applicants) {
+      const s = applicant.status
+      if (s === 'Submitted') counts.Submitted++
+      else if (s === 'For Evaluation') counts['For Evaluation']++
+      else if (s === 'Approved for Enrollment' || s === 'Enrolled') counts.Approved++
+      else if (s === 'Incomplete Requirements') counts['Incomplete Requirements']++
+      else if (s === 'Rejected' || s === 'Cancelled') counts.Rejected++
+    }
+
+    return counts
+  }, [applicants])
+
+  const tabFilteredApplicants = useMemo(() => {
+    if (activeTab === 'all') return applicants
+
+    return applicants.filter((applicant) => {
+      // Don't remove the student from the current view if their status was just changed
+      if (justUpdatedIds.has(applicant._id)) return true
+
+      if (activeTab === 'Submitted') return applicant.status === 'Submitted'
+      if (activeTab === 'For Evaluation') return applicant.status === 'For Evaluation'
+      if (activeTab === 'Approved') return applicant.status === 'Approved for Enrollment' || applicant.status === 'Enrolled'
+      if (activeTab === 'Incomplete Requirements') return applicant.status === 'Incomplete Requirements'
+      if (activeTab === 'Rejected') return applicant.status === 'Rejected' || applicant.status === 'Cancelled'
+      return applicant.status === activeTab
+    })
+  }, [applicants, activeTab, justUpdatedIds])
+
   const visibleApplicants = useMemo(() => {
-    if (programFilter === 'all') return applicants
-    return applicants.filter((applicant) => getCourseCode(applicant) === programFilter)
-  }, [applicants, programFilter])
+    if (programFilter === 'all') return tabFilteredApplicants
+    return tabFilteredApplicants.filter((applicant) => getCourseCode(applicant) === programFilter)
+  }, [tabFilteredApplicants, programFilter])
 
   const selected = useMemo(
     () => applicants.find((applicant) => applicant._id === selectedId) || visibleApplicants[0],
     [applicants, selectedId, visibleApplicants]
   )
-
-  const statusSummary = useMemo(() => {
-    return applicants.reduce<Record<string, number>>((summary, applicant) => {
-      summary[applicant.status] = (summary[applicant.status] || 0) + 1
-      return summary
-    }, {})
-  }, [applicants])
 
   const loadApplicants = async () => {
     setLoading(true)
@@ -189,7 +240,7 @@ export default function ApplicantQueue() {
 
     try {
       const data = await getRegistrarApplicants({
-        status: statusFilter,
+        status: 'all',
         q: query.trim()
       })
       setApplicants(data)
@@ -210,13 +261,18 @@ export default function ApplicantQueue() {
 
   useEffect(() => {
     void loadApplicants()
-  }, [statusFilter])
+  }, [])
 
   useEffect(() => {
     if (!selected) return
     setRemarks(selected.registrarRemarks || '')
     setNextStatus(selected.status === 'Draft' ? 'Submitted' : selected.status)
   }, [selected?._id])
+
+  const handleTabChange = (key: QueueTabKey) => {
+    setActiveTab(key)
+    setJustUpdatedIds(new Set())
+  }
 
   const handleStatusUpdate = async () => {
     if (!selected) return
@@ -229,6 +285,7 @@ export default function ApplicantQueue() {
         registrarRemarks: remarks
       })
       setApplicants((current) => current.map((item) => item._id === updated._id ? updated : item))
+      setJustUpdatedIds((prev) => new Set(prev).add(updated._id))
       setOpenMenuId('')
 
       if (emailNotification) {
@@ -240,7 +297,12 @@ export default function ApplicantQueue() {
       }
 
       if (studentNotification) {
-        if (studentNotification.upserted) {
+        if (studentNotification.preserved) {
+          const { studentNumber, fullName } = studentNotification
+          const identifier = studentNumber ? ` (${studentNumber})` : ''
+          const namePart = fullName ? ` for ${fullName}` : ''
+          addToast(`Student record${namePart}${identifier} preserved with status "${updated.status}".`)
+        } else if (studentNotification.upserted) {
           const verb = studentNotification.alreadyEnrolled
             ? 'already enrolled'
             : studentNotification.updated
@@ -255,9 +317,40 @@ export default function ApplicantQueue() {
         } else {
           addToast(`Failed to update student record: ${studentNotification.error || 'unknown error'}`, true)
         }
+      } else if (updated.status === 'For Evaluation') {
+        addToast(`Applicant status changed to "For Evaluation". Preserved and available in the Evals tab.`)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update applicant.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleQuickStatusChange = async (applicantId: string, status: ApplicantStatus) => {
+    const target = applicants.find((a) => a._id === applicantId)
+    if (!target) return
+    setSaving(true)
+    setError('')
+
+    try {
+      const { data: updated, studentNotification } = await updateApplicantStatus(applicantId, {
+        status,
+        registrarRemarks: target.registrarRemarks || ''
+      })
+      setApplicants((current) => current.map((item) => item._id === updated._id ? updated : item))
+      setJustUpdatedIds((prev) => new Set(prev).add(updated._id))
+      closeMenu()
+
+      if (status === 'For Evaluation') {
+        addToast(`Applicant ${getApplicantName(updated)} set to "For Evaluation". Preserved in queue and Evals tab.`)
+      } else if (studentNotification?.preserved) {
+        addToast(`Student record for ${getApplicantName(updated)} preserved with status "${status}".`)
+      } else {
+        addToast(`Applicant status updated to "${status}".`)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update status.')
     } finally {
       setSaving(false)
     }
@@ -297,6 +390,8 @@ export default function ApplicantQueue() {
     URL.revokeObjectURL(url)
   }
 
+  const activeTabConfig = QUEUE_TABS.find((t) => t.key === activeTab)
+
   return (
     <section className="applicant-queue-page">
       <header className="applicant-queue-hero">
@@ -305,7 +400,7 @@ export default function ApplicantQueue() {
           <h1>Applicant Queue</h1>
           <p>
             Managing {visibleApplicants.length.toLocaleString()} visible applications
-            {statusFilter === 'all' ? ' across all statuses.' : ` marked ${statusFilter}.`}
+            {activeTab === 'all' ? ' across all categories.' : ` under ${activeTabConfig?.label || activeTab}.`}
           </p>
         </div>
 
@@ -320,23 +415,68 @@ export default function ApplicantQueue() {
       </header>
 
       <section className="applicant-queue-stats" aria-label="Applicant status summary">
-        <article>
+        <article
+          role="button"
+          tabIndex={0}
+          className={`applicant-stat-card ${activeTab === 'all' ? 'is-active' : ''}`}
+          onClick={() => handleTabChange('all')}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleTabChange('all') }}
+        >
           <span>Total</span>
-          <strong>{applicants.length.toLocaleString()}</strong>
+          <strong>{tabCounts.all.toLocaleString()}</strong>
         </article>
-        <article>
+        <article
+          role="button"
+          tabIndex={0}
+          className={`applicant-stat-card ${activeTab === 'Submitted' ? 'is-active' : ''}`}
+          onClick={() => handleTabChange('Submitted')}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleTabChange('Submitted') }}
+        >
           <span>Submitted</span>
-          <strong>{(statusSummary.Submitted || 0).toLocaleString()}</strong>
+          <strong>{tabCounts.Submitted.toLocaleString()}</strong>
         </article>
-        <article>
-          <span>For Evaluation</span>
-          <strong>{(statusSummary['For Evaluation'] || 0).toLocaleString()}</strong>
+        <article
+          role="button"
+          tabIndex={0}
+          className={`applicant-stat-card ${activeTab === 'For Evaluation' ? 'is-active' : ''}`}
+          onClick={() => handleTabChange('For Evaluation')}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleTabChange('For Evaluation') }}
+        >
+          <span>For Evaluation (Evals)</span>
+          <strong>{tabCounts['For Evaluation'].toLocaleString()}</strong>
         </article>
-        <article>
+        <article
+          role="button"
+          tabIndex={0}
+          className={`applicant-stat-card ${activeTab === 'Approved' ? 'is-active' : ''}`}
+          onClick={() => handleTabChange('Approved')}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleTabChange('Approved') }}
+        >
           <span>Approved</span>
-          <strong>{((statusSummary['Approved for Enrollment'] || 0) + (statusSummary.Enrolled || 0)).toLocaleString()}</strong>
+          <strong>{tabCounts.Approved.toLocaleString()}</strong>
         </article>
       </section>
+
+      {/* Tabs for Evals, Rejected, Approved, etc. */}
+      <nav className="applicant-queue-tabs" aria-label="Applicant categories" role="tablist">
+        {QUEUE_TABS.map((tab) => {
+          const isActive = activeTab === tab.key
+          const count = tabCounts[tab.key]
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              className={`applicant-queue-tab ${isActive ? 'is-active' : ''}`}
+              onClick={() => handleTabChange(tab.key)}
+            >
+              <span>{tab.label}</span>
+              <span className="applicant-tab-count">{count}</span>
+            </button>
+          )
+        })}
+      </nav>
 
       <section className="applicant-queue-filters" aria-label="Applicant filters">
         <label>
@@ -355,10 +495,10 @@ export default function ApplicantQueue() {
         </label>
 
         <label>
-          <span>Status</span>
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ApplicantStatus | 'all')}>
-            {statuses.map((status) => (
-              <option key={status} value={status}>{status === 'all' ? 'All statuses' : status}</option>
+          <span>Category Tab</span>
+          <select value={activeTab} onChange={(event) => handleTabChange(event.target.value as QueueTabKey)}>
+            {QUEUE_TABS.map((tab) => (
+              <option key={tab.key} value={tab.key}>{tab.label} ({tabCounts[tab.key]})</option>
             ))}
           </select>
         </label>
@@ -404,15 +544,18 @@ export default function ApplicantQueue() {
               ) : visibleApplicants.length === 0 ? (
                 <tr>
                   <td colSpan={7}>
-                    <p className="applicant-queue-empty">No applicants found.</p>
+                    <p className="applicant-queue-empty">
+                      No applicants found in {activeTabConfig?.label || activeTab}.
+                    </p>
                   </td>
                 </tr>
               ) : visibleApplicants.map((applicant) => {
                 const applicantName = getApplicantName(applicant)
                 const isSelected = selected?._id === applicant._id
+                const wasJustUpdated = justUpdatedIds.has(applicant._id)
 
                 return (
-                  <tr key={applicant._id} className={isSelected ? 'is-selected' : undefined}>
+                  <tr key={applicant._id} className={`${isSelected ? 'is-selected' : ''} ${wasJustUpdated ? 'applicant-row--updated' : ''}`}>
                     <td>
                       <div className="applicant-person-cell">
                         <span className="applicant-avatar" aria-hidden="true">{getInitials(applicantName)}</span>
@@ -501,7 +644,7 @@ export default function ApplicantQueue() {
               <Detail label="Email" value={selected.email} />
               <Detail label="Phone" value={selected.phoneNumber} />
               <Detail label="Applicant Type" value={selected.applicantType} />
-              <Detail label="Course" value={getCourseLabel(selected)} />
+              <Detail label="Program" value={getCourseLabel(selected)} />
               <Detail label="Requested Year" value={`Year ${selected.requestedYearLevel}`} />
               <Detail label="School Year" value={selected.schoolYear || 'N/A'} />
               <Detail label="Address" value={selected.currentAddress} />
@@ -547,6 +690,7 @@ export default function ApplicantQueue() {
           </>
         )}
       </section>
+
       {menuMounted && menuPosition && (
         <>
           {createPortal(
@@ -572,9 +716,28 @@ export default function ApplicantQueue() {
                 type="button"
                 role="menuitem"
                 onClick={() => {
+                  void handleQuickStatusChange(openMenuId, 'For Evaluation')
+                }}
+              >
+                Mark For Evaluation
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  void handleQuickStatusChange(openMenuId, 'Approved for Enrollment')
+                }}
+              >
+                Approve for Enrollment
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
                   setSelectedId(openMenuId)
                   setNextStatus('Incomplete Requirements')
                   closeMenu()
+                  handleSelectForReview(openMenuId)
                 }}
               >
                 Request Info
@@ -586,6 +749,7 @@ export default function ApplicantQueue() {
                   setSelectedId(openMenuId)
                   setNextStatus('Rejected')
                   closeMenu()
+                  handleSelectForReview(openMenuId)
                 }}
               >
                 Prepare Reject
@@ -595,6 +759,7 @@ export default function ApplicantQueue() {
           )}
         </>
       )}
+
       {toasts.length > 0 && createPortal(
         <div className="applicant-toast-stack" role="status" aria-live="polite">
           {toasts.map((t) => (

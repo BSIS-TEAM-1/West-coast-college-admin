@@ -138,6 +138,98 @@
   line-height: 1;
 }
 
+/* Interactive Stat Cards */
+.applicant-stat-card {
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  user-select: none;
+}
+
+.applicant-stat-card:hover {
+  border-color: var(--applicant-primary);
+  background: var(--applicant-surface-soft);
+}
+
+.applicant-stat-card.is-active {
+  border-color: var(--applicant-primary);
+  border-top: 3px solid var(--applicant-primary);
+  background: var(--applicant-surface-soft);
+}
+
+/* Category Tab Navigation (Evals, Rejected, Approved, etc.) */
+.applicant-queue-tabs {
+  display: flex;
+  gap: 0.35rem;
+  border-bottom: 2px solid var(--applicant-border);
+  margin: 0.25rem 0 0.15rem;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.applicant-queue-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+  background: transparent !important;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--applicant-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  margin-bottom: -2px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.applicant-queue-tab:hover {
+  color: var(--applicant-primary);
+  border-bottom-color: var(--applicant-primary-subtle) !important;
+}
+
+.applicant-queue-tab.is-active {
+  color: var(--applicant-primary);
+  border-bottom-color: var(--applicant-primary) !important;
+  font-weight: 800;
+}
+
+.applicant-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.35rem;
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  background: var(--applicant-surface-soft);
+  border: 1px solid var(--applicant-border);
+  color: var(--applicant-muted);
+}
+
+.applicant-queue-tab.is-active .applicant-tab-count {
+  background: var(--applicant-primary);
+  border-color: var(--applicant-primary);
+  color: var(--applicant-on-primary);
+}
+
+.applicant-row--updated {
+  animation: applicantRowPulse 2s ease-out;
+}
+
+@keyframes applicantRowPulse {
+  0% {
+    background-color: color-mix(in srgb, var(--applicant-primary) 18%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
 .applicant-queue-filters {
   display: grid;
   grid-template-columns: minmax(260px, 1.6fr) minmax(180px, 0.9fr) minmax(220px, 1fr) auto;

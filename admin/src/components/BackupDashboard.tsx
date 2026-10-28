@@ -1,5 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, BarChart3, CheckCircle2, Cloud, Database, Download, HardDrive, Lock, MoreVertical, Play, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2 } from 'lucide-react'
+import {
+  AlertTriangle,
+  BarChart3,
+  Calendar,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Cloud,
+  Database,
+  Download,
+  HardDrive,
+  Lock,
+  MoreVertical,
+  Play,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  ShieldCheck,
+  Trash2,
+  X
+} from 'lucide-react'
 import { API_URL, getStoredToken } from '../lib/authApi'
 import './BackupDashboard.css'
 
@@ -22,7 +44,26 @@ type BackupHealth = {
   nextScheduledBackup: string | null; activeOperation: { type: string } | null;
   storage: { total: number | null; used: number | null; free: number | null; usedPercentage: number | null; provider: string; warningLevel: string | null };
   health: { score: number; label: string; ageHours: number | null };
-  disasterRecovery: { score: number; label: string; rpoHours: number; rtoMinutes: number; lastVerifiedRestore: string | null; encryptionEnabled: boolean; storageRedundancy: string; categories?: ReadinessCategory[] }
+  disasterRecovery: { score: number; label: string; rpoHours: number; rtoMinutes: number; lastVerifiedRestore: string | null; encryptionEnabled: boolean; storageRedundancy: string; categories?: ReadinessCategory[] };
+  scheduleTime?: string;
+}
+
+const PRESET_SCHEDULES = [
+  { timeLabel: '12:00 AM', hour: '12', minute: '00', ampm: 'AM' as const, sublabel: 'Midnight maintenance window' },
+  { timeLabel: '02:00 AM', hour: '2', minute: '00', ampm: 'AM' as const, sublabel: 'Optimal off-peak window', badge: 'Recommended' },
+  { timeLabel: '04:00 AM', hour: '4', minute: '00', ampm: 'AM' as const, sublabel: 'Early dawn snapshot' },
+  { timeLabel: '06:00 AM', hour: '6', minute: '00', ampm: 'AM' as const, sublabel: 'Pre-office standard' },
+]
+
+function parse24HourTime(timeStr?: string) {
+  if (!timeStr || !timeStr.includes(':')) return { hour: '6', minute: '00', ampm: 'AM' as const }
+  const [hStr, mStr] = timeStr.split(':')
+  const h = Number.parseInt(hStr, 10)
+  if (Number.isNaN(h)) return { hour: '6', minute: '00', ampm: 'AM' as const }
+  const ampm = (h >= 12 ? 'PM' : 'AM') as 'AM' | 'PM'
+  const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+  const minute = (mStr || '00').padStart(2, '0')
+  return { hour: String(hour12), minute, ampm }
 }
 
 type Preview = { backup: BackupRecord; compatibility: { compatible: boolean; requiresConfirmation: boolean; warnings: string[]; current: Record<string, string>; backup: Record<string, string> } }
@@ -50,6 +91,11 @@ export default function BackupDashboard({ refreshKey = 0 }: { refreshKey?: numbe
   const [recoveryBusy, setRecoveryBusy] = useState<string | null>(null)
   const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null)
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+  const [showScheduleSettings, setShowScheduleSettings] = useState(false)
+  const [scheduleHour, setScheduleHour] = useState('6')
+  const [scheduleMinute, setScheduleMinute] = useState('00')
+  const [scheduleAmPm, setScheduleAmPm] = useState('AM')
+  const [scheduleSaving, setScheduleSaving] = useState(false)
   const wasRunningRef = useRef(false)
 
   const request = async (route: string, init: RequestInit = {}) => {
@@ -343,8 +389,110 @@ export default function BackupDashboard({ refreshKey = 0 }: { refreshKey?: numbe
     finally { setRecoveryBusy(null) }
   }
 
+  const openScheduleModal = () => {
+    if (health?.scheduleTime) {
+      const parsed = parse24HourTime(health.scheduleTime)
+      setScheduleHour(parsed.hour)
+      setScheduleMinute(parsed.minute)
+      setScheduleAmPm(parsed.ampm)
+    }
+    setShowScheduleSettings(true)
+  }
+
+  const incrementHour = () => {
+    const current = Number.parseInt(scheduleHour, 10) || 12
+    const next = current === 12 ? 1 : current + 1
+    setScheduleHour(String(next))
+  }
+
+  const decrementHour = () => {
+    const current = Number.parseInt(scheduleHour, 10) || 12
+    const prev = current === 1 ? 12 : current - 1
+    setScheduleHour(String(prev))
+  }
+
+  const MINUTE_STEPS = ['00', '15', '30', '45']
+
+  const incrementMinute = () => {
+    const idx = MINUTE_STEPS.indexOf(scheduleMinute)
+    if (idx === -1) {
+      setScheduleMinute('00')
+    } else {
+      setScheduleMinute(MINUTE_STEPS[(idx + 1) % MINUTE_STEPS.length])
+    }
+  }
+
+  const decrementMinute = () => {
+    const idx = MINUTE_STEPS.indexOf(scheduleMinute)
+    if (idx === -1) {
+      setScheduleMinute('00')
+    } else {
+      setScheduleMinute(MINUTE_STEPS[(idx - 1 + MINUTE_STEPS.length) % MINUTE_STEPS.length])
+    }
+  }
+
+  const nextRunPreview = useMemo(() => {
+    let hour24 = Number.parseInt(scheduleHour, 10) || 6
+    if (scheduleAmPm === 'PM' && hour24 !== 12) {
+      hour24 += 12
+    } else if (scheduleAmPm === 'AM' && hour24 === 12) {
+      hour24 = 0
+    }
+    const minuteNum = Number.parseInt(scheduleMinute, 10) || 0
+
+    const now = new Date()
+    const target = new Date(now)
+    target.setHours(hour24, minuteNum, 0, 0)
+    if (target <= now) {
+      target.setDate(target.getDate() + 1)
+    }
+
+    const isToday = target.getDate() === now.getDate()
+    const dayLabel = isToday ? 'Today' : 'Tomorrow'
+    const formattedTime = `${scheduleHour.padStart(2, '0')}:${scheduleMinute} ${scheduleAmPm}`
+
+    const diffMs = target.getTime() - now.getTime()
+    const diffMinutes = Math.max(1, Math.round(diffMs / (1000 * 60)))
+    const diffHours = Math.floor(diffMinutes / 60)
+    const remMins = diffMinutes % 60
+    const countdown = diffHours > 0 ? `Runs in ${diffHours}h ${remMins}m` : `Runs in ${remMins}m`
+
+    let tz = 'Local Time'
+    try {
+      tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Manila'
+    } catch {
+      tz = 'UTC+8'
+    }
+
+    return {
+      timeString: `${dayLabel} at ${formattedTime}`,
+      countdown,
+      timezone: tz,
+    }
+  }, [scheduleHour, scheduleMinute, scheduleAmPm])
+
+  const saveSchedule = async () => {
+    try {
+      setScheduleSaving(true); setError(null)
+      // Convert 12-hour format to 24-hour format
+      let hour24 = Number.parseInt(scheduleHour, 10)
+      if (scheduleAmPm === 'PM' && hour24 !== 12) {
+        hour24 += 12
+      } else if (scheduleAmPm === 'AM' && hour24 === 12) {
+        hour24 = 0
+      }
+      const time24 = `${String(hour24).padStart(2, '0')}:${scheduleMinute}`
+      await request('/api/admin/backup/schedule', { method: 'PATCH', body: JSON.stringify({ scheduleTime: time24 }) })
+      const displayTime = `${scheduleHour.padStart(2, '0')}:${scheduleMinute} ${scheduleAmPm}`
+      setRecoveryNotice(`Backup schedule successfully updated to ${displayTime} daily.`)
+      setShowScheduleSettings(false)
+      await loadBackups(true)
+    } catch (scheduleError) { setError(scheduleError instanceof Error ? scheduleError.message : 'Failed to update schedule') }
+    finally { setScheduleSaving(false) }
+  }
+
   return <section className="backup-dashboard" aria-labelledby="backup-history-title">
-    <header className="backup-dashboard__header"><div><span className="system-health-eyebrow">Disaster Recovery</span><h2 id="backup-history-title">Backup Health & History</h2><p>Verified restore points, readiness monitoring, and administrative controls.</p></div><button type="button" className="backup-dashboard__refresh" onClick={() => void loadBackups()} disabled={loading}><RefreshCw size={16} className={loading ? 'spin' : ''} /> Refresh</button></header>
+    <header className="backup-dashboard__header"><div><span className="system-health-eyebrow">Disaster Recovery</span><h2 id="backup-history-title">Backup Health & History</h2><p>Verified restore points, readiness monitoring, and administrative controls.</p></div><div className="backup-dashboard__header-actions"><button type="button" className="backup-dashboard__schedule-button" onClick={openScheduleModal} title="Configure daily backup schedule"><Clock size={16} /> Backup Schedule</button><button type="button" className="backup-dashboard__refresh" onClick={() => void loadBackups()} disabled={loading}><RefreshCw size={16} className={loading ? 'spin' : ''} /> Refresh</button></div></header>
 
     {health && <div className="backup-health-grid">
       <article className={`backup-health-card backup-health-card--${health.health.label.toLowerCase()}`}><span>Overall Health</span><strong>{health.health.label}</strong><small>{health.health.score}/100</small></article>
@@ -395,5 +543,7 @@ export default function BackupDashboard({ refreshKey = 0 }: { refreshKey?: numbe
     {preview && <div className="backup-detail-overlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPreview(null) }}><section className="backup-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="backup-detail-title"><header><div><span className="system-health-eyebrow">Restore Preview</span><h3 id="backup-detail-title">{preview.backup.fileName}</h3></div><button onClick={() => setPreview(null)} aria-label="Close backup details">x</button></header>{preview.compatibility.warnings.length > 0 && <div className="backup-compatibility-warning"><strong>Compatibility warning</strong>{preview.compatibility.warnings.map(warning => <span key={warning}>{warning}</span>)}</div>}<dl className="backup-detail-grid"><div><dt>Created</dt><dd>{formatDate(preview.backup.createdAt)}</dd></div><div><dt>Created by</dt><dd>{preview.backup.triggeredBy || 'System'}</dd></div><div><dt>Documents</dt><dd>{preview.backup.documentCount ?? 0}</dd></div><div><dt>Backup size</dt><dd>{formatBytes(preview.backup.compressedSize || preview.backup.size)}</dd></div><div><dt>Verification</dt><dd title={preview.backup.verificationDetail}>{verificationText(preview.backup.verificationStatus)}</dd></div><div><dt>Checksum</dt><dd className="backup-checksum">{preview.backup.checksum || 'Unavailable'}</dd></div><div><dt>Application</dt><dd>{preview.backup.appVersion || 'unknown'}</dd></div><div><dt>Schema / format</dt><dd>{preview.backup.schemaVersion || 'unknown'} / {preview.backup.backupFormatVersion || 'unknown'}</dd></div><div><dt>Encryption</dt><dd>{preview.backup.isEncrypted ? 'AES-256-GCM' : 'Not encrypted'}</dd></div><div><dt>Storage</dt><dd>{preview.backup.storageLocation === 'remote' ? 'Another server' : 'This server'}</dd></div></dl><div className="backup-detail-collections"><strong>Collections ({preview.backup.collections?.length || 0})</strong><div>{preview.backup.collections?.map(item => <span key={item.name}>{item.name}: {item.count}</span>)}</div></div><footer><button onClick={() => setPreview(null)}>Cancel</button><button className="backup-restore-confirm" disabled={!preview.compatibility.compatible || !preview.backup.restorable} onClick={() => void confirmRestore()}><RotateCcw size={16} /> {preview.compatibility.requiresConfirmation ? 'Confirm compatibility and restore' : 'Confirm restore'}</button></footer></section></div>}
     {showReadinessDetails && health && <div className="backup-detail-overlay" onMouseDown={event => { if (event.target === event.currentTarget) setShowReadinessDetails(false) }}><section className="backup-detail-dialog recovery-center" role="dialog" aria-modal="true" aria-labelledby="readiness-detail-title"><header><div><span className="system-health-eyebrow">Disaster Preparedness</span><h3 id="readiness-detail-title">Recovery Center</h3><p>{readinessIssues.length} issue{readinessIssues.length === 1 ? '' : 's'} affecting recoverability</p></div><button onClick={() => setShowReadinessDetails(false)} aria-label="Close Recovery Center">x</button></header><div className="readiness-summary"><strong className={`readiness-score readiness-score--${health.disasterRecovery.label.toLowerCase()}`}>{health.disasterRecovery.score}/100 - {health.disasterRecovery.label}</strong><span>RPO: {health.disasterRecovery.rpoHours}h</span><span>RTO: {health.disasterRecovery.rtoMinutes}min</span></div>{health.disasterRecovery.categories && <div className="readiness-breakdown">{health.disasterRecovery.categories.map(cat => <div key={cat.id} className={`readiness-breakdown-item readiness-breakdown-item--${cat.status}`}><span>{cat.label}</span><strong>{cat.score}/{cat.maxScore}</strong></div>)}</div>}{recoveryNotice && <div className="recovery-notice" role="status"><CheckCircle2 size={16} />{recoveryNotice}</div>}<div className="recovery-layout"><main><h4>Issues reducing score</h4><div className="readiness-issues">{readinessIssues.length === 0 ? <div className="readiness-empty"><ShieldCheck size={24} /><strong>No readiness issues detected</strong><span>Backups, verification, restore testing, and storage are within their configured targets.</span></div> : readinessIssues.map((issue, index) => <article className={`readiness-issue readiness-issue--${issue.severity}`} key={issue.id}><div className="recovery-issue-heading"><span className="recovery-issue-number">{index + 1}</span><div><strong>{issue.title}</strong><span>{issue.value}</span></div><span className={`recovery-severity recovery-severity--${issue.severity}`}>{issue.severity}</span></div><dl><div><dt>Why</dt><dd>{issue.why}</dd></div><div><dt>Impact</dt><dd>{issue.impact}</dd></div><div><dt>Recommendation</dt><dd>{issue.recommendation}</dd></div></dl><div className="recovery-actions">{issue.action && <button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction(issue.action!)}>{recoveryBusy === issue.action ? <><RefreshCw size={14} className="spin" /> Running…</> : issue.actionLabel || issue.action}</button>}{issue.id === 'failed' && <><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('delete-failed')}><Trash2 size={14} /> Delete Failed</button><button onClick={() => void runRecoveryAction('export')}><Download size={14} /> Export Logs</button></>}{issue.id === 'redundancy' && <button onClick={() => setRecoveryNotice('Set BACKUP_STORAGE_PROVIDER and BACKUP_STORAGE_REDUNDANCY in the server configuration, then restart the service and test replication.')}><Cloud size={14} /> Setup Guide</button>}{issue.id === 'encryption' && <button onClick={() => setRecoveryNotice('Provide a valid 32-byte BACKUP_ENCRYPTION_KEY, enable BACKUP_ENCRYPTION, then restart the server.')}><Lock size={14} /> Setup Guide</button>}</div></article>)}</div></main><aside><h4>Quick actions</h4><div className="recovery-quick-actions"><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('create')}><Database size={16} /><span>Create Backup<small>New recovery point</small></span></button><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('restore')}><Play size={16} /><span>Run Restore Test<small>Isolated validation</small></span></button><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('verify')}><ShieldCheck size={16} /><span>Verify Backups<small>Check integrity</small></span></button><button disabled={!!recoveryBusy} onClick={() => void runRecoveryAction('cleanup')}><HardDrive size={16} /><span>Clean Storage<small>Apply retention policy</small></span></button><button onClick={() => void runRecoveryAction('failed')}><AlertTriangle size={16} /><span>Failed Backups<small>Review error details</small></span></button></div><h4>Recovery timeline</h4><div className="recovery-timeline"><div className="done"><span /><p><strong>Latest backup</strong><small>{formatDate(health.lastSuccessfulBackup)}</small></p></div><div className={health.lastVerifiedBackup ? 'done' : 'warning'}><span /><p><strong>Integrity verification</strong><small>{formatDate(health.lastVerifiedBackup)}</small></p></div><div className={health.disasterRecovery.lastVerifiedRestore ? 'done' : 'warning'}><span /><p><strong>Restore test</strong><small>{formatDate(health.disasterRecovery.lastVerifiedRestore)}</small></p></div><div><span /><p><strong>Next scheduled backup</strong><small>{formatDate(health.nextScheduledBackup)}</small></p></div></div></aside></div></section></div>}
     {comparison && <div className="backup-detail-overlay" onMouseDown={event => { if (event.target === event.currentTarget) setComparison(null) }}><section className="backup-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="backup-compare-title"><header><div><span className="system-health-eyebrow">Backup Analytics</span><h3 id="backup-compare-title">Backup Comparison</h3></div><button onClick={() => setComparison(null)} aria-label="Close comparison">x</button></header><div className="backup-comparison-summary"><span>Documents: {comparison.totals.documentDifference > 0 ? '+' : ''}{comparison.totals.documentDifference}</span><span>Size: {formatBytes(Math.abs(comparison.totals.sizeDifference))} {comparison.totals.sizeDifference >= 0 ? 'larger' : 'smaller'}</span><span>Duration: {formatDuration(Math.abs(comparison.totals.durationDifferenceMs))} difference</span></div><div className="backup-comparison-list">{comparison.differences.map(item => <div className={item.difference ? 'changed' : ''} key={item.collection}><strong>{item.collection}</strong><span>{item.firstCount}</span><span>{item.secondCount}</span><span>{item.difference > 0 ? '+' : ''}{item.difference}</span></div>)}</div></section></div>}
+
+    {showScheduleSettings && <div className="backup-detail-overlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setShowScheduleSettings(false) }}><section className="backup-detail-dialog backup-schedule-dialog" role="dialog" aria-modal="true" aria-labelledby="schedule-settings-title"><header className="backup-schedule-header"><div className="backup-schedule-header-left"><div className="backup-schedule-icon-badge"><Clock size={22} className="backup-schedule-icon" /></div><div><div className="backup-schedule-eyebrow-wrap"><span className="system-health-eyebrow">Automated Backup Service</span></div><h3 id="schedule-settings-title">Backup Schedule</h3><p className="backup-schedule-subtitle">Configure the execution time for automated database archives.</p></div></div><button type="button" className="backup-schedule-close" onClick={() => setShowScheduleSettings(false)} aria-label="Close schedule settings"><X size={18} /></button></header><div className="backup-schedule-body"><div className="backup-schedule-hero"><div className="backup-schedule-hero-time"><strong>{nextRunPreview.countdown}</strong></div><div className="backup-schedule-hero-meta"><span><Calendar size={13} /> Next run: {nextRunPreview.timeString}</span><span><Clock size={13} /> Timezone: {nextRunPreview.timezone}</span></div></div><div className="backup-schedule-clock-section"><div className="backup-schedule-section-label"><span>Execution Time</span><small>Use steppers or click interval</small></div><div className="backup-schedule-clock-cluster"><div className="schedule-digit-box"><button type="button" className="schedule-digit-btn" onClick={incrementHour} aria-label="Increase hour" title="Increase hour"><ChevronUp size={18} /></button><div className="schedule-digit-value" tabIndex={0} role="spinbutton" aria-valuenow={Number(scheduleHour)} aria-valuemin={1} aria-valuemax={12} aria-label="Hour" onKeyDown={e => { if (e.key === 'ArrowUp') { e.preventDefault(); incrementHour(); } else if (e.key === 'ArrowDown') { e.preventDefault(); decrementHour(); } }}>{scheduleHour.padStart(2, '0')}</div><button type="button" className="schedule-digit-btn" onClick={decrementHour} aria-label="Decrease hour" title="Decrease hour"><ChevronDown size={18} /></button><span className="schedule-digit-label">Hour (1-12)</span></div><div className="schedule-colon-separator" aria-hidden="true">:</div><div className="schedule-digit-box"><button type="button" className="schedule-digit-btn" onClick={incrementMinute} aria-label="Increase minute" title="Increase minute"><ChevronUp size={18} /></button><div className="schedule-digit-value" tabIndex={0} role="spinbutton" aria-valuenow={Number(scheduleMinute)} aria-label="Minute" onKeyDown={e => { if (e.key === 'ArrowUp') { e.preventDefault(); incrementMinute(); } else if (e.key === 'ArrowDown') { e.preventDefault(); decrementMinute(); } }}>{scheduleMinute}</div><button type="button" className="schedule-digit-btn" onClick={decrementMinute} aria-label="Decrease minute" title="Decrease minute"><ChevronDown size={18} /></button><span className="schedule-digit-label">Minute</span></div><div className="schedule-ampm-wrapper"><select value={scheduleAmPm} onChange={e => setScheduleAmPm(e.target.value)} aria-label="Meridiem" className="schedule-ampm-select"><option value="AM">AM</option><option value="PM">PM</option></select><span className="schedule-digit-label">Meridiem</span></div></div><div className="schedule-minute-presets"><span className="schedule-minute-presets-label">Minutes:</span>{MINUTE_STEPS.map(m => <button key={m} type="button" className={`schedule-minute-chip ${scheduleMinute === m ? 'active' : ''}`} onClick={() => setScheduleMinute(m)}>:{m}</button>)}</div></div><div className="schedule-presets-section"><div className="backup-schedule-section-label"><span>Recommended Off-Peak Windows</span><small>Low-traffic periods</small></div><div className="schedule-presets-grid">{PRESET_SCHEDULES.map(preset => { const isSelected = scheduleHour === preset.hour && scheduleMinute === preset.minute && scheduleAmPm === preset.ampm; return <button key={preset.timeLabel} type="button" className={`schedule-preset-card ${isSelected ? 'active' : ''}`} onClick={() => { setScheduleHour(preset.hour); setScheduleMinute(preset.minute); setScheduleAmPm(preset.ampm); }}><div className="schedule-preset-header"><span className="schedule-preset-time">{preset.timeLabel}</span>{preset.badge && <span className="schedule-preset-badge">{preset.badge}</span>}</div><span className="schedule-preset-desc">{preset.sublabel}</span></button>; })}</div></div></div><footer className="backup-schedule-footer"><button type="button" className="backup-schedule-btn-secondary" onClick={() => setShowScheduleSettings(false)} disabled={scheduleSaving}>Cancel</button><button type="button" className="backup-schedule-btn-primary" onClick={() => void saveSchedule()} disabled={scheduleSaving}>{scheduleSaving ? <><RefreshCw size={15} className="spin" /><span>Saving...</span></> : <><Check size={16} /><span>Save Schedule</span></>}</button></footer></section></div>}
   </section>
 }

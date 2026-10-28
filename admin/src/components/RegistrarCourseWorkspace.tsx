@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, PencilLine } from 'lucide-react'
 import { API_URL, getStoredToken } from '../lib/authApi'
 import { formatBlockLabel } from '../lib/blockAssignmentShared'
+import { formatScheduleDisplay, timeTo24h, parseClockMinutesFlexible } from '../lib/scheduleFormatter'
+import TeachingHoursWarningModal from './TeachingHoursWarningModal'
+import InstructorOverrideModal from './InstructorOverrideModal'
 import './ProfessorLoad.css'
 import './RegistrarCourseWorkspace.css'
 
@@ -9,7 +12,7 @@ type Semester = '1st' | '2nd' | 'Summer'
 
 type BlockGroup = { _id: string; name: string; semester: Semester; year?: number | string; schoolYear?: string; curriculumId?: string; yearLevel?: number; courseId?: number; courseCode?: string }
 type BlockSection = { _id: string; sectionCode: string; capacity: number; currentPopulation: number }
-type SubjectItem = { _id: string; code: string; title: string }
+type SubjectItem = { _id: string; code: string; title: string; units?: number; lecturePeriods?: number; labPeriods?: number }
 
 type SectionSubjectAssignment = {
   subjectId: string
@@ -66,6 +69,52 @@ type LoadsPayload = {
   professors?: ProfessorCourseLoad[]
 }
 
+type DayScheduleFields = {
+  startTime: string
+  startAmPm: 'AM' | 'PM'
+  endTime: string
+  endAmPm: 'AM' | 'PM'
+  room: string
+}
+
+const DEFAULT_DAY_SCHEDULE: DayScheduleFields = {
+  startTime: '1:00',
+  startAmPm: 'AM',
+  endTime: '1:00',
+  endAmPm: 'AM',
+  room: ''
+}
+
+// Accepts "8", "8:00", "08:00", "12:30", and compact "800"/"130"/"1230" input,
+// always returning a normalized "H:MM" with a visible colon.
+const normalizeTimeText = (value: string): string | null => {
+  const text = String(value ?? '').trim()
+  if (!text) return null
+
+  const buildTime = (hour: number, minute: number) => {
+    if (!Number.isInteger(hour) || hour < 1 || hour > 12) return null
+    if (!Number.isInteger(minute) || minute < 0 || minute > 59) return null
+    return `${hour}:${String(minute).padStart(2, '0')}`
+  }
+
+  const colonMatch = text.match(/^(\d{1,2}):(\d{1,2})$/)
+  if (colonMatch) return buildTime(Number(colonMatch[1]), Number(colonMatch[2]))
+
+  if (/^\d{1,2}$/.test(text)) return buildTime(Number(text), 0)
+  if (/^\d{3}$/.test(text)) return buildTime(Number(text.slice(0, 1)), Number(text.slice(1)))
+  if (/^\d{4}$/.test(text)) return buildTime(Number(text.slice(0, 2)), Number(text.slice(2)))
+
+  return null
+}
+
+const splitTimeParts = (value: string) => {
+  const [rawHour = '', rawMinute = ''] = String(value ?? '').split(':')
+  return {
+    hour: rawHour.replace(/\D/g, '').slice(0, 2),
+    minute: rawMinute.replace(/\D/g, '').slice(0, 2)
+  }
+}
+
 type Props = {
   selection: { professorId: string } | null
   onBack: () => void
@@ -80,7 +129,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   const [subjects, setSubjects] = useState<SubjectItem[]>([])
   const [selectedSubjectId, setSelectedSubjectId] = useState('')
   const [subjectDaySelections, setSubjectDaySelections] = useState<string[]>([])
-  const [subjectDaySchedules, setSubjectDaySchedules] = useState<Record<string, { start: string; end: string; room: string }>>({})
+  const [subjectDaySchedules, setSubjectDaySchedules] = useState<Record<string, DayScheduleFields>>({})
   const [professorLoads, setProfessorLoads] = useState<ProfessorCourseLoad[]>([])
   const [selectedProfessorId, setSelectedProfessorId] = useState('')
   const [courseLoadLoading, setCourseLoadLoading] = useState(false)
@@ -91,6 +140,9 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [viewingSubjectsProfessorId, setViewingSubjectsProfessorId] = useState('')
+  const [teachingHoursWarning, setTeachingHoursWarning] = useState<any>(null)
+  const [pendingAssignmentPayload, setPendingAssignmentPayload] = useState<any>(null)
+  const [instructorOverrideWarning, setInstructorOverrideWarning] = useState<any>(null)
 
   const dayOptions = ['M', 'T', 'W', 'TH', 'F', 'S', 'SU']
 
@@ -103,9 +155,40 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     })
     const data = await response.json().catch(() => ({}))
     if (!response.ok) {
-      throw new Error((data?.error as string) || (data?.message as string) || `Request failed (${response.status})`)
+      const baseMessage = (data?.error as string) || (data?.message as string) || `Request failed (${response.status})`
+      const detailText = Array.isArray(data?.details) && data.details.length
+        ? ` (${data.details.map((detail: unknown) => String(detail)).join('; ')})`
+        : ''
+      const apiError = new Error(`${baseMessage}${detailText}`) as Error & {
+        status?: number
+        warning?: string
+        data?: Record<string, unknown>
+      }
+      apiError.status = response.status
+      if (data?.warning) apiError.warning = data.warning
+      if (data?.data) apiError.data = data.data
+      throw apiError
     }
     return data
+  }
+
+  // Warnings arrive as 409 responses. Show them as confirmation popups instead
+  // of red error text, and keep the payload so the user can still proceed.
+  const handleAssignmentWarning = (err: unknown, payload: Record<string, unknown>) => {
+    const apiError = err as Error & { warning?: string; data?: Record<string, unknown> }
+    if (apiError?.warning === 'instructor_override_required' && apiError.data) {
+      setTeachingHoursWarning(null)
+      setInstructorOverrideWarning(apiError.data)
+      setPendingAssignmentPayload(payload)
+      return true
+    }
+    if (apiError?.warning === 'teaching_hours_exceeded' && apiError.data) {
+      setInstructorOverrideWarning(null)
+      setTeachingHoursWarning(apiError.data)
+      setPendingAssignmentPayload(payload)
+      return true
+    }
+    return false
   }
 
   const triggerRefreshSignal = () => {
@@ -139,19 +222,107 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     setSubjectDaySchedules({})
   }
 
+  const convertTo24Hour = (hour: string, minute: string, ampm: string) => {
+    let h = Number.parseInt(hour, 10)
+    if (ampm === 'PM' && h !== 12) h += 12
+    if (ampm === 'AM' && h === 12) h = 0
+    return `${String(h).padStart(2, '0')}:${minute}`
+  }
+
+  const to24Hour = (timeText: string, ampm: string) => {
+    const normalized = normalizeTimeText(timeText)
+    if (!normalized) return null
+    const [hour, minute] = normalized.split(':')
+    return convertTo24Hour(hour, minute, ampm)
+  }
+
+  const updateDayTimePart = (
+    dayCode: string,
+    field: 'startTime' | 'endTime',
+    part: 'hour' | 'minute',
+    rawValue: string,
+    sourceInput?: HTMLInputElement
+  ) => {
+    const digits = rawValue.replace(/\D/g, '').slice(0, 2)
+    setSubjectDaySchedules((curr) => {
+      const current = curr[dayCode] || DEFAULT_DAY_SCHEDULE
+      const parts = splitTimeParts(current[field])
+      return {
+        ...curr,
+        [dayCode]: {
+          ...current,
+          [field]: `${part === 'hour' ? digits : parts.hour}:${part === 'minute' ? digits : parts.minute}`
+        }
+      }
+    })
+
+    if (part === 'hour' && sourceInput) {
+      // Let a user type a time continuously (for example 0730) without tabbing
+      // between the hour and minute fields.
+      const shouldAdvance = digits.length === 2 || (digits.length === 1 && Number(digits) >= 2)
+      if (shouldAdvance) {
+        const minuteInput = sourceInput
+          .closest('.time-box-input-group')
+          ?.querySelector<HTMLInputElement>('.time-box-minute')
+        if (minuteInput) {
+          minuteInput.focus()
+          minuteInput.select()
+        }
+      }
+    }
+  }
+
+  const normalizeDayTime = (dayCode: string, field: 'startTime' | 'endTime') => {
+    setSubjectDaySchedules((curr) => {
+      const current = curr[dayCode]
+      if (!current) return curr
+      const parts = splitTimeParts(current[field])
+      if (!parts.hour && !parts.minute) {
+        return { ...curr, [dayCode]: { ...current, [field]: ':' } }
+      }
+      const normalized = normalizeTimeText(`${parts.hour}:${parts.minute || '00'}`)
+      return normalized
+        ? { ...curr, [dayCode]: { ...current, [field]: normalized } }
+        : curr
+    })
+  }
+
   const parseScheduleIntoFields = (schedule: string, room?: string) => {
     const trimmed = String(schedule || '').trim()
     const fallbackRoom = String(room || '').trim() === 'TBA' ? '' : String(room || '').trim()
     if (!trimmed || /^TBA$/i.test(trimmed)) {
-      return { days: [] as string[], daySchedules: {} as Record<string, { start: string; end: string; room: string }> }
+      return { days: [] as string[], daySchedules: {} as Record<string, DayScheduleFields> }
     }
 
     const tokenOrder = ['TH', 'SU', 'M', 'T', 'W', 'F', 'S']
 
+    const parse24To12 = (time24: string) => {
+      const match = time24.match(/^(\d{1,2}):(\d{2})$/)
+      if (!match) return { time: '1:00', ampm: 'AM' as const }
+      let h = Number.parseInt(match[1], 10)
+      const m = match[2]
+      const ampm = h >= 12 ? 'PM' as const : 'AM' as const
+      if (h > 12) h -= 12
+      if (h === 0) h = 12
+      return { time: `${h}:${m}`, ampm }
+    }
+
+    const buildFields = (
+      start: { time: string; ampm: 'AM' | 'PM' },
+      end: { time: string; ampm: 'AM' | 'PM' },
+      roomValue: string
+    ): DayScheduleFields => ({
+      startTime: start.time,
+      startAmPm: start.ampm,
+      endTime: end.time,
+      endAmPm: end.ampm,
+      room: roomValue
+    })
+
     // Per-day format: "M 07:30-09:00 @ Room 205 / W 13:00-14:30 @ Lab 3"
     if (trimmed.includes('/')) {
       const segments = trimmed.split('/').map(s => s.trim()).filter(Boolean)
-      const daySchedules: Record<string, { start: string; end: string; room: string }> = {}
+      const daySchedules: Record<string, DayScheduleFields> = {}
       const days: string[] = []
 
       for (const segment of segments) {
@@ -160,18 +331,18 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
         const segmentBody = roomMatch ? roomMatch[1].trim() : segment
         const segmentRoom = roomMatch ? roomMatch[2].trim() : fallbackRoom
 
-        const match = segmentBody.match(/^([A-Z]+)\s+(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})$/i)
+        const match = segmentBody.match(/^([A-Z]+)\s+(.+?)\s*-\s*(.+)$/i)
         if (!match) continue
         const daysRaw = match[1].toUpperCase()
-        const start = match[2]
-        const end = match[3]
+        const start = parse24To12(timeTo24h(match[2].trim()))
+        const end = parse24To12(timeTo24h(match[3].trim()))
 
         let cursor = daysRaw
         while (cursor.length > 0) {
           const token = tokenOrder.find((value) => cursor.startsWith(value))
           if (!token) break
           days.push(token)
-          daySchedules[token] = { start, end, room: segmentRoom }
+          daySchedules[token] = buildFields(start, end, segmentRoom)
           cursor = cursor.slice(token.length)
         }
       }
@@ -182,11 +353,11 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     // Classic format: "MW 07:30-09:00"
     const separatorIndex = trimmed.indexOf(' ')
     if (separatorIndex < 0) {
-      return { days: [] as string[], daySchedules: {} as Record<string, { start: string; end: string; room: string }> }
+      return { days: [] as string[], daySchedules: {} as Record<string, DayScheduleFields> }
     }
     const daysRaw = trimmed.slice(0, separatorIndex).toUpperCase()
     const timeRaw = trimmed.slice(separatorIndex + 1).trim()
-    const timeMatch = timeRaw.match(/^(\d{2}:\d{2})-(\d{2}:\d{2})$/)
+    const timeMatch = timeRaw.match(/^(.+?)\s*-\s*(.+)$/)
     const days: string[] = []
     let cursor = daysRaw
 
@@ -197,10 +368,10 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
       cursor = cursor.slice(token.length)
     }
 
-    const start = timeMatch?.[1] || ''
-    const end = timeMatch?.[2] || ''
-    const daySchedules: Record<string, { start: string; end: string; room: string }> = {}
-    days.forEach((day) => { daySchedules[day] = { start, end, room: fallbackRoom } })
+    const start = timeMatch ? parse24To12(timeTo24h(timeMatch[1].trim())) : { time: '1:00', ampm: 'AM' as const }
+    const end = timeMatch ? parse24To12(timeTo24h(timeMatch[2].trim())) : { time: '1:00', ampm: 'AM' as const }
+    const daySchedules: Record<string, DayScheduleFields> = {}
+    days.forEach((day) => { daySchedules[day] = buildFields(start, end, fallbackRoom) })
 
     return { days: dayOptions.filter((day) => days.includes(day)), daySchedules }
   }
@@ -280,7 +451,10 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
           .map((cs) => ({
             _id: String(cs.subjectId._id),
             code: String(cs.subjectId.code || ''),
-            title: String(cs.subjectId.title || '')
+            title: String(cs.subjectId.title || ''),
+            units: cs.subjectId.units || cs.units || 0,
+            lecturePeriods: cs.lecturePeriods ?? cs.subjectId.lecturePeriods ?? 0,
+            labPeriods: cs.labPeriods ?? cs.subjectId.labPeriods ?? 0
           }))
       } else {
         // Block group must have a curriculumId to fetch subjects
@@ -365,7 +539,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     && subjectDaySelections.length > 0
     && subjectDaySelections.every((day) => {
       const s = subjectDaySchedules[day]
-      return s && s.start && s.end && s.room.trim()
+      return Boolean(s && normalizeTimeText(s.startTime) && normalizeTimeText(s.endTime) && s.room.trim())
     })
 
   const populateAssignmentEditor = (assignment: Pick<SectionSubjectAssignment, 'subjectId' | 'schedule' | 'room'>) => {
@@ -414,67 +588,201 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     const orderedDays = dayOptions.filter((day) => subjectDaySelections.includes(day))
     if (orderedDays.length === 0) return setError('Please select at least one class day.')
 
-    // Validate each selected day has a time range and room
+    // Validate each selected day has a valid time range and room
     for (const day of orderedDays) {
       const s = subjectDaySchedules[day]
-      if (!s || !s.start || !s.end) {
-        return setError(`Please set a start and end time for ${day}.`)
+      if (!s || !normalizeTimeText(s.startTime) || !normalizeTimeText(s.endTime)) {
+        return setError(`Please enter a valid start and end time for ${day} (for example 1:30).`)
       }
       if (!s.room.trim()) {
         return setError(`Please enter a room for ${day}.`)
       }
     }
 
+    const timeKey = (s: DayScheduleFields) =>
+      `${normalizeTimeText(s.startTime)} ${s.startAmPm}|${normalizeTimeText(s.endTime)} ${s.endAmPm}`
+    const formatClock = (timeText: string, ampm: string) => `${normalizeTimeText(timeText)} ${ampm}`
+
     // Check if all days share the same time AND room
     const ref = subjectDaySchedules[orderedDays[0]]
     const allSame = orderedDays.every((day) => {
       const s = subjectDaySchedules[day]
-      return s && s.start === ref.start && s.end === ref.end && s.room.trim() === ref.room.trim()
+      return s && timeKey(s) === timeKey(ref) && s.room.trim() === ref.room.trim()
     })
 
     let normalizedSchedule: string
     let normalizedRoom: string
-    if (allSame) {
-      // Compact: "MW 07:30-09:00" with room in separate field
-      normalizedSchedule = `${orderedDays.join('')} ${ref.start}-${ref.end}`.trim()
+    if (orderedDays.length === 1) {
+      // Single day: "M 7:30 AM - 9:00 AM" with room in the separate field
+      const formattedStart = formatClock(ref.startTime, ref.startAmPm)
+      const formattedEnd = formatClock(ref.endTime, ref.endAmPm)
+      normalizedSchedule = `${orderedDays.join('')} ${formattedStart} - ${formattedEnd}`.trim()
       normalizedRoom = ref.room.trim()
     } else {
-      // Per-day: "M 07:30-09:00 @ Room 205 / W 13:00-14:30 @ Lab 3"
+      // Multiple days: emit one explicit segment per day. A compact day token
+      // like "MTH" is easy to misread (and rendered as a single entry in some
+      // screens), so every selected day is spelled out here.
       normalizedSchedule = orderedDays.map((day) => {
         const s = subjectDaySchedules[day]
-        return `${day} ${s.start}-${s.end} @ ${s.room.trim()}`
+        const formattedStart = formatClock(s.startTime, s.startAmPm)
+        const formattedEnd = formatClock(s.endTime, s.endAmPm)
+        return `${day} ${formattedStart} - ${formattedEnd} @ ${s.room.trim()}`
       }).join(' / ')
       // Use first day's room as the primary room field for backward compat
       normalizedRoom = ref.room.trim()
+    }
+
+    const payload: Record<string, string> = {
+      subjectId: assignmentTargetId,
+      instructor: selectedProfessor.label,
+      schedule: normalizedSchedule,
+      room: normalizedRoom
+    }
+    if (selectedGroup?.semester) payload.semester = selectedGroup.semester
+
+    // Pre-validate teaching hours before submitting
+    if (selectedSubject) {
+      let totalScheduledHours = 0
+      for (const day of orderedDays) {
+        const s = subjectDaySchedules[day]
+        if (s) {
+          const start24 = to24Hour(s.startTime, s.startAmPm)
+          const end24 = to24Hour(s.endTime, s.endAmPm)
+          const startMins = start24 ? parseClockMinutesFlexible(start24) : null
+          const endMins = end24 ? parseClockMinutesFlexible(end24) : null
+          if (startMins !== null && endMins !== null && endMins > startMins) {
+            totalScheduledHours += (endMins - startMins) / 60
+          }
+        }
+      }
+      totalScheduledHours = Math.round(totalScheduledHours * 10) / 10
+
+      const expectedHours = (selectedSubject.lecturePeriods || 0) > 0 || (selectedSubject.labPeriods || 0) > 0
+        ? ((selectedSubject.lecturePeriods || 0) + (selectedSubject.labPeriods || 0))
+        : (selectedSubject.units || 0)
+
+      if (totalScheduledHours > expectedHours && expectedHours > 0) {
+        setTeachingHoursWarning({
+          subjectId: selectedSubjectId,
+          subjectCode: selectedSubject.code,
+          subjectTitle: selectedSubject.title,
+          professorName: selectedProfessor?.label || '',
+          sectionCode: selectedSection?.sectionCode || '',
+          blockGroupName: selectedGroup?.name || '',
+          units: selectedSubject.units || 0,
+          lecturePeriods: selectedSubject.lecturePeriods || 0,
+          labPeriods: selectedSubject.labPeriods || 0,
+          expectedContactHours: expectedHours,
+          assignedContactHours: totalScheduledHours,
+          discrepancy: Math.round((totalScheduledHours - expectedHours) * 10) / 10,
+          schedule: normalizedSchedule,
+          room: normalizedRoom
+        })
+        setPendingAssignmentPayload(payload)
+        return
+      }
     }
 
     setAssigning(true)
     setError('')
     setSuccess('')
     try {
-      const payload: Record<string, string> = {
-        subjectId: assignmentTargetId,
-        instructor: selectedProfessor.label,
-        schedule: normalizedSchedule,
-        room: normalizedRoom
-      }
-      if (selectedGroup?.semester) payload.semester = selectedGroup.semester
       const isEditing = Boolean(editingAssignmentId)
       const response = await authorizedFetch(`/api/registrar/sections/${selectedSectionId}/subject-assignment`, {
         method: isEditing ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       })
+
       const subjectCode = response?.data?.subjectCode || selectedSubject?.code || 'Subject'
+      const roomPhrase = allSame && normalizedRoom ? ` in ${normalizedRoom}` : ''
       setSuccess(
         isEditing
-          ? `${subjectCode} updated for ${selectedProfessor.label} at ${normalizedSchedule} in ${normalizedRoom}.`
-          : `${subjectCode} assigned to ${selectedProfessor.label} at ${normalizedSchedule} in ${normalizedRoom}.`
+          ? `${subjectCode} updated for ${selectedProfessor.label} at ${normalizedSchedule}${roomPhrase}.`
+          : `${subjectCode} assigned to ${selectedProfessor?.label || 'Professor'} at ${normalizedSchedule}${roomPhrase}.`
       )
       clearAssignmentForm()
       await fetchProfessorCourseLoads()
     } catch (err) {
+      if (handleAssignmentWarning(err, payload)) return
       setError(err instanceof Error ? err.message : 'Failed to assign subject instructor')
+    } finally {
+      setAssigning(false)
+    }
+  }
+
+  const handleProceedWithOverride = async (justification: string) => {
+    if (!pendingAssignmentPayload) return
+
+    const payloadWithOverride = {
+      ...pendingAssignmentPayload,
+      overrideJustification: justification
+    }
+
+    setAssigning(true)
+    setError('')
+    setSuccess('')
+    try {
+      const isEditing = Boolean(editingAssignmentId)
+      // The backend records the override (with the authorizing user, timestamps,
+      // offering, expected/actual hours, and justification) as part of this
+      // request, so no separate audit call is made here.
+      const response = await authorizedFetch(`/api/registrar/sections/${selectedSectionId}/subject-assignment`, {
+        method: isEditing ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payloadWithOverride)
+      })
+
+      const subjectCode = response?.data?.subjectCode || selectedSubject?.code || 'Subject'
+      const hasPerDayRoom = pendingAssignmentPayload.schedule.includes('@')
+      const roomPhrase = !hasPerDayRoom && pendingAssignmentPayload.room ? ` in ${pendingAssignmentPayload.room}` : ''
+      setSuccess(
+        `${subjectCode} assigned to ${selectedProfessor?.label || 'Professor'} at ${pendingAssignmentPayload.schedule}${roomPhrase}. (Override authorized)`
+      )
+      setTeachingHoursWarning(null)
+      setPendingAssignmentPayload(null)
+      clearAssignmentForm()
+      await fetchProfessorCourseLoads()
+    } catch (err) {
+      if (handleAssignmentWarning(err, payloadWithOverride)) return
+      setError(err instanceof Error ? err.message : 'Failed to assign subject instructor with override')
+    } finally {
+      setAssigning(false)
+    }
+  }
+
+  const handleProceedWithInstructorOverride = async () => {
+    if (!pendingAssignmentPayload) return
+
+    const payloadWithOverride = {
+      ...pendingAssignmentPayload,
+      overrideExistingInstructor: true
+    }
+
+    setAssigning(true)
+    setError('')
+    setSuccess('')
+    try {
+      const isEditing = Boolean(editingAssignmentId)
+      const response = await authorizedFetch(`/api/registrar/sections/${selectedSectionId}/subject-assignment`, {
+        method: isEditing ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payloadWithOverride)
+      })
+
+      const subjectCode = response?.data?.subjectCode || selectedSubject?.code || 'Subject'
+      const hasPerDayRoom = pendingAssignmentPayload.schedule.includes('@')
+      const roomPhrase = !hasPerDayRoom && pendingAssignmentPayload.room ? ` in ${pendingAssignmentPayload.room}` : ''
+      setSuccess(
+        `${subjectCode} reassigned from ${instructorOverrideWarning?.existingInstructor} to ${selectedProfessor?.label || 'Professor'} at ${pendingAssignmentPayload.schedule}${roomPhrase}.`
+      )
+      setInstructorOverrideWarning(null)
+      setPendingAssignmentPayload(null)
+      clearAssignmentForm()
+      await fetchProfessorCourseLoads()
+    } catch (err) {
+      if (handleAssignmentWarning(err, payloadWithOverride)) return
+      setError(err instanceof Error ? err.message : 'Failed to reassign subject instructor')
     } finally {
       setAssigning(false)
     }
@@ -524,7 +832,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                   onClick={() => selectProfessorWorkspace(professor.professorId)}
                 >
                   <strong>{professor.label}</strong>
-                  <span>{professor.totals.subjects} subjects / {professor.totals.sections} sections</span>
+                  <span>{professor.totals.subjects} courses / {professor.totals.sections} sections</span>
                 </button>
                 <div className="registrar-professor-workspace-actions">
                   <button
@@ -532,7 +840,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                     className="registrar-btn registrar-btn-secondary registrar-professor-action-btn"
                     onClick={() => setViewingSubjectsProfessorId(viewingSubjectsProfessorId === professor.professorId ? '' : professor.professorId)}
                   >
-                    {viewingSubjectsProfessorId === professor.professorId ? 'Hide Subjects' : 'View Subjects'}
+                    {viewingSubjectsProfessorId === professor.professorId ? 'Hide Courses' : 'View Courses'}
                   </button>
                   <button
                     type="button"
@@ -554,7 +862,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                           <span className="registrar-professor-subject-title">{assignment.subjectTitle}</span>
                           <div className="registrar-professor-subject-details">
                             <span>{assignment.sectionLabel}</span>
-                            <span>{assignment.schedule}</span>
+                            <span>{formatScheduleDisplay(assignment.schedule)}</span>
                             <span>{assignment.room}</span>
                           </div>
                           <button
@@ -577,7 +885,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                         </div>
                       ))
                     ) : (
-                      <p className="registrar-professor-subjects-empty">No subjects assigned yet</p>
+                      <p className="registrar-professor-subjects-empty">No courses assigned yet</p>
                     )}
                   </div>
                 )}
@@ -596,7 +904,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
           </header>
 
           <p className="registrar-course-helper-copy">
-            Choose the block, section, subject, schedule, and room.
+            Choose the block, section, course, schedule, and room.
           </p>
           {editingAssignmentId && (
             <p className="registrar-course-autopick-note">
@@ -623,7 +931,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
               </select>
               {selectedGroupId && !selectedGroup?.curriculumId && (
                 <p className="registrar-course-helper-copy" style={{ color: '#d32f2f', marginTop: '4px' }}>
-                  This block group is not linked to a curriculum. Please link a curriculum first to assign subjects.
+                  This block group is not linked to a curriculum. Please link a curriculum first to assign courses.
                 </p>
               )}
             </label>
@@ -641,12 +949,12 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
             </label>
 
             <label>
-              Subject
+              Course
               <select value={selectedSubjectId} onChange={(e) => setSelectedSubjectId(e.target.value)} disabled={!selectedGroupId || !selectedGroup?.curriculumId}>
-                <option value="">Select subject</option>
+                <option value="">Select course</option>
                 {subjects.map((subject) => (
                   <option key={subject._id} value={subject._id}>
-                    {subject.code} - {subject.title}
+                    {subject.code} - {subject.title} {subject.units ? `(${subject.units} units)` : ''}
                   </option>
                 ))}
               </select>
@@ -680,7 +988,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                         const refSchedule = existingDays.length > 0 ? subjectDaySchedules[existingDays[0]] : null
                         setSubjectDaySchedules((curr) => ({
                           ...curr,
-                          [dayCode]: refSchedule ? { ...refSchedule } : { start: '', end: '', room: '' }
+                          [dayCode]: refSchedule ? { ...refSchedule } : { ...DEFAULT_DAY_SCHEDULE }
                         }))
                         return [...prev, dayCode]
                       })}
@@ -696,33 +1004,109 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
               <div className="registrar-course-per-day-times">
                 <span>Time & Room per Day</span>
                 {dayOptions.filter((day) => subjectDaySelections.includes(day)).map((dayCode) => {
-              const daySchedule = subjectDaySchedules[dayCode] || { start: '', end: '', room: '' }
+              const daySchedule = subjectDaySchedules[dayCode] || DEFAULT_DAY_SCHEDULE
+              const startParts = splitTimeParts(daySchedule.startTime)
+              const endParts = splitTimeParts(daySchedule.endTime)
               return (
                 <div key={dayCode} className="per-day-time-row">
                   <span className="per-day-time-label">{dayCode}</span>
                   <div className="per-day-fields">
                     <div className="time-box-group">
-                      <input
-                        type="time"
-                        className="time-box-input"
-                        value={daySchedule.start}
+                      <div
+                        className="time-box-input-group"
+                        onBlur={(e) => {
+                          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                            normalizeDayTime(dayCode, 'startTime')
+                          }
+                        }}
+                      >
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          className="time-box-input time-box-hour"
+                          value={startParts.hour}
+                          onChange={(e) => updateDayTimePart(dayCode, 'startTime', 'hour', e.target.value, e.currentTarget)}
+                          onFocus={(e) => e.currentTarget.select()}
+                          placeholder="8"
+                          maxLength={2}
+                          aria-label={`${dayCode} start hour`}
+                          disabled={!selectedSectionId || !selectedSubjectId}
+                        />
+                        <span className="time-box-colon" aria-hidden="true">:</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          className="time-box-input time-box-minute"
+                          value={startParts.minute}
+                          onChange={(e) => updateDayTimePart(dayCode, 'startTime', 'minute', e.target.value)}
+                          onFocus={(e) => e.currentTarget.select()}
+                          placeholder="00"
+                          maxLength={2}
+                          aria-label={`${dayCode} start minute`}
+                          disabled={!selectedSectionId || !selectedSubjectId}
+                        />
+                      </div>
+                      <select
+                        className="time-box-select"
+                        value={daySchedule.startAmPm}
                         onChange={(e) => setSubjectDaySchedules((curr) => ({
                           ...curr,
-                          [dayCode]: { ...curr[dayCode], start: e.target.value }
+                          [dayCode]: { ...curr[dayCode], startAmPm: e.target.value as 'AM' | 'PM' }
                         }))}
+                        aria-label={`${dayCode} start AM or PM`}
                         disabled={!selectedSectionId || !selectedSubjectId}
-                      />
+                      >
+                        <option value="AM">AM</option>
+                        <option value="PM">PM</option>
+                      </select>
                       <span className="time-box-separator">to</span>
-                      <input
-                        type="time"
-                        className="time-box-input"
-                        value={daySchedule.end}
+                      <div
+                        className="time-box-input-group"
+                        onBlur={(e) => {
+                          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                            normalizeDayTime(dayCode, 'endTime')
+                          }
+                        }}
+                      >
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          className="time-box-input time-box-hour"
+                          value={endParts.hour}
+                          onChange={(e) => updateDayTimePart(dayCode, 'endTime', 'hour', e.target.value, e.currentTarget)}
+                          onFocus={(e) => e.currentTarget.select()}
+                          placeholder="9"
+                          maxLength={2}
+                          aria-label={`${dayCode} end hour`}
+                          disabled={!selectedSectionId || !selectedSubjectId}
+                        />
+                        <span className="time-box-colon" aria-hidden="true">:</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          className="time-box-input time-box-minute"
+                          value={endParts.minute}
+                          onChange={(e) => updateDayTimePart(dayCode, 'endTime', 'minute', e.target.value)}
+                          onFocus={(e) => e.currentTarget.select()}
+                          placeholder="00"
+                          maxLength={2}
+                          aria-label={`${dayCode} end minute`}
+                          disabled={!selectedSectionId || !selectedSubjectId}
+                        />
+                      </div>
+                      <select
+                        className="time-box-select"
+                        value={daySchedule.endAmPm}
                         onChange={(e) => setSubjectDaySchedules((curr) => ({
                           ...curr,
-                          [dayCode]: { ...curr[dayCode], end: e.target.value }
+                          [dayCode]: { ...curr[dayCode], endAmPm: e.target.value as 'AM' | 'PM' }
                         }))}
+                        aria-label={`${dayCode} end AM or PM`}
                         disabled={!selectedSectionId || !selectedSubjectId}
-                      />
+                      >
+                        <option value="AM">AM</option>
+                        <option value="PM">PM</option>
+                      </select>
                     </div>
                     <input
                       type="text"
@@ -748,6 +1132,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
               <article><span>Selected block group</span><strong>{selectedGroup ? formatBlockLabel(selectedGroup.name) : 'Not selected'}</strong></article>
               <article><span>Selected section</span><strong>{selectedSection ? selectedSection.sectionCode : 'Not selected'}</strong></article>
               <article><span>Term</span><strong>{selectedGroup ? `${selectedGroup.semester} Semester, SY ${selectedGroup.schoolYear || formatAcademicYear(selectedGroup.year)}` : 'Select a block group'}</strong></article>
+              {selectedSubject && <article><span>Units</span><strong>{selectedSubject.units || 0}</strong></article>}
             </div>
             <div className="registrar-course-footer-actions">
               {editingAssignmentId && (
@@ -771,6 +1156,31 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
       >
         <span className="registrar-refresh-signal-label">Refreshing workspace</span>
       </div>
+
+      <TeachingHoursWarningModal
+        warningData={teachingHoursWarning}
+        onClose={() => {
+          setTeachingHoursWarning(null)
+          setPendingAssignmentPayload(null)
+        }}
+        onCancel={() => {
+          setTeachingHoursWarning(null)
+          setPendingAssignmentPayload(null)
+          clearAssignmentForm()
+        }}
+        onProceedWithOverride={handleProceedWithOverride}
+        isSubmitting={assigning}
+      />
+
+      <InstructorOverrideModal
+        warningData={instructorOverrideWarning}
+        onClose={() => {
+          setInstructorOverrideWarning(null)
+          setPendingAssignmentPayload(null)
+        }}
+        onProceedWithOverride={handleProceedWithInstructorOverride}
+        isSubmitting={assigning}
+      />
     </div>
   )
 }

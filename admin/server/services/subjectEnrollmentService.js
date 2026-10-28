@@ -27,7 +27,6 @@
  */
 
 const Enrollment = require('../models/Enrollment');
-const Student = require('../models/Student');
 const Subject = require('../models/Subject');
 const CurriculumSubject = require('../models/CurriculumSubject');
 const BlockGroup = require('../models/BlockGroup');
@@ -38,6 +37,7 @@ const AuditLog = require('../models/AuditLog');
 const { resolveCurriculum, createOrReactivateEnrollment } = require('./enrollmentService');
 const { assertEnrollmentMutable } = require('./enrollmentImmutabilityGuard');
 const { assignmentSchoolYear } = require('./enrollmentGuard');
+const { assertSchoolYearWritable } = require('./schoolYearLockService');
 const { normalizeSchoolYear } = require('./blockTerm');
 const { SEMESTERS } = require('../lib/curriculumYears');
 
@@ -111,7 +111,10 @@ function isRetakeableAttempt(entry) {
   // Dropped or Removed status is always retakeable regardless of grade
   const status = String(entry.status || '').trim().toLowerCase();
   if (status === 'dropped' || status === 'removed') return true;
-  if (entry.gradeMark === 'FA') return true;
+  const mark = String(entry.gradeMark || '').trim().toUpperCase();
+  // FA is a failing mark; DRP is a professor-recorded drop that leaves the
+  // subject status as Enrolled. Both must remain retakeable.
+  if (mark === 'FA' || mark === 'DRP') return true;
   return typeof entry.grade === 'number' && entry.grade > PASSING_GRADE;
 }
 
@@ -922,6 +925,9 @@ function checkAcademicStanding(student) {
  */
 async function addSubjectsToEnrollment({ enrollment, student, subjectIds, actorId, overrideReason, accountType, session }) {
   assertEnrollmentMutable(enrollment, 'subjects');
+  // School-year lock enforcement: subjects cannot be added to enrollments of
+  // a locked or rolled-over school year (see schoolYearLockService.js).
+  await assertSchoolYearWritable(enrollment?.schoolYear, 'subject enrollment');
 
   const { results } = await validateSubjectSelection({ student, enrollment, subjectIds });
   const reason = String(overrideReason || '').trim();
@@ -1017,6 +1023,9 @@ async function addSubjectsToEnrollment({ enrollment, student, subjectIds, actorI
  */
 async function dropSubjectFromEnrollment({ enrollment, subjectId, actorId, reason, overrideReason, session }) {
   assertEnrollmentMutable(enrollment, 'subjects');
+  // School-year lock enforcement: subjects cannot be dropped from enrollments
+  // of a locked or rolled-over school year.
+  await assertSchoolYearWritable(enrollment?.schoolYear, 'subject drop');
 
   const entry = (enrollment.subjects || []).find((s) => String(s.subjectId) === String(subjectId));
   if (!entry) {
@@ -1056,19 +1065,10 @@ async function dropSubjectFromEnrollment({ enrollment, subjectId, actorId, reaso
   if (actorId) enrollment.updatedBy = actorId;
   await enrollment.save({ session, validateBeforeSave: false });
 
-  // A subject-level drop does not drop the student from the institution.
-  // It changes their academic standing to Irregular for subsequent enrollment.
-  await Student.findByIdAndUpdate(
-    enrollment.studentId,
-    {
-      $set: {
-        lifecycleStatus: 'Irregular',
-        studentStatus: 'Irregular',
-        classification: 'Irregular',
-      },
-    },
-    session ? { session } : undefined
-  );
+  // A subject-level drop does not drop the student from the institution, and
+  // it does not change their current lifecycle. The student remains Enrolled
+  // for the current semester; irregularity is evaluated only when they
+  // re-enroll for a later term (see enrollmentGuard.finalizeEnrollment).
 
   await recordAudit({
     action: 'DROP',
@@ -1107,6 +1107,10 @@ async function retakeSubject({ student, subjectId, schoolYear, semester, actorId
   if (!SEMESTERS.includes(semester)) {
     throw Object.assign(new Error(`semester must be one of ${SEMESTERS.join(', ')}`), { statusCode: 400 });
   }
+
+  // School-year lock enforcement: retakes cannot be recorded into a locked or
+  // rolled-over school year.
+  await assertSchoolYearWritable(schoolYear, 'subject retake');
 
   // Normalize subjectId to string
   const normalizedSubjectId = String(subjectId).trim();

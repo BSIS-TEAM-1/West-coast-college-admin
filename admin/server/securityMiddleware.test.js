@@ -174,6 +174,14 @@ describe('schema coverage', () => {
     expect(result.error).toBeUndefined();
   });
 
+  test('student update schema accepts leave of absence lifecycle', () => {
+    const result = schemas.student.update.body.validate({
+      lifecycleStatus: 'Leave of Absence'
+    });
+
+    expect(result.error).toBeUndefined();
+  });
+
   test('student update schema accepts extended edit-form fields', () => {
     const result = schemas.student.update.body.validate({
       scholarship: 'N/A',

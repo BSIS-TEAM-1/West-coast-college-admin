@@ -42,7 +42,7 @@ type BlockWorkspaceSelection = {
   initialSectionId?: string | null
 }
 
-type RegistrarView = 'applicants' | 'students' | 'add-student' | 'courses' | 'course-workspace' | 'block-overview' | 'block-management' | 'assign-block' | 'view-blocks' | 'block-workspace' | 'school-year-rollover' | 'student-history' | 'shift-student' | 'subject-management' | 'add-subject' | /* 'assign-subject' | */ 'curriculum-management' | 'curriculum-overview' | 'curriculum-create' | 'curriculum-archived' | 'curriculum-details' | 'grade-submissions' | 'evaluations' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
+type RegistrarView = 'applicants' | 'students' | 'add-student' | 're-enrollment' | 'courses' | 'course-workspace' | 'block-overview' | 'block-management' | 'assign-block' | 'view-blocks' | 'block-workspace' | 'school-year-rollover' | 'student-history' | 'shift-student' | 'subject-management' | 'add-subject' | /* 'assign-subject' | */ 'curriculum-management' | 'curriculum-overview' | 'curriculum-create' | 'curriculum-archived' | 'curriculum-details' | 'grade-submissions' | 'evaluations' | 'documents' | 'reports' | 'profile' | 'settings' | 'announcements' | 'announcement-detail' | 'personal-details' | 'cor-docs'
 
 type RegistrarDashboardProps = {
   username: string
@@ -59,6 +59,7 @@ const REGISTRAR_NAV_SECTIONS: { label: string; items: RegistrarNavItem[] }[] = [
     items: [
       { id: 'applicants', label: 'Applicants', icon: UserPlus },
       { id: 'students', label: 'Student Management', icon: GraduationCap },
+      { id: 're-enrollment', label: 'Re-enrollment', icon: UserPlus },
     ],
   },
   {
@@ -66,7 +67,7 @@ const REGISTRAR_NAV_SECTIONS: { label: string; items: RegistrarNavItem[] }[] = [
     items: [
       { id: 'block-overview', label: 'Block Overview', icon: Blocks },
       { id: 'curriculum-management', label: 'Curriculums', icon: BookOpen },
-      { id: 'subject-management', label: 'Subject Catalog', icon: BookOpen },
+      { id: 'subject-management', label: 'Course Catalog', icon: BookOpen },
       { id: 'courses', label: 'Professor Loads', icon: BookOpen },
       { id: 'grade-submissions', label: 'Grade Submissions', icon: ClipboardCheck },
       { id: 'evaluations', label: 'Evaluation Management', icon: MessageSquare },
@@ -148,6 +149,8 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
         return <StudentManagement onViewHistory={(studentId) => { setHistoryStudentId(studentId); setView('student-history') }} onShiftStudent={(studentId) => { setShiftStudentId(studentId); setView('shift-student') }} />
       case 'assign-block':
         return <BlockAssignmentPage />
+      case 're-enrollment':
+        return <BlockAssignmentPage mode="re-enrollment" />
       case 'add-student':
         return (
           <StudentWizard
@@ -431,7 +434,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
                 )}
 
                 {showSubjectSubnav && (
-                  <div className="registrar-sidebar-subnav" aria-label="Subject management navigation">
+                  <div className="registrar-sidebar-subnav" aria-label="Course catalog navigation">
                     <button
                       type="button"
                       className={`registrar-sidebar-sublink ${isAddSubjectActive ? 'registrar-sidebar-sublink-active' : ''}`}
@@ -439,9 +442,9 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
                       aria-current={isAddSubjectActive ? 'page' : undefined}
                     >
                       <Plus size={15} className="registrar-sidebar-icon" />
-                      <span>Add Subject</span>
+                      <span>Add Course</span>
                     </button>
-                    {/* Subject Assignment UI hidden - subjects are auto-assigned from curriculum */}
+                    {/* Course Assignment UI hidden - courses are auto-assigned from curriculum */}
                     {/* <button
                       type="button"
                       className={`registrar-sidebar-sublink ${isSubjectAssignmentActive ? 'registrar-sidebar-sublink-active' : ''}`}
@@ -449,7 +452,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
                       aria-current={isSubjectAssignmentActive ? 'page' : undefined}
                     >
                       <Users size={15} className="registrar-sidebar-icon" />
-                      <span>Subject Assignment</span>
+                      <span>Course Assignment</span>
                     </button> */}
                   </div>
                 )}

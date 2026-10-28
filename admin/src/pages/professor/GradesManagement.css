@@ -494,6 +494,72 @@
 .gm-submit-hint--warning { color: #b45309; }
 .gm-submit-hint--error { color: #b91c1c; }
 
+/* ─── Auto-save indicator ─── */
+.gm-autosave-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-text-muted, #6b7280);
+  padding: 0.375rem 0.75rem;
+  border-radius: 999px;
+  background: var(--color-bg-soft, #f3f4f6);
+  border: 1px solid var(--color-border, #e5e7eb);
+  white-space: nowrap;
+}
+
+.gm-saved-check {
+  color: #16a34a;
+}
+
+.gm-spin {
+  animation: gm-spin 1s linear infinite;
+  color: var(--color-primary, #2563eb);
+}
+
+@keyframes gm-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.gm-row-saving {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-primary, #2563eb);
+  flex-shrink: 0;
+}
+
+.gm-row-saved {
+  display: inline-flex;
+  align-items: center;
+  color: #16a34a;
+  flex-shrink: 0;
+  animation: gm-fade-in 0.2s ease-in-out;
+}
+
+.gm-row-error {
+  display: inline-flex;
+  align-items: center;
+  color: #dc2626;
+  flex-shrink: 0;
+}
+
+@keyframes gm-fade-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .gm-search-sort {
   display: flex;
   flex-direction: column;
@@ -685,6 +751,20 @@
   white-space: nowrap;
 }
 
+.gm-row-status-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+}
+
+.gm-row-submission-status {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #16a34a;
+  white-space: nowrap;
+}
+
 /* ─── Grade Input ─── */
 .gm-grade-header {
   display: flex;
@@ -827,6 +907,41 @@
 
 .gm-action-dropdown-btn:hover {
   background: var(--color-bg-soft);
+}
+
+.gm-row-submit-btn,
+.gm-row-submitted {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-radius: 0.25rem;
+  flex-shrink: 0;
+}
+
+.gm-row-submit-btn {
+  border: 1px solid var(--color-primary, #2563eb);
+  background: color-mix(in srgb, var(--color-primary, #2563eb) 8%, var(--color-surface));
+  color: var(--color-primary, #2563eb);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.gm-row-submit-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary, #2563eb) 16%, var(--color-surface));
+}
+
+.gm-row-submit-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.gm-row-submitted {
+  border: 1px solid color-mix(in srgb, #16a34a 35%, transparent);
+  background: color-mix(in srgb, #16a34a 8%, var(--color-surface));
+  color: #16a34a;
 }
 
 .gm-action-dropdown-menu {

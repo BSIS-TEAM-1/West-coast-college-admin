@@ -55,52 +55,10 @@ export interface EvaluationPeriodInfo {
   applicableSubjects?: string
   applicableProfessors?: string
   description?: string
-  totalEnrolledStudents?: number
-  totalRequiredEvaluations?: number
-  completedEvaluations?: number
-  incompleteEvaluations?: number
-  completionRate?: number
-}
-
-export interface StudentSubjectEvaluationItem {
-  enrollmentId: string
-  subjectId: string | null
-  subjectCode: string
-  subjectTitle: string
-  units: number
-  schedule: string
-  room: string
-  instructor: string
-  professorName: string
-  professorId: string | null
-  status: string
-  evaluationRequired: boolean
-  evaluationCompleted: boolean
-  completedAt: string | null
-  canEvaluate: boolean
-  gradePublished: boolean
-  gradeLocked: boolean
-  lockReason: string | null
-  grade: number | null
-  gradeMark: string | null
-  remarks: string
-}
-
-export interface StudentEvaluationsResponse {
-  questions: EvaluationQuestion[]
-  emojiScale: EmojiScaleItem[]
-  anonymityNotice: string
-  period: EvaluationPeriodInfo | null
-  semester: string
-  schoolYear: string
-  summary: {
-    requiredCount: number
-    completedCount: number
-    pendingCount: number
-    allCompleted: boolean
-    gradesLocked: boolean
-  }
-  subjects: StudentSubjectEvaluationItem[]
+  totalResponses?: number
+  averageRating?: number
+  professorCount?: number
+  subjectCount?: number
 }
 
 export interface QuestionRatingDetail {
@@ -126,7 +84,6 @@ export interface ProfessorAnonymousFeedback {
   anonymousLabel: string
   subjectCode: string
   subjectTitle: string
-  sectionCode: string
   semester: string
   schoolYear: string
   averageRating: number
@@ -140,8 +97,6 @@ export interface ProfessorAnonymousFeedback {
 export interface ProfessorEvaluationsData {
   professorName: string
   totalResponses: number
-  totalExpectedResponses?: number
-  completionPercentage?: number
   subjectsWithFeedbackCount?: number
   overallAverage: number
   overallEmoji: string
@@ -173,14 +128,12 @@ export interface RegistrarEvaluationRecord {
   id: string
   _id: string
   recordNumber?: string
-  submissionStatus?: string
   semester: string
   schoolYear: string
   subjectCode: string
   subjectTitle: string
-  sectionCode: string
-  course: string
-  yearLevel: number | null
+  sectionCode?: string
+  course?: string
   professorId: string | null
   professorName: string
   averageRating: number
@@ -189,36 +142,31 @@ export interface RegistrarEvaluationRecord {
   ratings: QuestionRatingDetail[]
   comment: string
   submittedAt: string
-  revealCount: number
-  studentIdentity: {
-    isRevealed: boolean
-    maskedLabel?: string
-    studentId?: string
-    studentNumber?: string
-    studentName?: string
-    course?: string
-    yearLevel?: number | null
-    sectionCode?: string
-    completedAt?: string
-  }
 }
 
-export interface IdentityRevealAuditEntry {
-  id: string
-  responseId: string
-  semester: string
-  schoolYear: string
+export interface FacultyCourseAssignment {
+  subjectId: string
   subjectCode: string
   subjectTitle: string
-  professorName: string
-  revealedStudentNumber: string
-  revealedStudentName: string
-  registrarUsername: string
-  registrarDisplayName: string
-  registrarRole: string
-  reason: string
-  ipAddress: string
-  revealedAt: string
+  sectionId: string
+  sectionCode: string
+  sectionLabel: string
+  semester: string
+  schoolYear: string
+  courseCode?: number | string | null
+  courseShortLabel?: string
+  courseLabel?: string
+  studentCount?: number
+}
+
+export interface FacultyCourseLoad {
+  professorId: string
+  username?: string
+  displayName?: string
+  label: string
+  uid?: string
+  status?: string
+  assignments: FacultyCourseAssignment[]
 }
 
 export interface RegistrarEvaluationOverviewData {
@@ -226,31 +174,13 @@ export interface RegistrarEvaluationOverviewData {
   questions: EvaluationQuestion[]
   emojiScale: EmojiScaleItem[]
   progress: {
-    totalStudentsEnrolled: number
-    studentsFullyCompleted: number
-    studentsIncomplete: number
-    totalRequiredEvaluations: number
-    totalSubmittedEvaluations: number
-    pendingEvaluations: number
-    completionPercentage: number
-  }
-  incompleteEvaluations: Array<{
-    studentId: string
-    studentNumber: string
-    studentName: string
-    course: string
-    yearLevel: number | null
+    totalResponses: number
+    averageRating: number
+    professorCount: number
+    subjectCount: number
     semester: string
     schoolYear: string
-    requiredCount: number
-    completedCount: number
-    pendingCount: number
-    pendingSubjects: Array<{
-      subjectCode: string
-      subjectTitle: string
-      professorName: string
-    }>
-  }>
+  }
   evaluations: RegistrarEvaluationRecord[]
   professorSummaries: Array<{
     professorName: string
@@ -261,56 +191,17 @@ export interface RegistrarEvaluationOverviewData {
     emoji: string
     label: string
   }>
-  revealLogs: IdentityRevealAuditEntry[]
-}
-
-const STUDENT_TOKEN_KEY = 'wcc_student_token'
-const STUDENT_INFO_KEY = 'wcc_student_info'
-
-export function getStoredStudentToken(): string | null {
-  try {
-    return localStorage.getItem(STUDENT_TOKEN_KEY)
-  } catch {
-    return null
-  }
-}
-
-export function setStoredStudentToken(token: string | null): void {
-  try {
-    if (token) {
-      localStorage.setItem(STUDENT_TOKEN_KEY, token)
-    } else {
-      localStorage.removeItem(STUDENT_TOKEN_KEY)
-    }
-  } catch {
-    // ignore storage errors
-  }
-}
-
-export function getStoredStudentInfo(): {
-  id?: string
-  studentNumber: string
-  fullName: string
-  course?: string
-  yearLevel?: number
-  semester?: string
-  schoolYear?: string
-} | null {
-  try {
-    const raw = localStorage.getItem(STUDENT_INFO_KEY)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
-}
-
-export function clearStoredStudentToken(): void {
-  try {
-    localStorage.removeItem(STUDENT_TOKEN_KEY)
-    localStorage.removeItem(STUDENT_INFO_KEY)
-  } catch {
-    // ignore storage errors
-  }
+  subjectSummaries: Array<{
+    subjectCode: string
+    subjectTitle: string
+    semester: string
+    schoolYear: string
+    responseCount: number
+    professorCount: number
+    averageRating: number
+    emoji: string
+    label: string
+  }>
 }
 
 async function getStaffHeaders(): Promise<Record<string, string>> {
@@ -320,136 +211,6 @@ async function getStaffHeaders(): Promise<Record<string, string>> {
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json'
   }
-}
-
-export async function loginStudentForPortal(studentNumber: string, password: string): Promise<{
-  token: string
-  student: {
-    id: string
-    studentNumber: string
-    firstName: string
-    lastName: string
-    fullName: string
-    course: string | number
-    yearLevel: number
-    semester: string
-    schoolYear: string
-  }
-}> {
-  const response = await fetch(`${API_URL}/api/student/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ studentNumber: studentNumber.trim(), password })
-  })
-  const payload = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    throw new Error(payload?.error || payload?.message || 'Invalid student credentials.')
-  }
-  const token = payload?.data?.accessToken || payload?.accessToken || payload?.token
-  if (!token) {
-    throw new Error('Login succeeded but no student access token was returned.')
-  }
-  setStoredStudentToken(token)
-  const studentObj = payload?.data?.student || payload?.student
-  if (studentObj) {
-    try {
-      localStorage.setItem(
-        STUDENT_INFO_KEY,
-        JSON.stringify({
-          ...studentObj,
-          course: studentObj.course != null ? String(studentObj.course) : undefined
-        })
-      )
-    } catch {
-      // ignore storage errors
-    }
-  }
-  return {
-    token,
-    student: studentObj
-  }
-}
-
-export const studentPortalLogin = loginStudentForPortal
-
-export async function fetchStudentGradesWithLocks(studentToken?: string | null): Promise<any> {
-  const token = studentToken || getStoredStudentToken()
-  if (!token) throw new Error('Student authentication required.')
-  const response = await fetch(`${API_URL}/api/student/grades`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    }
-  })
-  const payload = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    throw new Error(payload?.error || 'Failed to load student grades.')
-  }
-  return payload.data || payload
-}
-
-export async function fetchStudentEvaluations(
-  studentToken: string,
-  params?: { semester?: string; schoolYear?: string }
-): Promise<StudentEvaluationsResponse> {
-  const query = new URLSearchParams()
-  if (params?.semester) query.set('semester', params.semester)
-  if (params?.schoolYear) query.set('schoolYear', params.schoolYear)
-  const qs = query.toString()
-
-  const response = await fetch(`${API_URL}/api/student/evaluations${qs ? `?${qs}` : ''}`, {
-    headers: {
-      Authorization: `Bearer ${studentToken}`,
-      'Content-Type': 'application/json'
-    }
-  })
-  const payload = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    throw new Error(payload?.error || 'Failed to load student evaluations.')
-  }
-  return payload.data
-}
-
-export async function submitStudentProfessorEvaluation(
-  studentToken: string,
-  input: {
-    subjectCode: string
-    subjectId?: string | null
-    semester?: string
-    schoolYear?: string
-    ratings: number[]
-    comment?: string
-  }
-): Promise<{
-  message: string
-  data: {
-    subjectCode: string
-    subjectTitle: string
-    professorName: string
-    averageRating: number
-    submittedAt: string
-    summary: {
-      requiredCount: number
-      completedCount: number
-      pendingCount: number
-      allCompleted: boolean
-      gradesLocked: boolean
-    }
-  }
-}> {
-  const response = await fetch(`${API_URL}/api/student/evaluations`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${studentToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(input)
-  })
-  const payload = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    throw new Error(payload?.error || 'Failed to submit professor evaluation.')
-  }
-  return payload
 }
 
 export async function fetchProfessorEvaluations(filters?: {
@@ -535,6 +296,42 @@ export async function updateRegistrarEvaluationPeriodStatus(
   return payload.data
 }
 
+export async function deleteRegistrarEvaluationPeriod(
+  periodId: string
+): Promise<{ id: string; deletedResponses: number }> {
+  const headers = await getStaffHeaders()
+  const response = await fetch(`${API_URL}/api/registrar/evaluation-periods/${periodId}`, {
+    method: 'DELETE',
+    headers
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(payload?.error || 'Failed to remove evaluation period.')
+  }
+  return payload.data
+}
+
+export async function fetchFacultyCourseLoads(filters?: {
+  semester?: string
+  schoolYear?: string
+}): Promise<FacultyCourseLoad[]> {
+  const headers = await getStaffHeaders()
+  const query = new URLSearchParams()
+  if (filters?.semester && filters.semester !== 'ALL') query.set('semester', filters.semester)
+  if (filters?.schoolYear && filters.schoolYear !== 'ALL') query.set('year', filters.schoolYear)
+  const qs = query.toString()
+
+  const response = await fetch(`${API_URL}/api/registrar/professor-course-loads${qs ? `?${qs}` : ''}`, {
+    headers
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(payload?.error || 'Failed to load faculty course assignments.')
+  }
+  const data = payload?.data || payload
+  return Array.isArray(data?.professors) ? data.professors : []
+}
+
 export async function fetchRegistrarEvaluationOverview(filters?: {
   semester?: string
   schoolYear?: string
@@ -557,41 +354,4 @@ export async function fetchRegistrarEvaluationOverview(filters?: {
     throw new Error(payload?.error || 'Failed to load evaluation overview.')
   }
   return payload.data
-}
-
-export async function revealEvaluationStudentIdentity(
-  responseId: string,
-  reason: string
-): Promise<{
-  responseId: string
-  studentIdentity: Required<RegistrarEvaluationRecord['studentIdentity']>
-  auditRecord: {
-    id: string
-    registrarUsername: string
-    registrarDisplayName: string
-    reason: string
-    revealedAt: string
-  }
-}> {
-  const headers = await getStaffHeaders()
-  const response = await fetch(`${API_URL}/api/registrar/evaluations/${responseId}/reveal-identity`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ reason })
-  })
-  const payload = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    throw new Error(payload?.error || 'Failed to reveal student identity.')
-  }
-  return payload.data
-}
-
-export async function fetchIdentityRevealAuditLogs(): Promise<IdentityRevealAuditEntry[]> {
-  const headers = await getStaffHeaders()
-  const response = await fetch(`${API_URL}/api/registrar/evaluations/reveal-logs`, { headers })
-  const payload = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    throw new Error(payload?.error || 'Failed to load identity reveal audit logs.')
-  }
-  return payload.data || []
 }

@@ -82,7 +82,7 @@ export const STUDENT_IMPORT_REQUIRED_FIELDS = [
 
 const COURSE_VALUES = COURSE_OPTIONS.map((option) => String(option.value))
 const STUDENT_STATUSES = ['Regular', 'Irregular', 'Returnee', 'Transferee'] as const
-const LIFECYCLE_STATUSES = ['Pending', 'Not Enrolled', 'Irregular', 'Inactive', 'Graduated'] as const
+const LIFECYCLE_STATUSES = ['Pending', 'Not Enrolled', 'Irregular', 'Inactive', 'Graduated', 'Leave of Absence'] as const
 const GENDERS = ['Male', 'Female', 'Other', 'Prefer not to say'] as const
 const SCHOLARSHIPS = [
   'N/A',
@@ -342,8 +342,6 @@ export function parseStudentImportCsv(text: string): StudentImportParseResult {
       // assignment are separate steps), so keep the row importable and start
       // it at Pending instead of failing an otherwise valid file.
       lifecycleStatus = 'Pending'
-    } else if (lifecycleInput === 'leave of absence') {
-      lifecycleStatus = 'Inactive'
     } else if (values.lifecycleStatus && !normalizeEnum(values.lifecycleStatus, LIFECYCLE_STATUSES)) {
       errors.push(`Lifecycle status must be one of: ${LIFECYCLE_STATUSES.join(', ')}.`)
     }

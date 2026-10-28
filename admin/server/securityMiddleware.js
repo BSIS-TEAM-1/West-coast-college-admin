@@ -32,7 +32,7 @@ const DOCUMENT_FOLDER_SEGMENT_TYPES = ['DOCUMENT_TYPE', 'DEPARTMENT', 'DATE', 'C
 const STUDENT_COURSES = [101, 102, 103, 201];
 const STUDENT_SEMESTERS = ['1st', '2nd', 'Summer'];
 const STUDENT_STATUSES = ['Regular', 'Irregular', 'Dropped', 'Returnee', 'Transferee'];
-const STUDENT_LIFECYCLE_STATUSES = ['Pending', 'Enrolled', 'Not Enrolled', 'Dropped', 'Irregular', 'Inactive', 'Graduated'];
+const STUDENT_LIFECYCLE_STATUSES = ['Pending', 'Enrolled', 'Not Enrolled', 'Dropped', 'Irregular', 'Inactive', 'Graduated', 'Leave of Absence'];
 const ENROLLMENT_STATUSES = ['Enrolled', 'Not Enrolled', 'On Leave', 'Dropped'];
 const STUDENT_COR_STATUSES = ['Pending', 'Received', 'Verified'];
 const SCHOLARSHIP_OPTIONS = [
@@ -807,10 +807,12 @@ const schemas = {
       body: Joi.object({
         subjectId: subjectIdSchema.required(),
         instructor: nonEmptyTrimmedString(254).required(),
-        schedule: optionalTrimmedString(254).optional(),
+        schedule: optionalTrimmedString(1000).optional(),
         room: optionalTrimmedString(100).optional(),
         semester: Joi.string().valid(...STUDENT_SEMESTERS).allow('').optional(),
-        schoolYear: schoolYearSchema.allow('').optional()
+        schoolYear: schoolYearSchema.allow('').optional(),
+        overrideJustification: optionalTrimmedString(1000).allow('').optional(),
+        overrideExistingInstructor: Joi.boolean().optional()
       })
     },
     sectionAssignments: {

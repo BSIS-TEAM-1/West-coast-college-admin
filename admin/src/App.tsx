@@ -26,8 +26,6 @@ import ApplicantOnboarding from './pages/ApplicantOnboarding'
 import Dashboard from './pages/Dashboard'
 import RegistrarDashboard from './pages/RegistrarDashboard'
 import ProfessorDashboard from './pages/ProfessorDashboard.tsx'
-import StudentEvaluationPortal from './pages/student/StudentEvaluationPortal'
-import { studentPortalLogin } from './lib/evaluationApi'
 import './App.css'
 import type { LoginFlowResponse, LoginResponse, ProfileResponse } from './lib/authApi'
 
@@ -56,11 +54,6 @@ function App() {
   const [showDownloadAppPage, setShowDownloadAppPage] = useState(() =>
     typeof window !== 'undefined' && window.location.pathname.replace(/\/+$/, '') === '/download-apk'
   )
-  const [showStudentEvaluationPortal, setShowStudentEvaluationPortal] = useState(() => {
-    if (typeof window === 'undefined') return false
-    const path = window.location.pathname.replace(/\/+$/, '')
-    return path === '/student-portal' || path === '/student-evaluations' || path === '/student-grades'
-  })
   const [showApplicantPortal, setShowApplicantPortal] = useState(false)
   const [showTransfereePortal, setShowTransfereePortal] = useState(false)
   const [loginError, setLoginError] = useState<string | undefined>(undefined)
@@ -187,15 +180,6 @@ function App() {
       await finalizeLogin(data.token, data.username)
       return data
     } catch (err) {
-      // Allow students to sign in directly on the login screen using Student Number & Password
-      try {
-        await studentPortalLogin(username, password)
-        setShowSignIn(false)
-        setShowStudentEvaluationPortal(true)
-        return null
-      } catch {
-        // Keep original staff login error message
-      }
       setLoginError(err instanceof Error ? err.message : 'Invalid username or password.')
       return null
     } finally {
@@ -320,20 +304,6 @@ function App() {
     )
   }
 
-  if (showStudentEvaluationPortal) {
-    return (
-      <StudentEvaluationPortal
-        onBackToLogin={() => {
-          setShowStudentEvaluationPortal(false)
-          setShowSignIn(true)
-          if (typeof window !== 'undefined' && window.location.pathname !== '/') {
-            window.history.pushState({}, '', '/')
-          }
-        }}
-      />
-    )
-  }
-
   if (showSignIn) {
     return (
       <Login
@@ -342,11 +312,6 @@ function App() {
         onVerifyLoginEmailCode={handleVerifyLoginEmailCode}
         error={loginError}
         loading={loginLoading}
-        onOpenStudentPortal={() => {
-          setShowSignIn(false)
-          setShowStudentEvaluationPortal(true)
-          setLoginError(undefined)
-        }}
         onBack={() => {
           setShowSignIn(false)
           setShowSignUp(false)

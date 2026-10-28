@@ -75,7 +75,7 @@ export default function SuccessStep({
             <span className="summary-value">{fullName}</span>
           </div>
           <div className="summary-field">
-            <span className="summary-label">Course:</span>
+            <span className="summary-label">Program:</span>
             <span className="summary-value">{COURSE_LABELS[data.course || ''] || data.course || 'N/A'}</span>
           </div>
           <div className="summary-field">

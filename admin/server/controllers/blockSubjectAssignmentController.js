@@ -4,6 +4,8 @@ const BlockSection = require('../models/BlockSection');
 const BlockGroup = require('../models/BlockGroup');
 const Subject = require('../models/Subject');
 const CurriculumSubject = require('../models/CurriculumSubject');
+const { validateTeachingHours, shouldTriggerWarning } = require('../services/teachingHoursValidationService');
+const { assertSchoolYearWritable } = require('../services/schoolYearLockService');
 
 const assignmentPopulate = [
   { path: 'subjectId', select: '_id code title units course yearLevel semester isActive' },
@@ -52,6 +54,10 @@ class BlockSubjectAssignmentController {
     try {
       const { blockSectionId, subjectIds, semester, academicYear } = req.body;
       const normalizedSubjectIds = Array.from(new Set(subjectIds.map(String)));
+
+      // School-year lock enforcement: subject assignments for a locked or
+      // rolled-over school year cannot be created (see schoolYearLockService.js).
+      await assertSchoolYearWritable(academicYear, 'block subject assignment');
 
       const section = await BlockSection.findById(blockSectionId).select('_id blockGroupId');
       if (!section) {
@@ -131,10 +137,16 @@ class BlockSubjectAssignmentController {
 
   static async deleteAssignment(req, res) {
     try {
-      const assignment = await BlockSubjectAssignment.findByIdAndDelete(req.params.id);
+      const assignment = await BlockSubjectAssignment.findById(req.params.id).lean();
       if (!assignment) {
         return res.status(404).json({ success: false, message: 'Subject assignment not found' });
       }
+
+      // School-year lock enforcement: removing a subject assignment of a
+      // locked or rolled-over school year is a protected mutation.
+      await assertSchoolYearWritable(assignment.academicYear, 'block subject assignment removal');
+
+      await BlockSubjectAssignment.findByIdAndDelete(req.params.id);
 
       res.json({
         success: true,

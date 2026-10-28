@@ -39,16 +39,45 @@ const OPEN_SUBJECT_STATUSES = ['Enrolled', 'Incomplete'];
 
 function isFailingAttempt(entry) {
   if (!entry) return false;
-  if (entry.gradeMark === 'FA') return true;
+  if (entry.status === 'Failed') return true;
+  if (String(entry.gradeMark || '').trim().toUpperCase() === 'FA') return true;
   return typeof entry.grade === 'number' && entry.grade > PASSING_GRADE;
+}
+
+/** True when the attempt was stopped and is now a dropped/withdrawn record. */
+function isDroppedAttempt(entry) {
+  if (!entry) return false;
+  if (entry.status === 'Dropped' || entry.status === 'Removed') return true;
+  const mark = String(entry.gradeMark || '').trim().toUpperCase();
+  return mark === 'DRP' || mark === 'W';
+}
+
+/**
+ * True when the attempt already carries an official outcome. A professor may
+ * record FA/DRP without changing the subject's lifecycle status, so an
+ * `Enrolled` row with a grade or mark is no longer an open attempt.
+ */
+function hasRecordedOutcome(entry) {
+  if (!entry) return false;
+  if (typeof entry.grade === 'number') return true;
+  if (String(entry.gradeMark || '').trim()) return true;
+  return ['Completed', 'Failed', 'Dropped', 'Removed'].includes(entry.status);
+}
+
+function isOpenAttempt(entry) {
+  return Boolean(entry)
+    && OPEN_SUBJECT_STATUSES.includes(entry.status)
+    && !hasRecordedOutcome(entry);
 }
 
 /**
  * Reduce every attempt a student has made at one subject into a single status.
  *
- * Precedence: Completed > In Progress > Failed > Dropped > Outstanding.
- * A retake that passed clears an earlier failure; an outstanding retake keeps
- * the requirement In Progress, never Completed.
+ * Precedence: Completed > In Progress (a genuinely open attempt) > Failed >
+ * Dropped > In Progress (an incomplete/no-grade mark). A retake that passed
+ * clears an earlier failure; an outstanding retake keeps the requirement In
+ * Progress, never Completed. A recorded FA/DRP/W outcome on an `Enrolled` row
+ * is terminal, not "in progress".
  */
 function deriveRequirementStatus(attempts) {
   if (!attempts || attempts.length === 0) return { status: STATUS.OUTSTANDING, attempts: [] };
@@ -66,7 +95,7 @@ function deriveRequirementStatus(attempts) {
     };
   }
 
-  if (attempts.some((entry) => OPEN_SUBJECT_STATUSES.includes(entry.status))) {
+  if (attempts.some(isOpenAttempt)) {
     return { status: STATUS.IN_PROGRESS, attempts };
   }
 
@@ -74,7 +103,14 @@ function deriveRequirementStatus(attempts) {
     return { status: STATUS.FAILED, attempts };
   }
 
-  return { status: STATUS.DROPPED, attempts };
+  if (attempts.some(isDroppedAttempt)) {
+    return { status: STATUS.DROPPED, attempts };
+  }
+
+  // INC/NG (and legacy rows with no grade data) are recorded outcomes, but
+  // they are neither a failure nor a drop. They remain in progress until the
+  // requirement is completed or retaken.
+  return { status: STATUS.IN_PROGRESS, attempts };
 }
 
 /**

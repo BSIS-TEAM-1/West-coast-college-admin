@@ -1,5 +1,6 @@
 import { API_URL, getStoredToken } from './authApi'
 import type { StudentData } from './studentApi'
+import { DEFAULT_SCHOOL_YEAR } from './academicDefaults'
 
 export type Semester = '1st' | '2nd' | 'Summer'
 
@@ -70,9 +71,11 @@ export async function authorizedFetch<T>(path: string, init: RequestInit = {}): 
   const data = await response.json().catch(() => ({}))
   if (!response.ok) {
     const message = (data?.error as string) || (data?.message as string) || `Request failed (${response.status})`
-    const err = new Error(message) as Error & { reasons?: string[]; checks?: Record<string, boolean>; status?: number }
+    const err = new Error(message) as Error & { reasons?: string[]; checks?: Record<string, boolean>; status?: number; warning?: string; data?: any }
     if (Array.isArray(data?.reasons)) err.reasons = data.reasons
     if (data?.checks && typeof data.checks === 'object') err.checks = data.checks
+    if (data?.warning) err.warning = data.warning
+    if (data?.data) err.data = data.data
     err.status = response.status
     throw err
   }
@@ -117,8 +120,7 @@ export function getDefaultSchoolYear() {
   if (typeof window !== 'undefined' && (window as any).__wccAcademicTerm?.schoolYear) {
     return String((window as any).__wccAcademicTerm.schoolYear)
   }
-  const currentYear = new Date().getFullYear()
-  return `${currentYear}-${currentYear + 1}`
+  return DEFAULT_SCHOOL_YEAR
 }
 
 export function normalizeCourseCode(value: unknown) {

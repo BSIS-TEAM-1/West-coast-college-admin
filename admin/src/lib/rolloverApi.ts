@@ -196,6 +196,7 @@ export function executeRollover(body: {
   decisions?: { studentId: string; action: RolloverAction }[]
   groupDecisions?: RolloverGroupDecision[]
   decisionOverrides?: { studentId: string; action: RolloverAction }[]
+  acknowledgedWarnings?: { key: string; justification: string }[]
 }) {
   return authorizedRequest<RolloverResult>('/api/rollover/execute', {
     method: 'POST',
@@ -244,6 +245,120 @@ export type RolloverRevertResult = {
 
 export function getLatestRollover() {
   return authorizedRequest<RolloverBatchSummary | null>('/api/rollover/latest')
+}
+
+// ---- School Year Lock → Validate → Confirm Rollover workflow ----
+
+export type SchoolYearStateStatus =
+  | 'open'
+  | 'locked'
+  | 'rollover_ready'
+  | 'rollover_in_progress'
+  | 'rollover_failed'
+  | 'rolled_over'
+
+export type SchoolYearState = {
+  schoolYear?: string | null
+  status: SchoolYearStateStatus
+  lockedAt?: string | null
+  lockReason?: string | null
+  unlockedAt?: string | null
+  unlockReason?: string | null
+  validatedAt?: string | null
+  activeValidationRunId?: string | null
+  validationSummary?: {
+    blockingErrors: number
+    warnings: number
+    passedChecks: number
+    runStatus?: string
+    toSchoolYear?: string
+    semester?: string
+  } | null
+  rolloverBatchId?: string | null
+  rolloverToSchoolYear?: string | null
+  rolloverSemester?: string | null
+  rolloverCounts?: Record<string, number> | null
+  rolloverError?: { message?: string; stage?: string } | null
+  rolloverStartedAt?: string | null
+  rolloverFailedAt?: string | null
+  canLock: boolean
+  canUnlock: boolean
+  canValidate: boolean
+  canProceedToRollover: boolean
+  canRetry: boolean
+  needsRecovery: boolean
+}
+
+export type ValidationRunResult = {
+  key: string
+  title: string
+  status: 'passed' | 'warning' | 'blocking'
+  count: number
+  message: string
+  actionable: string | null
+  details: string[]
+}
+
+export type ValidationRun = {
+  _id: string
+  schoolYear: string
+  toSchoolYear: string
+  semester: string
+  status: 'passed' | 'warnings' | 'failed' | 'stale'
+  results: ValidationRunResult[]
+  summary: { blockingErrors: number; warnings: number; passedChecks: number }
+  runAt?: string
+}
+
+export type ValidateOutcome = {
+  run: ValidationRun
+  state: SchoolYearState | null
+}
+
+export function getSchoolYearState(schoolYear: string) {
+  return authorizedRequest<SchoolYearState>(
+    `/api/rollover/school-years/${encodeURIComponent(schoolYear)}/state`
+  )
+}
+
+export function lockSchoolYear(schoolYear: string, body: { reason?: string } = {}) {
+  return authorizedRequest<SchoolYearState>(
+    `/api/rollover/school-years/${encodeURIComponent(schoolYear)}/lock`,
+    { method: 'POST', body: JSON.stringify(body) }
+  )
+}
+
+export function unlockSchoolYear(schoolYear: string, body: { reason: string }) {
+  return authorizedRequest<SchoolYearState>(
+    `/api/rollover/school-years/${encodeURIComponent(schoolYear)}/unlock`,
+    { method: 'POST', body: JSON.stringify(body) }
+  )
+}
+
+export function runPreRolloverValidation(
+  schoolYear: string,
+  body: { toSchoolYear: string; semester: string }
+) {
+  return authorizedRequest<ValidateOutcome>(
+    `/api/rollover/school-years/${encodeURIComponent(schoolYear)}/validate`,
+    { method: 'POST', body: JSON.stringify(body) }
+  )
+}
+
+export function listValidationRuns(schoolYear: string) {
+  return authorizedRequest<ValidationRun[]>(
+    `/api/rollover/school-years/${encodeURIComponent(schoolYear)}/validations`
+  )
+}
+
+export function retryRollover(
+  schoolYear: string,
+  body: { toSchoolYear: string; semester: string }
+) {
+  return authorizedRequest<SchoolYearState>(
+    `/api/rollover/school-years/${encodeURIComponent(schoolYear)}/retry`,
+    { method: 'POST', body: JSON.stringify(body) }
+  )
 }
 
 export function revertRollover(body: { batchId: string }) {

@@ -122,7 +122,7 @@ const studentSchema = new Schema({
   },
   lifecycleStatus: {
     type: String,
-    enum: ['Pending', 'Enrolled', 'Not Enrolled', 'Irregular', 'Inactive', 'Graduated'],
+    enum: ['Pending', 'Enrolled', 'Not Enrolled', 'Irregular', 'Inactive', 'Graduated', 'Leave of Absence'],
     default: 'Pending',
     index: true
   },
@@ -427,7 +427,7 @@ studentSchema.methods.comparePassword = async function(candidatePassword) {
 
 // Method to generate default password
 studentSchema.methods.generateDefaultPassword = function() {
-  // Delegate to the system's canonical format (initials + last 5 digits of the
+  // Delegate to the system's canonical format (first initial + full last name + last 5 digits of the
   // student number) so the login fallback, the Add Student flow, and the
   // addStudentPasswords migration all agree on one credential format.
   const StudentPasswordService = require('../services/studentPasswordService');

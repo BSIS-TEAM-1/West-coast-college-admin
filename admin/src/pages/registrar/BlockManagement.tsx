@@ -5,6 +5,7 @@ import {
   authorizedFetch,
   COURSE_OPTIONS as blockCourseOptions
 } from '../../lib/blockAssignmentShared'
+import { DEFAULT_SCHOOL_YEAR } from '../../lib/academicDefaults'
 import '../BlockManagement.css'
 
 type BlockManagementProps = {
@@ -23,7 +24,7 @@ const blockNumberOptions = yearLevelOptions.flatMap((yearLabel, yearIndex) =>
   }))
 )
 
-const currentYear = new Date().getFullYear()
+const currentYear = Number(DEFAULT_SCHOOL_YEAR.slice(0, 4))
 const DRAFT_STORAGE_KEY = 'block-management-drafts'
 const AUTO_SAVE_INTERVAL = 30000 // 30 seconds
 
@@ -352,7 +353,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
   }, [wizardStep, handleNext, onOpenBlocksPage, handleSaveDraft, courseIsSelected, blockNumberIsSelected])
 
   const validateForm = () => {
-    if (!courseIsSelected) return 'Please select a course'
+    if (!courseIsSelected) return 'Please select a program'
     if (!blockNumberIsSelected) return 'Please select a block number'
     if (!blockNumberIsValid) return 'Block number must be in format 1-A to 5-D'
     if (!yearIsValid) return 'Academic year must be between 2000 and 2100'
@@ -414,9 +415,9 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
       await fetchBlockGroups()
       const autoAssign = sectionResponse?.autoAssign
       if (autoAssign?.created && autoAssign.created > 0) {
-        setSuccess(`Block created. ${autoAssign.created} subjects auto-assigned from curriculum.`)
+        setSuccess(`Block created. ${autoAssign.created} courses auto-assigned from curriculum.`)
       } else if (newGroupCurriculumId && autoAssign && autoAssign.curriculumSubjectsFound === 0) {
-        setSuccess('The block group has been created and its initial section was generated automatically. No required subjects found in the curriculum for this year level and semester.')
+        setSuccess('The block group has been created and its initial section was generated automatically. No required courses found in the curriculum for this year level and semester.')
       } else {
         setSuccess('The block group has been created and its initial section was generated automatically.')
       }
@@ -574,7 +575,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                       ))}
                     </select>
                     <span id="linked-curriculum-help" className="block-form-help">
-                      Subjects auto-assigned from curriculum
+                      Courses auto-assigned from curriculum
                     </span>
                   </label>
 
@@ -829,7 +830,7 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
                           const match = availableCurriculums.find((c) => c._id === newGroupCurriculumId)
                           return match ? `${match.programName || match.code || 'Curriculum'} ${match.version}` : 'Selected curriculum'
                         })())
-                      : 'None — subjects will be assigned manually'}
+                      : 'None — courses will be assigned manually'}
                   </strong>
                 </div>
                 <div>

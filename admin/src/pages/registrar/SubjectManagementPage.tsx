@@ -219,8 +219,8 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
   }
 
   const validateSubject = () => {
-    if (!normalizedCode) return 'Subject code is required'
-    if (!normalizedTitle) return 'Subject title is required'
+    if (!normalizedCode) return 'Course code is required'
+    if (!normalizedTitle) return 'Course title is required'
     if (!Number.isFinite(normalizedUnits) || normalizedUnits <= 0 || normalizedUnits > 6) {
       return 'Units must be greater than 0 and not more than 6'
     }
@@ -278,11 +278,11 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       })
-      setSuccess((data?.message as string) || (editingId ? 'Subject updated successfully' : 'Subject created successfully'))
+      setSuccess((data?.message as string) || (editingId ? 'Course updated successfully' : 'Course created successfully'))
       setWizardStep(3)
       await fetchSubjects()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save subject')
+      setError(err instanceof Error ? err.message : 'Failed to save course')
     } finally {
       setSaving(false)
     }
@@ -301,10 +301,10 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isActive: nextActive })
       })
-      setSuccess((data?.message as string) || `Subject ${nextActive ? 'restored' : 'archived'} successfully`)
+      setSuccess((data?.message as string) || `Course ${nextActive ? 'restored' : 'archived'} successfully`)
       await fetchSubjects()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update subject status')
+      setError(err instanceof Error ? err.message : 'Failed to update course status')
     }
   }
 
@@ -315,10 +315,10 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
     setSuccess('')
     try {
       const data = await authorizedFetch(`/api/registrar/subjects/${subject._id}`, { method: 'DELETE' })
-      setSuccess((data?.message as string) || 'Subject deleted successfully')
+      setSuccess((data?.message as string) || 'Course deleted successfully')
       await fetchSubjects()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete subject')
+      setError(err instanceof Error ? err.message : 'Failed to delete course')
     }
   }
 
@@ -338,10 +338,10 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
 
   return (
     <div className="registrar-section subject-management-page">
-      <h2 className="registrar-section-title">Subject Catalog</h2>
-      <p className="registrar-section-desc">Maintain the master list of subjects. Curriculum placement (year level, semester, sequence) is managed via <strong>Curriculums</strong>.</p>
+      <h2 className="registrar-section-title">Course Catalog</h2>
+      <p className="registrar-section-desc">Maintain the master list of courses. Curriculum placement (year level, semester, sequence) is managed via <strong>Curriculums</strong>.</p>
 
-      {/* Subjects Needing Attention Button */}
+      {/* Courses Needing Attention Button */}
       {attentionSubjects.length > 0 && (
         <button
           type="button"
@@ -349,19 +349,19 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
           onClick={() => setShowAttentionModal(true)}
         >
           <AlertTriangle size={18} />
-          <span>Subjects Needing Attention</span>
+          <span>Courses Needing Attention</span>
           <span className="gs-attention-trigger-count">{attentionSubjects.length}</span>
         </button>
       )}
 
-      {/* Subjects Needing Attention Modal */}
+      {/* Courses Needing Attention Modal */}
       {showAttentionModal && (
         <div className="gs-attention-modal-overlay" onClick={() => setShowAttentionModal(false)}>
           <div className="gs-attention-modal" onClick={(e) => e.stopPropagation()}>
             <div className="gs-attention-modal-header">
               <div className="gs-attention-modal-title">
                 <AlertTriangle size={20} />
-                <h3>Subjects Needing Attention</h3>
+                <h3>Courses Needing Attention</h3>
                 <span className="gs-attention-modal-count">{attentionSubjects.length}</span>
               </div>
               <button type="button" className="gs-attention-modal-close" onClick={() => setShowAttentionModal(false)}>
@@ -398,12 +398,12 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
       {showSubjectWizard && (
         <div className="sis-wizard-shell">
           <section className="sis-wizard-card">
-            <div className="block-stepper" role="navigation" aria-label="Subject management progress">
+            <div className="block-stepper" role="navigation" aria-label="Course catalog progress">
               <div className="block-stepper-line" aria-hidden="true" />
               {[
-                { step: 1, title: isEditing ? 'Edit Subject' : 'Create Subject', description: isEditing ? 'Edit details' : 'Enter details' },
+                { step: 1, title: isEditing ? 'Edit Course' : 'Create Course', description: isEditing ? 'Edit details' : 'Enter details' },
                 { step: 2, title: 'Review', description: 'Confirm details' },
-                { step: 3, title: 'Finish', description: 'Subject saved' }
+                { step: 3, title: 'Finish', description: 'Course saved' }
               ].map((item) => (
                 <div
                   key={item.step}
@@ -424,7 +424,7 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
             {wizardStep === 1 && (
               <div className="sis-wizard-panel">
                 <div className="block-wizard-panel-head">
-                  <h3>{isEditing ? 'Edit Subject' : 'Create Subject'}</h3>
+                  <h3>{isEditing ? 'Edit Course' : 'Create Course'}</h3>
                 </div>
                 <div className="sis-wizard-grid">
                   <div className="block-wizard-fields subject-wizard-fields">
@@ -441,7 +441,7 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
                       <input type="number" min={0.5} max={6} step={0.5} value={form.units} onChange={(event) => updateForm('units', event.target.value)} />
                     </label>
                     <label>
-                      <span>Subject Type / Category</span>
+                      <span>Course Type / Category</span>
                       <select value={form.subjectType} onChange={(event) => updateForm('subjectType', event.target.value)}>
                         {subjectTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                       </select>
@@ -542,13 +542,13 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
             {wizardStep === 2 && (
               <div className="sis-wizard-panel">
                 <div className="block-wizard-panel-head">
-                  <h3>Review Subject</h3>
+                  <h3>Review Course</h3>
                 </div>
                 <div className="block-wizard-review">
                   <div><span>Course No.</span><strong>{normalizedCode}</strong></div>
                   <div><span>Descriptive Title</span><strong>{normalizedTitle}</strong></div>
                   <div><span>Units</span><strong>{normalizedUnits}</strong></div>
-                  <div><span>Subject Type</span><strong>{form.subjectType}</strong></div>
+                  <div><span>Course Type</span><strong>{form.subjectType}</strong></div>
                   <div><span>Lecture Periods</span><strong>{normalizedLecturePeriods}</strong></div>
                   <div><span>Lab / Field Periods</span><strong>{normalizedLabPeriods}</strong></div>
                   <div><span>Status</span><strong>{form.status}</strong></div>
@@ -561,7 +561,7 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
                   </button>
                   <button className="registrar-btn" type="button" onClick={handleSubmit} disabled={saving}>
                     <Plus size={16} />
-                    {saving ? 'Saving...' : isEditing ? 'Save Changes' : 'Create Subject'}
+                    {saving ? 'Saving...' : isEditing ? 'Save Changes' : 'Create Course'}
                   </button>
                 </div>
               </div>
@@ -570,12 +570,12 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
             {wizardStep === 3 && (
               <div className="block-wizard-panel block-wizard-success">
                 <CheckCircle size={52} />
-                <h3>{isEditing ? 'Subject Updated Successfully' : 'Subject Created Successfully'}</h3>
-                <p>{normalizedCode} is now available in the subject catalog.</p>
+                <h3>{isEditing ? 'Course Updated Successfully' : 'Course Created Successfully'}</h3>
+                <p>{normalizedCode} is now available in the course catalog.</p>
                 <div className="block-wizard-success-actions">
                   <button className="registrar-btn" type="button" onClick={resetForm}>
                     <RotateCcw size={16} />
-                    Create Another Subject
+                    Create Another Course
                   </button>
                   <button className="registrar-btn registrar-btn-secondary" type="button" onClick={() => setWizardStep(1)}>
                     Edit Again
@@ -590,8 +590,8 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
       <section className="assignment-section subject-catalog-section">
         <div className="assignment-panel-head">
           <div>
-            <h3>Subject Catalog</h3>
-            <p>{loading ? 'Loading subjects...' : `${filteredSubjects.length} subjects found`}</p>
+            <h3>Course Catalog</h3>
+            <p>{loading ? 'Loading courses...' : `${filteredSubjects.length} courses found`}</p>
           </div>
         </div>
 
@@ -640,7 +640,7 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
                       type="button"
                       className="subject-actions-trigger"
                       onClick={() => setOpenMenuId((prev) => (prev === subject._id ? '' : subject._id))}
-                      aria-label="Subject actions"
+                      aria-label="Course actions"
                       aria-expanded={openMenuId === subject._id}
                     >
                       <MoreVertical size={16} />
@@ -667,7 +667,7 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
             ))}
           </div>
         </div>
-        {filteredSubjects.length === 0 && <p className="assignment-empty-copy">No subjects match the current filters.</p>}
+        {filteredSubjects.length === 0 && <p className="assignment-empty-copy">No courses match the current filters.</p>}
         {totalPages > 1 && (
           <div className="subject-pagination">
             <button type="button" className="registrar-btn registrar-btn-secondary" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>

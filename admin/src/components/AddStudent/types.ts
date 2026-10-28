@@ -1,7 +1,7 @@
 export type WizardStep = 'identity' | 'personal' | 'contact' | 'academic' | 'review' | 'success'
 
 export type StudentStatus = 'Regular' | 'Irregular'
-export type LifecycleStatus = 'Pending' | 'Enrolled' | 'Not Enrolled' | 'Irregular' | 'Inactive' | 'Graduated'
+export type LifecycleStatus = 'Pending' | 'Enrolled' | 'Not Enrolled' | 'Irregular' | 'Inactive' | 'Graduated' | 'Leave of Absence'
 export type Semester = '1st' | '2nd' | 'Summer'
 export type ApplicantType = 'New' | 'Transferee' | 'Returnee'
 

@@ -41,6 +41,8 @@ const { normalizeCourseCode } = require('../lib/programMapping');
 
 const SEMESTERS = ['1st', '2nd', 'Summer'];
 const SCHOOL_YEAR_PATTERN = /^\d{4}-\d{4}$/;
+const SEMESTER_RANK = { '1st': 0, '2nd': 1, Summer: 2 };
+const PASSING_GRADE = 3.0;
 
 function schoolYearFromStartYear(value) {
   const year = Number(value);
@@ -270,6 +272,93 @@ async function assertEnrolledRequirements(studentLike, options = {}) {
 }
 
 /**
+ * Rank a term so earlier terms can be compared across school years.
+ * Returns null for malformed values, which are ignored rather than guessed at.
+ */
+function termRank(schoolYear, semester) {
+  const text = String(schoolYear || '').trim();
+  if (!SCHOOL_YEAR_PATTERN.test(text)) return null;
+  const start = Number(text.slice(0, 4));
+  const semesterRank = SEMESTER_RANK[String(semester || '').trim()];
+  if (!Number.isFinite(start) || semesterRank === undefined) return null;
+  return start * 10 + semesterRank;
+}
+
+function isFailedOrDroppedEntry(entry) {
+  const mark = String(entry?.gradeMark || '').trim().toUpperCase();
+  if (mark === 'FA' || mark === 'DRP') return true;
+
+  const status = String(entry?.status || '').trim().toLowerCase();
+  if (status === 'failed' || status === 'dropped' || status === 'removed') return true;
+
+  return typeof entry?.grade === 'number' && entry.grade > PASSING_GRADE;
+}
+
+/**
+ * An in-progress subject has no grade, mark, or terminal status yet. It must
+ * not hide an earlier failure: until the retake is passed, the student still
+ * carries the unresolved requirement.
+ */
+function isTerminalEntry(entry) {
+  if (!entry) return false;
+  if (typeof entry.grade === 'number') return true;
+  if (String(entry.gradeMark || '').trim()) return true;
+  const status = String(entry.status || '').trim().toLowerCase();
+  return status === 'completed' || status === 'dropped' || status === 'removed';
+}
+
+/**
+ * A student is irregular for a new term when their most recent attempt at any
+ * subject before that term is a failure or a drop. Retaking and passing the
+ * subject clears the flag because only the latest attempt per subject counts.
+ *
+ * Attempts in the target term (or later) are deliberately ignored: failing or
+ * dropping a subject during the current semester does not change the current
+ * lifecycle. It is evaluated only when the student re-enrolls for a later term.
+ */
+async function hasUnresolvedFailedOrDroppedAttempts({ studentId, schoolYear, semester, session }) {
+  const targetRank = termRank(schoolYear, semester);
+  if (targetRank === null) return false;
+
+  const query = Enrollment.find({
+    studentId,
+    schoolYear: { $lte: String(schoolYear).trim() },
+  }).select('schoolYear semester subjects updatedAt');
+
+  const enrollments = await (session ? query.session(session) : query).lean();
+  const latestBySubject = new Map();
+
+  for (const enrollment of enrollments || []) {
+    const rank = termRank(enrollment.schoolYear, enrollment.semester);
+    if (rank === null || rank >= targetRank) continue;
+
+    for (const entry of enrollment.subjects || []) {
+      const subjectKey = String(entry?.subjectId || entry?.code || '').trim();
+      if (!subjectKey || !isTerminalEntry(entry)) continue;
+
+      const current = latestBySubject.get(subjectKey);
+      const isNewer = !current
+        || rank > current.rank
+        || (rank === current.rank
+          && String(enrollment.updatedAt || '') > String(current.updatedAt || ''));
+      if (isNewer) {
+        latestBySubject.set(subjectKey, {
+          rank,
+          updatedAt: enrollment.updatedAt,
+          entry,
+        });
+      }
+    }
+  }
+
+  for (const { entry } of latestBySubject.values()) {
+    if (isFailedOrDroppedEntry(entry)) return true;
+  }
+
+  return false;
+}
+
+/**
  * Finalize enrollment: verify requirements, then atomically flip the
  * Enrollment record and the Student lifecycle to ENROLLED.
  *
@@ -323,7 +412,18 @@ async function finalizeEnrollment({ studentId, schoolYear, semester, actorId, se
   );
   await (session ? finalizeQuery.session(session) : finalizeQuery);
 
-  student.lifecycleStatus = 'Enrolled';
+  // A returning student who still has an unresolved failed/dropped attempt is
+  // enrolled as Irregular. This is evaluated at re-enrollment time against
+  // earlier terms only, so the semester they failed in stays "Enrolled".
+  const hasUnresolvedFailures = await hasUnresolvedFailedOrDroppedAttempts({
+    studentId: student._id,
+    schoolYear: effectiveSchoolYear,
+    semester: effectiveSemester,
+    session,
+  });
+
+  student.lifecycleStatus = hasUnresolvedFailures ? 'Irregular' : 'Enrolled';
+  student.enrollmentStatus = 'Enrolled';
   student.schoolYear = effectiveSchoolYear;
   student.semester = effectiveSemester;
   if (section?.sectionCode) {
@@ -347,5 +447,6 @@ module.exports = {
   findValidBlockAssignment,
   findPeriodEnrollment,
   assertEnrolledRequirements,
+  hasUnresolvedFailedOrDroppedAttempts,
   finalizeEnrollment,
 };

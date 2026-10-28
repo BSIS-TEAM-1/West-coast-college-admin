@@ -590,15 +590,15 @@ function CourseManagement({
               type="search"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search subject code, title, schedule, room, or block..."
-              aria-label="Search assigned subjects"
+              placeholder="Search course code, title, schedule, room, or block..."
+              aria-label="Search assigned courses"
             />
           </label>
           <div className="professor-course-filter-group">
             <label className="professor-course-select">
-              <span>Course</span>
+              <span>Program</span>
               <select value={courseFilter} onChange={(event) => setCourseFilter(event.target.value)}>
-                <option value="all">All courses</option>
+                <option value="all">All programs</option>
                 {courseOptions.map((course) => (
                   <option key={course.value} value={course.value}>{course.label}</option>
                 ))}
@@ -746,11 +746,11 @@ function CourseManagement({
           )}
         </div>
       ) : layoutMode === 'list' ? (
-        <section className="professor-course-list" aria-label="Assigned subjects list">
+        <section className="professor-course-list" aria-label="Assigned courses list">
           <div className="professor-course-list-header" aria-hidden="true">
-            <span className="professor-course-list-heading professor-course-list-heading-code">Subject Code</span>
-            <span className="professor-course-list-heading professor-course-list-heading-title">Subject Title</span>
-            <span className="professor-course-list-heading professor-course-list-heading-course">Course</span>
+            <span className="professor-course-list-heading professor-course-list-heading-code">Course Code</span>
+            <span className="professor-course-list-heading professor-course-list-heading-title">Course Title</span>
+            <span className="professor-course-list-heading professor-course-list-heading-course">Program</span>
             <span className="professor-course-list-heading professor-course-list-heading-block">Block</span>
             <span className="professor-course-list-heading professor-course-list-heading-schedule">Schedule</span>
             <span className="professor-course-list-heading professor-course-list-heading-room">Room</span>
@@ -759,10 +759,10 @@ function CourseManagement({
           <div className="professor-course-list-body">
             {subjectRows.map((row) => (
               <article key={row.key} className="professor-course-list-row">
-                <div className="professor-course-list-cell professor-course-list-cell-code" data-label="Subject Code">
+                <div className="professor-course-list-cell professor-course-list-cell-code" data-label="Course Code">
                   <span className="professor-course-list-code">{row.subject.code || 'N/A'}</span>
                 </div>
-                <div className="professor-course-list-cell professor-course-list-cell-title" data-label="Subject Title">
+                <div className="professor-course-list-cell professor-course-list-cell-title" data-label="Course Title">
                   <div className="professor-course-list-primary">
                     <strong className="professor-course-list-title">{row.subject.title || 'Untitled subject'}</strong>
                     <span className="professor-course-list-inline-meta">
@@ -770,7 +770,7 @@ function CourseManagement({
                     </span>
                   </div>
                 </div>
-                <div className="professor-course-list-cell professor-course-list-cell-course" data-label="Course">
+                <div className="professor-course-list-cell professor-course-list-cell-course" data-label="Program">
                   <span className="professor-course-list-text">{row.courseLabel}</span>
                 </div>
                 <div className="professor-course-list-cell professor-course-list-cell-block" data-label="Block">

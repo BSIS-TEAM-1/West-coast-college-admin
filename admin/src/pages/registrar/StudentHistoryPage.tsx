@@ -50,14 +50,6 @@ type EnrollmentRecord = {
   previousEnrollmentId?: string | null
   remarks?: string
   subjects: SubjectEntry[]
-  assessment?: {
-    tuitionFee?: number
-    miscFee?: number
-    otherFee?: number
-    totalAmount?: number
-    balance?: number
-    paymentStatus?: string
-  }
   // Set when a program shift closed this enrollment. The record and its
   // subjects/grades are preserved; this only records where the student moved.
   shiftedTo?: {
@@ -91,11 +83,6 @@ function formatDateTime(value?: string) {
   return date.toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-function formatCurrency(value?: number) {
-  if (value == null || Number.isNaN(value)) return '₱0.00'
-  return `₱${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
-
 const TERMINAL_STATUSES = ['Completed', 'Retained', 'Graduated', 'Dropped']
 
 /** Subject-level states that an official drop may still be applied to. */
@@ -112,7 +99,11 @@ function statusTone(status: string): string {
   if (normalized === 'graduated') return 'accent'
   if (normalized === 'retained') return 'warning'
   if (normalized === 'dropped') return 'danger'
+  if (normalized === 'removed') return 'danger'
   if (normalized === 'failed') return 'danger'
+  if (normalized === 'withdrawn') return 'danger'
+  if (normalized === 'incomplete') return 'warning'
+  if (normalized === 'no grade') return 'neutral'
   if (normalized === 'in progress') return 'success'
   if (normalized === 'outstanding') return 'neutral'
   return 'neutral'
@@ -122,13 +113,51 @@ function isGraded(entry: SubjectEntry) {
   return typeof entry.grade === 'number' || entry.status === 'Completed' || entry.status === 'Failed'
 }
 
-function canRetake(entry: SubjectEntry) {
+/** True when the attempt was stopped and is now a dropped/removed record. */
+function isDroppedAttempt(entry: SubjectEntry) {
   const status = entry.status || ''
-  // Only Dropped or Removed status qualifies for retake (matching backend logic)
-  if (status === 'Dropped' || status === 'Removed') return true
-  if (entry.gradeMark === 'FA') return true
-  // Failing grades (greater than 3.0) are retakeable
-  return typeof entry.grade === 'number' && entry.grade > 3.0
+  const mark = String(entry.gradeMark || '').trim().toUpperCase()
+  return status === 'Dropped' || status === 'Removed' || mark === 'DRP'
+}
+
+/** True when the attempt carries a failing outcome (FA or a grade above 3.0). */
+function isFailedAttempt(entry: SubjectEntry) {
+  const status = entry.status || ''
+  const mark = String(entry.gradeMark || '').trim().toUpperCase()
+  return status === 'Failed' || mark === 'FA'
+    || (typeof entry.grade === 'number' && entry.grade > 3.0)
+}
+
+/** True once the subject has any recorded outcome, so it can no longer be dropped. */
+function hasRecordedOutcome(entry: SubjectEntry) {
+  return typeof entry.grade === 'number'
+    || Boolean(String(entry.gradeMark || '').trim())
+    || ['Completed', 'Failed', 'Dropped', 'Removed'].includes(entry.status || '')
+}
+
+/**
+ * The status shown in the history table. A grade or mark is the real outcome,
+ * so a subject whose stored status still says "Enrolled" is displayed as
+ * Failed/Dropped/Completed once that outcome has been recorded.
+ */
+function getDisplayStatus(entry: SubjectEntry) {
+  if (isDroppedAttempt(entry)) {
+    return entry.status === 'Removed' ? 'Removed' : 'Dropped'
+  }
+  if (isFailedAttempt(entry)) return 'Failed'
+  if (typeof entry.grade === 'number') return 'Completed'
+
+  const mark = String(entry.gradeMark || '').trim().toUpperCase()
+  if (mark === 'INC') return 'Incomplete'
+  if (mark === 'W') return 'Withdrawn'
+  if (mark === 'NG') return 'No Grade'
+  return entry.status || '—'
+}
+
+function canRetake(entry: SubjectEntry) {
+  // Dropped and failed attempts can always be retaken, even when the subject
+  // status still reads "Enrolled" because the outcome lives in the grade mark.
+  return isDroppedAttempt(entry) || isFailedAttempt(entry)
 }
 
 function hasBeenRetaken(entry: SubjectEntry, allEnrollments: EnrollmentRecord[]) {
@@ -590,7 +619,7 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                     <table className="student-history-page__req-table">
                       <thead>
                         <tr>
-                          <th>Subject</th>
+                          <th>Course</th>
                           <th>Year</th>
                           <th>Sem</th>
                           <th>Req</th>
@@ -703,20 +732,8 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
 
                           <div className="student-history-page__timeline-details">
                             <div className="student-history-page__detail-row">
-                              <span className="student-history-page__detail-label">Subjects</span>
+                              <span className="student-history-page__detail-label">Courses</span>
                               <span className="student-history-page__detail-value">{record.subjects?.length || 0}</span>
-                            </div>
-                            <div className="student-history-page__detail-row">
-                              <span className="student-history-page__detail-label">Payment Status</span>
-                              <span className="student-history-page__detail-value">{record.assessment?.paymentStatus || 'N/A'}</span>
-                            </div>
-                            <div className="student-history-page__detail-row">
-                              <span className="student-history-page__detail-label">Total Assessment</span>
-                              <span className="student-history-page__detail-value">{formatCurrency(record.assessment?.totalAmount)}</span>
-                            </div>
-                            <div className="student-history-page__detail-row">
-                              <span className="student-history-page__detail-label">Balance</span>
-                              <span className="student-history-page__detail-value">{formatCurrency(record.assessment?.balance)}</span>
                             </div>
                             {locked && record.lockedAt ? (
                               <div className="student-history-page__detail-row">
@@ -734,13 +751,13 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
 
                           {record.subjects?.length ? (
                             <div className="student-history-page__subjects">
-                              <span className="student-history-page__subjects-label">Enrolled Subjects</span>
+                              <span className="student-history-page__subjects-label">Enrolled Courses</span>
                               <div className="student-history-page__req-table-wrap">
                                 <table className="student-history-page__req-table student-history-page__req-table--subjects">
                                   <thead>
                                     <tr>
                                       <th>Code</th>
-                                      <th>Subject</th>
+                                      <th>Course</th>
                                       <th>Units</th>
                                       <th>Status</th>
                                       <th>Grade</th>
@@ -754,7 +771,12 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                                       const gradeText = entry.grade != null
                                         ? formatGrade(entry.grade)
                                         : entry.gradeMark || '—'
-                                      const droppable = !locked && DROPPABLE_STATUSES.includes(entry.status || '')
+                                      const displayStatus = getDisplayStatus(entry)
+                                      // Once a subject has a grade, mark, or terminal outcome it
+                                      // is no longer "ongoing", so the Drop action is hidden.
+                                      const droppable = !locked
+                                        && DROPPABLE_STATUSES.includes(entry.status || '')
+                                        && !hasRecordedOutcome(entry)
                                       const retakeable = canRetake(entry)
                                       const alreadyRetaken = hasBeenRetaken(entry, sortedHistory)
                                       // A "Retake of …" note only renders for a verified
@@ -773,8 +795,8 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                                           <td>{entry.title}</td>
                                           <td>{entry.units ?? '—'}</td>
                                           <td>
-                                            <span className={`student-history-page__status-badge student-history-page__status-badge--${statusTone(entry.status || '')}`}>
-                                              {entry.status || '—'}
+                                            <span className={`student-history-page__status-badge student-history-page__status-badge--${statusTone(displayStatus)}`}>
+                                              {displayStatus}
                                             </span>
                                           </td>
                                           <td>{gradeText}</td>
@@ -918,7 +940,7 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                         </div>
                       </div>
                       <div className="student-history-page__timeline-footer">
-                        <span><Calendar size={12} /> {record.semester} · {record.schoolYear} · {record.subjects?.length || 0} subjects</span>
+                        <span><Calendar size={12} /> {record.semester} · {record.schoolYear} · {record.subjects?.length || 0} courses</span>
                         <span>{formatDateTime(record.updatedAt || record.createdAt)}</span>
                       </div>
                     </div>
@@ -942,7 +964,7 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
           >
             <div className="student-history-page__dialog-head">
               <div>
-                <h4 id="add-subjects-title">Add subjects</h4>
+                <h4 id="add-subjects-title">Add courses</h4>
                 <p>
                   {addTarget.semester} {addTarget.schoolYear} · Year {addTarget.yearLevel || student?.yearLevel || '—'}
                   {suggestionSource ? ` · ${suggestionSource}` : ''}
@@ -965,7 +987,7 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                 <div className="student-history-page__dialog-loading">Loading curriculum suggestions…</div>
               ) : suggestions.length === 0 ? (
                 <div className="student-history-page__dialog-loading">
-                  Every curriculum subject for this term is already on the record. Subjects outside the curriculum can still be
+                  Every curriculum course for this term is already on the record. Courses outside the curriculum can still be
                   added through the block&apos;s offerings.
                 </div>
               ) : (
@@ -1020,7 +1042,7 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                     rows={2}
                     value={overrideReason}
                     onChange={(e) => setOverrideReason(e.target.value)}
-                    placeholder="Why these subjects are being enrolled despite the rule above"
+                    placeholder="Why these courses are being enrolled despite the rule above"
                   />
                 </div>
               ) : null}
@@ -1046,7 +1068,7 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                   onClick={() => void commitSelection()}
                   disabled={modalBusy || validation.okIds.length === 0}
                 >
-                  {modalBusy ? 'Saving…' : `Add ${validation.okIds.length} subject(s)`}
+                  {modalBusy ? 'Saving…' : `Add ${validation.okIds.length} course(s)`}
                 </button>
               )}
             </div>
@@ -1090,7 +1112,7 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
               </div>
               {isGraded(dropTarget.entry) ? (
                 <div className="student-history-page__field">
-                  <label htmlFor="drop-override">Override reason (required — this subject carries a grade)</label>
+                  <label htmlFor="drop-override">Override reason (required — this course carries a grade)</label>
                   <textarea
                     id="drop-override"
                     rows={2}
@@ -1174,7 +1196,7 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                   rows={2}
                   value={retakeOverride}
                   onChange={(e) => setRetakeOverride(e.target.value)}
-                  placeholder="e.g. subject not offered in the student's block this term"
+                  placeholder="e.g. course not offered in the student's block this term"
                 />
               </div>
             </div>

@@ -41,6 +41,9 @@ class StudentRepository extends BaseRepository {
       update.isActive = true;
     } else if (lifecycleStatus === 'Inactive') {
       update.isActive = false;
+    } else if (lifecycleStatus === 'Leave of Absence') {
+      update.enrollmentStatus = 'On Leave';
+      update.isActive = false;
     }
     return this.updateById(studentId, { $set: update }, options);
   }

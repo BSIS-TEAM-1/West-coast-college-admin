@@ -1,36 +1,37 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
-  ArrowUpDown,
+  BookOpen,
   Calendar,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock,
-  Eye,
   FileCheck2,
   FileEdit,
-  History,
-  Lock,
+  MoreVertical,
   Play,
   Plus,
   RefreshCw,
   RotateCcw,
   Search,
-  ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
   Square,
+  Star,
+  Trash2,
   Users,
   X
 } from 'lucide-react'
 import {
   createRegistrarEvaluationPeriod,
+  deleteRegistrarEvaluationPeriod,
+  fetchFacultyCourseLoads,
   fetchRegistrarEvaluationOverview,
   fetchRegistrarEvaluationPeriods,
-  revealEvaluationStudentIdentity,
   updateRegistrarEvaluationPeriodStatus,
   type EvaluationPeriodInfo,
+  type FacultyCourseLoad,
   type RegistrarEvaluationOverviewData,
   type RegistrarEvaluationRecord
 } from '../../lib/evaluationApi'
@@ -46,6 +47,37 @@ const PROGRAM_OPTIONS = [
   'Bachelor of Elementary Education (BEED)'
 ]
 
+type FacultyCourseRow = {
+  key: string
+  subjectCode: string
+  subjectTitle: string
+  courseLabel: string
+  sectionLabels: string[]
+  responses: RegistrarEvaluationRecord[]
+  responseCount: number
+  averageRating: number
+  status: 'evaluated' | 'pending'
+}
+
+type FacultyEvaluationRow = {
+  professorId: string
+  professorName: string
+  username: string
+  courses: FacultyCourseRow[]
+  responseCount: number
+  averageRating: number
+  evaluatedCourses: number
+  totalCourses: number
+  status: 'evaluated' | 'partial' | 'pending' | 'unassigned'
+}
+
+const FACULTY_STATUS_LABELS: Record<FacultyEvaluationRow['status'], string> = {
+  evaluated: 'Evaluated',
+  partial: 'Partially Evaluated',
+  pending: 'Awaiting Evaluation',
+  unassigned: 'No Courses'
+}
+
 export default function EvaluationManagementPage() {
   const [periods, setPeriods] = useState<EvaluationPeriodInfo[]>([])
   const [overview, setOverview] = useState<RegistrarEvaluationOverviewData | null>(null)
@@ -57,12 +89,12 @@ export default function EvaluationManagementPage() {
   const cachedTerm = getCachedAcademicTerm()
   const [selectedSemester, setSelectedSemester] = useState<'1st' | '2nd' | 'Summer'>(cachedTerm?.semester || '1st')
   const [selectedSchoolYear, setSelectedSchoolYear] = useState(cachedTerm?.schoolYear || '')
-  const [activeTab, setActiveTab] = useState<'monitoring' | 'periods' | 'incomplete' | 'audit'>('monitoring')
+  const [activeTab, setActiveTab] = useState<'monitoring' | 'periods'>('monitoring')
   const [searchQuery, setSearchQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'Completed' | 'Revealed'>('ALL')
-  const [sortBy, setSortBy] = useState<'date_desc' | 'date_asc' | 'rating_desc' | 'rating_asc' | 'record_asc'>('date_desc')
+  const [sortBy, setSortBy] = useState<'name_asc' | 'name_desc' | 'rating_desc' | 'rating_asc' | 'responses_desc'>('name_asc')
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const [facultyLoads, setFacultyLoads] = useState<FacultyCourseLoad[]>([])
 
   // Period Configuration Form State
   const [showCreateForm, setShowCreateForm] = useState(false)
@@ -106,6 +138,7 @@ export default function EvaluationManagementPage() {
     }
     return Array.from(years).filter(Boolean).sort().reverse()
   }, [selectedSchoolYear, formSchoolYear, periods])
+
   const [formStartDate, setFormStartDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [formStartTime, setFormStartTime] = useState('08:00')
   const [formDeadlineDate, setFormDeadlineDate] = useState(() => {
@@ -114,7 +147,7 @@ export default function EvaluationManagementPage() {
   })
   const [formClosingTime, setFormClosingTime] = useState('23:59')
   const [formProgramScope, setFormProgramScope] = useState('All Programs')
-  const [formSubjectScope, setFormSubjectScope] = useState('All Enrolled Subjects')
+  const [formSubjectScope, setFormSubjectScope] = useState('All Evaluated Subjects')
   const [formProfessorScope, setFormProfessorScope] = useState('All Assigned Faculty')
   const [formDescription, setFormDescription] = useState('')
 
@@ -134,32 +167,40 @@ export default function EvaluationManagementPage() {
   const [extendReason, setExtendReason] = useState('')
   const [extending, setExtending] = useState(false)
 
-  // View Evaluation Details Modal
-  const [detailRecord, setDetailRecord] = useState<RegistrarEvaluationRecord | null>(null)
+  // Remove Evaluation Period State
+  const [deleteTarget, setDeleteTarget] = useState<EvaluationPeriodInfo | null>(null)
+  const [deletingPeriod, setDeletingPeriod] = useState(false)
 
-  // Controlled Identity Reveal Confirmation Modal State
-  const [revealTarget, setRevealTarget] = useState<RegistrarEvaluationRecord | null>(null)
-  const [revealReason, setRevealReason] = useState('')
-  const [revealConfirmedCheck, setRevealConfirmedCheck] = useState(false)
-  const [revealing, setRevealing] = useState(false)
-  const [revealError, setRevealError] = useState('')
-  const [revealedMap, setRevealedMap] = useState<
-    Record<string, NonNullable<RegistrarEvaluationRecord['studentIdentity']>>
-  >({})
+  // Faculty roster & evaluation detail state
+  const [detailProfessorId, setDetailProfessorId] = useState<string | null>(null)
+  const [detailCourseCode, setDetailCourseCode] = useState<string | null>(null)
+
+  // Administrative controls dropdown (fixed-positioned so the table wrapper cannot clip it)
+  const [openPeriodMenu, setOpenPeriodMenu] = useState<{
+    id: string
+    left: number
+    top?: number
+    bottom?: number
+  } | null>(null)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      const [periodsRes, overviewRes] = await Promise.all([
+      const [periodsRes, overviewRes, loadsRes] = await Promise.all([
         fetchRegistrarEvaluationPeriods(),
         fetchRegistrarEvaluationOverview({
           semester: selectedSemester,
           schoolYear: selectedSchoolYear
-        })
+        }),
+        fetchFacultyCourseLoads({
+          semester: selectedSemester,
+          schoolYear: selectedSchoolYear
+        }).catch(() => [] as FacultyCourseLoad[])
       ])
       setPeriods(periodsRes)
       setOverview(overviewRes)
+      setFacultyLoads(loadsRes)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load evaluation management data.')
     } finally {
@@ -173,7 +214,47 @@ export default function EvaluationManagementPage() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchQuery, statusFilter, sortBy, selectedSemester, selectedSchoolYear])
+  }, [searchQuery, sortBy, selectedSemester, selectedSchoolYear])
+
+  useEffect(() => {
+    if (!openPeriodMenu) return
+    const closeMenu = () => setOpenPeriodMenu(null)
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMenu()
+    }
+    window.addEventListener('click', closeMenu)
+    window.addEventListener('resize', closeMenu)
+    window.addEventListener('scroll', closeMenu, true)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('click', closeMenu)
+      window.removeEventListener('resize', closeMenu)
+      window.removeEventListener('scroll', closeMenu, true)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [openPeriodMenu])
+
+  const togglePeriodMenu = (
+    event: React.MouseEvent<HTMLButtonElement>,
+    period: EvaluationPeriodInfo
+  ) => {
+    event.stopPropagation()
+    if (openPeriodMenu?.id === period.id) {
+      setOpenPeriodMenu(null)
+      return
+    }
+    const rect = event.currentTarget.getBoundingClientRect()
+    const menuWidth = 200
+    const left = Math.max(8, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8))
+    const opensUpward = rect.bottom + 190 > window.innerHeight - 8
+    setOpenPeriodMenu({
+      id: period.id,
+      left,
+      ...(opensUpward
+        ? { bottom: window.innerHeight - rect.top + 6 }
+        : { top: rect.bottom + 6 })
+    })
+  }
 
   const handleSavePeriod = async (saveAsDraft: boolean) => {
     setCreatingPeriod(true)
@@ -190,7 +271,7 @@ export default function EvaluationManagementPage() {
         closingTime: formClosingTime,
         saveAsDraft,
         applicablePrograms: [formProgramScope],
-        applicableSubjects: formSubjectScope.trim() || 'All Enrolled Subjects',
+        applicableSubjects: formSubjectScope.trim() || 'All Evaluated Subjects',
         applicableProfessors: formProfessorScope.trim() || 'All Assigned Faculty',
         description: formDescription.trim()
       })
@@ -255,93 +336,242 @@ export default function EvaluationManagementPage() {
     }
   }
 
-  const handleRevealSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!revealTarget) return
-    if (revealReason.trim().length < 5) {
-      setRevealError('Please enter a valid administrative reason (minimum 5 characters).')
-      return
-    }
-    if (!revealConfirmedCheck) {
-      setRevealError('Please confirm that this identity reveal is authorized and will be permanently audited.')
-      return
-    }
-
-    setRevealing(true)
-    setRevealError('')
+  const handleDeletePeriod = async () => {
+    if (!deleteTarget) return
+    setDeletingPeriod(true)
+    setError('')
+    setStatusBanner('')
     try {
-      const result = await revealEvaluationStudentIdentity(revealTarget.id, revealReason.trim())
-      setRevealedMap((prev) => ({
-        ...prev,
-        [revealTarget.id]: result.studentIdentity
-      }))
-      setRevealTarget(null)
-      setRevealReason('')
-      setRevealConfirmedCheck(false)
+      const result = await deleteRegistrarEvaluationPeriod(deleteTarget.id)
+      setDeleteTarget(null)
       setStatusBanner(
-        `Student identity revealed for record ${
-          revealTarget.recordNumber || revealTarget.id.slice(-6).toUpperCase()
-        } and recorded in the permanent audit log.`
+        result.deletedResponses > 0
+          ? `Evaluation period removed along with ${result.deletedResponses} anonymous response(s).`
+          : 'Evaluation period removed.'
       )
       await loadAll()
     } catch (err) {
-      setRevealError(err instanceof Error ? err.message : 'Failed to reveal student identity.')
+      setError(err instanceof Error ? err.message : 'Failed to remove evaluation period.')
     } finally {
-      setRevealing(false)
+      setDeletingPeriod(false)
     }
   }
 
-  // Filter, sort, and paginate evaluation records
-  const processedEvaluations = useMemo(() => {
-    const list = (overview?.evaluations || []).map((rec, idx, arr) => ({
-      ...rec,
-      recordNumber:
-        rec.recordNumber ||
-        `EV-${String(rec.schoolYear || '2026').slice(0, 4)}-${String(arr.length - idx).padStart(4, '0')}`,
-      submissionStatus: rec.submissionStatus || 'Completed'
-    }))
+  // Build a professor-centric roster so faculty appear even without evaluations
+  const facultyRows = useMemo<FacultyEvaluationRow[]>(() => {
+    const normalize = (value: unknown) => String(value || '').trim().toLowerCase()
+    const rows = new Map<string, {
+      professorId: string
+      professorName: string
+      username: string
+      responseCount: number
+      ratingSum: number
+    }>()
+    const aliasToId = new Map<string, string>()
+    const courseMaps = new Map<string, Map<string, FacultyCourseRow>>()
 
-    const q = searchQuery.trim().toLowerCase()
-    const filtered = list.filter((rec) => {
-      const isRevealed = Boolean(revealedMap[rec.id]?.isRevealed || rec.revealCount > 0)
-      if (statusFilter === 'Revealed' && !isRevealed) return false
-      if (!q) return true
-      return (
-        String(rec.recordNumber || '').toLowerCase().includes(q) ||
-        rec.subjectCode.toLowerCase().includes(q) ||
-        rec.subjectTitle.toLowerCase().includes(q) ||
-        rec.professorName.toLowerCase().includes(q) ||
-        (rec.comment || '').toLowerCase().includes(q)
-      )
+    const ensureRow = (id: string, name: string, username = '') => {
+      const cleanId = id || `response:${normalize(name) || 'unknown'}`
+      if (!rows.has(cleanId)) {
+        rows.set(cleanId, {
+          professorId: cleanId,
+          professorName: String(name || username || 'Professor').trim(),
+          username,
+          responseCount: 0,
+          ratingSum: 0
+        })
+      }
+      const row = rows.get(cleanId)!
+      if (!row.username && username) row.username = username
+      ;[name, username].forEach((value) => {
+        const key = normalize(value)
+        if (key) aliasToId.set(key, cleanId)
+      })
+      return row
+    }
+
+    const ensureCourse = (rowId: string, subjectCode: string, subjectTitle: string, courseLabel = '') => {
+      const code = String(subjectCode || '').trim().toUpperCase() || 'SUBJECT'
+      let courseMap = courseMaps.get(rowId)
+      if (!courseMap) {
+        courseMap = new Map()
+        courseMaps.set(rowId, courseMap)
+      }
+      if (!courseMap.has(code)) {
+        courseMap.set(code, {
+          key: code,
+          subjectCode: code,
+          subjectTitle: String(subjectTitle || '').trim() || code,
+          courseLabel: courseLabel || '',
+          sectionLabels: [],
+          responses: [],
+          responseCount: 0,
+          averageRating: 0,
+          status: 'pending'
+        })
+      }
+      const course = courseMap.get(code)!
+      if ((!course.subjectTitle || course.subjectTitle === code) && subjectTitle) {
+        course.subjectTitle = String(subjectTitle).trim()
+      }
+      if (!course.courseLabel && courseLabel) course.courseLabel = String(courseLabel).trim()
+      return course
+    }
+
+    for (const load of facultyLoads) {
+      const id = String(load.professorId || '')
+      const name = String(load.label || load.displayName || load.username || 'Professor').trim()
+      ensureRow(id, name, String(load.username || '').trim())
+      ;[load.displayName, load.username, load.uid].forEach((value) => {
+        const key = normalize(value)
+        if (key) aliasToId.set(key, id)
+      })
+      for (const assignment of load.assignments || []) {
+        if (!assignment?.subjectCode) continue
+        const course = ensureCourse(
+          id,
+          assignment.subjectCode,
+          assignment.subjectTitle,
+          assignment.courseShortLabel || assignment.courseLabel || ''
+        )
+        const sectionLabel = String(assignment.sectionLabel || assignment.sectionCode || '').trim()
+        if (sectionLabel && !course.sectionLabels.includes(sectionLabel)) {
+          course.sectionLabels.push(sectionLabel)
+        }
+      }
+    }
+
+    for (const response of overview?.evaluations || []) {
+      const byId = response.professorId && rows.has(response.professorId) ? response.professorId : ''
+      const rowId = byId
+        || aliasToId.get(normalize(response.professorName))
+        || `response:${normalize(response.professorName) || 'unknown'}`
+      const row = ensureRow(rowId, response.professorName)
+      const course = ensureCourse(rowId, response.subjectCode, response.subjectTitle, response.course || '')
+      const sectionCode = String(response.sectionCode || '').trim()
+      if (sectionCode && !course.sectionLabels.includes(sectionCode)) {
+        course.sectionLabels.push(sectionCode)
+      }
+      course.responses.push(response)
+      course.responseCount += 1
+      course.averageRating += Number(response.averageRating || 0)
+      row.responseCount += 1
+      row.ratingSum += Number(response.averageRating || 0)
+    }
+
+    return Array.from(rows.values()).map((row) => {
+      const courses = Array.from(courseMaps.get(row.professorId)?.values() || [])
+        .map((course) => ({
+          ...course,
+          averageRating: course.responseCount > 0
+            ? Number((course.averageRating / course.responseCount).toFixed(2))
+            : 0,
+          status: (course.responseCount > 0 ? 'evaluated' : 'pending') as FacultyCourseRow['status']
+        }))
+        .sort((a, b) => a.subjectCode.localeCompare(b.subjectCode))
+      const evaluatedCourses = courses.filter((course) => course.responseCount > 0).length
+      const status: FacultyEvaluationRow['status'] = courses.length === 0
+        ? 'unassigned'
+        : evaluatedCourses === courses.length
+          ? 'evaluated'
+          : evaluatedCourses === 0
+            ? 'pending'
+            : 'partial'
+
+      return {
+        professorId: row.professorId,
+        professorName: row.professorName,
+        username: row.username,
+        courses,
+        responseCount: row.responseCount,
+        averageRating: row.responseCount > 0
+          ? Number((row.ratingSum / row.responseCount).toFixed(2))
+          : 0,
+        evaluatedCourses,
+        totalCourses: courses.length,
+        status
+      }
+    })
+  }, [facultyLoads, overview])
+
+  // Filter, sort, and paginate the faculty roster
+  const processedFaculty = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+    const filtered = facultyRows.filter((row) => {
+      if (!query) return true
+      if (row.professorName.toLowerCase().includes(query) || row.username.toLowerCase().includes(query)) {
+        return true
+      }
+      return row.courses.some((course) => (
+        course.subjectCode.toLowerCase().includes(query) ||
+        course.subjectTitle.toLowerCase().includes(query) ||
+        course.sectionLabels.some((label) => label.toLowerCase().includes(query)) ||
+        course.responses.some((response) => (response.comment || '').toLowerCase().includes(query))
+      ))
     })
 
     filtered.sort((a, b) => {
-      if (sortBy === 'date_asc') {
-        return new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime()
-      }
-      if (sortBy === 'rating_desc') {
-        return b.averageRating - a.averageRating
-      }
-      if (sortBy === 'rating_asc') {
-        return a.averageRating - b.averageRating
-      }
-      if (sortBy === 'record_asc') {
-        return String(a.recordNumber).localeCompare(String(b.recordNumber))
-      }
-      return new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()
+      if (sortBy === 'name_desc') return b.professorName.localeCompare(a.professorName)
+      if (sortBy === 'rating_desc') return b.averageRating - a.averageRating || a.professorName.localeCompare(b.professorName)
+      if (sortBy === 'rating_asc') return a.averageRating - b.averageRating || a.professorName.localeCompare(b.professorName)
+      if (sortBy === 'responses_desc') return b.responseCount - a.responseCount || a.professorName.localeCompare(b.professorName)
+      return a.professorName.localeCompare(b.professorName)
     })
 
     return filtered
-  }, [overview, searchQuery, statusFilter, sortBy, revealedMap])
+  }, [facultyRows, searchQuery, sortBy])
 
-  const totalPages = Math.max(1, Math.ceil(processedEvaluations.length / pageSize))
-  const paginatedEvaluations = useMemo(() => {
+  const totalPages = Math.max(1, Math.ceil(processedFaculty.length / pageSize))
+  const paginatedFaculty = useMemo(() => {
     const start = (currentPage - 1) * pageSize
-    return processedEvaluations.slice(start, start + pageSize)
-  }, [processedEvaluations, currentPage, pageSize])
+    return processedFaculty.slice(start, start + pageSize)
+  }, [processedFaculty, currentPage, pageSize])
+
+  const facultyWithResponses = facultyRows.filter((row) => row.responseCount > 0).length
+  const totalCoursesMonitored = facultyRows.reduce((sum, row) => sum + row.totalCourses, 0)
+  const totalCoursesEvaluated = facultyRows.reduce((sum, row) => sum + row.evaluatedCourses, 0)
+
+  const detailFaculty = useMemo(
+    () => facultyRows.find((row) => row.professorId === detailProfessorId) || null,
+    [facultyRows, detailProfessorId]
+  )
+  const detailCourse = detailFaculty && detailCourseCode
+    ? detailFaculty.courses.find((course) => course.key === detailCourseCode) || null
+    : null
+  const detailResponses = detailCourse
+    ? detailCourse.responses
+    : detailFaculty
+      ? detailFaculty.courses.flatMap((course) => course.responses)
+      : []
+  const detailQuestionSummaries = (() => {
+    if (!detailFaculty || detailResponses.length === 0) return []
+    const questions = overview?.questions || []
+    return questions.map((question) => {
+      const scores = detailResponses
+        .flatMap((response) =>
+          (response.ratings || [])
+            .filter((rating) => rating.questionNumber === question.number)
+            .map((rating) => Number(rating.score) || 0)
+        )
+        .filter((score) => score >= 1 && score <= 5)
+      const average = scores.length > 0
+        ? Number((scores.reduce((sum, score) => sum + score, 0) / scores.length).toFixed(2))
+        : 0
+      const emojiMeta = overview?.emojiScale?.find((item) => item.score === Math.round(average))
+      return {
+        number: question.number,
+        text: question.text,
+        average,
+        count: scores.length,
+        emoji: emojiMeta?.emoji || '—'
+      }
+    })
+  })()
+  const detailComments = detailResponses.filter((response) => Boolean(String(response.comment || '').trim()))
 
   const activePeriod = overview?.activePeriod
   const progress = overview?.progress
+  const termLabel = `${selectedSemester} Semester • SY ${selectedSchoolYear || '—'}`
 
   return (
     <div className="reg-eval-page">
@@ -354,7 +584,7 @@ export default function EvaluationManagementPage() {
           </div>
           <h1 className="reg-eval-title">Professor Evaluation Management</h1>
           <p className="reg-eval-subtitle">
-            Configure evaluation schedules, monitor institutional submission progress, and manage audited identity controls.
+            Configure per-semester evaluation schedules and monitor faculty evaluation status and results by course.
           </p>
         </div>
 
@@ -371,7 +601,16 @@ export default function EvaluationManagementPage() {
           <button
             type="button"
             className="reg-eval-btn reg-eval-btn-primary"
-            onClick={() => setShowCreateForm((prev) => !prev)}
+            onClick={() =>
+              setShowCreateForm((prev) => {
+                const next = !prev
+                if (next) {
+                  setFormSemester(selectedSemester)
+                  setFormSchoolYear(selectedSchoolYear)
+                }
+                return next
+              })
+            }
           >
             <Plus size={15} />
             <span>{showCreateForm ? 'Close Configuration Form' : 'Configure Evaluation Period'}</span>
@@ -501,7 +740,7 @@ export default function EvaluationManagementPage() {
               <span>Applicable Subjects</span>
               <input
                 type="text"
-                placeholder="All Enrolled Subjects or specific subject codes"
+                placeholder="All Evaluated Subjects or specific subject codes"
                 value={formSubjectScope}
                 onChange={(e) => setFormSubjectScope(e.target.value)}
               />
@@ -521,7 +760,7 @@ export default function EvaluationManagementPage() {
               <span>Administrative Notes (Optional)</span>
               <input
                 type="text"
-                placeholder="Policy notes or instructions for students and faculty..."
+                placeholder="Policy notes or instructions for faculty..."
                 value={formDescription}
                 onChange={(e) => setFormDescription(e.target.value)}
               />
@@ -615,7 +854,7 @@ export default function EvaluationManagementPage() {
                           : 'Start Evaluation Period',
                       description: `Are you sure you want to ${
                         activePeriod.status === 'closed' ? 'reopen' : 'start'
-                      } "${activePeriod.title}"? Students will immediately be able to submit evaluations.`
+                      } "${activePeriod.title}"? Faculty evaluations will immediately become available for this semester.`
                     })
                   }
                 >
@@ -644,7 +883,7 @@ export default function EvaluationManagementPage() {
                       period: activePeriod,
                       action: 'close',
                       title: 'Close Evaluation Submissions',
-                      description: `Are you sure you want to close submissions for "${activePeriod.title}"? Students with incomplete evaluations will no longer be able to submit unless the period is reopened or extended.`
+                      description: `Are you sure you want to close submissions for "${activePeriod.title}"? Evaluations will no longer be accepted for this semester unless the period is reopened or extended.`
                     })
                   }
                 >
@@ -658,17 +897,28 @@ export default function EvaluationManagementPage() {
       </section>
 
       {/* Summary KPI Cards */}
-      <section className="reg-eval-kpi-grid" aria-label="Evaluation submission progress">
+      <section className="reg-eval-kpi-grid" aria-label="Evaluation results summary">
         <div className="reg-eval-kpi-card">
           <div className="reg-eval-kpi-icon">
             <FileCheck2 size={20} />
           </div>
           <div className="reg-eval-kpi-body">
-            <span className="reg-eval-kpi-label">Submission Progress</span>
-            <strong className="reg-eval-kpi-value">{progress?.completionPercentage ?? 0}%</strong>
-            <span className="reg-eval-kpi-sub">
-              {progress?.totalSubmittedEvaluations ?? 0} of {progress?.totalRequiredEvaluations ?? 0} subject evaluations
-            </span>
+            <span className="reg-eval-kpi-label">Total Responses</span>
+            <strong className="reg-eval-kpi-value">{progress?.totalResponses ?? 0}</strong>
+            <span className="reg-eval-kpi-sub">Anonymous evaluations this semester</span>
+          </div>
+        </div>
+
+        <div className="reg-eval-kpi-card">
+          <div className="reg-eval-kpi-icon">
+            <Star size={20} />
+          </div>
+          <div className="reg-eval-kpi-body">
+            <span className="reg-eval-kpi-label">Average Rating</span>
+            <strong className="reg-eval-kpi-value">
+              {(progress?.averageRating ?? 0).toFixed(2)}
+            </strong>
+            <span className="reg-eval-kpi-sub">out of 5.00</span>
           </div>
         </div>
 
@@ -677,35 +927,22 @@ export default function EvaluationManagementPage() {
             <Users size={20} />
           </div>
           <div className="reg-eval-kpi-body">
-            <span className="reg-eval-kpi-label">Students Fully Completed</span>
-            <strong className="reg-eval-kpi-value">
-              {progress?.studentsFullyCompleted ?? 0} / {progress?.totalStudentsEnrolled ?? 0}
-            </strong>
-            <span className="reg-eval-kpi-sub">Grades unlocked upon release</span>
-          </div>
-        </div>
-
-        <div className="reg-eval-kpi-card">
-          <div className="reg-eval-kpi-icon">
-            <Clock size={20} />
-          </div>
-          <div className="reg-eval-kpi-body">
-            <span className="reg-eval-kpi-label">Incomplete Evaluations</span>
-            <strong className="reg-eval-kpi-value">{progress?.studentsIncomplete ?? 0}</strong>
+            <span className="reg-eval-kpi-label">Faculty Monitored</span>
+            <strong className="reg-eval-kpi-value">{facultyRows.length}</strong>
             <span className="reg-eval-kpi-sub">
-              {progress?.pendingEvaluations ?? 0} pending subject evaluation(s)
+              {facultyWithResponses} evaluated • {Math.max(0, facultyRows.length - facultyWithResponses)} awaiting
             </span>
           </div>
         </div>
 
         <div className="reg-eval-kpi-card">
           <div className="reg-eval-kpi-icon">
-            <History size={20} />
+            <BookOpen size={20} />
           </div>
           <div className="reg-eval-kpi-body">
-            <span className="reg-eval-kpi-label">Audited Identity Reveals</span>
-            <strong className="reg-eval-kpi-value">{overview?.revealLogs?.length ?? 0}</strong>
-            <span className="reg-eval-kpi-sub">Logged with Registrar &amp; reason</span>
+            <span className="reg-eval-kpi-label">Courses Monitored</span>
+            <strong className="reg-eval-kpi-value">{totalCoursesMonitored}</strong>
+            <span className="reg-eval-kpi-sub">{totalCoursesEvaluated} evaluated • {termLabel}</span>
           </div>
         </div>
       </section>
@@ -720,7 +957,7 @@ export default function EvaluationManagementPage() {
           onClick={() => setActiveTab('monitoring')}
         >
           <FileCheck2 size={16} />
-          <span>Evaluation Monitoring ({overview?.evaluations?.length || 0})</span>
+          <span>Faculty Evaluation Status ({facultyRows.length})</span>
         </button>
         <button
           type="button"
@@ -732,26 +969,6 @@ export default function EvaluationManagementPage() {
           <Calendar size={16} />
           <span>Evaluation Periods ({periods.length})</span>
         </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'incomplete'}
-          className={`reg-eval-tab ${activeTab === 'incomplete' ? 'is-active' : ''}`}
-          onClick={() => setActiveTab('incomplete')}
-        >
-          <Clock size={16} />
-          <span>Incomplete Students ({overview?.incompleteEvaluations?.length || 0})</span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'audit'}
-          className={`reg-eval-tab ${activeTab === 'audit' ? 'is-active' : ''}`}
-          onClick={() => setActiveTab('audit')}
-        >
-          <History size={16} />
-          <span>Identity Reveal Audit Log ({overview?.revealLogs?.length || 0})</span>
-        </button>
       </div>
 
       {/* Tab Panels */}
@@ -762,14 +979,14 @@ export default function EvaluationManagementPage() {
           ))}
         </div>
       ) : activeTab === 'monitoring' ? (
-        <section className="reg-eval-panel" aria-label="Evaluation monitoring table">
+        <section className="reg-eval-panel" aria-label="Faculty evaluation status table">
           {/* Search, Filtering, and Sorting Toolbar */}
           <div className="reg-eval-table-toolbar">
             <div className="reg-eval-search-box">
               <Search size={15} />
               <input
                 type="search"
-                placeholder="Search record number, professor, subject code, or comment..."
+                placeholder="Search professor, course, section, or comment..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
@@ -779,28 +996,15 @@ export default function EvaluationManagementPage() {
               <div className="reg-eval-control-group">
                 <SlidersHorizontal size={14} />
                 <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as any)}
-                  aria-label="Filter by identity status"
-                >
-                  <option value="ALL">All Records ({overview?.evaluations?.length || 0})</option>
-                  <option value="Completed">Completed Submissions</option>
-                  <option value="Revealed">Revealed Identities Only</option>
-                </select>
-              </div>
-
-              <div className="reg-eval-control-group">
-                <ArrowUpDown size={14} />
-                <select
                   value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as any)}
-                  aria-label="Sort evaluation records"
+                  onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                  aria-label="Sort faculty evaluation status"
                 >
-                  <option value="date_desc">Newest First</option>
-                  <option value="date_asc">Oldest First</option>
+                  <option value="name_asc">Professor (A–Z)</option>
+                  <option value="name_desc">Professor (Z–A)</option>
                   <option value="rating_desc">Highest Rating</option>
                   <option value="rating_asc">Lowest Rating</option>
-                  <option value="record_asc">Record Number (A–Z)</option>
+                  <option value="responses_desc">Most Responses</option>
                 </select>
               </div>
 
@@ -818,107 +1022,95 @@ export default function EvaluationManagementPage() {
             </div>
           </div>
 
-          {paginatedEvaluations.length === 0 ? (
+          {paginatedFaculty.length === 0 ? (
             <div className="reg-eval-empty">
               <FileCheck2 size={30} />
-              <h3>No Evaluation Records Found</h3>
-              <p>No submitted evaluation records match your current search and filter criteria.</p>
+              <h3>No Faculty Records Found</h3>
+              <p>No faculty or course assignments match your current search for {termLabel}.</p>
             </div>
           ) : (
             <>
               <div className="reg-eval-table-wrap">
-                <table className="reg-eval-table">
+                <table className="reg-eval-table reg-eval-faculty-table">
                   <thead>
                     <tr>
-                      <th>Record No.</th>
-                      <th>Professor &amp; Subject</th>
-                      <th>Submission Status</th>
-                      <th>Rating</th>
-                      <th>Submission Date</th>
-                      <th>Student Identity (Default Masked)</th>
-                      <th className="text-right">Administrative Actions</th>
+                      <th>Professor</th>
+                      <th>Assigned Courses &amp; Evaluation Status</th>
+                      <th>Responses</th>
+                      <th>Average Rating</th>
+                      <th>Status</th>
+                      <th className="text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {paginatedEvaluations.map((rec) => {
-                      const revealed = revealedMap[rec.id]
-                      return (
-                        <tr key={rec.id}>
-                          <td>
-                            <span className="reg-eval-record-num">{rec.recordNumber}</span>
-                          </td>
-                          <td>
-                            <div className="reg-eval-prof-subj">
-                              <strong>{rec.professorName}</strong>
-                              <span>
-                                {rec.subjectCode} — {rec.subjectTitle}
-                              </span>
-                            </div>
-                          </td>
-                          <td>
-                            <span className="reg-eval-sub-status is-completed">
-                              <CheckCircle2 size={13} />
-                              <span>{rec.submissionStatus || 'Completed'}</span>
-                            </span>
-                          </td>
-                          <td>
-                            <div className="reg-eval-rating-cell">
-                              <strong>{rec.averageRating.toFixed(2)}</strong>
-                              <span>/ 5.00 ({rec.ratingLabel})</span>
-                            </div>
-                          </td>
-                          <td>
-                            {rec.submittedAt ? new Date(rec.submittedAt).toLocaleString() : '—'}
-                          </td>
-                          <td>
-                            {revealed?.isRevealed ? (
-                              <div className="reg-eval-identity-revealed">
-                                <strong>{revealed.studentName}</strong>
-                                <span>
-                                  {revealed.studentNumber} • {revealed.course} Yr {revealed.yearLevel}
+                    {paginatedFaculty.map((row) => (
+                      <tr key={row.professorId}>
+                        <td>
+                          <div className="reg-eval-prof-subj">
+                            <strong>{row.professorName}</strong>
+                            <span>{row.username || 'Faculty account'}</span>
+                          </div>
+                        </td>
+                        <td>
+                          {row.courses.length === 0 ? (
+                            <span className="reg-eval-subtext">No assigned courses for this term</span>
+                          ) : (
+                            <div className="reg-eval-course-stack">
+                              {row.courses.slice(0, 3).map((course) => (
+                                <div key={course.key} className="reg-eval-course-line">
+                                  <span className="reg-eval-course-code">{course.subjectCode}</span>
+                                  <span className="reg-eval-course-title" title={course.subjectTitle}>
+                                    {course.subjectTitle}
+                                  </span>
+                                  <span className={`reg-eval-course-chip is-${course.status}`}>
+                                    {course.responseCount > 0
+                                      ? `${course.responseCount} response${course.responseCount === 1 ? '' : 's'}`
+                                      : 'No responses'}
+                                  </span>
+                                </div>
+                              ))}
+                              {row.courses.length > 3 && (
+                                <span className="reg-eval-subtext">
+                                  +{row.courses.length - 3} more course(s)
                                 </span>
-                              </div>
-                            ) : (
-                              <div className="reg-eval-identity-masked">
-                                <Lock size={13} />
-                                <span>Anonymous Student (Protected)</span>
-                                {rec.revealCount > 0 && (
-                                  <small className="reg-eval-audit-pill">
-                                    Audited {rec.revealCount}x
-                                  </small>
-                                )}
-                              </div>
-                            )}
-                          </td>
-                          <td className="text-right">
-                            <div className="reg-eval-row-actions">
-                              <button
-                                type="button"
-                                className="reg-eval-btn-xs is-secondary"
-                                onClick={() => setDetailRecord(rec)}
-                              >
-                                <span>View Details</span>
-                              </button>
-                              {!revealed?.isRevealed && (
-                                <button
-                                  type="button"
-                                  className="reg-eval-btn-xs is-warning"
-                                  onClick={() => {
-                                    setRevealTarget(rec)
-                                    setRevealReason('')
-                                    setRevealConfirmedCheck(false)
-                                    setRevealError('')
-                                  }}
-                                >
-                                  <Eye size={13} />
-                                  <span>Reveal Identity</span>
-                                </button>
                               )}
                             </div>
-                          </td>
-                        </tr>
-                      )
-                    })}
+                          )}
+                        </td>
+                        <td>
+                          <strong>{row.responseCount}</strong>
+                        </td>
+                        <td>
+                          {row.responseCount > 0 ? (
+                            <div className="reg-eval-rating-cell">
+                              <strong>{row.averageRating.toFixed(2)}</strong>
+                              <span>/ 5.00</span>
+                            </div>
+                          ) : (
+                            <span className="reg-eval-subtext">—</span>
+                          )}
+                        </td>
+                        <td>
+                          <span className={`reg-eval-faculty-status is-${row.status}`}>
+                            {FACULTY_STATUS_LABELS[row.status]}
+                          </span>
+                        </td>
+                        <td className="text-right">
+                          <div className="reg-eval-row-actions">
+                            <button
+                              type="button"
+                              className="reg-eval-btn-xs is-secondary"
+                              onClick={() => {
+                                setDetailProfessorId(row.professorId)
+                                setDetailCourseCode(row.courses.length === 1 ? row.courses[0].key : null)
+                              }}
+                            >
+                              <span>View Details</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -927,8 +1119,8 @@ export default function EvaluationManagementPage() {
               <div className="reg-eval-pagination">
                 <span className="reg-eval-page-info">
                   Showing {(currentPage - 1) * pageSize + 1}–
-                  {Math.min(currentPage * pageSize, processedEvaluations.length)} of{' '}
-                  {processedEvaluations.length} evaluation record(s)
+                  {Math.min(currentPage * pageSize, processedFaculty.length)} of{' '}
+                  {processedFaculty.length} professor(s)
                 </span>
                 <div className="reg-eval-page-controls">
                   <button
@@ -957,7 +1149,7 @@ export default function EvaluationManagementPage() {
             </>
           )}
         </section>
-      ) : activeTab === 'periods' ? (
+      ) : (
         <section className="reg-eval-panel" aria-label="Configured evaluation periods">
           <div className="reg-eval-table-wrap">
             <table className="reg-eval-table">
@@ -967,7 +1159,7 @@ export default function EvaluationManagementPage() {
                   <th>Schedule Window</th>
                   <th>Applicable Scope</th>
                   <th>Status</th>
-                  <th>Completion Progress</th>
+                  <th>Responses</th>
                   <th className="text-right">Administrative Controls</th>
                 </tr>
               </thead>
@@ -991,7 +1183,7 @@ export default function EvaluationManagementPage() {
                     <td>
                       <div className="reg-eval-prof-subj">
                         <span>{(p.applicablePrograms || ['All Programs']).join(', ')}</span>
-                        <span>{p.applicableSubjects || 'All Enrolled Subjects'}</span>
+                        <span>{p.applicableSubjects || 'All Evaluated Subjects'}</span>
                       </div>
                     </td>
                     <td>
@@ -1000,71 +1192,103 @@ export default function EvaluationManagementPage() {
                       </span>
                     </td>
                     <td>
-                      <div className="reg-eval-progress-cell">
-                        <div className="reg-eval-progress-bar">
-                          <div
-                            className="reg-eval-progress-fill"
-                            style={{ width: `${p.completionRate || 0}%` }}
-                          />
-                        </div>
+                      <div className="reg-eval-prof-subj">
+                        <strong>{p.totalResponses || 0} response(s)</strong>
                         <span>
-                          {p.completedEvaluations || 0} / {p.totalRequiredEvaluations || 0} (
-                          {p.completionRate || 0}%)
+                          {p.professorCount || 0} professor(s) • {p.subjectCount || 0} subject(s)
                         </span>
+                        <span>Avg {(p.averageRating || 0).toFixed(2)} / 5.00</span>
                       </div>
                     </td>
                     <td className="text-right">
-                      <div className="reg-eval-row-actions">
-                        {p.status !== 'open' && (
-                          <button
-                            type="button"
-                            className="reg-eval-btn-xs is-primary"
-                            onClick={() =>
-                              setConfirmPeriodAction({
-                                period: p,
-                                action: p.status === 'closed' ? 'reopen' : 'start',
-                                title:
-                                  p.status === 'closed'
-                                    ? 'Reopen Evaluation Period'
-                                    : 'Start Evaluation Period',
-                                description: `Confirm ${
-                                  p.status === 'closed' ? 'reopening' : 'starting'
-                                } "${p.title}" (${p.semester} Semester ${p.schoolYear}).`
-                              })
-                            }
-                          >
-                            {p.status === 'closed' ? <RotateCcw size={13} /> : <Play size={13} />}
-                            <span>{p.status === 'closed' ? 'Reopen' : 'Start'}</span>
-                          </button>
-                        )}
+                      <div className="reg-eval-menu-wrap">
                         <button
                           type="button"
-                          className="reg-eval-btn-xs is-secondary"
-                          onClick={() => {
-                            setExtendTarget(p)
-                            setExtendDate(p.deadlineDate)
-                            setExtendTime(p.closingTime || '23:59')
-                          }}
+                          className="reg-eval-menu-trigger"
+                          aria-haspopup="menu"
+                          aria-expanded={openPeriodMenu?.id === p.id}
+                          aria-label={`Administrative controls for ${p.title}`}
+                          onClick={(event) => togglePeriodMenu(event, p)}
                         >
-                          <Clock size={13} />
-                          <span>Extend</span>
+                          <MoreVertical size={16} />
                         </button>
-                        {p.status !== 'closed' && (
-                          <button
-                            type="button"
-                            className="reg-eval-btn-xs is-danger"
-                            onClick={() =>
-                              setConfirmPeriodAction({
-                                period: p,
-                                action: 'close',
-                                title: 'Close Evaluation Period',
-                                description: `Confirm closing submissions for "${p.title}".`
-                              })
-                            }
+                        {openPeriodMenu?.id === p.id && (
+                          <div
+                            className="reg-eval-menu"
+                            role="menu"
+                            style={{ top: openPeriodMenu.top, left: openPeriodMenu.left, bottom: openPeriodMenu.bottom }}
+                            onClick={(event) => event.stopPropagation()}
                           >
-                            <Square size={13} />
-                            <span>Close</span>
-                          </button>
+                            {p.status !== 'open' && (
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="reg-eval-menu-item"
+                                onClick={() => {
+                                  setOpenPeriodMenu(null)
+                                  setConfirmPeriodAction({
+                                    period: p,
+                                    action: p.status === 'closed' ? 'reopen' : 'start',
+                                    title:
+                                      p.status === 'closed'
+                                        ? 'Reopen Evaluation Period'
+                                        : 'Start Evaluation Period',
+                                    description: `Confirm ${
+                                      p.status === 'closed' ? 'reopening' : 'starting'
+                                    } "${p.title}" (${p.semester} Semester ${p.schoolYear}).`
+                                  })
+                                }}
+                              >
+                                {p.status === 'closed' ? <RotateCcw size={14} /> : <Play size={14} />}
+                                <span>{p.status === 'closed' ? 'Reopen Period' : 'Start Period'}</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="reg-eval-menu-item"
+                              onClick={() => {
+                                setOpenPeriodMenu(null)
+                                setExtendTarget(p)
+                                setExtendDate(p.deadlineDate)
+                                setExtendTime(p.closingTime || '23:59')
+                              }}
+                            >
+                              <Clock size={14} />
+                              <span>Extend Deadline</span>
+                            </button>
+                            {p.status !== 'closed' && (
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="reg-eval-menu-item is-danger"
+                                onClick={() => {
+                                  setOpenPeriodMenu(null)
+                                  setConfirmPeriodAction({
+                                    period: p,
+                                    action: 'close',
+                                    title: 'Close Evaluation Period',
+                                    description: `Confirm closing submissions for "${p.title}".`
+                                  })
+                                }}
+                              >
+                                <Square size={14} />
+                                <span>Close Period</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="reg-eval-menu-item is-danger"
+                              onClick={() => {
+                                setOpenPeriodMenu(null)
+                                setDeleteTarget(p)
+                              }}
+                            >
+                              <Trash2 size={14} />
+                              <span>Remove Evaluation</span>
+                            </button>
+                          </div>
                         )}
                       </div>
                     </td>
@@ -1073,105 +1297,6 @@ export default function EvaluationManagementPage() {
               </tbody>
             </table>
           </div>
-        </section>
-      ) : activeTab === 'incomplete' ? (
-        <section className="reg-eval-panel" aria-label="Students with incomplete evaluations">
-          {!overview?.incompleteEvaluations?.length ? (
-            <div className="reg-eval-empty">
-              <CheckCircle2 size={30} />
-              <h3>All Enrolled Students Have Completed Evaluations</h3>
-              <p>There are no students with incomplete professor evaluations for this term.</p>
-            </div>
-          ) : (
-            <div className="reg-eval-table-wrap">
-              <table className="reg-eval-table">
-                <thead>
-                  <tr>
-                    <th>Student Number</th>
-                    <th>Student Name</th>
-                    <th>Program &amp; Year</th>
-                    <th>Progress</th>
-                    <th>Pending Subject Evaluations</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {overview.incompleteEvaluations.map((stu) => (
-                    <tr key={`${stu.studentId}-${stu.semester}-${stu.schoolYear}`}>
-                      <td>
-                        <strong>{stu.studentNumber}</strong>
-                      </td>
-                      <td>{stu.studentName}</td>
-                      <td>
-                        {stu.course} {stu.yearLevel ? `• Year ${stu.yearLevel}` : ''}
-                      </td>
-                      <td>
-                        <span className="reg-eval-sub-status is-pending">
-                          {stu.completedCount} / {stu.requiredCount} Completed
-                        </span>
-                      </td>
-                      <td>
-                        <div className="reg-eval-pending-chips">
-                          {stu.pendingSubjects.map((sub) => (
-                            <span key={sub.subjectCode} className="reg-eval-pending-chip">
-                              <strong>{sub.subjectCode}</strong> ({sub.professorName})
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      ) : (
-        <section className="reg-eval-panel" aria-label="Identity reveal audit log">
-          {!overview?.revealLogs?.length ? (
-            <div className="reg-eval-empty">
-              <ShieldCheck size={30} />
-              <h3>No Identity Reveals Recorded</h3>
-              <p>All student evaluation identities remain masked.</p>
-            </div>
-          ) : (
-            <div className="reg-eval-table-wrap">
-              <table className="reg-eval-table">
-                <thead>
-                  <tr>
-                    <th>Timestamp</th>
-                    <th>Authorized Registrar</th>
-                    <th>Evaluation Subject &amp; Professor</th>
-                    <th>Revealed Student</th>
-                    <th>Documented Reason</th>
-                    <th>IP Address</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {overview.revealLogs.map((log) => (
-                    <tr key={log.id}>
-                      <td>{new Date(log.revealedAt).toLocaleString()}</td>
-                      <td>
-                        <strong>{log.registrarDisplayName}</strong>
-                        <div className="reg-eval-subtext">
-                          @{log.registrarUsername} ({log.registrarRole})
-                        </div>
-                      </td>
-                      <td>
-                        <strong>{log.subjectCode}</strong> — {log.subjectTitle}
-                        <div className="reg-eval-subtext">Prof. {log.professorName}</div>
-                      </td>
-                      <td>
-                        <strong>{log.revealedStudentName}</strong>
-                        <div className="reg-eval-subtext">{log.revealedStudentNumber}</div>
-                      </td>
-                      <td>{log.reason}</td>
-                      <td>{log.ipAddress}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
         </section>
       )}
 
@@ -1257,7 +1382,7 @@ export default function EvaluationManagementPage() {
                   <span>Authorization Reason</span>
                   <input
                     type="text"
-                    placeholder="e.g. Approved extension for late-enrolling blocks"
+                    placeholder="e.g. Approved extension for late evaluation encoding"
                     value={extendReason}
                     onChange={(e) => setExtendReason(e.target.value)}
                     required
@@ -1285,134 +1410,219 @@ export default function EvaluationManagementPage() {
         </div>
       )}
 
-      {/* View Evaluation Details Modal */}
-      {detailRecord && (
+      {/* Remove Evaluation Period Modal */}
+      {deleteTarget && (
         <div className="reg-eval-modal-backdrop" role="dialog" aria-modal="true">
-          <div className="reg-eval-modal reg-eval-modal-lg">
+          <div className="reg-eval-modal">
             <div className="reg-eval-modal-head">
-              <div>
-                <span className="reg-eval-record-num">{detailRecord.recordNumber}</span>
-                <h3>
-                  {detailRecord.subjectCode} — {detailRecord.subjectTitle}
-                </h3>
-                <p className="reg-eval-subtext">
-                  Professor: {detailRecord.professorName} • {detailRecord.semester} Semester SY{' '}
-                  {detailRecord.schoolYear}
-                </p>
-              </div>
+              <h3>Remove Evaluation</h3>
               <button
                 type="button"
                 className="reg-eval-icon-close"
-                onClick={() => setDetailRecord(null)}
+                onClick={() => setDeleteTarget(null)}
+                disabled={deletingPeriod}
+                aria-label="Close remove evaluation dialog"
               >
                 <X size={18} />
               </button>
             </div>
             <div className="reg-eval-modal-body">
-              <div className="reg-eval-detail-ratings">
-                {detailRecord.ratings.map((r) => (
-                  <div key={r.questionNumber} className="reg-eval-detail-row">
-                    <span>
-                      <strong>Q{r.questionNumber}.</strong> {r.questionText}
-                    </span>
-                    <span className="reg-eval-detail-score">
-                      <span aria-hidden="true">{r.emoji}</span>
-                      <strong>{r.score}</strong> — {r.label}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <div className="reg-eval-detail-comment">
-                <strong>Student Comment:</strong>
-                <p>{detailRecord.comment || 'No additional comment provided.'}</p>
-              </div>
+              <p>
+                Are you sure you want to permanently remove{' '}
+                <strong>{deleteTarget.title}</strong>?
+              </p>
+              <p className="reg-eval-subtext">
+                {(deleteTarget.totalResponses || 0) > 0
+                  ? `${deleteTarget.totalResponses} anonymous evaluation response(s) for this semester will also be deleted. `
+                  : 'No evaluation responses are currently recorded for this period. '}
+                This action cannot be undone.
+              </p>
             </div>
             <div className="reg-eval-modal-foot">
               <button
                 type="button"
-                className="reg-eval-btn reg-eval-btn-primary"
-                onClick={() => setDetailRecord(null)}
+                className="reg-eval-btn reg-eval-btn-secondary"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deletingPeriod}
               >
-                Close
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="reg-eval-btn reg-eval-btn-danger"
+                onClick={() => void handleDeletePeriod()}
+                disabled={deletingPeriod}
+              >
+                <Trash2 size={15} />
+                <span>{deletingPeriod ? 'Removing...' : 'Remove Evaluation'}</span>
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Controlled Identity Reveal Confirmation Modal */}
-      {revealTarget && (
+      {/* Faculty Evaluation Details Modal */}
+      {detailFaculty && (
         <div className="reg-eval-modal-backdrop" role="dialog" aria-modal="true">
-          <div className="reg-eval-modal">
+          <div className="reg-eval-modal reg-eval-modal-lg">
             <div className="reg-eval-modal-head">
-              <div className="reg-eval-modal-title-icon">
-                <ShieldAlert size={20} />
-                <h3>Authorized Student Identity Reveal</h3>
+              <div>
+                <span className="reg-eval-record-num">{termLabel}</span>
+                <h3>{detailFaculty.professorName}</h3>
+                <p className="reg-eval-subtext">
+                  {detailFaculty.username ? `${detailFaculty.username} • ` : ''}
+                  {detailCourse
+                    ? `${detailCourse.subjectCode} — ${detailCourse.subjectTitle}`
+                    : 'All assigned courses'}
+                </p>
               </div>
               <button
                 type="button"
                 className="reg-eval-icon-close"
-                onClick={() => setRevealTarget(null)}
+                onClick={() => {
+                  setDetailProfessorId(null)
+                  setDetailCourseCode(null)
+                }}
               >
                 <X size={18} />
               </button>
             </div>
-            <form onSubmit={handleRevealSubmit}>
-              <div className="reg-eval-modal-body">
-                <div className="reg-eval-audit-warning">
-                  <strong>Permanent Audit Log Notice:</strong> Revealing the student identity for record{' '}
-                  <strong>{revealTarget.recordNumber || revealTarget.id.slice(-6).toUpperCase()}</strong> (
-                  {revealTarget.subjectCode} — {revealTarget.professorName}) will permanently log your Registrar account, timestamp, IP address, and administrative justification.
+            <div className="reg-eval-modal-body">
+              <div className="reg-eval-faculty-summary">
+                <div>
+                  <span>Status</span>
+                  <strong className={`reg-eval-faculty-status is-${detailFaculty.status}`}>
+                    {FACULTY_STATUS_LABELS[detailFaculty.status]}
+                  </strong>
                 </div>
+                <div>
+                  <span>Responses</span>
+                  <strong>{detailFaculty.responseCount}</strong>
+                </div>
+                <div>
+                  <span>Average Rating</span>
+                  <strong>
+                    {detailFaculty.responseCount > 0
+                      ? `${detailFaculty.averageRating.toFixed(2)} / 5.00`
+                      : '—'}
+                  </strong>
+                </div>
+                <div>
+                  <span>Courses Evaluated</span>
+                  <strong>{detailFaculty.evaluatedCourses} / {detailFaculty.totalCourses}</strong>
+                </div>
+              </div>
 
-                {revealError && (
-                  <div className="reg-eval-alert is-error" role="alert">
-                    <AlertCircle size={16} />
-                    <span>{revealError}</span>
+              <h4 className="reg-eval-detail-heading">Course Evaluation Status</h4>
+              {detailFaculty.courses.length === 0 ? (
+                <p className="reg-eval-subtext">
+                  No courses are assigned to this professor for {termLabel}.
+                </p>
+              ) : (
+                <div className="reg-eval-course-detail-list">
+                  {detailFaculty.courses.length > 1 && (
+                    <button
+                      type="button"
+                      className={`reg-eval-course-detail ${!detailCourseCode ? 'is-active' : ''}`}
+                      onClick={() => setDetailCourseCode(null)}
+                    >
+                      <span className="reg-eval-course-detail-main">
+                        <strong>All Courses</strong>
+                        <span>{detailFaculty.totalCourses} assigned course(s)</span>
+                      </span>
+                      <span className="reg-eval-course-chip is-evaluated">
+                        {detailFaculty.responseCount} response(s)
+                      </span>
+                    </button>
+                  )}
+                  {detailFaculty.courses.map((course) => (
+                    <button
+                      key={course.key}
+                      type="button"
+                      className={`reg-eval-course-detail ${detailCourseCode === course.key ? 'is-active' : ''}`}
+                      onClick={() => setDetailCourseCode(course.key)}
+                    >
+                      <span className="reg-eval-course-detail-main">
+                        <strong>{course.subjectCode}</strong>
+                        <span>{course.subjectTitle}</span>
+                        {course.sectionLabels.length > 0 && (
+                          <small>{course.sectionLabels.join(' • ')}</small>
+                        )}
+                      </span>
+                      <span className={`reg-eval-course-chip is-${course.status}`}>
+                        {course.responseCount > 0
+                          ? `${course.responseCount} response(s) • ${course.averageRating.toFixed(2)} / 5.00`
+                          : 'No responses'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <h4 className="reg-eval-detail-heading">
+                {detailCourse ? `${detailCourse.subjectCode} Evaluation Details` : 'Evaluation Details'}
+              </h4>
+              {detailResponses.length === 0 ? (
+                <div className="reg-eval-empty reg-eval-empty-compact">
+                  <p>
+                    No anonymous evaluations submitted{' '}
+                    {detailCourse ? 'for this course' : 'for this professor'} yet for {termLabel}.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="reg-eval-detail-ratings">
+                    {detailQuestionSummaries.map((question) => (
+                      <div key={question.number} className="reg-eval-detail-row">
+                        <span>
+                          <strong>Q{question.number}.</strong> {question.text}
+                        </span>
+                        <span className="reg-eval-detail-score">
+                          <span aria-hidden="true">{question.emoji}</span>
+                          <strong>{question.average.toFixed(2)}</strong>
+                          <span className="reg-eval-subtext">({question.count} response(s))</span>
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                )}
 
-                <label className="reg-eval-field">
-                  <span>Administrative Reason for Identity Reveal (Required)</span>
-                  <textarea
-                    rows={3}
-                    placeholder="Document the official academic or disciplinary case requiring identity verification..."
-                    value={revealReason}
-                    onChange={(e) => setRevealReason(e.target.value)}
-                    required
-                  />
-                </label>
-
-                <label className="reg-eval-checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={revealConfirmedCheck}
-                    onChange={(e) => setRevealConfirmedCheck(e.target.checked)}
-                  />
-                  <span>
-                    I confirm that I am authorized by the Office of the Registrar to unmask this evaluation record and understand this action is audited.
-                  </span>
-                </label>
-              </div>
-              <div className="reg-eval-modal-foot">
-                <button
-                  type="button"
-                  className="reg-eval-btn reg-eval-btn-secondary"
-                  onClick={() => setRevealTarget(null)}
-                  disabled={revealing}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="reg-eval-btn reg-eval-btn-danger"
-                  disabled={revealing}
-                >
-                  <Eye size={15} />
-                  <span>{revealing ? 'Verifying & Logging...' : 'Confirm & Reveal Identity'}</span>
-                </button>
-              </div>
-            </form>
+                  <h4 className="reg-eval-detail-heading">
+                    Anonymous Comments ({detailComments.length})
+                  </h4>
+                  {detailComments.length === 0 ? (
+                    <p className="reg-eval-subtext">No anonymous comments for this selection.</p>
+                  ) : (
+                    <div className="reg-eval-comment-list">
+                      {detailComments.map((comment) => (
+                        <div key={comment.id} className="reg-eval-comment-item">
+                          <div className="reg-eval-comment-meta">
+                            <span>{comment.subjectCode}</span>
+                            <span>
+                              {comment.submittedAt
+                                ? new Date(comment.submittedAt).toLocaleString()
+                                : ''}
+                            </span>
+                          </div>
+                          <p>{comment.comment}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="reg-eval-modal-foot">
+              <button
+                type="button"
+                className="reg-eval-btn reg-eval-btn-primary"
+                onClick={() => {
+                  setDetailProfessorId(null)
+                  setDetailCourseCode(null)
+                }}
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

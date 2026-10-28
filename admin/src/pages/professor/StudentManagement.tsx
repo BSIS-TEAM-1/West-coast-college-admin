@@ -6,6 +6,7 @@ import { fetchWithAutoReconnect, isAbortRequestError, isNetworkRequestError } fr
 import type { ProfessorAssignedCourse, ProfessorRosterClassOption, ProfessorRosterSectionOption, ProfessorRosterStudent, RosterSortBy } from './professorTypes'
 import { buildReconnectMessage } from './professorUtils'
 import { formatGrade } from '../../lib/gradingScale'
+import { formatScheduleDisplay } from '../../lib/scheduleFormatter'
 import './ProfessorShared.css'
 
 interface StudentManagementProps {
@@ -619,8 +620,8 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
       <>
         <div className="professor-class-overview">
           <div className="professor-overview-row"><span>Scope</span><strong>{rosterScopeLabel}</strong></div>
-          <div className="professor-overview-row"><span>Subject</span><strong>{selectedClass ? `${selectedClass.subjectCode} - ${selectedClass.subjectTitle}` : 'All subjects in view'}</strong></div>
-          <div className="professor-overview-row"><span>Schedule</span><strong>{selectedClass ? selectedClass.schedule : 'Mixed schedules'}</strong></div>
+          <div className="professor-overview-row"><span>Course</span><strong>{selectedClass ? `${selectedClass.subjectCode} - ${selectedClass.subjectTitle}` : 'All courses in view'}</strong></div>
+          <div className="professor-overview-row"><span>Schedule</span><strong>{selectedClass ? formatScheduleDisplay(selectedClass.schedule) : 'Mixed schedules'}</strong></div>
           <div className="professor-overview-row"><span>Semester / School Year</span><strong>{selectedSection ? `${selectedSection.semester} / ${selectedSection.schoolYear}` : 'Across assigned classes'}</strong></div>
           <div className="professor-overview-row"><span>Visible Classes</span><strong>{rosterClassCount}</strong></div>
           <div className="professor-overview-row"><span>Total Students</span><strong>{totalStudents}</strong></div>
@@ -632,7 +633,7 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
             <strong>{totalStudents}</strong>
           </div>
           <div className="professor-summary-card">
-            <span>Programs / Courses</span>
+            <span>Programs</span>
             <strong>{rosterProgramCount}</strong>
           </div>
           <div className="professor-summary-card">
@@ -647,7 +648,7 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
             <Search size={16} />
             <input
               type="text"
-              placeholder="Search name, student ID, course, section, or subject"
+              placeholder="Search name, student ID, program, section, or course"
               value={searchQuery}
               onChange={(event) => {
                 setSearchQuery(event.target.value)
@@ -692,7 +693,7 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
               <tr>
                 <th>Student ID</th>
                 <th>Full Name</th>
-                <th>Program / Course</th>
+                <th>Program</th>
                 <th>Block / Section</th>
                 <th>Year Level</th>
                 <th>Current Grade</th>

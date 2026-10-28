@@ -108,6 +108,7 @@ const baseGroup = {
 
 function mockHappyPath() {
   Enrollment.findOne.mockReturnValue(mockChain(baseEnrollment));
+  Enrollment.find.mockReturnValue(mockChain([]));
   StudentBlockAssignment.find.mockReturnValue(mockChain([baseAssignment]));
   BlockSection.find.mockReturnValue(mockChain([baseSection]));
   BlockGroup.find.mockReturnValue(mockChain([baseGroup]));
@@ -225,6 +226,124 @@ describe('finalizeEnrollment', () => {
     expect(studentDoc.section).toBe('BEED-1A');
     expect(save).toHaveBeenCalled();
     expect(result.enrollmentId).toBe(baseEnrollment._id);
+  });
+
+  test('marks a returning student with an unresolved failure as Irregular', async () => {
+    mockHappyPath();
+    Enrollment.updateMany.mockReturnValue(mockChain({ modifiedCount: 0 }));
+    Enrollment.updateOne.mockReturnValue(mockChain({ modifiedCount: 1 }));
+    Enrollment.find.mockReturnValue(mockChain([
+      {
+        schoolYear: '2023-2024',
+        semester: '1st',
+        subjects: [
+          { subjectId: 'subject-eng', code: 'ENG101', grade: 5.0, gradeMark: 'FA', status: 'Completed' },
+        ],
+      },
+    ]));
+
+    const studentDoc = {
+      ...baseStudent,
+      toObject: () => ({ ...baseStudent }),
+      save: jest.fn().mockResolvedValue(true),
+    };
+    Student.findById.mockReturnValue(studentDoc);
+
+    await guard.finalizeEnrollment({ studentId: baseStudent._id });
+
+    expect(studentDoc.lifecycleStatus).toBe('Irregular');
+  });
+
+  test('keeps a current-term failure Enrolled until the student re-enrolls', async () => {
+    mockHappyPath();
+    Enrollment.updateMany.mockReturnValue(mockChain({ modifiedCount: 0 }));
+    Enrollment.updateOne.mockReturnValue(mockChain({ modifiedCount: 1 }));
+    Enrollment.find.mockReturnValue(mockChain([
+      {
+        schoolYear: '2024-2025',
+        semester: '1st',
+        subjects: [
+          { subjectId: 'subject-eng', code: 'ENG101', grade: null, gradeMark: 'DRP', status: 'Dropped' },
+        ],
+      },
+    ]));
+
+    const studentDoc = {
+      ...baseStudent,
+      toObject: () => ({ ...baseStudent }),
+      save: jest.fn().mockResolvedValue(true),
+    };
+    Student.findById.mockReturnValue(studentDoc);
+
+    await guard.finalizeEnrollment({ studentId: baseStudent._id });
+
+    expect(studentDoc.lifecycleStatus).toBe('Enrolled');
+  });
+
+  test('clears irregularity when the latest retake passed', async () => {
+    mockHappyPath();
+    Enrollment.updateMany.mockReturnValue(mockChain({ modifiedCount: 0 }));
+    Enrollment.updateOne.mockReturnValue(mockChain({ modifiedCount: 1 }));
+    Enrollment.find.mockReturnValue(mockChain([
+      {
+        schoolYear: '2023-2024',
+        semester: '1st',
+        subjects: [
+          { subjectId: 'subject-eng', code: 'ENG101', grade: 5.0, gradeMark: 'FA', status: 'Completed' },
+        ],
+      },
+      {
+        schoolYear: '2023-2024',
+        semester: '2nd',
+        subjects: [
+          { subjectId: 'subject-eng', code: 'ENG101', grade: 2.0, gradeMark: null, status: 'Completed' },
+        ],
+      },
+    ]));
+
+    const studentDoc = {
+      ...baseStudent,
+      toObject: () => ({ ...baseStudent }),
+      save: jest.fn().mockResolvedValue(true),
+    };
+    Student.findById.mockReturnValue(studentDoc);
+
+    await guard.finalizeEnrollment({ studentId: baseStudent._id });
+
+    expect(studentDoc.lifecycleStatus).toBe('Enrolled');
+  });
+
+  test('does not clear irregularity for an in-progress retake', async () => {
+    mockHappyPath();
+    Enrollment.updateMany.mockReturnValue(mockChain({ modifiedCount: 0 }));
+    Enrollment.updateOne.mockReturnValue(mockChain({ modifiedCount: 1 }));
+    Enrollment.find.mockReturnValue(mockChain([
+      {
+        schoolYear: '2023-2024',
+        semester: '1st',
+        subjects: [
+          { subjectId: 'subject-eng', code: 'ENG101', grade: 5.0, gradeMark: 'FA', status: 'Completed' },
+        ],
+      },
+      {
+        schoolYear: '2023-2024',
+        semester: '2nd',
+        subjects: [
+          { subjectId: 'subject-eng', code: 'ENG101', grade: null, gradeMark: null, status: 'Enrolled' },
+        ],
+      },
+    ]));
+
+    const studentDoc = {
+      ...baseStudent,
+      toObject: () => ({ ...baseStudent }),
+      save: jest.fn().mockResolvedValue(true),
+    };
+    Student.findById.mockReturnValue(studentDoc);
+
+    await guard.finalizeEnrollment({ studentId: baseStudent._id });
+
+    expect(studentDoc.lifecycleStatus).toBe('Irregular');
   });
 
   test('refuses to finalize when block assignment is missing', async () => {

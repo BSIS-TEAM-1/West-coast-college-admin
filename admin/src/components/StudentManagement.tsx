@@ -17,7 +17,6 @@ import {
   MoreHorizontal,
   PencilLine,
   Phone,
-  RefreshCw,
   Search,
   Trash2,
   Upload,
@@ -240,6 +239,19 @@ function lifecycleTone(status: LifecycleStatus): 'neutral' | 'info' | 'success' 
   return 'neutral'
 }
 
+/**
+ * Read-only lifecycle indicator for the roster. Lifecycle transitions are
+ * deliberately handled from the student details drawer so a registrar cannot
+ * accidentally change a student's status while scrolling the list.
+ */
+function LifecycleStatusText({ status }: { status: LifecycleStatus }) {
+  return (
+    <span className={`student-workspace__lifecycle-text student-workspace__lifecycle-text--${lifecycleTone(status)}`}>
+      {status}
+    </span>
+  )
+}
+
 function normalizeCorStatus(value?: string) {
   const status = String(value || 'Pending').trim().toLowerCase()
   if (status === 'verified' || status === 'released') return 'Released'
@@ -448,7 +460,7 @@ function StudentProfileDrawer({
   onGenerateCor,
   onGenerateReportCard,
   onGenerateTranscript,
-  onArchive,
+  onSetLifecycleStatus,
   onDelete,
   onViewHistory,
   onShiftStudent,
@@ -462,7 +474,7 @@ function StudentProfileDrawer({
   onGenerateCor: (student: ManagedStudent) => void
   onGenerateReportCard?: (student: ManagedStudent) => void
   onGenerateTranscript?: (student: ManagedStudent) => void
-  onArchive: (student: ManagedStudent) => void
+  onSetLifecycleStatus: (student: ManagedStudent, lifecycleStatus: 'Inactive' | 'Leave of Absence') => void
   onDelete: (student: ManagedStudent) => void
   onViewHistory?: (studentId: string) => void
   onShiftStudent?: (studentId: string) => void
@@ -475,7 +487,7 @@ function StudentProfileDrawer({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [moreOpen, setMoreOpen] = useState(false)
-  const [syncing, setSyncing] = useState(false)
+  const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'warning'; title: string; message: string } | null>(null)
   const moreMenuRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -507,9 +519,52 @@ function StudentProfileDrawer({
 
         if (cancelled) return
 
+        let activeEnrollment = currentResponse ? extractResponseData<EnrollmentRecord>(currentResponse) : null
         setStudent(detailStudent)
         setHistory(historyRecords)
-        setCurrentEnrollment(currentResponse ? extractResponseData<EnrollmentRecord>(currentResponse) : null)
+        setCurrentEnrollment(activeEnrollment)
+
+        // Auto-sync curriculum courses if the student has an active enrollment
+        if (activeEnrollment?._id) {
+          try {
+            const syncResponse = await authorizedFetch<{
+              success: boolean
+              message: string
+              data?: {
+                added?: unknown[]
+                skipped?: unknown[]
+                counts?: { added: number; skipped: number; total: number }
+              }
+            }>(
+              `/api/registrar/students/${detailStudent._id}/sync-curriculum-subjects`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enrollmentId: activeEnrollment._id })
+              }
+            )
+            const addedCount = syncResponse?.data?.counts?.added ?? (Array.isArray(syncResponse?.data?.added) ? syncResponse.data.added.length : 0)
+            if (syncResponse?.success && addedCount > 0) {
+              const updatedResp = await StudentService.getCurrentEnrollment(
+                token,
+                detailStudent._id,
+                detailStudent.schoolYear,
+                detailStudent.semester
+              ).catch(() => null)
+              if (!cancelled && updatedResp) {
+                const refreshedEnrollment = extractResponseData<EnrollmentRecord>(updatedResp)
+                setCurrentEnrollment(refreshedEnrollment)
+                setNotification({
+                  type: 'success',
+                  title: 'Courses Auto-Synced',
+                  message: `Auto-synced ${addedCount} course${addedCount === 1 ? '' : 's'} from curriculum.`
+                })
+              }
+            }
+          } catch (syncErr) {
+            console.error('Auto-sync on student details load failed:', syncErr)
+          }
+        }
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : 'Failed to load student profile')
@@ -599,41 +654,6 @@ function StudentProfileDrawer({
     )
   }, [history])
 
-  const handleSyncCurriculumSubjects = async () => {
-    if (!currentEnrollment || !student) return
-    setSyncing(true)
-    setError('')
-    try {
-      const token = await getStoredToken()
-      if (!token) throw new Error('No authentication token found')
-
-      const response = await authorizedFetch<{ success: boolean; message: string; data: any }>(
-        `/api/registrar/students/${student._id}/sync-curriculum-subjects`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enrollmentId: currentEnrollment._id })
-        }
-      )
-
-      if (response.success) {
-        // Reload enrollment to show updated subjects
-        const reloadResponse = await StudentService.getCurrentEnrollment(
-          token,
-          student._id,
-          student.schoolYear,
-          student.semester
-        )
-        setCurrentEnrollment(reloadResponse ? extractResponseData<EnrollmentRecord>(reloadResponse) : null)
-        setError('')
-      }
-    } catch (e: any) {
-      setError(e.message || 'Failed to sync curriculum subjects')
-    } finally {
-      setSyncing(false)
-    }
-  }
-
   const totalUnits = useMemo(
     () => (currentEnrollment?.subjects || []).reduce((sum, subject) => sum + (Number(subject.units) || 0), 0),
     [currentEnrollment]
@@ -652,7 +672,6 @@ function StudentProfileDrawer({
 
   const activeStudent = student || profileState.student
   const lifecycleStatus = normalizeLifecycleStatus(activeStudent)
-  const lifecycleToneValue = lifecycleTone(lifecycleStatus)
   const corStatusLabel = normalizeCorStatus(activeStudent.corStatus)
   const corToneValue = corTone(corStatusLabel)
   const fullName = studentDisplayName(activeStudent)
@@ -704,7 +723,7 @@ function StudentProfileDrawer({
                 <span>{termLabel}</span>
               </p>
               <div className="sd-badges">
-                <ToneBadge label={lifecycleStatus} tone={lifecycleToneValue} />
+                <LifecycleStatusText status={lifecycleStatus} />
                 <ToneBadge label={`COR ${corStatusLabel}`} tone={corToneValue} />
                 {activeStudent.scholarship && activeStudent.scholarship !== 'N/A' ? (
                   <ToneBadge label={activeStudent.scholarship} tone="accent" />
@@ -804,10 +823,18 @@ function StudentProfileDrawer({
                         Shift course/block
                       </button>
                     ) : null}
-                    <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onArchive(activeStudent) }}>
-                      <Archive size={15} />
-                      Archive student
-                    </button>
+                    {lifecycleStatus !== 'Leave of Absence' ? (
+                      <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onSetLifecycleStatus(activeStudent, 'Leave of Absence') }}>
+                        <CalendarDays size={15} />
+                        Place on leave of absence
+                      </button>
+                    ) : null}
+                    {lifecycleStatus !== 'Inactive' ? (
+                      <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onSetLifecycleStatus(activeStudent, 'Inactive') }}>
+                        <Archive size={15} />
+                        Set inactive
+                      </button>
+                    ) : null}
                     <button type="button" role="menuitem" className="sd-menu-danger" onClick={() => { setMoreOpen(false); onDelete(activeStudent) }}>
                       <Trash2 size={15} />
                       Delete record
@@ -876,15 +903,22 @@ function StudentProfileDrawer({
                     <span className="sd-card-count">{termLabel}</span>
                   </header>
                   <dl className="sd-dl sd-dl--3">
-                    <div><dt>Course</dt><dd>{courseFullLabel(activeStudent.course)}</dd></div>
+                    <div><dt>Program</dt><dd>{courseFullLabel(activeStudent.course)}</dd></div>
                     <div><dt>Year</dt><dd>{formatYearLevel(activeStudent.yearLevel)}</dd></div>
                     <div><dt>Block</dt><dd>{formatBlockDisplay(activeStudent.section) || 'Unassigned'}</dd></div>
-                    <div><dt>Lifecycle</dt><dd><ToneBadge label={lifecycleStatus} tone={lifecycleToneValue} /></dd></div>
+                    <div><dt>Lifecycle</dt><dd><LifecycleStatusText status={lifecycleStatus} /></dd></div>
                     <div><dt>Enrollment</dt><dd>{currentEnrollment?.status || 'Not Enrolled'}</dd></div>
                     <div><dt>Student type</dt><dd>{activeStudent.studentStatus || 'N/A'}</dd></div>
                     <div><dt>Scholarship</dt><dd>{activeStudent.scholarship || 'N/A'}</dd></div>
                     <div><dt>COR</dt><dd><ToneBadge label={corStatusLabel} tone={corToneValue} /></dd></div>
-                    <div><dt>Record</dt><dd>{activeStudent.isActive === false ? 'Archived' : 'Active'}</dd></div>
+                    <div>
+                      <dt>Record</dt>
+                      <dd>
+                        {activeStudent.isActive === false
+                          ? (lifecycleStatus === 'Leave of Absence' ? 'On leave' : 'Archived')
+                          : 'Active'}
+                      </dd>
+                    </div>
                   </dl>
                 </section>
               </div>
@@ -942,24 +976,11 @@ function StudentProfileDrawer({
                 <header className="sd-card-head">
                   <span className="sd-card-icon"><Layers3 size={16} /></span>
                   <div>
-                    <h3>Enrolled subjects</h3>
+                    <h3>Enrolled courses</h3>
                     <p>{currentEnrollment ? `${currentEnrollment.semester} · ${currentEnrollment.schoolYear}` : 'Active term load'}</p>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    {currentEnrollment && (
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
-                        onClick={handleSyncCurriculumSubjects}
-                        disabled={syncing}
-                        title="Sync subjects from curriculum"
-                      >
-                        <RefreshCw size={14} style={{ marginRight: '0.25rem' }} />
-                        {syncing ? 'Syncing...' : 'Sync Curriculum'}
-                      </button>
-                    )}
-                    <span className="sd-card-count">{subjectCount} subjects · {totalUnits} units</span>
+                    <span className="sd-card-count">{subjectCount} courses · {totalUnits} units</span>
                   </div>
                 </header>
                 {currentEnrollment?.subjects?.length ? (
@@ -976,7 +997,7 @@ function StudentProfileDrawer({
                     ))}
                   </ul>
                 ) : (
-                  <div className="sd-state sd-state--inline">No enrolled subjects for the active term.</div>
+                  <div className="sd-state sd-state--inline">No enrolled courses for the active term.</div>
                 )}
               </section>
             ) : null}
@@ -1013,6 +1034,15 @@ function StudentProfileDrawer({
           </div>
         </div>
       </div>
+      {notification && (
+        <NotificationToast
+          type={notification.type}
+          title={notification.title}
+          message={notification.message}
+          duration={5000}
+          onClose={() => setNotification(null)}
+        />
+      )}
     </StudentWorkspaceOverlay>
   )
 }
@@ -1194,7 +1224,7 @@ function StudentFormModal({
             <h3>Academic setup</h3>
             <div className="student-workspace__form-grid student-workspace__form-grid--four">
               <label>
-                <span>Course</span>
+                <span>Program</span>
                 <select value={formState.course} onChange={(event) => handleChange('course', event.target.value)}>
                   {COURSE_OPTIONS.map((course) => (
                     <option key={course.value} value={course.value}>{course.fullLabel}</option>
@@ -1577,13 +1607,13 @@ function EnrollmentModal({
           <section className="student-workspace__form-section">
             <div className="student-workspace__section-heading">
               <div>
-                <h3>Subjects</h3>
-                <p>Pick the subjects that should appear on the enrollment record.</p>
+                <h3>Courses</h3>
+                <p>Pick the courses that should appear on the enrollment record.</p>
               </div>
               <span>{selectedSubjectIds.length} selected</span>
             </div>
 
-            {loadingSubjects ? <div className="student-workspace__empty-state student-workspace__empty-state--inline">Loading subjects...</div> : null}
+            {loadingSubjects ? <div className="student-workspace__empty-state student-workspace__empty-state--inline">Loading courses...</div> : null}
 
             {!loadingSubjects && subjects.length ? (
               <div className="student-workspace__subject-picker">
@@ -1875,25 +1905,25 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
     setBlockAssignmentStudents(targets)
   }
 
-  const handleLifecycleChange = async (student: ManagedStudent, lifecycleStatus: LifecycleStatus) => {
-    // Client-side lock (the backend re-validates authoritatively and returns
-    // 409 for the same case): Enrolled requires a block assignment, so the
-    // manual control refuses it up front instead of sending a doomed request.
-    if (lifecycleStatus === 'Enrolled' && !String(student.section || '').trim()) {
-      setNotification({
-        type: 'error',
-        title: 'Block Required',
-        message: `${studentNumberDisplay(student)} has no block assignment. Assign a block first — enrollment finalizes to Enrolled automatically.`
-      })
-      return
-    }
+  const handleSetLifecycleStatus = async (
+    student: ManagedStudent,
+    lifecycleStatus: 'Inactive' | 'Leave of Absence'
+  ) => {
+    const actionLabel = lifecycleStatus === 'Leave of Absence' ? 'Place on leave of absence' : 'Set inactive'
+    if (!window.confirm(`${actionLabel} for ${studentDisplayName(student)}?`)) return
+
     await withBusyStudent(student._id, async () => {
       try {
         const token = await getStoredToken()
         if (!token) throw new Error('No authentication token found')
         await StudentService.updateStudent(token, student._id, { lifecycleStatus })
         await loadStudents('refresh')
-        setNotification({ type: 'success', title: 'Status Updated', message: `${studentNumberDisplay(student)} moved to ${lifecycleStatus}.` })
+        setProfileState(null)
+        setNotification({
+          type: 'success',
+          title: 'Lifecycle Updated',
+          message: `${studentNumberDisplay(student)} is now ${lifecycleStatus}.`
+        })
       } catch (updateError) {
         setNotification({
           type: 'error',
@@ -1991,27 +2021,6 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
           type: 'error',
           title: 'Transcript Failed',
           message: viewError instanceof Error ? viewError.message : 'Failed to generate transcript'
-        })
-      }
-    })
-  }
-
-  const handleArchiveStudent = async (student: ManagedStudent) => {
-    if (!window.confirm(`Archive ${studentDisplayName(student)}?`)) return
-
-    await withBusyStudent(student._id, async () => {
-      try {
-        const token = await getStoredToken()
-        if (!token) throw new Error('No authentication token found')
-        await StudentService.updateStudent(token, student._id, { lifecycleStatus: 'Inactive' })
-        await loadStudents('refresh')
-        setProfileState(null)
-        setNotification({ type: 'success', title: 'Student Archived', message: `${studentNumberDisplay(student)} archived successfully.` })
-      } catch (archiveError) {
-        setNotification({
-          type: 'error',
-          title: 'Archive Failed',
-          message: archiveError instanceof Error ? archiveError.message : 'Failed to archive student'
         })
       }
     })
@@ -2137,9 +2146,9 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
             </label>
 
             <label>
-              <span>Course</span>
+              <span>Program</span>
               <select value={courseFilter} onChange={(event) => setCourseFilter(event.target.value)}>
-                <option value="all">All courses</option>
+                <option value="all">All programs</option>
                 {courseOptions.map((course) => (
                   <option key={course.value} value={course.value}>{course.label}</option>
                 ))}
@@ -2194,7 +2203,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
                 <option value="name-asc">Name A-Z</option>
                 <option value="name-desc">Name Z-A</option>
                 <option value="id-asc">Student ID</option>
-                <option value="course-asc">Course</option>
+                <option value="course-asc">Program</option>
                 <option value="year-asc">Year level</option>
                 <option value="updated-desc">Recently updated</option>
               </select>
@@ -2271,7 +2280,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
               <p>
                 {isAssignBlockMode
                   ? 'Select one or more students, then use Assign Selected to choose a block section.'
-                  : 'Click a row to open the student profile drawer. Use the lifecycle selector for quick registrar updates.'}
+                  : 'Click a row to open student details. Lifecycle status is read-only here and is managed from the student details drawer.'}
               </p>
             </div>
             <div className="student-workspace__table-count">
@@ -2308,7 +2317,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
                       />
                     </th>
                     <th>Student</th>
-                    <th>Course</th>
+                    <th>Program</th>
                     <th>Year & Block</th>
                     <th>Lifecycle</th>
                     <th>COR</th>
@@ -2322,7 +2331,12 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
                     const blockLabel = String(student.section || '').trim()
                     const corStatus = normalizeCorStatus(student.corStatus)
                     return (
-                      <tr key={student._id} className={selectedStudentIds.includes(student._id) ? 'student-workspace__row--selected' : ''} onClick={() => openProfile(student)}>
+                      <tr
+                        key={student._id}
+                        className={selectedStudentIds.includes(student._id) ? 'student-workspace__row--selected' : ''}
+                        aria-busy={isBusy}
+                        onClick={() => openProfile(student)}
+                      >
                         <td onClick={(event) => event.stopPropagation()}>
                           <input
                             type="checkbox"
@@ -2356,25 +2370,8 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
                             )}
                           </div>
                         </td>
-                        <td onClick={(event) => event.stopPropagation()}>
-                          <label className={`student-workspace__status-control student-workspace__status-control--${lifecycleTone(lifecycleStatus)}`}>
-                            <select
-                              value={lifecycleStatus}
-                              onChange={(event) => handleLifecycleChange(student, event.target.value as LifecycleStatus)}
-                              disabled={isBusy}
-                              aria-label={`Lifecycle status for ${studentDisplayName(student)}`}
-                              title={blockLabel ? undefined : 'Enrolled requires a block assignment'}
-                            >
-                              {LIFECYCLE_OPTIONS.map((status) => {
-                                const requiresMissingBlock = status === 'Enrolled' && !blockLabel
-                                return (
-                                  <option key={status} value={status} disabled={requiresMissingBlock}>
-                                    {status}{requiresMissingBlock ? ' (requires block)' : ''}
-                                  </option>
-                                )
-                              })}
-                            </select>
-                          </label>
+                        <td>
+                          <LifecycleStatusText status={lifecycleStatus} />
                         </td>
                         <td>
                           <ToneBadge
@@ -2464,7 +2461,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
         onGenerateCor={handleGenerateCor}
         onGenerateReportCard={handleGenerateReportCard}
         onGenerateTranscript={handleGenerateTranscript}
-        onArchive={handleArchiveStudent}
+        onSetLifecycleStatus={handleSetLifecycleStatus}
         onDelete={handleDeleteStudent}
         onViewHistory={onViewHistory}
         onShiftStudent={onShiftStudent}

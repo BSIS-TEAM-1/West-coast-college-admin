@@ -421,13 +421,72 @@
 
 .registrar-course-workspace-page .time-box-group {
   display: grid;
-  grid-template-columns: minmax(60px, 1fr) auto minmax(60px, 1fr);
+  grid-template-columns: minmax(64px, 1fr) auto auto minmax(64px, 1fr) auto;
   gap: 0.3rem;
   align-items: center;
 }
 
 .registrar-course-workspace-page .time-box-group input {
   padding: 0.4rem 0.5rem;
+}
+
+.registrar-course-workspace-page .time-box-input-group {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 2.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  padding: 0 0.15rem;
+  box-sizing: border-box;
+}
+
+.registrar-course-workspace-page .time-box-input-group:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.registrar-course-workspace-page .time-box-input-group input {
+  flex: 1 1 0;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.4rem 0.1rem;
+  text-align: center;
+  box-shadow: none;
+}
+
+.registrar-course-workspace-page .time-box-input-group .time-box-hour {
+  text-align: right;
+  padding-right: 0.05rem;
+}
+
+.registrar-course-workspace-page .time-box-input-group .time-box-minute {
+  text-align: left;
+  padding-left: 0.05rem;
+}
+
+.registrar-course-workspace-page .time-box-input-group input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.registrar-course-workspace-page .time-box-input-group .time-box-colon {
+  flex: 0 0 auto;
+  color: var(--color-text);
+  font-weight: 700;
+  line-height: 1;
+  padding: 0 0.05rem;
+  user-select: none;
+}
+
+.registrar-course-workspace-page .time-box-group .time-box-select {
+  min-width: 4.2rem;
+  padding: 0.4rem 0.3rem;
 }
 
 .registrar-course-workspace-page .time-box-separator {
@@ -507,7 +566,7 @@
 
 .per-day-time-row .time-box-group {
   display: grid;
-  grid-template-columns: minmax(60px, 1fr) auto minmax(60px, 1fr);
+  grid-template-columns: minmax(64px, 1fr) auto auto minmax(64px, 1fr) auto;
   gap: 0.3rem;
   align-items: center;
 }

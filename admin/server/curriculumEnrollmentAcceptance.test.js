@@ -108,6 +108,15 @@ jest.mock('./models/AuditLog', () => ({
   create: jest.fn(),
 }));
 
+// The school-year school-year state machine is optional here: with no state
+// document the guard treats every school year as open/mutable, which is what
+// these fixtures assume.
+jest.mock('./models/SchoolYearState', () => ({
+  findOne: jest.fn(() => ({ lean: async () => null })),
+  findOneAndUpdate: jest.fn(),
+  updateMany: jest.fn(),
+}));
+
 const Student = require('./models/Student');
 const Enrollment = require('./models/Enrollment');
 const Curriculum = require('./models/Curriculum');
@@ -118,6 +127,7 @@ const BlockSection = require('./models/BlockSection');
 const BlockSubjectAssignment = require('./models/BlockSubjectAssignment');
 const StudentBlockAssignment = require('./models/StudentBlockAssignment');
 const AuditLog = require('./models/AuditLog');
+const SchoolYearState = require('./models/SchoolYearState');
 
 // ─── Fixture identifiers (valid 24-hex so mongoose.isValidObjectId passes) ───
 const ADMIN_ID = '64b0000000000000000000a1';
@@ -287,8 +297,7 @@ function mockReq(overrides = {}) {
 
 function configureModelMocks() {
   Student.updateOne = jest.fn().mockResolvedValue({ modifiedCount: 1 });
-  // dropSubjectFromEnrollment updates the student's standing via
-  // findByIdAndUpdate; the mock must cover both so the drop path can run.
+  // Kept for other enrollment paths that may update a student document.
   Student.findByIdAndUpdate = jest.fn().mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
   Student.findById = jest.fn().mockImplementation(() => chain({ ...STUDENT }));
 
@@ -386,6 +395,9 @@ function configureModelMocks() {
 
 beforeEach(() => {
   jest.resetAllMocks();
+  // Default to an open school year — no state document means every year is
+  // mutable, which is what these fixtures assume.
+  SchoolYearState.findOne.mockReturnValue({ lean: async () => null });
   history = [];
   offerings = [
     { blockSectionId: SECTION_ID, subjectId: S_FIL, semester: '1st', academicYear: '2026-2027' },
@@ -844,6 +856,37 @@ describe('D. Dropped and retake subjects', () => {
     );
   });
 
+  test('a subject marked DRP while its status still reads Enrolled can be retaken', async () => {
+    const original = targetEnrollment({
+      subjects: [
+        {
+          _id: '64b000000000000000000063',
+          subjectId: S_ENG,
+          code: 'ENG101',
+          title: 'The Life & Works of Rizal',
+          units: 3,
+          status: 'Enrolled',
+          grade: null,
+          gradeMark: 'DRP',
+        },
+      ],
+      ...TERM_1,
+    });
+    history = [original];
+
+    const result = await subjectEnrollmentService.retakeSubject({
+      student: { ...STUDENT, yearLevel: 2 },
+      subjectId: S_ENG,
+      ...TERM_2,
+      actorId: ADMIN_ID,
+    });
+
+    expect(result.entry.subjectId).toBe(S_ENG);
+    expect(result.entry.retakeOf.enrollmentId).toBe(original._id);
+    expect(result.entry.retakeOf.status).toBe('Enrolled');
+    expect(result.entry.retakeOf.gradeMark).toBe('DRP');
+  });
+
   test('the previous dropped enrollment record remains intact', async () => {
     const original = droppedOriginal();
     const originalSnapshot = JSON.parse(JSON.stringify(original));
@@ -946,6 +989,10 @@ describe('D. Dropped and retake subjects', () => {
     expect(enrollment.save).toHaveBeenCalledTimes(2);
     expect(AuditLog.create).toHaveBeenCalledTimes(2);
     expect(AuditLog.create).toHaveBeenCalledWith(expect.objectContaining({ action: 'DROP' }));
+
+    // A drop does not change the student's current lifecycle. Irregularity is
+    // decided only when they re-enroll for a later term.
+    expect(Student.findByIdAndUpdate).not.toHaveBeenCalled();
   });
 
   test('a graded subject cannot be dropped without a written override', async () => {
@@ -1034,6 +1081,57 @@ describe('E. Academic evaluation', () => {
     expect(progress.summary.dropped).toBe(1);
     expect(progress.summary.outstanding).toBe(1);
     expect(progress.graduationEligibility.eligible).toBe(false);
+  });
+
+  test('a recorded failing or dropped mark overrides an open enrollment status', () => {
+    const progress = curriculumProgressService.evaluateProgress({
+      curriculum: { _id: CURRICULUM_ID, programCode: 101, name: 'BEED 2026', version: '2026', status: 'Active' },
+      placements: PLACEMENTS,
+      enrollments: [
+        targetEnrollment({
+          ...TERM_1,
+          subjects: [
+            { subjectId: S_ENG, code: 'ENG101', status: 'Enrolled', grade: null, gradeMark: 'FA' },
+            { subjectId: S_MAT, code: 'MATH101', status: 'Enrolled', grade: null, gradeMark: 'DRP' },
+          ],
+        }),
+      ],
+      student: STUDENT,
+    });
+
+    const byCode = Object.fromEntries(progress.requirements.map((r) => [r.code, r.status]));
+    expect(byCode.ENG101).toBe('Failed');
+    expect(byCode.MATH101).toBe('Dropped');
+    expect(progress.summary.failed).toBe(1);
+    expect(progress.summary.dropped).toBe(1);
+    expect(progress.summary.inProgress).toBe(0);
+  });
+
+  test('a genuinely open retake stays In Progress even after an earlier failure', () => {
+    const progress = curriculumProgressService.evaluateProgress({
+      curriculum: { _id: CURRICULUM_ID, programCode: 101, name: 'BEED 2026', version: '2026', status: 'Active' },
+      placements: PLACEMENTS,
+      enrollments: [
+        targetEnrollment({
+          ...TERM_1,
+          subjects: [
+            { subjectId: S_ENG, code: 'ENG101', status: 'Enrolled', grade: null, gradeMark: 'FA' },
+          ],
+        }),
+        targetEnrollment({
+          _id: ENR_NEW_TERM,
+          ...TERM_2,
+          subjects: [
+            { subjectId: S_ENG, code: 'ENG101', status: 'Enrolled', grade: null, gradeMark: null },
+          ],
+        }),
+      ],
+      student: STUDENT,
+    });
+
+    expect(progress.requirements.find((r) => r.code === 'ENG101').status).toBe('In Progress');
+    expect(progress.summary.failed).toBe(0);
+    expect(progress.summary.inProgress).toBe(1);
   });
 
   test('a retake result is reconciled with the outstanding requirement and the earlier attempt stays on record', async () => {

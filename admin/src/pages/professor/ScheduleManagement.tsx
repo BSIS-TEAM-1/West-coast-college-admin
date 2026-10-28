@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useState } from 'react'
 import { CalendarDays, Clock } from 'lucide-react'
 import type { ProfessorAssignedCourse } from './professorTypes'
+import { parseClockMinutesFlexible } from '../../lib/scheduleFormatter'
 import './ScheduleManagement.css'
 
 export interface CalendarEvent {
@@ -123,11 +124,11 @@ const parseScheduleSegments = (schedule: string): TimelineEntry[] => {
     if (spaceIndex < 0) continue
 
     const days = parseDayCodes(body.slice(0, spaceIndex))
-    const timeMatch = body.slice(spaceIndex + 1).trim().match(/^(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})$/)
+    const timeMatch = body.slice(spaceIndex + 1).trim().match(/^(.+?)\s*-\s*(.+)$/)
     if (days.length === 0 || !timeMatch) continue
 
-    const start = parseClockMinutes(timeMatch[1])
-    const end = parseClockMinutes(timeMatch[2])
+    const start = parseClockMinutesFlexible(timeMatch[1]) ?? parseClockMinutes(timeMatch[1])
+    const end = parseClockMinutesFlexible(timeMatch[2]) ?? parseClockMinutes(timeMatch[2])
     if (start === null || end === null || end <= start) continue
 
     days.forEach((day) => entries.push({ day, start, end, room }))

@@ -196,7 +196,7 @@ const applicantSchema = new Schema({
   },
   schoolYear: {
     type: String,
-    required: true,
+    required: false,
     match: [/^\d{4}-\d{4}$/, 'Please enter a valid school year format (YYYY-YYYY)']
   },
 
@@ -217,6 +217,12 @@ applicantSchema.pre('validate', function(next) {
   if (!this.applicantNumber) {
     const randomPart = Math.random().toString(36).slice(2, 7).toUpperCase();
     this.applicantNumber = `APP-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}${randomPart}`;
+  }
+
+  // Set default school year if not provided
+  if (!this.schoolYear) {
+    const { DEFAULT_SCHOOL_YEAR } = require('../lib/academicTerm');
+    this.schoolYear = DEFAULT_SCHOOL_YEAR;
   }
 
   const seniorHighSchool = this.academicDetails?.seniorHighSchool;

@@ -219,8 +219,8 @@ export default function StudentImportModal({
                       <p className="student-import__note">
                         Course accepts BEED, BSEd-English, BSEd-Math, BSBA-HRM, or 101/102/103/201. Semester accepts
                         1st, 2nd, or Summer.                        School Year uses YYYY-YYYY (e.g. 2026-2027). Lifecycle accepts Pending,
-                        Not Enrolled, Irregular, Inactive, or Graduated; Enrolled imports as Pending because enrollment
-                        is a separate step.
+                        Not Enrolled, Irregular, Inactive, Graduated, or Leave of Absence; Enrolled imports as Pending
+                        because enrollment is a separate step.
 
                       </p>
                     </section>

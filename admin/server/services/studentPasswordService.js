@@ -6,27 +6,26 @@
 class StudentPasswordService {
   /**
    * Generate default password for a student
-   * Format: firstInitial + middleInitial + lastInitial + last4DigitsOfStudentNumber
-   * Example: Lorenze Nino F. Prepotente, UID: 2024-101-28391 → lnfp28391
+   * Format: firstInitial + lastName (lowercase) + last5DigitsOfStudentNumber
+   * Example: Lorenze Nino F. Prepotente, UID: 2024-101-28391 → lprepotente28391
+   * Example: John Doe, UID: 2024-101-12345 → jdoe12345
    */
   static generateDefaultPassword(student) {
     const firstName = (student.firstName || '').trim();
-    const middleName = (student.middleName || '').trim();
     const lastName = (student.lastName || '').trim();
     const studentNumber = (student.studentNumber || '').trim();
     
-    // Combine all name parts into one string and split by spaces
-    const fullName = `${firstName} ${middleName} ${lastName}`.trim();
-    const nameParts = fullName.split(/\s+/).filter(part => part.length > 0);
+    // Get first initial (lowercase)
+    const firstInitial = firstName.charAt(0).toLowerCase();
     
-    // Get first letter of each name part (lowercase)
-    const initials = nameParts.map(part => part.charAt(0).toLowerCase()).join('');
+    // Get full last name (lowercase, spaces removed)
+    const lastNameClean = lastName.toLowerCase().replace(/\s+/g, '');
     
     // Get last 5 digits of student number
     const lastFiveDigits = studentNumber.slice(-5);
     
-    // Format: all initials + last 5 digits
-    return `${initials}${lastFiveDigits}`;
+    // Format: first initial + full last name + last 5 digits
+    return `${firstInitial}${lastNameClean}${lastFiveDigits}`;
   }
 
   /**

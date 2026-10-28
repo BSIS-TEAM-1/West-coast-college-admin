@@ -441,7 +441,7 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
             </select>
           </div>
           <div className="form-group">
-            <label>Course</label>
+            <label>Program</label>
             <select value={courseFilter} onChange={e => setCourseFilter(e.target.value)}>
               <option value="">All</option>
               {COURSE_OPTIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
@@ -476,7 +476,7 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
               <thead>
                 <tr>
                   <th>Student No.</th>
-                  <th>Subject</th>
+                  <th>Course</th>
                   <th>Current</th>
                   <th>Requested</th>
                   <th>Reason</th>
@@ -535,22 +535,35 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
                     setActionLoading(true)
                     let ok = 0
                     let fail = 0
+                    const failureMessages: string[] = []
                     for (const s of submissions) {
+                      const enrollmentId = s.enrollmentId
+                      if (!enrollmentId) {
+                        fail++
+                        failureMessages.push(`${s.studentNumber || 'A submission'} is missing an enrollment ID.`)
+                        continue
+                      }
                       try {
                         if (activeTab === 'pending') {
-                          await verifyGradeSubmission(s.enrollmentId || s._id, '', s.instructor)
+                          await verifyGradeSubmission(enrollmentId, '', s.instructor, s.subjectId)
                         } else {
-                          await publishGradeSubmission(s.enrollmentId || s._id, '', s.instructor)
+                          await publishGradeSubmission(enrollmentId, '', s.instructor, s.subjectId)
                         }
                         ok++
-                      } catch {
+                      } catch (e) {
                         fail++
+                        failureMessages.push(e instanceof Error ? e.message : 'Unknown error')
                       }
                     }
                     setActionLoading(false)
                     await load()
                     if (fail > 0) {
-                      setError(`${ok} succeeded, ${fail} failed. Check individual submissions for errors.`)
+                      const detail = Array.from(new Set(failureMessages)).slice(0, 2).join(' ')
+                      setError(
+                        `${ok} succeeded, ${fail} failed.${detail ? ` ${detail}` : ' Check individual submissions for errors.'}`
+                      )
+                    } else {
+                      setError('')
                     }
                   }}
                   disabled={actionLoading}
@@ -567,7 +580,7 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
                 <th>Student</th>
                 <th>Professor</th>
                 <th>Term</th>
-                <th>Subjects &amp; Grades</th>
+                <th>Courses &amp; Grades</th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
@@ -769,7 +782,7 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
                       <tr>
                         <th>Student</th>
                         <th>Student No.</th>
-                        <th>Submitted Subjects with Grades</th>
+                        <th>Submitted Courses with Grades</th>
                         <th>Graded</th>
                         <th>Status</th>
                         <th>Submitted</th>

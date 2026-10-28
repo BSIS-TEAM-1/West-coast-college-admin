@@ -15,6 +15,7 @@ import {
   GraduationCap
 } from 'lucide-react'
 import { authorizedFetch } from '../lib/blockAssignmentShared'
+import { formatScheduleDisplay } from '../lib/scheduleFormatter'
 import './ProfessorLoad.css'
 
 // ─── Types ───
@@ -46,6 +47,12 @@ type ProfessorAssignment = {
   courseLabel?: string
   yearLevel?: number | null
   units?: number
+  lecturePeriods?: number
+  labPeriods?: number
+  expectedContactHours?: number
+  weeklyContactHours?: number
+  hoursDiscrepancy?: number
+  hasHoursDiscrepancy?: boolean
   studentCount: number
 }
 
@@ -62,6 +69,12 @@ type ProfessorCourseLoad = {
     sections: number
     subjects: number
     students: number
+    totalTeachingUnits?: number
+    totalContactHours?: number
+    discrepancyCount?: number
+    isOverloaded?: boolean
+    maxTeachingUnits?: number
+    maxContactHours?: number
   }
   courseSummaries: ProfessorCourseSummary[]
 }
@@ -245,7 +258,7 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
           <span className="registrar-course-eyebrow">Professor Loads</span>
           <h2 className="registrar-section-title">Professor Directory</h2>
           <p className="registrar-section-desc">
-            View teaching assignments, filter by term or course, and open a professor's workspace to manage subjects.
+            View teaching assignments, filter by term or program, and open a professor's workspace to manage courses.
           </p>
         </div>
         <button
@@ -262,7 +275,13 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
       {error && <p className="registrar-feedback registrar-feedback-error">{error}</p>}
 
       {/* Stats summary */}
-      {stats && !loading && (
+      {loading && !stats ? (
+        <section className="professor-load-stats-bar" aria-busy="true">
+          {[1, 2, 3, 4].map((item) => (
+            <div key={item} className="professor-load-skeleton-card" />
+          ))}
+        </section>
+      ) : stats ? (
         <section className="professor-load-stats-bar">
           <div className="professor-load-stat-card">
             <div className="professor-load-stat-icon-circle">
@@ -279,7 +298,7 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
             </div>
             <div>
               <strong>{formatStat(stats.assignedSubjects)}</strong>
-              <span>Assigned Subjects</span>
+              <span>Assigned Courses</span>
             </div>
           </div>
           <div className="professor-load-stat-card">
@@ -312,7 +331,7 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
             </div>
           )}
         </section>
-      )}
+      ) : null}
 
       {/* Attention panel: unassigned / orphaned subjects */}
       {showAttentionPanel && !loading && unassignedSubjects.length > 0 && (
@@ -320,7 +339,7 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
           <div className="professor-load-attention-header">
             <div className="professor-load-attention-title">
               <AlertTriangle size={18} />
-              <h3>Subjects Needing Attention</h3>
+              <h3>Courses Needing Attention</h3>
               <span className="professor-load-attention-count">{unassignedSubjects.length}</span>
             </div>
             <button type="button" className="professor-load-attention-close" onClick={() => setShowAttentionPanel(false)}>
@@ -360,7 +379,7 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
             type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Name, username, course, subject, or section"
+            placeholder="Name, username, program, course, or section"
           />
         </label>
 
@@ -386,7 +405,7 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
 
         {filterOptions.courses.length > 0 && (
           <label>
-            <span>Course</span>
+            <span>Program</span>
             <select value={courseFilter} onChange={(e) => setCourseFilter(e.target.value)}>
               <option value="">All</option>
               {filterOptions.courses.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
@@ -397,7 +416,7 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
         <label>
           <span>Sort by</span>
           <select value={sort} onChange={(e) => setSort(e.target.value as SortOption)}>
-            <option value="subjects-desc">Most subjects</option>
+            <option value="subjects-desc">Most courses</option>
             <option value="students-desc">Most students</option>
             <option value="sections-desc">Most sections</option>
             <option value="name-asc">Name A-Z</option>
@@ -430,11 +449,9 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
       {/* Professor list */}
       <section className="registrar-course-directory-card registrar-professor-simple-card">
         {loading ? (
-          <div className="registrar-professor-simple-list">
+          <div className="professor-load-skeleton-panel" aria-busy="true">
             {Array.from({ length: 5 }).map((_, index) => (
-              <div key={index} className="registrar-professor-simple-row registrar-professor-load-card-skeleton" aria-hidden="true">
-                <div className="registrar-skeleton registrar-skeleton-title" />
-              </div>
+              <div key={index} className="professor-load-skeleton-row" />
             ))}
           </div>
         ) : visibleProfessors.length === 0 ? (
@@ -483,19 +500,33 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
                         {hasNoAssignments ? (
                           <span className="professor-load-badge professor-load-badge--empty">No assignments</span>
                         ) : (
-                          <span className="registrar-professor-load-badge">{professor.totals.subjects} subjects</span>
+                          <span className="registrar-professor-load-badge">{professor.totals.subjects} courses</span>
                         )}
+                        {!hasNoAssignments && (professor.totals.discrepancyCount || 0) > 0 ? (
+                          <span
+                            className="professor-load-badge--warning"
+                            title="One or more schedules exceed the configured weekly contact hours"
+                          >
+                            <AlertTriangle size={12} /> {professor.totals.discrepancyCount} schedule warning{(professor.totals.discrepancyCount || 0) !== 1 ? 's' : ''}
+                          </span>
+                        ) : null}
                       </div>
 
                       <div className="professor-load-card-metrics">
                         <span className="professor-load-metric"><Layers size={14} /> {professor.totals.sections} sections</span>
                         <span className="professor-load-metric"><Users size={14} /> {professor.totals.students} students</span>
-                        <span className="professor-load-metric"><BookOpen size={14} /> {professor.totals.courses} course{professor.totals.courses !== 1 ? 's' : ''}</span>
+                        <span className="professor-load-metric"><BookOpen size={14} /> {professor.totals.courses} program{professor.totals.courses !== 1 ? 's' : ''}</span>
+                        <span className="professor-load-metric" title="Academic units are counted once per subject offering">
+                          <GraduationCap size={14} /> {professor.totals.totalTeachingUnits ?? '—'} units
+                        </span>
+                        <span className="professor-load-metric" title="Sum of scheduled meeting durations">
+                          <Clock size={14} /> {professor.totals.totalContactHours ?? '—'} contact hrs
+                        </span>
                       </div>
 
                       <div className="registrar-professor-list-row-courses">
                         {professor.courseSummaries.length === 0 ? (
-                          <span className="registrar-professor-course-pill">No course yet</span>
+                          <span className="registrar-professor-course-pill">No program yet</span>
                         ) : (
                           professor.courseSummaries.slice(0, 5).map((course) => (
                             <span key={course.label} className="registrar-professor-course-pill" title={course.fullLabel}>
@@ -531,6 +562,7 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
                             <th>Schedule</th>
                             <th>Room</th>
                             <th>Units</th>
+                            <th>Contact Hrs</th>
                             <th>Students</th>
                           </tr>
                         </thead>
@@ -542,7 +574,7 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
                               <td>{assignment.sectionLabel || assignment.sectionCode}</td>
                               <td>
                                 <span className="professor-load-assignment-schedule">
-                                  <Clock size={12} /> {assignment.schedule || 'TBA'}
+                                  <Clock size={12} /> {formatScheduleDisplay(assignment.schedule)}
                                 </span>
                               </td>
                               <td>
@@ -551,6 +583,19 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
                                 </span>
                               </td>
                               <td>{assignment.units || '—'}</td>
+                              <td>
+                                <span className={`professor-load-hours${assignment.hasHoursDiscrepancy ? ' professor-load-hours--warning' : ''}`}>
+                                  <Clock size={12} /> {assignment.weeklyContactHours ?? '—'}
+                                  {assignment.hasHoursDiscrepancy ? (
+                                    <span
+                                      className="professor-load-hours-warning"
+                                      title={`Expected ${assignment.expectedContactHours ?? 0} h/week; scheduled ${assignment.weeklyContactHours ?? 0} h/week (+${assignment.hoursDiscrepancy ?? 0} h)`}
+                                    >
+                                      <AlertTriangle size={12} /> +{assignment.hoursDiscrepancy ?? 0}
+                                    </span>
+                                  ) : null}
+                                </span>
+                              </td>
                               <td>
                                 <span className="professor-load-assignment-students">
                                   <Users size={12} /> {assignment.studentCount}
@@ -565,7 +610,7 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
                           <Hash size={13} /> {professor.assignments.length} assignments across {professor.totals.sections} section{professor.totals.sections !== 1 ? 's' : ''}
                         </span>
                         <span className="professor-load-detail-meta">
-                          {professor.courseSummaries.map((c) => c.label).join(' · ') || 'No course labels'}
+                          {professor.courseSummaries.map((c) => c.label).join(' · ') || 'No program labels'}
                         </span>
                       </div>
                     </div>

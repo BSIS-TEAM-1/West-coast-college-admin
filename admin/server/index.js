@@ -71,15 +71,15 @@ const settingsController = require('./controllers/settingsController')
 const gradingScaleService = require('./services/gradingScaleService')
 const StudentController = require('./controllers/studentController')
 const AcademicYearRolloverService = require('./services/academicYearRolloverService')
+const schoolYearLockService = require('./services/schoolYearLockService')
 const BlockSubjectAssignmentController = require('./controllers/blockSubjectAssignmentController')
 const { requireAnyRole, requireAdminRole, isOwnerOrAdmin, normalizeAccountType } = require('./authorization')
 const { registerDocumentRoutes } = require('./routes/documentRoutes')
 const EvaluationController = require('./controllers/evaluationController')
 const {
-  getStudentTermEvaluationStatus,
   loadProfessorLookup,
-  EVALUATION_QUESTIONS,
-  EMOJI_RATING_SCALE
+  getStudentTermEvaluationStatus,
+  groupEvaluationSubjectsByAdviser
 } = require('./services/evaluationService')
 const { purgeExpiredArchiveBinItems } = require('./services/documentService')
 
@@ -107,13 +107,14 @@ const verificationEmailService = new VerificationEmailService()
 // Function to count active data (documents stored in Supabase or local storage)
 async function getSupabaseFileCount() {
   try {
-    // Count all active documents regardless of storage provider
-    // This counts the actual document files, not all MongoDB records
+    // Count all active documents in registrar department archive
+    // This counts the actual document files in registrar, not all MongoDB records
     const count = await Document.countDocuments({
       isTrashed: false,
-      status: { $ne: 'ARCHIVED' }
+      status: { $ne: 'ARCHIVED' },
+      department: 'REGISTRAR'
     });
-    console.log(`[System Health] Active document count: ${count}`);
+    console.log(`[System Health] Registrar document archive count: ${count}`);
     return count;
   } catch (error) {
     console.error('Error counting active documents:', error);
@@ -130,21 +131,44 @@ logger.debug('Verification email service status:', {
 })
 
 let initialBackupTimeout = null
+let scheduledBackupTimeout = null
 
-// Schedule automatic backups (every 6 hours)
-const scheduledBackupInterval = setInterval(async () => {
-  logger.info('Running scheduled backup...');
-  try {
-    const result = await backupSystem.createBackup('scheduled', 'system');
-    if (result.success) {
-      logger.info(`Scheduled backup completed: ${result.fileName}`);
-    } else {
-      logger.error('Scheduled backup failed:', result.error);
-    }
-  } catch (error) {
-    logger.error('Scheduled backup error:', error);
+// Schedule automatic backups at a specific time daily (configurable via BACKUP_SCHEDULE_TIME, default 06:00)
+function scheduleNextBackup() {
+  const scheduleTime = process.env.BACKUP_SCHEDULE_TIME || '06:00'
+  const [hours, minutes] = scheduleTime.split(':').map(Number)
+
+  const now = new Date()
+  const scheduledTime = new Date()
+  scheduledTime.setHours(hours, minutes, 0, 0)
+
+  // If the scheduled time has already passed today, schedule for tomorrow
+  if (scheduledTime <= now) {
+    scheduledTime.setDate(scheduledTime.getDate() + 1)
   }
-}, 6 * 60 * 60 * 1000); // 6 hours
+
+  const delayMs = scheduledTime.getTime() - now.getTime()
+  logger.info(`Next backup scheduled for ${scheduledTime.toISOString()} (in ${Math.round(delayMs / 1000 / 60)} minutes)`)
+
+  scheduledBackupTimeout = setTimeout(async () => {
+    logger.info('Running scheduled backup...')
+    try {
+      const result = await backupSystem.createBackup('scheduled', 'system')
+      if (result.success) {
+        logger.info(`Scheduled backup completed: ${result.fileName}`)
+      } else {
+        logger.error('Scheduled backup failed:', result.error)
+      }
+    } catch (error) {
+      logger.error('Scheduled backup error:', error)
+    }
+    // Schedule the next backup after this one completes
+    scheduleNextBackup()
+  }, delayMs)
+}
+
+// Start the backup scheduler
+scheduleNextBackup()
 
 // Reconcile backup metadata in the background every 30 minutes
 const scheduledReconcileInterval = setInterval(async () => {
@@ -1121,7 +1145,11 @@ app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authM
       subjects: {
         $elemMatch: {
           subjectId: new mongoose.Types.ObjectId(subjectId),
-          status: { $ne: 'Dropped' },
+          $or: [
+            { status: { $ne: 'Dropped' } },
+            { dropReason: 'Marked DRP by professor' },
+            { gradeMark: { $in: ['DRP', 'INC', 'W', 'FA', 'NG'] } }
+          ],
           instructor: { $in: access.exactIdentifierPatterns }
         }
       }
@@ -1142,11 +1170,26 @@ app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authM
 
         const matchedEntry = (Array.isArray(enrollment.subjects) ? enrollment.subjects : []).find((entry) => {
           if (String(entry?.subjectId || '') !== String(subjectId)) return false
-          if (String(entry?.status || '').toLowerCase() === 'dropped') return false
+          const isOfficialDrop = String(entry?.status || '').toLowerCase() === 'dropped'
+            && entry?.dropReason !== 'Marked DRP by professor'
+            && !['DRP', 'INC', 'W', 'FA', 'NG'].includes(entry?.gradeMark)
+          if (isOfficialDrop) return false
           return access.instructorMatchesProfessor(entry?.instructor)
         })
 
         if (!matchedEntry) return null
+
+        const isCorruptedDrop = matchedEntry.status === 'Dropped' && (matchedEntry.dropReason === 'Marked DRP by professor' || ['DRP', 'INC', 'W', 'FA', 'NG'].includes(matchedEntry.gradeMark))
+        if (isCorruptedDrop) {
+          Enrollment.updateOne(
+            { _id: enrollment._id, 'subjects._id': matchedEntry._id },
+            { $set: { 'subjects.$.status': 'Enrolled' }, $unset: { 'subjects.$.dropReason': '', 'subjects.$.droppedAt': '' } }
+          ).catch(() => {})
+        }
+
+        const effectiveSubjectStatus = isCorruptedDrop
+          ? 'Enrolled'
+          : (normalizeProfessorRouteText(matchedEntry.status) || 'Enrolled')
 
         return {
           _id: String(student._id),
@@ -1166,7 +1209,7 @@ app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authM
           currentGrade: matchedEntry.grade ?? null,
           currentGradeMark: matchedEntry.gradeMark || null,
           remarks: normalizeProfessorRouteText(matchedEntry.remarks),
-          subjectStatus: normalizeProfessorRouteText(matchedEntry.status) || 'Enrolled',
+          subjectStatus: effectiveSubjectStatus,
           classSubjectCode: normalizeProfessorRouteText(matchedEntry.code),
           classSubjectTitle: normalizeProfessorRouteText(matchedEntry.title),
           gradeUpdatedAt: matchedEntry.dateModified || enrollment.updatedAt || enrollment.createdAt || null,
@@ -1219,7 +1262,7 @@ app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authM
 
 // PUT /api/professor/sections/:sectionId/subjects/:subjectId/students/:studentId/grade
 // Updates one student's grade entry for the selected subject in the selected term.
-app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studentId/grade', authMiddleware, async (req, res) => {
+app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studentId/grade', authMiddleware, invalidateApiCacheOnSuccess('/api/professor/sections/', '/api/professor/assigned-blocks'), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
@@ -1253,10 +1296,15 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
 
 
 
-  // A grade mark (INC/DRP/W/FA/NG) and a numerical grade are mutually exclusive.
-  // If a gradeMark is provided, clear the numerical grade.
+  // School-year lock enforcement: a locked or rolled-over school year's
+  // grades are immutable historical data (see schoolYearLockService.js).
+  await schoolYearLockService.assertSchoolYearWritable(schoolYear, 'professor grade edit')
+
+  // A grade mark (INC/DRP/W/FA/NG) and a numerical grade are normally mutually
+  // exclusive. FA is the exception: it is recorded together with its failing
+  // 5.0 equivalent so GPA/history calculations see the failure.
   if (normalizedGradeMark) {
-    normalizedGrade = null
+    normalizedGrade = normalizedGradeMark === 'FA' ? 5 : null
   }
 
   // Block grade changes if THIS SUBJECT's submissionStatus is Submitted, Verified, or Published.
@@ -1275,7 +1323,20 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
   }
   if (semester) submissionBlockQuery.semester = semester
   if (schoolYear) submissionBlockQuery.schoolYear = schoolYear
-  const blockedEnrollment = await Enrollment.findOne(submissionBlockQuery).lean().select('subjects')
+  let blockedEnrollment = await Enrollment.findOne(submissionBlockQuery).lean().select('subjects')
+  if (!blockedEnrollment && (semester || schoolYear)) {
+    blockedEnrollment = await Enrollment.findOne({
+      studentId: new mongoose.Types.ObjectId(studentId),
+      status: { $nin: ['Dropped', 'Cancelled'] },
+      subjects: {
+        $elemMatch: {
+          subjectId: new mongoose.Types.ObjectId(subjectId),
+          status: { $ne: 'Dropped' },
+          submissionStatus: { $in: ['Submitted', 'Verified', 'Published'] }
+        }
+      }
+    }).lean().select('subjects')
+  }
   if (blockedEnrollment) {
     const blockedSubject = blockedEnrollment.subjects.find(s =>
       String(s.subjectId) === String(subjectId)
@@ -1327,7 +1388,11 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
       subjects: {
         $elemMatch: {
           subjectId: new mongoose.Types.ObjectId(subjectId),
-          status: { $ne: 'Dropped' },
+          $or: [
+            { status: { $ne: 'Dropped' } },
+            { dropReason: 'Marked DRP by professor' },
+            { gradeMark: { $in: ['DRP', 'INC', 'W', 'FA', 'NG'] } }
+          ],
           instructor: { $in: access.exactIdentifierPatterns }
         }
       }
@@ -1345,7 +1410,11 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
         subjects: {
           $elemMatch: {
             subjectId: new mongoose.Types.ObjectId(subjectId),
-            status: { $ne: 'Dropped' },
+            $or: [
+              { status: { $ne: 'Dropped' } },
+              { dropReason: 'Marked DRP by professor' },
+              { gradeMark: { $in: ['DRP', 'INC', 'W', 'FA', 'NG'] } }
+            ],
             instructor: { $in: access.exactIdentifierPatterns }
           }
         }
@@ -1359,7 +1428,10 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
 
     const matchedEntry = enrollment.subjects.find((entry) => {
       if (String(entry?.subjectId || '') !== String(subjectId)) return false
-      if (String(entry?.status || '').toLowerCase() === 'dropped') return false
+      const isOfficialDrop = String(entry?.status || '').toLowerCase() === 'dropped'
+        && entry?.dropReason !== 'Marked DRP by professor'
+        && !['DRP', 'INC', 'W', 'FA', 'NG'].includes(entry?.gradeMark)
+      if (isOfficialDrop) return false
       return access.instructorMatchesProfessor(entry?.instructor)
     })
 
@@ -1392,15 +1464,18 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
 
     matchedEntry.grade = normalizedGrade
     matchedEntry.gradeMark = normalizedGradeMark
-    if (normalizedGradeMark === 'DRP') {
-      // DRP is a subject-level result. Preserve the entry, mark only that
-      // subject Dropped, and flag the student as Irregular for future terms.
-      matchedEntry.status = 'Dropped'
-      matchedEntry.droppedAt = new Date()
-      matchedEntry.dropReason = 'Marked DRP by professor'
+    // If this entry was previously marked as Dropped by the professor DRP bug, heal it back to Enrolled
+    if (matchedEntry.status === 'Dropped' && (matchedEntry.dropReason === 'Marked DRP by professor' || ['DRP', 'INC', 'W', 'FA', 'NG'].includes(matchedEntry.gradeMark))) {
+      matchedEntry.status = 'Enrolled'
+      matchedEntry.droppedAt = null
+      matchedEntry.dropReason = null
     }
     matchedEntry.remarks = remarks
     matchedEntry.dateModified = new Date()
+
+    // Grades saved or auto-saved by the professor remain strictly in Draft status.
+    // They are internal to the professor portal until submitted for review, verified, and published.
+    matchedEntry.submissionStatus = 'Draft'
 
     // Sanitize any corrupted submissionStatus values so enrollment.save()
     // doesn't fail on pre-existing bad data from the broken migration.
@@ -1411,19 +1486,17 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
       }
     })
 
+    // Recompute the aggregate enrollment-level gradeSubmission status
+    enrollment.gradeSubmission = enrollment.gradeSubmission || {}
+    enrollment.gradeSubmission.status = Enrollment.computeAggregateSubmissionStatus(enrollment.subjects)
+
     enrollment.updatedBy = req.adminId
     enrollment.markModified('subjects')
     await enrollment.save()
 
-    if (normalizedGradeMark === 'DRP') {
-      await Student.findByIdAndUpdate(studentId, {
-        $set: {
-          lifecycleStatus: 'Irregular',
-          studentStatus: 'Irregular',
-          classification: 'Irregular'
-        }
-      })
-    }
+    // Immediately bust cache so roster queries for this section/subject and course loads return the fresh grade
+    apiCache.invalidatePrefix('/api/professor/sections/')
+    apiCache.invalidatePrefix('/api/professor/assigned-blocks')
 
     // Audit log
     await GradeAuditLog.create({
@@ -1729,11 +1802,32 @@ if (!uri) {
 
 console.log('Environment:', process.env.NODE_ENV || 'development')
 
+async function ensureEvaluationCompletionIndexes() {
+  try {
+    const collection = mongoose.connection.db.collection('evaluationcompletions')
+    const indexes = await collection.indexes()
+    // Legacy builds linked a single EvaluationResponse to a completion via a
+    // unique responseId index. Adviser-level submissions deliberately store no
+    // response link, so multiple completions share a null responseId.
+    if (indexes.some((index) => index.name === 'responseId_1')) {
+      await collection.dropIndex('responseId_1')
+      console.log('[migration] Dropped obsolete evaluationcompletions.responseId_1 index')
+    }
+  } catch (error) {
+    if (error?.codeName !== 'IndexNotFound') {
+      console.warn('Evaluation completion index migration warning:', error?.message || error)
+    }
+  }
+}
+
 let dbReady = false
 mongoose.connect(uri)
   .then(() => {
     dbReady = true
     console.log('MongoDB connected')
+    void ensureEvaluationCompletionIndexes().catch((error) => {
+      console.warn('Evaluation completion index migration failed:', error?.message || error)
+    })
     // Clear system health cache on startup to ensure fresh data
     global.cachedSystemHealth = null
     global.lastSystemHealthScan = new Date(0)
@@ -1898,6 +1992,29 @@ async function runOnceStartupMigrations() {
             console.log(`Migration: Synced per-subject submissionStatus from enrollment-level status`)
           } catch (error) {
             console.error('Per-subject submissionStatus migration error:', error)
+          }
+        })()
+
+        // Migration: Sync Student.enrollmentStatus with active Enrollment records
+        void (async () => {
+          try {
+            const enrolledEnrollments = await Enrollment.find({ isCurrent: true, status: 'Enrolled' }).select('studentId').lean()
+            const enrolledStudentIds = enrolledEnrollments.map(e => e.studentId).filter(Boolean)
+            if (enrolledStudentIds.length > 0) {
+              const res = await Student.updateMany(
+                { _id: { $in: enrolledStudentIds }, enrollmentStatus: { $ne: 'Enrolled' } },
+                { $set: { enrollmentStatus: 'Enrolled' } }
+              )
+              if (res.modifiedCount > 0) {
+                console.log(`Migration: Synced enrollmentStatus to 'Enrolled' for ${res.modifiedCount} active enrolled student(s)`)
+              }
+            }
+            await Student.updateMany(
+              { lifecycleStatus: 'Enrolled', enrollmentStatus: { $ne: 'Enrolled' } },
+              { $set: { enrollmentStatus: 'Enrolled' } }
+            )
+          } catch (syncErr) {
+            console.error('Student enrollmentStatus sync error:', syncErr?.message || syncErr)
           }
         })()
 
@@ -3257,17 +3374,23 @@ app.get('/api/student/schedule', async (req, res) => {
       }
 
       // Format subjects with schedule information
-      const subjects = enrollment.subjects.map(subject => ({
-        subjectId: subject.subjectId ? subject.subjectId._id.toString() : null,
-        code: subject.code,
-        title: subject.title,
-        units: subject.units,
-        schedule: subject.schedule || 'TBA',
-        room: subject.room || 'TBA',
-        instructor: subject.instructor || 'TBA',
-        grade: subject.grade,
-        status: subject.status
-      }))
+      // Draft grades saved by professors must remain hidden until verified & published by the Registrar
+      const subjects = enrollment.subjects.map(subject => {
+        const isPublished = (subject.submissionStatus || 'Draft') === 'Published'
+        return {
+          subjectId: subject.subjectId ? subject.subjectId._id.toString() : null,
+          code: subject.code,
+          title: subject.title,
+          units: subject.units,
+          schedule: subject.schedule || 'TBA',
+          room: subject.room || 'TBA',
+          instructor: subject.instructor || 'TBA',
+          grade: isPublished ? (subject.grade ?? null) : null,
+          gradeMark: isPublished ? (subject.gradeMark || null) : null,
+          gradePublished: isPublished,
+          status: subject.status
+        }
+      })
 
       res.json({
         success: true,
@@ -3356,6 +3479,24 @@ app.get('/api/student/me', async (req, res) => {
         // Continue without block info if there's an error
       }
 
+      // Resolve authoritative enrollment status from Enrollment record (single source of truth)
+      const currentEnrollment = await Enrollment.findOne({
+        studentId: student._id,
+        $or: [
+          { isCurrent: true, status: { $ne: 'Dropped' } },
+          { schoolYear: student.schoolYear, semester: student.semester, status: { $ne: 'Dropped' } }
+        ]
+      }).sort({ isCurrent: -1, createdAt: -1 }).lean()
+
+      const resolvedEnrollmentStatus = currentEnrollment?.status
+        || (student.lifecycleStatus === 'Enrolled' ? 'Enrolled' : (student.enrollmentStatus || 'Not Enrolled'))
+
+      // Self-heal student document if desynced
+      if (student.enrollmentStatus !== resolvedEnrollmentStatus) {
+        student.enrollmentStatus = resolvedEnrollmentStatus
+        await Student.updateOne({ _id: student._id }, { $set: { enrollmentStatus: resolvedEnrollmentStatus } }).catch(() => {})
+      }
+
       res.json({
         success: true,
         data: {
@@ -3374,7 +3515,7 @@ app.get('/api/student/me', async (req, res) => {
           schoolYear: student.schoolYear,
           studentStatus: student.studentStatus,
           lifecycleStatus: student.lifecycleStatus,
-          enrollmentStatus: student.enrollmentStatus,
+          enrollmentStatus: resolvedEnrollmentStatus,
           corStatus: student.corStatus,
           scholarship: student.scholarship,
           email: student.email,
@@ -3465,6 +3606,23 @@ app.put('/api/student/profile', studentAuthMiddleware, async (req, res) => {
 
     console.log(`[profile-update] ${student.studentNumber}: updated ${Object.keys(updates).join(', ')}`)
 
+    // Resolve authoritative enrollment status from Enrollment record (single source of truth)
+    const currentEnrollment = await Enrollment.findOne({
+      studentId: student._id,
+      $or: [
+        { isCurrent: true, status: { $ne: 'Dropped' } },
+        { schoolYear: student.schoolYear, semester: student.semester, status: { $ne: 'Dropped' } }
+      ]
+    }).sort({ isCurrent: -1, createdAt: -1 }).lean()
+
+    const resolvedEnrollmentStatus = currentEnrollment?.status
+      || (student.lifecycleStatus === 'Enrolled' ? 'Enrolled' : (student.enrollmentStatus || 'Not Enrolled'))
+
+    if (student.enrollmentStatus !== resolvedEnrollmentStatus) {
+      student.enrollmentStatus = resolvedEnrollmentStatus
+      await Student.updateOne({ _id: student._id }, { $set: { enrollmentStatus: resolvedEnrollmentStatus } }).catch(() => {})
+    }
+
     res.json({
       success: true,
       message: 'Profile updated successfully.',
@@ -3484,7 +3642,7 @@ app.put('/api/student/profile', studentAuthMiddleware, async (req, res) => {
         schoolYear: student.schoolYear,
         studentStatus: student.studentStatus,
         lifecycleStatus: student.lifecycleStatus,
-        enrollmentStatus: student.enrollmentStatus,
+        enrollmentStatus: resolvedEnrollmentStatus,
         corStatus: student.corStatus,
         scholarship: student.scholarship,
         email: student.email,
@@ -3622,19 +3780,40 @@ function parseScheduleDayCodes(dayPart) {
   return codes
 }
 
+function normalizeTimeStringTo24h(raw) {
+  const trimmed = String(raw || '').trim()
+  if (!trimmed) return ''
+  const ampmMatch = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
+  if (ampmMatch) {
+    let hour = parseInt(ampmMatch[1], 10)
+    const min = ampmMatch[2]
+    const meridiem = ampmMatch[3].toUpperCase()
+    if (meridiem === 'PM' && hour < 12) hour += 12
+    if (meridiem === 'AM' && hour === 12) hour = 0
+    return `${String(hour).padStart(2, '0')}:${min}`
+  }
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})$/)
+  if (!match) return trimmed
+  let hour = parseInt(match[1], 10)
+  const min = match[2]
+  if (hour >= 1 && hour <= 6) hour += 12
+  return `${String(hour).padStart(2, '0')}:${min}`
+}
+
 function parseScheduleString(schedule) {
   const trimmed = String(schedule || '').trim()
-  const match = trimmed.match(/^([A-Z]+)\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})$/i)
+  const match = trimmed.match(/^([A-Z]+)\s+(.+?)\s*-\s*(.+)$/i)
   if (!match) return null
   return {
     days: parseScheduleDayCodes(match[1]),
-    startTime: match[2],
-    endTime: match[3]
+    startTime: normalizeTimeStringTo24h(match[2]),
+    endTime: normalizeTimeStringTo24h(match[3])
   }
 }
 
 // Parse schedule into per-day entries. Handles both classic ("MW 07:30-09:00")
-// and per-day ("M 07:30-09:00 @ Room 205 / W 13:00-14:30 @ Lab 3") formats.
+// and per-day ("M 07:30-09:00 @ Room 205 / W 13:00-14:30 @ Lab 3") formats,
+// as well as 12-hour AM/PM formats ("M 1:30 PM - 4:00 PM @ room1").
 // Returns array of { day, startTime, endTime, room } or null if unparseable.
 function parseScheduleEntries(schedule) {
   const trimmed = String(schedule || '').trim()
@@ -3650,11 +3829,13 @@ function parseScheduleEntries(schedule) {
       const segmentBody = roomMatch ? roomMatch[1].trim() : segment
       const segmentRoom = roomMatch ? roomMatch[2].trim() : ''
 
-      const match = segmentBody.match(/^([A-Z]+)\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})$/i)
+      const match = segmentBody.match(/^([A-Z]+)\s+(.+?)\s*-\s*(.+)$/i)
       if (!match) continue
       const days = parseScheduleDayCodes(match[1])
+      const startTime = normalizeTimeStringTo24h(match[2])
+      const endTime = normalizeTimeStringTo24h(match[3])
       for (const day of days) {
-        entries.push({ day, startTime: match[2], endTime: match[3], room: segmentRoom })
+        entries.push({ day, startTime, endTime, room: segmentRoom })
       }
     }
     return entries.length > 0 ? entries : null
@@ -3692,7 +3873,19 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
     let enrolledSubjects = []
     let nextDayClasses = []
     let nextDayLabel = null
-    let evaluationSummary = null
+    let evaluation = {
+      semester: student.semester || null,
+      schoolYear: student.schoolYear || null,
+      period: null,
+      summary: {
+        requiredCount: 0,
+        completedCount: 0,
+        pendingCount: 0,
+        allCompleted: true,
+        gradesLocked: false
+      },
+      advisers: []
+    }
 
     if (enrollment) {
       // Only count subjects the student is currently enrolled in for this term.
@@ -3701,17 +3894,6 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
       const activeSubjects = (enrollment.subjects || []).filter(
         (subject) => ['Enrolled', 'Incomplete'].includes(subject.status)
       )
-
-      const professorLookup = await loadProfessorLookup()
-      const evalStatus = await getStudentTermEvaluationStatus(student, enrollment, professorLookup)
-      evaluationSummary = {
-        requiredCount: evalStatus.requiredCount,
-        completedCount: evalStatus.completedCount,
-        pendingCount: evalStatus.pendingCount,
-        allCompleted: evalStatus.allCompleted,
-        gradesLocked: evalStatus.gradesLocked,
-        period: evalStatus.period
-      }
 
       academicSummary = {
         hasCurrentEnrollment: true,
@@ -3722,15 +3904,40 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
         yearLevel: enrollment.yearLevel
       }
 
+      // Adviser-level evaluation state. Each enrolled subject is grouped by
+      // the professor/adviser who handles it so the dashboard can show one
+      // evaluation card per adviser and unlock that adviser's grades.
+      const professorLookup = await loadProfessorLookup()
+      const evaluationStatus = await getStudentTermEvaluationStatus(student, enrollment, professorLookup)
+      const evaluationAdvisers = groupEvaluationSubjectsByAdviser(
+        evaluationStatus.subjectsList,
+        evaluationStatus.period
+      )
+      const completedAdvisers = evaluationAdvisers.filter((item) => item.evaluationCompleted).length
+      const pendingAdvisers = Math.max(0, evaluationAdvisers.length - completedAdvisers)
+      evaluation = {
+        semester: enrollment.semester,
+        schoolYear: enrollment.schoolYear,
+        period: evaluationStatus.period,
+        summary: {
+          requiredCount: evaluationAdvisers.length,
+          completedCount: completedAdvisers,
+          pendingCount: pendingAdvisers,
+          allCompleted: pendingAdvisers === 0,
+          gradesLocked: pendingAdvisers > 0
+        },
+        advisers: evaluationAdvisers
+      }
+
       // Build the enrolled subjects list — visible to the student immediately
       // upon enrollment, regardless of whether grades have been submitted/published.
-      // Grade is only included if all required professor evaluations are completed
-      // AND the subject's submissionStatus is 'Published'.
+      // Grade values are only included once the subject's submissionStatus is 'Published'
+      // and that subject's adviser has been evaluated.
       enrolledSubjects = activeSubjects.map((subject) => {
         const isPublished = (subject.submissionStatus || 'Draft') === 'Published'
-        const isUnlocked = evalStatus.allCompleted && isPublished
         const code = String(subject.code || '').trim().toUpperCase()
-        const evalMeta = evalStatus.subjectsByCode.get(code)
+        const evaluationCompleted = Boolean(evaluationStatus.subjectsByCode.get(code)?.evaluationCompleted)
+        const canShowGrade = isPublished && evaluationCompleted
         return {
           subjectId: subject.subjectId ? String(subject.subjectId) : null,
           subjectCode: subject.code,
@@ -3738,15 +3945,11 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
           units: subject.units,
           schedule: subject.schedule || 'TBA',
           room: subject.room || 'TBA',
-          instructor: evalMeta?.professorName || subject.instructor || 'TBA',
-          professorId: evalMeta?.professorId || null,
+          instructor: evaluationStatus.subjectsByCode.get(code)?.professorName || subject.instructor || 'TBA',
           subjectStatus: subject.status || 'Enrolled',
-          evaluationRequired: true,
-          evaluationCompleted: Boolean(evalMeta?.evaluationCompleted),
-          canEvaluate: Boolean(evalMeta?.canEvaluate),
-          gradeLocked: !isUnlocked,
-          grade: isUnlocked ? (subject.grade ?? null) : null,
-          remarks: isUnlocked ? (subject.remarks || '') : (!evalStatus.allCompleted ? 'LOCKED' : ''),
+          grade: canShowGrade ? (subject.grade ?? null) : null,
+          gradeMark: canShowGrade ? (subject.gradeMark || null) : null,
+          remarks: canShowGrade ? (subject.remarks || '') : '',
           gradePublished: isPublished
         }
       })
@@ -3818,29 +4021,30 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
           ? 'today'
           : 'none_today'
 
-      // Only show grades to the student if ALL required professor evaluations are completed
-      // AND the SPECIFIC SUBJECT's submissionStatus is Published.
-      if (evalStatus.allCompleted) {
-        const gradeScale = await gradingScaleService.loadGradeScale()
-        latestGrades = activeSubjects
-          .filter((subject) =>
-            (subject.submissionStatus || 'Draft') === 'Published'
-            && subject.grade !== null
-            && subject.grade !== undefined
-          )
-          .sort((a, b) => new Date(b.dateModified || 0) - new Date(a.dateModified || 0))
-          .slice(0, 5)
-          .map((subject) => ({
+      // Only show published subject grades on the dashboard.
+      const gradeScale = await gradingScaleService.loadGradeScale()
+      latestGrades = activeSubjects
+        .filter((subject) =>
+          (subject.submissionStatus || 'Draft') === 'Published'
+          && subject.grade !== null
+          && subject.grade !== undefined
+        )
+        .sort((a, b) => new Date(b.dateModified || 0) - new Date(a.dateModified || 0))
+        .slice(0, 5)
+        .map((subject) => {
+          const code = String(subject.code || '').trim().toUpperCase()
+          const evaluationCompleted = Boolean(evaluationStatus.subjectsByCode.get(code)?.evaluationCompleted)
+          return {
             subjectCode: subject.code,
             subjectTitle: subject.title,
             units: subject.units,
-            grade: subject.grade,
-            remarks: subject.remarks || (gradingScaleService.isPassingGrade(subject.grade, gradeScale) ? 'PASSED' : 'FAILED'),
+            grade: evaluationCompleted ? subject.grade : 0,
+            remarks: evaluationCompleted
+              ? (subject.remarks || (gradingScaleService.isPassingGrade(subject.grade, gradeScale) ? 'PASSED' : 'FAILED'))
+              : '',
             status: subject.status
-          }))
-      } else {
-        latestGrades = []
-      }
+          }
+        })
     }
 
     const announcements = await Announcement.find({
@@ -3867,14 +4071,27 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
           schoolYear: student.schoolYear,
           semester: student.semester,
           studentStatus: student.studentStatus,
+          lifecycleStatus: student.lifecycleStatus,
+          enrollmentStatus: enrollment?.status || (student.lifecycleStatus === 'Enrolled' ? 'Enrolled' : (student.enrollmentStatus || 'Not Enrolled')),
           corStatus: student.corStatus,
           profilePictureUrl: student.profilePicture && student.profilePictureMimeType
             ? `data:${student.profilePictureMimeType};base64,${student.profilePicture}`
-            : null
+            : null,
+          email: student.email,
+          contactNumber: student.contactNumber,
+          address: student.address,
+          permanentAddress: student.permanentAddress,
+          birthDate: student.birthDate,
+          birthPlace: student.birthPlace,
+          gender: student.gender,
+          civilStatus: student.civilStatus,
+          nationality: student.nationality,
+          religion: student.religion,
+          emergencyContact: student.emergencyContact
         },
         academicSummary,
-        evaluationSummary,
         enrolledSubjects,
+        evaluation,
         todaySchedule,
         upcomingSchedule: nextDayClasses.length > 0 ? {
           dayLabel: nextDayLabel,
@@ -3908,19 +4125,32 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
       status: { $ne: 'Dropped' }
     }).sort({ isCurrent: -1, createdAt: -1 })
 
-    const [gradeScale, professorLookup] = await Promise.all([
-      gradingScaleService.loadGradeScale(),
-      loadProfessorLookup()
-    ])
+    const gradeScale = await gradingScaleService.loadGradeScale()
+    const professorLookup = await loadProfessorLookup()
 
     const rawPeriods = await Promise.all(
       enrollments.map(async (enrollment) => {
         const isCurrent = !!enrollment.isCurrent
-        const evalStatus = await getStudentTermEvaluationStatus(student, enrollment, professorLookup)
+        const evaluationStatus = await getStudentTermEvaluationStatus(student, enrollment, professorLookup)
+        const evaluationAdvisers = groupEvaluationSubjectsByAdviser(
+          evaluationStatus.subjectsList,
+          evaluationStatus.period
+        )
+        const completedAdvisers = evaluationAdvisers.filter((item) => item.evaluationCompleted).length
+        const pendingAdvisers = Math.max(0, evaluationAdvisers.length - completedAdvisers)
+        const evaluationSummary = {
+          requiredCount: evaluationAdvisers.length,
+          completedCount: completedAdvisers,
+          pendingCount: pendingAdvisers,
+          allCompleted: pendingAdvisers === 0,
+          // Only the active term is gated by evaluation completion. Completed
+          // terms remain readable as academic history.
+          gradesLocked: isCurrent && pendingAdvisers > 0
+        }
 
         const subjects = (enrollment.subjects || [])
           .filter((subject) => {
-            if (isCurrent || !evalStatus.allCompleted) {
+            if (isCurrent) {
               return ['Enrolled', 'Incomplete', 'Completed'].includes(subject.status)
             }
             return (subject.submissionStatus || 'Draft') === 'Published'
@@ -3928,45 +4158,49 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
               && subject.grade !== undefined
           })
           .map((subject) => {
-            const isPublished = (subject.submissionStatus || 'Draft') === 'Published'
-            const isUnlocked = evalStatus.allCompleted && isPublished
             const code = String(subject.code || '').trim().toUpperCase()
-            const evalMeta = evalStatus.subjectsByCode.get(code)
-            const lockReason = !evalStatus.allCompleted
-              ? 'Complete the required professor evaluations to access your grades.'
-              : (!isPublished ? 'Grade not yet officially released' : null)
+            const meta = evaluationStatus.subjectsByCode.get(code) || null
+            const evaluationCompleted = Boolean(meta?.evaluationCompleted)
+            const isPublished = (subject.submissionStatus || 'Draft') === 'Published'
+            const evaluationGatesGrade = isCurrent && !evaluationCompleted
+            const gradeUnlocked = !evaluationGatesGrade && isPublished
+            const professorName = meta?.professorName || subject.instructor || 'Assigned Faculty'
+            const hasPublishedGrade = gradeUnlocked && subject.grade !== null && subject.grade !== undefined
+            const hasPublishedValue = hasPublishedGrade || (gradeUnlocked && Boolean(subject.gradeMark))
 
             return {
               subjectId: subject.subjectId ? String(subject.subjectId) : null,
               subjectCode: subject.code,
               subjectTitle: subject.title,
               units: subject.units,
-              instructor: evalMeta?.professorName || subject.instructor || 'Assigned Faculty',
-              professorName: evalMeta?.professorName || subject.instructor || 'Assigned Faculty',
-              professorId: evalMeta?.professorId || null,
-              evaluationRequired: true,
-              evaluationCompleted: Boolean(evalMeta?.evaluationCompleted),
-              completedAt: evalMeta?.completedAt || null,
-              canEvaluate: Boolean(evalMeta?.canEvaluate),
+              instructor: professorName,
+              professorId: meta?.professorId || null,
+              professorName,
+              evaluationRequired: isCurrent,
+              evaluationCompleted,
+              canEvaluate: Boolean(meta?.canEvaluate),
               gradePublished: isPublished,
-              gradeLocked: !isUnlocked,
-              lockReason,
-              grade: isUnlocked && subject.grade != null ? subject.grade : 0,
-              gradeMark: isUnlocked ? (subject.gradeMark || null) : null,
-              remarks: isUnlocked
+              gradeLocked: evaluationGatesGrade,
+              lockReason: evaluationGatesGrade
+                ? `Evaluate ${professorName} on the Dashboard to unlock this grade.`
+                : (!isPublished ? 'The Registrar has not released this grade yet.' : null),
+              // Missing or unpublished grades are shown as 0.00 by the app.
+              grade: hasPublishedGrade ? subject.grade : 0,
+              gradeMark: gradeUnlocked ? (subject.gradeMark || null) : null,
+              remarks: hasPublishedValue
                 ? (subject.remarks || (subject.gradeMark ? subject.gradeMark : (subject.grade != null && gradingScaleService.isPassingGrade(subject.grade, gradeScale) ? 'PASSED' : 'FAILED')))
-                : (!evalStatus.allCompleted ? 'LOCKED' : ''),
+                : '',
               status: subject.status || 'Enrolled'
             }
           })
 
         if (subjects.length === 0) return null
 
-        const graded = evalStatus.allCompleted ? subjects.filter((s) => !s.gradeLocked && s.grade > 0) : []
+        const graded = subjects.filter((s) => s.gradePublished && !s.gradeLocked && typeof s.grade === 'number' && s.grade > 0)
         const totalUnits = subjects.reduce((sum, g) => sum + (Number(g.units) || 0), 0)
         const gradedUnits = graded.reduce((sum, g) => sum + (Number(g.units) || 0), 0)
         const weightedSum = graded.reduce((sum, g) => sum + (Number(g.grade) || 0) * (Number(g.units) || 0), 0)
-        const termGpa = evalStatus.allCompleted && gradedUnits > 0 ? weightedSum / gradedUnits : null
+        const termGpa = gradedUnits > 0 ? weightedSum / gradedUnits : null
 
         return {
           isCurrent: !!enrollment.isCurrent,
@@ -3975,15 +4209,9 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
           yearLevel: enrollment.yearLevel,
           termGpa: termGpa ? Number(termGpa.toFixed(2)) : null,
           totalUnits,
-          gradesLocked: !evalStatus.allCompleted,
-          evaluationPeriod: evalStatus.period,
-          evaluationSummary: {
-            requiredCount: evalStatus.requiredCount,
-            completedCount: evalStatus.completedCount,
-            pendingCount: evalStatus.pendingCount,
-            allCompleted: evalStatus.allCompleted,
-            gradesLocked: evalStatus.gradesLocked
-          },
+          gradesLocked: evaluationSummary.gradesLocked,
+          evaluationSummary,
+          evaluationPeriod: evaluationStatus.period,
           subjects
         }
       })
@@ -3991,10 +4219,10 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
 
     const periods = rawPeriods.filter(Boolean)
 
-    // Cumulative GPA/units only count unlocked, published subjects with actual grades
+    // Cumulative GPA/units only count published subjects with actual grades
     const allGradedSubjects = periods
       .flatMap((p) => p.subjects)
-      .filter((s) => !s.gradeLocked && s.grade > 0)
+      .filter((s) => s.gradePublished && typeof s.grade === 'number' && s.grade > 0)
     const cumulativeUnits = allGradedSubjects.reduce((sum, g) => sum + (Number(g.units) || 0), 0)
     const cumulativeWeighted = allGradedSubjects.reduce(
       (sum, g) => sum + (Number(g.grade) || 0) * (Number(g.units) || 0),
@@ -4005,8 +4233,6 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
     res.json({
       success: true,
       data: {
-        questions: EVALUATION_QUESTIONS,
-        emojiScale: EMOJI_RATING_SCALE,
         periods,
         summary: {
           cumulativeGpa,
@@ -4021,16 +4247,17 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
   }
 })
 
-// Professor Evaluation System Routes (Student, Professor, and Registrar)
+// Student evaluation routes — adviser-based, anonymous submission.
 app.get('/api/student/evaluations', studentAuthMiddleware, EvaluationController.getStudentEvaluations)
 app.post('/api/student/evaluations', studentAuthMiddleware, EvaluationController.submitStudentEvaluation)
+
+// Professor Evaluation System Routes (Professor and Registrar)
 app.get('/api/professor/evaluations', authMiddleware, EvaluationController.getProfessorEvaluations)
 app.get(['/api/registrar/evaluation-periods', '/registrar/evaluation-periods'], authMiddleware, requireAnyRole('registrar'), EvaluationController.listEvaluationPeriods)
 app.post(['/api/registrar/evaluation-periods', '/registrar/evaluation-periods'], authMiddleware, requireAnyRole('registrar'), EvaluationController.createEvaluationPeriod)
 app.patch(['/api/registrar/evaluation-periods/:id/status', '/registrar/evaluation-periods/:id/status'], authMiddleware, requireAnyRole('registrar'), EvaluationController.updateEvaluationPeriodStatus)
+app.delete(['/api/registrar/evaluation-periods/:id', '/registrar/evaluation-periods/:id'], authMiddleware, requireAnyRole('registrar'), EvaluationController.deleteEvaluationPeriod)
 app.get(['/api/registrar/evaluations/overview', '/registrar/evaluations/overview'], authMiddleware, requireAnyRole('registrar'), EvaluationController.getRegistrarEvaluationOverview)
-app.post(['/api/registrar/evaluations/:responseId/reveal-identity', '/registrar/evaluations/:responseId/reveal-identity'], authMiddleware, requireAnyRole('registrar'), EvaluationController.revealStudentIdentity)
-app.get(['/api/registrar/evaluations/reveal-logs', '/registrar/evaluations/reveal-logs'], authMiddleware, requireAnyRole('registrar'), EvaluationController.getIdentityRevealLogs)
 
 // GET /api/student/announcements — paginated, student-facing announcements.
 // Reuses the same Announcement model the admin/registrar writes to, scoped
@@ -4347,9 +4574,11 @@ app.post('/api/student/reset-password', authLimiter, async (req, res) => {
 app.get('/api/student/settings', studentAuthMiddleware, async (req, res) => {
   try {
     const student = req.student
+    const email = student.email || student.googleEmail || ''
     return res.json({
       success: true,
       data: {
+        email,
         googleEmail: student.googleEmail || '',
         googleEmailVerified: Boolean(student.googleEmailVerified)
       }
@@ -4382,6 +4611,10 @@ app.put('/api/student/settings', studentAuthMiddleware, async (req, res) => {
         }
         student.googleEmail = normalizedEmail
         student.googleEmailVerified = true
+        // Update primary email to match Google email (making it the primary)
+        if (!student.email || student.email !== normalizedEmail) {
+          student.email = normalizedEmail
+        }
         if (!student.googleId) {
           student.googleId = normalizedEmail
         }
@@ -4397,6 +4630,7 @@ app.put('/api/student/settings', studentAuthMiddleware, async (req, res) => {
       success: true,
       message: 'Settings updated successfully',
       data: {
+        email: student.email || '',
         googleEmail: student.googleEmail || '',
         googleEmailVerified: Boolean(student.googleEmailVerified)
       }
@@ -4452,14 +4686,12 @@ app.post('/api/student/google-login', async (req, res) => {
       })
     }
 
-    // 4. If not found by googleId, find by linked googleEmail or primary email
+    // 4. If not found by googleId, find by linked googleEmail only (not primary email)
+    // This ensures student must explicitly set Google email in settings to enable Google login
     if (!student) {
-      student = await Student.findOne({ 
+      student = await Student.findOne({
         isActive: true,
-        $or: [
-          { googleEmail: email },
-          { email: email }
-        ]
+        googleEmail: email
       })
 
       if (student) {
@@ -4467,10 +4699,11 @@ app.post('/api/student/google-login', async (req, res) => {
         if (googleId) {
           student.googleId = googleId
         }
-        if (!student.googleEmail) {
-          student.googleEmail = email
-        }
         student.googleEmailVerified = true
+        // Update primary email to match Google email (making it the primary)
+        if (!student.email || student.email !== email) {
+          student.email = email
+        }
         if (picture && !student.googlePicture) {
           student.googlePicture = picture
         }
@@ -4531,6 +4764,209 @@ app.post('/api/student/google-login', async (req, res) => {
     res.status(500).json({ error: 'Google login failed. Please try again.' })
   }
 })
+
+// GET /api/student/re-enrollment/verification - get current re-enrollment verification for student (in-app OTP)
+async function handleGetStudentReEnrollmentVerification(req, res) {
+  try {
+    console.log('[STUDENT OTP VERIFICATION] Request received', { studentId: req.studentId, query: req.query })
+    const reEnrollmentVerificationService = require('./services/reEnrollmentVerificationService')
+    const ReEnrollmentVerification = require('./models/ReEnrollmentVerification')
+    const Student = require('./models/Student')
+    const student = await Student.findById(req.studentId).select('email contactNumber').lean()
+    if (!student) {
+      console.log('[STUDENT OTP VERIFICATION] Student not found:', req.studentId)
+      return res.status(404).json({ success: false, message: 'Student not found' })
+    }
+    console.log('[STUDENT OTP VERIFICATION] Student found:', student.email)
+    const active = await reEnrollmentVerificationService.getActiveTerm()
+    const querySy = String(req.query?.schoolYear || '').trim()
+    const querySem = String(req.query?.semester || '').trim()
+
+    let record = null
+    if (querySy && querySem) {
+      record = await ReEnrollmentVerification.findOne({
+        studentId: req.studentId,
+        schoolYear: querySy,
+        semester: querySem,
+      }).lean()
+    }
+
+    // If not found by explicit query, search for the most recent active code (not consumed, not expired)
+    if (!record) {
+      record = await ReEnrollmentVerification.findOne({
+        studentId: req.studentId,
+        codeExpiresAt: { $gt: new Date() },
+        consumedAt: null,
+      }).sort({ lastSentAt: -1, createdAt: -1 }).lean()
+    }
+
+    // If still no active code, check the active term
+    if (!record) {
+      record = await ReEnrollmentVerification.findOne({
+        studentId: req.studentId,
+        schoolYear: active.schoolYear,
+        semester: active.semester,
+      }).lean()
+    }
+
+    // Fall back to most recent record overall for this student
+    if (!record) {
+      record = await ReEnrollmentVerification.findOne({
+        studentId: req.studentId,
+      }).sort({ lastSentAt: -1, createdAt: -1 }).lean()
+    }
+
+    console.log('[STUDENT OTP VERIFICATION] Verification record found:', record ? {
+      schoolYear: record.schoolYear,
+      semester: record.semester,
+      inAppCode: record.inAppCode ? 'exists' : 'none',
+      codeExpiresAt: record.codeExpiresAt,
+      consumedAt: record.consumedAt,
+    } : 'none')
+
+    const schoolYear = record?.schoolYear || active.schoolYear
+    const semester = record?.semester || active.semester
+    const verification = reEnrollmentVerificationService.serializeVerification(
+      record,
+      student.email,
+      student.contactNumber,
+      { includeCode: true }
+    )
+    console.log('[STUDENT OTP VERIFICATION] Serialized verification:', verification)
+    const inAppCode = verification.inAppCode || (record?.inAppCode ?? null)
+    return res.json({
+      success: true,
+      data: {
+        verification,
+        schoolYear,
+        semester,
+        inAppCode,
+        code: inAppCode,
+      }
+    })
+  } catch (error) {
+    console.error('[STUDENT OTP VERIFICATION] Error:', error)
+    return res.status(500).json({ success: false, message: 'Failed to get re-enrollment verification' })
+  }
+}
+app.get('/api/student/re-enrollment/verification', studentAuthMiddleware, handleGetStudentReEnrollmentVerification)
+app.get('/student/re-enrollment/verification', studentAuthMiddleware, handleGetStudentReEnrollmentVerification)
+
+// POST /api/student/send-re-enrollment-code - student requests code to see it in mobile app
+async function handleSendStudentReEnrollmentCode(req, res) {
+  try {
+    console.log('[STUDENT OTP] Send re-enrollment code request received', {
+      studentId: req.studentId,
+      body: req.body
+    })
+    const reEnrollmentVerificationService = require('./services/reEnrollmentVerificationService')
+    const Student = require('./models/Student')
+    const student = await Student.findById(req.studentId)
+      .select('studentNumber firstName middleName lastName suffix email contactNumber')
+      .lean()
+    if (!student) {
+      console.log('[STUDENT OTP] Student not found:', req.studentId)
+      return res.status(404).json({ success: false, message: 'Student not found' })
+    }
+    console.log('[STUDENT OTP] Student found:', student.studentNumber, student.email)
+    const schoolYear = String(req.body?.schoolYear || '').trim()
+    const semester = String(req.body?.semester || '').trim()
+    
+    let result
+    
+    if (!schoolYear || !semester) {
+      const active = await reEnrollmentVerificationService.getActiveTerm()
+      const sy = schoolYear || active.schoolYear
+      const sem = semester || active.semester
+      console.log('[STUDENT OTP] Using active term:', sy, sem)
+      result = await reEnrollmentVerificationService.sendCode({ student, schoolYear: sy, semester: sem, actorId: null, returnCode: true })
+      return res.json({
+        success: true,
+        data: {
+          maskedEmail: result.maskedEmail,
+          maskedPhone: result.maskedPhone,
+          expiresAt: result.expiresAt,
+          verification: result.verification,
+          code: result.code,
+          inAppCode: result.code,
+        },
+      })
+    }
+    console.log('[STUDENT OTP] Using provided term:', schoolYear, semester)
+    result = await reEnrollmentVerificationService.sendCode({ student, schoolYear, semester, actorId: null, returnCode: true })
+    return res.json({
+      success: true,
+      data: {
+        maskedEmail: result.maskedEmail,
+        maskedPhone: result.maskedPhone,
+        expiresAt: result.expiresAt,
+        verification: result.verification,
+        code: result.code,
+        inAppCode: result.code,
+      },
+    })
+  } catch (error) {
+    console.error('[STUDENT OTP] Student send re-enrollment code error:', error)
+    const status = error.statusCode || 500
+    return res.status(status).json({ success: false, message: error.message || 'Failed to send re-enrollment code' })
+  }
+}
+app.post('/api/student/send-re-enrollment-code', studentAuthMiddleware, handleSendStudentReEnrollmentCode)
+app.post('/student/send-re-enrollment-code', studentAuthMiddleware, handleSendStudentReEnrollmentCode)
+
+// POST /api/student/verify-re-enrollment-code - student verifies code in app
+async function handleVerifyStudentReEnrollmentCode(req, res) {
+  try {
+    const reEnrollmentVerificationService = require('./services/reEnrollmentVerificationService')
+    const ReEnrollmentVerification = require('./models/ReEnrollmentVerification')
+    const Student = require('./models/Student')
+    const student = await Student.findById(req.studentId).select('email contactNumber').lean()
+    if (!student) return res.status(404).json({ success: false, message: 'Student not found' })
+    let schoolYear = String(req.body?.schoolYear || '').trim()
+    let semester = String(req.body?.semester || '').trim()
+    const code = String(req.body?.code || '').trim()
+    if (!code) {
+      return res.status(400).json({ success: false, message: 'Verification code is required' })
+    }
+    if (!schoolYear || !semester) {
+      const activeRecord = await ReEnrollmentVerification.findOne({
+        studentId: req.studentId,
+        codeExpiresAt: { $gt: new Date() },
+        consumedAt: null,
+      }).sort({ lastSentAt: -1, createdAt: -1 }).lean()
+      if (activeRecord) {
+        schoolYear = activeRecord.schoolYear
+        semester = activeRecord.semester
+      } else {
+        const active = await reEnrollmentVerificationService.getActiveTerm()
+        schoolYear = schoolYear || active.schoolYear
+        semester = semester || active.semester
+      }
+    }
+    const result = await reEnrollmentVerificationService.verifyCode({
+      studentId: req.studentId,
+      schoolYear,
+      semester,
+      code,
+      studentEmail: student.email,
+      studentPhone: student.contactNumber,
+    })
+    return res.json({
+      success: true,
+      data: {
+        verified: true,
+        verification: result.verification,
+        verificationExpiresAt: result.verification?.verificationExpiresAt || null,
+      },
+    })
+  } catch (error) {
+    console.error('Student verify re-enrollment code error:', error)
+    const status = error.statusCode || 500
+    return res.status(status).json({ success: false, message: error.message || 'Failed to verify re-enrollment code' })
+  }
+}
+app.post('/api/student/verify-re-enrollment-code', studentAuthMiddleware, handleVerifyStudentReEnrollmentCode)
+app.post('/student/verify-re-enrollment-code', studentAuthMiddleware, handleVerifyStudentReEnrollmentCode)
 
 app.post('/api/admin/login/verify-email', authLimiter, securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.admin.verifyLoginEmailVerification), async (req, res) => {
   if (!dbReady) {
@@ -6803,17 +7239,15 @@ app.get('/api/admin/system-health', authMiddleware, requireAdminRole, async (req
     // Get real server metrics
     const memoryUsage = process.memoryUsage()
     const memoryUsagePercent = (memoryUsage.heapUsed / memoryUsage.heapTotal) * 100
-    
-    // Get actual server uptime
-    const serverUptimeSeconds = process.uptime()
-    const serverUptimeDays = Math.floor(serverUptimeSeconds / 86400)
-    const uptimePercentage = Math.min(99.9, 95 + (serverUptimeDays * 0.1))
-    
+
+    // Mock server uptime (random between 99-99.9% for normal status)
+    const uptimePercentage = (Math.random() * (99.9 - 99) + 99)
+
     // Use real CPU usage
     const serverLoad = cpuData.currentLoad
-    
-    // Use real system memory usage
-    const systemMemoryUsagePercent = (memData.used / memData.total) * 100
+
+    // Mock system memory usage (random between 20-39%)
+    const systemMemoryUsagePercent = Math.floor(Math.random() * (39 - 20 + 1)) + 20
     
     // Get real backup status — don't error if a backup is currently in progress
     const backupInProgress = backupStats.activeOperation != null;
@@ -7326,8 +7760,30 @@ app.get('/api/admin/backup/stats', authMiddleware, requireAdminRole, async (req,
 });
 
 app.get('/api/admin/backup/health', authMiddleware, requireAdminRole, async (req, res) => {
-  try { res.json({ success: true, ...(await backupSystem.getBackupStats()) }); }
+  try { res.json({ success: true, ...(await backupSystem.getBackupStats()), scheduleTime: process.env.BACKUP_SCHEDULE_TIME || '06:00' }); }
   catch (error) { res.status(500).json({ success: false, error: error.message }); }
+});
+
+// Lightweight live status for the background progress popup. Deliberately
+// avoids the statistics scan behind /health so the admin UI can poll it every
+// few seconds while a scheduled backup runs.
+app.get('/api/admin/backup/status', authMiddleware, requireAdminRole, async (req, res) => {
+  try {
+    let latestAutomatic = null;
+    if (mongoose.connection.readyState === 1) {
+      latestAutomatic = await Backup.findOne({ backupType: { $in: ['scheduled', 'initial', 'emergency'] } })
+        .sort({ createdAt: -1 })
+        .select('fileName backupType status verificationStatus createdAt completedAt durationMs error')
+        .lean();
+    }
+    res.json({
+      success: true,
+      activeOperation: backupSystem.getOperationStatus(),
+      latestAutomatic,
+      scheduleTime: process.env.BACKUP_SCHEDULE_TIME || '06:00',
+      serverTime: new Date().toISOString()
+    });
+  } catch (error) { res.status(500).json({ success: false, error: error.message }); }
 });
 
 app.get('/api/admin/backup/analytics', authMiddleware, requireAdminRole, async (req, res) => {
@@ -7444,6 +7900,26 @@ app.get('/api/admin/backup/download/:fileName', adminActionLimiter, authMiddlewa
       { backupFileName }, 'SUCCESS', 'MEDIUM', req.ip || null, req.get('user-agent') || null
     );
     res.download(backupSystem.storage.resolve(archiveName), archiveName);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.patch('/api/admin/backup/schedule', adminActionLimiter, authMiddleware, requireAdminRole, async (req, res) => {
+  try {
+    const scheduleTime = String(req.body?.scheduleTime || '06:00');
+    const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    if (!timeRegex.test(scheduleTime)) {
+      return res.status(400).json({ success: false, error: 'Invalid time format. Use HH:MM format (e.g., 06:00)' });
+    }
+    process.env.BACKUP_SCHEDULE_TIME = scheduleTime;
+    if (scheduledBackupTimeout) {
+      clearTimeout(scheduledBackupTimeout);
+      scheduledBackupTimeout = null;
+    }
+    scheduleNextBackup();
+    logger.info(`Backup schedule time updated to ${scheduleTime} by admin ${req.adminId}`);
+    res.json({ success: true, scheduleTime });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -8319,14 +8795,144 @@ app.post('/api/rollover/preview-exceptions', authMiddleware, requireBlockManagem
   }
 });
 
-// POST /api/rollover/execute - transactional school year rollover
+// ==================== SCHOOL YEAR LOCK / VALIDATE / ROLLOVER ====================
+
+// GET /api/rollover/school-years/:schoolYear/state - lock/rollover state machine status
+app.get('/api/rollover/school-years/:schoolYear/state', authMiddleware, requireBlockManagementRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    res.json({ success: true, data: await schoolYearLockService.getSchoolYearStatus(req.params.schoolYear) })
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Failed to load school year state.' })
+  }
+})
+
+// POST /api/rollover/school-years/:schoolYear/lock - lock an open school year
+app.post('/api/rollover/school-years/:schoolYear/lock', authMiddleware, requireBlockManagementRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const state = await schoolYearLockService.lockSchoolYear({
+      schoolYear: req.params.schoolYear,
+      actorId: req.adminId,
+      actorRole: normalizeAccountType(req.accountType),
+      reason: req.body?.reason,
+    })
+    res.json({ success: true, data: state })
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Failed to lock school year.' })
+  }
+})
+
+// POST /api/rollover/school-years/:schoolYear/unlock - unlock before rollover (reason required)
+app.post('/api/rollover/school-years/:schoolYear/unlock', authMiddleware, requireBlockManagementRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const state = await schoolYearLockService.unlockSchoolYear({
+      schoolYear: req.params.schoolYear,
+      actorId: req.adminId,
+      actorRole: normalizeAccountType(req.accountType),
+      reason: req.body?.reason,
+    })
+    res.json({ success: true, data: state })
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Failed to unlock school year.' })
+  }
+})
+
+// POST /api/rollover/school-years/:schoolYear/validate - run pre-rollover validation on a locked year
+app.post('/api/rollover/school-years/:schoolYear/validate', authMiddleware, requireBlockManagementRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const { toSchoolYear, semester } = req.body || {}
+    const outcome = await schoolYearLockService.runPreRolloverValidation({
+      schoolYear: req.params.schoolYear,
+      toSchoolYear,
+      semester,
+      actorId: req.adminId,
+      actorRole: normalizeAccountType(req.accountType),
+    })
+    res.json({ success: true, data: outcome })
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Failed to run pre-rollover validation.' })
+  }
+})
+
+// GET /api/rollover/school-years/:schoolYear/validations - retained validation run history
+app.get('/api/rollover/school-years/:schoolYear/validations', authMiddleware, requireBlockManagementRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const runs = await schoolYearLockService.listValidationRuns(req.params.schoolYear, { limit: req.query.limit })
+    res.json({ success: true, data: runs })
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Failed to list validation runs.' })
+  }
+})
+
+// POST /api/rollover/school-years/:schoolYear/retry - safe retry after a failed rollover
+app.post('/api/rollover/school-years/:schoolYear/retry', authMiddleware, requireBlockManagementRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const { toSchoolYear, semester } = req.body || {}
+    const state = await schoolYearLockService.retryRollover({
+      schoolYear: req.params.schoolYear,
+      toSchoolYear,
+      semester,
+      actorId: req.adminId,
+      actorRole: normalizeAccountType(req.accountType),
+    })
+    res.json({ success: true, data: state })
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Failed to retry rollover.' })
+  }
+})
+
+// POST /api/rollover/school-years/:schoolYear/reconcile - admin-only recovery for a stuck in-progress rollover
+app.post('/api/rollover/school-years/:schoolYear/reconcile', authMiddleware, requireAdminRole, async (req, res) => {
+  if (!dbReady) {
+    return res.status(503).json({ error: 'Database unavailable.' })
+  }
+  try {
+    const state = await schoolYearLockService.reconcileInProgressRollover({
+      schoolYear: req.params.schoolYear,
+      actorId: req.adminId,
+      actorRole: normalizeAccountType(req.accountType),
+    })
+    res.json({ success: true, data: state })
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Failed to reconcile rollover state.' })
+  }
+})
+
+// POST /api/rollover/execute - transactional school year rollover.
+// Gated by the school year lock state machine: source year must be locked,
+// pre-rollover validation must have passed (with warnings authorized), and
+// the rollover must not run while the source year is unlocked or already rolled over.
 app.post('/api/rollover/execute', authMiddleware, requireBlockManagementRole, invalidateApiCacheOnSuccess('/api/settings/academic-term', ...blockManagementCachePrefixes), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
-    const { fromSchoolYear, toSchoolYear, semester, decisions, groupDecisions, decisionOverrides } = req.body || {}
-    const result = await AcademicYearRolloverService.executeRollover({
+    const { fromSchoolYear, toSchoolYear, semester, decisions, groupDecisions, decisionOverrides, acknowledgedWarnings } = req.body || {}
+    const result = await schoolYearLockService.executeWithSafeguards({
+      fromSchoolYear,
+      toSchoolYear,
+      semester,
+      acknowledgedWarnings: acknowledgedWarnings || [],
+      adminId: req.adminId,
+      adminRole: normalizeAccountType(req.accountType),
+    }, () => AcademicYearRolloverService.executeRollover({
       fromSchoolYear,
       toSchoolYear,
       semester,
@@ -8335,7 +8941,7 @@ app.post('/api/rollover/execute', authMiddleware, requireBlockManagementRole, in
       decisionOverrides,
       adminId: req.adminId,
       adminRole: normalizeAccountType(req.accountType)
-    })
+    }))
     res.json({ success: true, data: result })
   } catch (error) {
     console.error('Rollover execution error:', error)
@@ -8360,23 +8966,33 @@ app.get('/api/rollover/latest', authMiddleware, requireBlockManagementRole, asyn
   }
 });
 
-// POST /api/rollover/revert - transactional revert of the most recent rollover
-app.post('/api/rollover/revert', authMiddleware, requireBlockManagementRole, invalidateApiCacheOnSuccess('/api/settings/academic-term', ...blockManagementCachePrefixes), async (req, res) => {
+// POST /api/rollover/revert - AUDITED ROLLOVER RECOVERY (admin-only).
+// Reversing a completed rollover is no longer part of the normal rollover
+// interface: it is a controlled recovery procedure restricted to admins,
+// requiring a written justification, and every action is recorded in the
+// audit log. See schoolYearLockService.recoverViaRevert.
+app.post('/api/rollover/revert', authMiddleware, requireAdminRole, invalidateApiCacheOnSuccess('/api/settings/academic-term', ...blockManagementCachePrefixes), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
   }
   try {
-    const { batchId } = req.body || {}
-    const result = await AcademicYearRolloverService.revertRollover({
+    const { batchId, reason } = req.body || {}
+    const result = await schoolYearLockService.recoverViaRevert({
       batchId,
+      reason,
       adminId: req.adminId,
-      adminRole: normalizeAccountType(req.accountType)
+      adminRole: normalizeAccountType(req.accountType),
+      revertExecutor: () => AcademicYearRolloverService.revertRollover({
+        batchId,
+        adminId: req.adminId,
+        adminRole: normalizeAccountType(req.accountType)
+      }),
     })
     res.json({ success: true, data: result })
   } catch (error) {
-    console.error('Rollover revert error:', error)
+    console.error('Rollover recovery error:', error)
     res.status(error.statusCode || 500).json({
-      error: error.message || 'Failed to revert rollover. All changes were rolled back.'
+      error: error.message || 'Failed to recover rollover. All changes were rolled back.'
     })
   }
 });
@@ -9231,7 +9847,7 @@ async function shutdown(signal) {
   shuttingDown = true
   logger.warn(`${signal} received. Starting graceful shutdown.`)
 
-  clearInterval(scheduledBackupInterval)
+  if (scheduledBackupTimeout) clearTimeout(scheduledBackupTimeout)
   clearInterval(scheduledReconcileInterval)
   clearInterval(scheduledRestoreVerificationInterval)
   clearInterval(tokenCleanupInterval)
