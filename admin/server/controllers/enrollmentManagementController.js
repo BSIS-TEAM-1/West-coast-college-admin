@@ -19,6 +19,7 @@ const Enrollment = require('../models/Enrollment');
 const subjectEnrollmentService = require('../services/subjectEnrollmentService');
 const curriculumProgressService = require('../services/curriculumProgressService');
 const reEnrollmentVerificationService = require('../services/reEnrollmentVerificationService');
+const gradingScaleService = require('../services/gradingScaleService');
 const { SEMESTERS } = require('../lib/curriculumYears');
 
 const SCHOOL_YEAR_PATTERN = /^\d{4}-\d{4}$/;
@@ -52,16 +53,39 @@ function numericGrade(value) {
   return Number.isFinite(grade) ? grade : null;
 }
 
+function hasGradedSubjects(enrollment) {
+  return (enrollment?.subjects || []).some((s) => s.grade != null || s.gradeMark);
+}
+
 /**
  * The list's grade view summarises the student's most recent term. It is
  * deliberately read-only: re-enrollment never edits a historical grade.
  */
-function buildGradeSummary(history) {
+function buildGradeSummary(history, targetSchoolYear, targetSemester) {
   let latest = null;
   for (const enrollment of history || []) {
     if (!enrollment?.schoolYear || !enrollment?.semester) continue;
+    if (targetSchoolYear && targetSemester) {
+      if (!subjectEnrollmentService.isLaterTerm(
+        targetSchoolYear,
+        targetSemester,
+        enrollment.schoolYear,
+        enrollment.semester
+      )) {
+        continue;
+      }
+    }
     if (!latest) {
       latest = enrollment;
+      continue;
+    }
+    const latestHasGrades = hasGradedSubjects(latest);
+    const currHasGrades = hasGradedSubjects(enrollment);
+    if (!latestHasGrades && currHasGrades) {
+      latest = enrollment;
+      continue;
+    }
+    if (latestHasGrades && !currHasGrades) {
       continue;
     }
     const isNewerTerm = subjectEnrollmentService.isLaterTerm(
@@ -93,7 +117,7 @@ function buildGradeSummary(history) {
     code: entry.code || '',
     title: entry.title || '',
     units: entry.units ?? null,
-    grade: numericGrade(entry.grade),
+    grade: numericGrade(entry.grade) ?? gradingScaleService.failingEquivalentForMark(entry.gradeMark),
     gradeMark: entry.gradeMark || null,
     status: entry.status || null,
   }));
@@ -220,20 +244,51 @@ class EnrollmentManagementController {
         rolloverReasonCode: readiness.reasonCode,
       };
 
+      // Re-enrollment is only applicable on School Year (SY) rollover (1st semester),
+      // never semester-by-semester. Semester advancement within a school year uses regular block assignment.
+      if (semester !== '1st') {
+        return res.json({
+          success: true,
+          data: [],
+          meta: {
+            ...meta,
+            rolloverReady: false,
+            rolloverMessage: 'Re-enrollment only applies to School Year rollover (1st Semester), not by semester.',
+            rolloverReasonCode: 'SY_ROLLOVER_ONLY',
+          },
+        });
+      }
+
+      const activeStart = Number(String(activeTerm?.schoolYear || '').split('-')[0]);
+      const targetStart = Number(String(schoolYear || '').split('-')[0]);
+
       const eligibleSemesters = SEMESTERS.filter(
         (candidate) => !subjectEnrollmentService.isLaterTerm(schoolYear, candidate, schoolYear, semester)
       );
 
-      const students = await Student.find({
-        lifecycleStatus: { $ne: 'Graduated' },
+      const currentTermOnly = req.query.currentTermOnly === 'true' || req.query.currentTermOnly === true;
+
+      const studentQuery = {
+        lifecycleStatus: { $nin: ['Graduated', 'Dropped'] },
         isActive: { $ne: false },
-        $or: [
+      };
+
+      if (currentTermOnly && activeTerm?.schoolYear && activeTerm?.semester) {
+        studentQuery.schoolYear = activeTerm.schoolYear;
+        studentQuery.semester = activeTerm.semester;
+      } else {
+        studentQuery.$or = [
           { schoolYear: { $lt: schoolYear } },
           { schoolYear, semester: { $in: eligibleSemesters } },
+          ...(activeTerm?.schoolYear && activeTerm?.semester
+            ? [{ schoolYear: activeTerm.schoolYear, semester: activeTerm.semester }]
+            : []),
           { schoolYear: { $in: ['', null] } },
           { schoolYear: { $exists: false } },
-        ],
-      })
+        ];
+      }
+
+      const students = await Student.find(studentQuery)
         .select('studentNumber firstName middleName lastName suffix course curriculumVersion yearLevel section semester schoolYear studentStatus classification lifecycleStatus email contactNumber isActive')
         .sort({ studentNumber: 1 })
         .lean();
@@ -252,7 +307,7 @@ class EnrollmentManagementController {
         studentId: { $in: studentIds },
         schoolYear: { $lte: schoolYear },
       })
-        .select('studentId schoolYear semester status updatedAt subjects.subjectId subjects.code subjects.title subjects.units subjects.grade subjects.gradeMark subjects.status')
+        .select('studentId schoolYear semester status isCurrent updatedAt subjects.subjectId subjects.code subjects.title subjects.units subjects.grade subjects.gradeMark subjects.status')
         .lean();
 
       const enrollmentsByStudent = new Map();
@@ -271,9 +326,56 @@ class EnrollmentManagementController {
         const alreadyEnrolled = history.some(
           (enrollment) => String(enrollment.schoolYear || '').trim() === schoolYear
             && String(enrollment.semester || '').trim() === semester
-            && ['Enrolled', 'Pending', 'Completed', 'Retained', 'Graduated'].includes(enrollment.status)
+            && (currentTermOnly
+              ? ['Enrolled', 'Completed', 'Retained', 'Graduated'].includes(enrollment.status)
+              : ['Enrolled', 'Pending', 'Completed', 'Retained', 'Graduated'].includes(enrollment.status))
         );
         if (alreadyEnrolled) continue;
+
+        if (!currentTermOnly) {
+          // An actively enrolled student in the active academic term cannot be a candidate
+          // for a future school year before the current school year has finished and rolled over.
+          const isActiveInCurrentTerm = (
+            (student.lifecycleStatus === 'Enrolled' || student.enrollmentStatus === 'Enrolled')
+            && activeTerm?.schoolYear
+            && activeTerm?.semester
+            && String(student.schoolYear || '').trim() === String(activeTerm.schoolYear).trim()
+            && String(student.semester || '').trim() === String(activeTerm.semester).trim()
+          ) || history.some(
+            (enrollment) => String(enrollment.schoolYear || '').trim() === String(activeTerm?.schoolYear || '').trim()
+              && String(enrollment.semester || '').trim() === String(activeTerm?.semester || '').trim()
+              && enrollment.isCurrent === true
+              && ['Enrolled', 'Pending'].includes(enrollment.status)
+          );
+
+          if (
+            isActiveInCurrentTerm
+            && schoolYear !== activeTerm?.schoolYear
+            && subjectEnrollmentService.isLaterTerm(schoolYear, semester, activeTerm?.schoolYear, activeTerm?.semester)
+          ) {
+            continue;
+          }
+        }
+
+        // Term continuity: a student from an earlier school year cannot jump
+        // directly into the 2nd or Summer semester of a future school year without
+        // having enrolled in / completed the 1st semester of that school year.
+        if (semester !== '1st') {
+          const studentStart = Number(String(student.schoolYear || '').split('-')[0]);
+          if (
+            (Number.isFinite(studentStart) && Number.isFinite(targetStart) && targetStart > studentStart)
+            || (Number.isFinite(activeStart) && Number.isFinite(targetStart) && targetStart > activeStart)
+          ) {
+            const hasPriorTermInTargetYear = history.some(
+              (enrollment) => String(enrollment.schoolYear || '').trim() === schoolYear
+                && String(enrollment.semester || '').trim() === '1st'
+                && ['Completed', 'Enrolled', 'Retained'].includes(enrollment.status)
+            );
+            if (!hasPriorTermInTargetYear) {
+              continue;
+            }
+          }
+        }
 
         // Keep only the most recent attempt per subject, strictly before the
         // target term. Same-term attempts are intentionally ignored: a student
@@ -338,7 +440,7 @@ class EnrollmentManagementController {
             targetSemester: semester,
             needsRetake: retakeSubjects.length > 0,
             retakeSubjects,
-            gradeSummary: buildGradeSummary(history),
+            gradeSummary: buildGradeSummary(history, schoolYear, semester),
             verification: reEnrollmentVerificationService.serializeVerification(
               verificationRecords.get(String(student._id)),
               student.email,

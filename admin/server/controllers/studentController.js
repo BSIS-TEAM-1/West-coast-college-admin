@@ -19,7 +19,9 @@ const CurriculumSubject = require('../models/CurriculumSubject');
 const CorPdfService = require('../services/corPdfService');
 const { convertToSchoolYear, extractStartYear } = require('../services/dateUtils');
 const { DEFAULT_SCHOOL_YEAR } = require('../lib/academicTerm');
+const SystemSetting = require('../models/SystemSetting');
 const enrollmentGuard = require('../services/enrollmentGuard');
+const studentLifecycleService = require('../services/studentLifecycleService');
 const { autoAssignCurriculumSubjects, verifyRetakeReferences } = require('../services/subjectEnrollmentService');
 const { calculateWeeklyContactHours, validateTeachingHours, shouldTriggerWarning } = require('../services/teachingHoursValidationService');
 const TeachingHoursOverride = require('../models/TeachingHoursOverride');
@@ -132,6 +134,11 @@ const CLEARABLE_STUDENT_FIELDS = new Set([
   'applicantType'
 ]);
 
+// Name fields shared with an Applicant record. Applicant and Student are
+// separate documents (the applicant approval copies the name across once), so
+// a later correction on the student has to be pushed to the applicant.
+const APPLICANT_NAME_FIELDS = ['firstName', 'middleName', 'lastName', 'suffix'];
+
 function normalizeEmergencyContact(emergencyContact) {
   if (!emergencyContact || typeof emergencyContact !== 'object' || Array.isArray(emergencyContact)) {
     return null;
@@ -149,14 +156,13 @@ function normalizeEmergencyContact(emergencyContact) {
 }
 
 class StudentController {
-  static lifecycleStatuses = ['Pending', 'Enrolled', 'Not Enrolled', 'Irregular', 'Inactive', 'Graduated', 'Leave of Absence'];
+  static lifecycleStatuses = ['Pending', 'Enrolled', 'Not Enrolled', 'Irregular', 'Inactive', 'Graduated', 'Leave of Absence', 'Dropped'];
 
   static deriveLifecycleStatus(student) {
     const explicit = String(student?.lifecycleStatus || '').trim();
     if (StudentController.lifecycleStatuses.includes(explicit)) {
       return explicit;
     }
-    if (explicit === 'Dropped') return 'Irregular';
 
     if (student?.isActive === false) return 'Inactive';
 
@@ -365,15 +371,24 @@ class StudentController {
         .sort({ schoolYear: -1, year: -1, semester: 1, name: 1 })
         .lean();
 
-      // Use the configured default academic year so block groups are scoped
-      // to the active SY instead of whatever the server clock happens to be.
-      const currentSchoolYear = DEFAULT_SCHOOL_YEAR;
+      // Scope block groups to the school year the registrar is actually in.
+      // The active term lives in settings and moves on every rollover, so the
+      // bundled default is only a fallback — using it directly kept the
+      // professor load page pinned to the term that had already been closed.
+      let activeSchoolYear = DEFAULT_SCHOOL_YEAR;
+      try {
+        const termSetting = await SystemSetting.findOne({ key: 'academicTerm' }).lean();
+        const configuredSchoolYear = String(termSetting?.value?.schoolYear || '').trim();
+        if (/^\d{4}-\d{4}$/.test(configuredSchoolYear)) activeSchoolYear = configuredSchoolYear;
+      } catch {
+        // Fall back to the bundled default when settings cannot be read.
+      }
+      const currentSchoolYear = yearFilter || activeSchoolYear;
 
       // Filter to show only block groups from the current academic year
-      const filteredGroups = rawGroups.filter(g => {
-        const groupYear = String(g.schoolYear || '').trim();
-        return groupYear === currentSchoolYear;
-      });
+      const filteredGroups = rawGroups.filter(g =>
+        StudentController.toSchoolYearSafe(g.schoolYear || g.year) === currentSchoolYear
+      );
 
       // Fetch curriculum details for all block groups
       const curriculumIds = Array.from(new Set(
@@ -982,7 +997,7 @@ class StudentController {
       StudentBlockAssignment.find({ studentId: normalizedStudentId }).select('sectionId')
     ).lean();
     const waitlists = await scoped(
-      SectionWaitlist.find({ studentId: normalizedStudentId }).select('sectionId')
+      SectionWaitlist.find({ studentId: normalizedStudentId, status: { $ne: 'ARCHIVED' } }).select('sectionId')
     ).lean();
 
     const affectedSectionIds = Array.from(
@@ -1046,6 +1061,13 @@ class StudentController {
     if (String(set.lifecycleStatus || '').trim() === 'Enrolled') {
       const err = new Error(
         'A new student record cannot be created as Enrolled. Create it as Pending, enroll for the term, assign a block, then finalize enrollment.'
+      );
+      err.statusCode = 409;
+      throw err;
+    }
+    if (String(set.lifecycleStatus || '').trim() === 'Dropped') {
+      const err = new Error(
+        'A new student record cannot be created as Dropped. Academic dismissal is recorded only after finalized failing grades are evaluated.'
       );
       err.statusCode = 409;
       throw err;
@@ -1613,6 +1635,14 @@ class StudentController {
     if (params.semester) query.semester = params.semester;
     if (params.schoolYear) query.schoolYear = params.schoolYear;
     if (params.studentStatus) query.studentStatus = params.studentStatus;
+    if (params.lifecycleStatus) {
+      query.lifecycleStatus = params.lifecycleStatus;
+    } else if (!(params.includeDropped === true || String(params.includeDropped).toLowerCase() === 'true')) {
+      // Active-roster default: dismissed students stay searchable through
+      // includeDropped=true / an explicit lifecycleStatus filter, but they do
+      // not inflate ordinary listings and counts.
+      query.lifecycleStatus = { $ne: 'Dropped' };
+    }
     // enrollmentStatus is deprecated - use Enrollment.status instead
 
     const students = await Student.find(query).sort({ createdAt: -1 }).lean();
@@ -1634,7 +1664,10 @@ class StudentController {
     const assignments = await StudentBlockAssignment.find({ studentId: { $in: studentIds } })
       .select('studentId sectionId semester year assignedAt')
       .lean();
-    const waitlistEntries = await SectionWaitlist.find({ studentId: { $in: studentIds } })
+    const waitlistEntries = await SectionWaitlist.find({
+      studentId: { $in: studentIds },
+      status: { $ne: 'ARCHIVED' }
+    })
       .select('studentId sectionId addedAt')
       .lean();
 
@@ -1806,12 +1839,72 @@ class StudentController {
     return Student.findById(id);
   }
 
+  /**
+   * Propagate a renamed student to the applicant record it came from.
+   *
+   * The two documents are linked only by email — applicant approval creates the
+   * Student from the Applicant's fields once, and nothing updated both sides
+   * afterwards, so correcting a name on the student left the applicant queue
+   * showing the old spelling. Returns true when an applicant was actually
+   * written.
+   */
+  static async syncApplicantNameRecord(nextStudent, previousStudent) {
+    if (!nextStudent || !previousStudent) return false;
+
+    const changed = APPLICANT_NAME_FIELDS.some(
+      (field) => String(nextStudent[field] || '').trim() !== String(previousStudent[field] || '').trim()
+    );
+    if (!changed) return false;
+
+    // Match on the student's address before and after the edit: the email may
+    // have been corrected in the same request, and the applicant still holds
+    // the old one.
+    const emails = Array.from(new Set([previousStudent.email, nextStudent.email]
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean)));
+    if (emails.length === 0) return false;
+
+    const Applicant = require('../models/Applicant');
+    const applicant = await Applicant.findOne({ email: { $in: emails } })
+      .select('_id firstName middleName lastName suffix')
+      .sort({ createdAt: -1 });
+    if (!applicant) return false;
+
+    const set = {};
+    const unset = [];
+    for (const field of APPLICANT_NAME_FIELDS) {
+      const wanted = String(nextStudent[field] || '').trim();
+      if (wanted === String(applicant[field] || '').trim()) continue;
+      if (wanted) {
+        set[field] = wanted;
+      } else if (field !== 'firstName' && field !== 'lastName') {
+        // firstName/lastName are required on Applicant; never blank them.
+        unset.push(field);
+      }
+    }
+
+    const mutation = {};
+    if (Object.keys(set).length > 0) mutation.$set = set;
+    if (unset.length > 0) mutation.$unset = Object.fromEntries(unset.map((field) => [field, '']));
+    if (Object.keys(mutation).length === 0) return false;
+
+    await Applicant.updateOne({ _id: applicant._id }, mutation);
+
+    // The applicant queue is cached; drop it so the corrected name shows now
+    // instead of after the cache TTL.
+    require('../services/apiCache').apiCache.invalidatePrefix('/api/registrar/applicants');
+    return true;
+  }
+
   static async getStudentByNumberRecord(studentNumber) {
     return Student.findOne({ studentNumber });
   }
 
-  static async updateStudentRecord(id, updateData) {
-    const { set, unset } = this.normalizeStudentMutationData(updateData, { forUpdate: true });
+  static async updateStudentRecord(id, updateData, options = {}) {
+    const { set, unset } = this.normalizeStudentMutationData(updateData, {
+      forUpdate: true,
+      currentLifecycleStatus: options.currentLifecycleStatus || null
+    });
 
     if (set.email) {
       const existingStudent = await Student.findOne({
@@ -1845,7 +1938,7 @@ class StudentController {
   }
 
   static normalizeStudentMutationData(studentData, options = {}) {
-    const { forUpdate = false } = options;
+    const { forUpdate = false, currentLifecycleStatus = null } = options;
     const source = studentData || {};
     const set = {};
     const unset = [];
@@ -1912,9 +2005,6 @@ class StudentController {
       set.lifecycleStatus = 'Pending';
     }
 
-    if (String(set.lifecycleStatus || '').trim() === 'Dropped') {
-      set.lifecycleStatus = 'Irregular';
-    }
     const requestedLifecycleStatus = String(set.lifecycleStatus || '').trim();
     if (requestedLifecycleStatus === 'Pending') {
       if (!set.enrollmentStatus) set.enrollmentStatus = 'Not Enrolled';
@@ -1941,18 +2031,24 @@ class StudentController {
       set.isActive = false;
       // enrollmentStatus is deprecated - managed via Enrollment records
       if (!set.corStatus) set.corStatus = 'Verified';
+    } else if (requestedLifecycleStatus === 'Dropped') {
+      // Dismissal keeps the student able to sign in and read their record.
+      // isActive governs account access, not roster membership.
+      if (set.isActive === undefined) set.isActive = true;
     }
 
     if (String(set.corStatus || '').trim() === 'Verified') {
       if (requestedLifecycleStatus !== 'Inactive' && requestedLifecycleStatus !== 'Graduated') {
         // enrollmentStatus is deprecated - managed via Enrollment records
       }
-      if (!requestedLifecycleStatus) {
+      // COR verification never silently undoes an academic-deficiency
+      // dismissal. Readmission is a separate authorized action.
+      if (!requestedLifecycleStatus && String(currentLifecycleStatus || '').trim() !== 'Dropped') {
         set.lifecycleStatus = 'Enrolled';
       }
     }
 
-    if (set.isActive === false && !requestedLifecycleStatus) {
+    if (set.isActive === false && !requestedLifecycleStatus && String(currentLifecycleStatus || '').trim() !== 'Dropped') {
       set.lifecycleStatus = 'Inactive';
     }
 
@@ -2293,9 +2389,32 @@ class StudentController {
       // corStatus=Verified auto-promotion) is only allowed when a valid block
       // assignment already exists for the student's academic period/context.
       const previousObject = previous.toObject ? previous.toObject() : { ...previous };
-      const preCheck = StudentController.normalizeStudentMutationData(req.body, { forUpdate: true });
+      const preCheck = StudentController.normalizeStudentMutationData(req.body, {
+        forUpdate: true,
+        currentLifecycleStatus: previousObject.lifecycleStatus || null
+      });
+      const previousLifecycle = String(previousObject.lifecycleStatus || '').trim();
+      const preCheckedLifecycle = String(preCheck.set.lifecycleStatus || '').trim();
+
+      // A dismissal is not a normal edit. Reactivation requires the explicit
+      // authorized readmission workflow so the prior status remains in history.
+      if (previousLifecycle === 'Dropped' && preCheckedLifecycle && preCheckedLifecycle !== 'Dropped') {
+        return res.status(409).json({
+          success: false,
+          code: 'READMISSION_REQUIRED',
+          message: 'This student was dropped for academic deficiency. Use the authorized readmission action instead of editing the lifecycle status.'
+        });
+      }
+      if (preCheckedLifecycle === 'Dropped' && previousLifecycle !== 'Dropped') {
+        return res.status(409).json({
+          success: false,
+          code: 'DISMISSAL_REQUIRES_EVALUATION',
+          message: 'Academic dismissal is created by the grade-finalization evaluation. Use the readmission/status history view to review this student.'
+        });
+      }
+
       const explicitlyRequestsEnrolled =
-        String(preCheck.set.lifecycleStatus || '').trim() === 'Enrolled' &&
+        preCheckedLifecycle === 'Enrolled' &&
         String(previousObject.lifecycleStatus || '').trim() !== 'Enrolled';
       if (explicitlyRequestsEnrolled) {
         try {
@@ -2310,9 +2429,18 @@ class StudentController {
         }
       }
 
+      // Written before the student record so a failure here leaves both
+      // documents unchanged instead of reporting success with a stale applicant.
+      const applicantNameSynced = await StudentController.syncApplicantNameRecord(
+        { ...previousObject, ...preCheck.set },
+        previousObject
+      );
+
       const student = await StudentController.updateStudentRecord(id, {
         ...req.body,
         updatedBy: req.adminId
+      }, {
+        currentLifecycleStatus: previousObject.lifecycleStatus || null
       });
 
       if (!student) {
@@ -2356,6 +2484,9 @@ class StudentController {
       if (enrollmentDemoted) {
         description += ' (lifecycle reverted Enrolled → Pending: no valid block assignment remains for the current academic period)';
       }
+      if (applicantNameSynced) {
+        description += ' — name synced to linked applicant record';
+      }
 
       const performedByRole = String(req.accountType || 'registrar').toLowerCase() === 'admin' ? 'admin' : 'registrar';
       const corVerifiedTransition = requestedCorStatus === 'Verified' && previousCorStatus !== 'Verified';
@@ -2392,6 +2523,7 @@ class StudentController {
 
       res.json({
         success: true,
+        applicantNameSynced,
         data: enrollmentDemoted ? { ...student.toObject(), lifecycleStatus: 'Pending' } : student,
         message: enrollmentDemoted
           ? 'Student information updated successfully. Lifecycle reverted to Pending because no valid block assignment remains — assign a block to finalize enrollment.'
@@ -2404,6 +2536,181 @@ class StudentController {
       res.status(error.statusCode || 500).json({
         success: false,
         message: error.message || 'Failed to update student information'
+      });
+    }
+  }
+
+
+  static async bulkVerifyCor(req, res) {
+    try {
+      const studentIds = Array.isArray(req.body?.studentIds) ? req.body.studentIds : [];
+      if (!studentIds.length) {
+        return res.status(400).json({ success: false, message: 'No student IDs provided.' });
+      }
+
+      const schoolYearLockService = require('../services/schoolYearLockService');
+      const enrollmentGuard = require('../services/enrollmentGuard');
+      const performedBy = req.adminId;
+      const performedByRole = normalizeAccountType(req.accountType);
+
+      const students = await Student.find({
+        _id: { $in: studentIds }
+      });
+
+      if (!students.length) {
+        return res.status(404).json({ success: false, message: 'No matching students found.' });
+      }
+
+      const verified = [];
+      const failed = [];
+      const alreadyVerified = [];
+
+      for (const student of students) {
+        if (student.corStatus === 'Verified') {
+          alreadyVerified.push(String(student._id));
+          continue;
+        }
+
+        try {
+          await schoolYearLockService.assertSchoolYearWritable(student.schoolYear, 'bulk COR verification');
+
+          const previousLifecycle = String(student.lifecycleStatus || '').trim();
+          if (previousLifecycle !== 'Enrolled' && previousLifecycle !== 'Dropped') {
+            await enrollmentGuard.assertEnrolledRequirements(student);
+          }
+
+          const previousCorStatus = student.corStatus || 'Pending';
+          student.corStatus = 'Verified';
+          if (previousLifecycle !== 'Dropped' && previousLifecycle !== 'Inactive' && previousLifecycle !== 'Graduated') {
+            student.lifecycleStatus = 'Enrolled';
+          }
+          student.updatedBy = performedBy;
+          await student.save();
+
+          await AuditLog.create({
+            action: 'APPROVE',
+            resourceType: 'STUDENT',
+            resourceId: String(student._id),
+            resourceName: `${student.studentNumber} — ${student.lastName}, ${student.firstName}`,
+            description: `Bulk COR verified for ${student.studentNumber} (corStatus: ${previousCorStatus} → Verified)`,
+            performedBy,
+            performedByRole,
+            oldValue: { corStatus: previousCorStatus },
+            newValue: { corStatus: 'Verified' },
+            status: 'SUCCESS',
+            severity: 'HIGH',
+          });
+
+          verified.push(String(student._id));
+        } catch (err) {
+          failed.push({
+            studentId: String(student._id),
+            studentNumber: student.studentNumber,
+            error: err.message || 'Verification failed'
+          });
+        }
+      }
+
+      const parts = [];
+      if (verified.length > 0) parts.push(`Verified ${verified.length} student(s)`);
+      if (alreadyVerified.length > 0) parts.push(`${alreadyVerified.length} already verified`);
+      if (failed.length > 0) parts.push(`${failed.length} failed`);
+
+      res.json({
+        success: true,
+        message: parts.join(' · ') || 'Operation completed.',
+        verifiedCount: verified.length,
+        verifiedIds: verified,
+        alreadyVerifiedIds: alreadyVerified,
+        failures: failed
+      });
+    } catch (error) {
+      console.error('Bulk verify COR error:', error);
+      res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.message || 'Failed to bulk verify CORs'
+      });
+    }
+  }
+
+    static async readmitStudent(req, res) {
+    try {
+      const { id } = req.params;
+      const schoolYearLockService = require('../services/schoolYearLockService');
+      const student = await StudentController.getStudentByIdRecord(id);
+      if (!student) {
+        return res.status(404).json({
+          success: false,
+          message: 'Student not found'
+        });
+      }
+
+      await schoolYearLockService.assertSchoolYearWritable(student.schoolYear, 'authorized readmission');
+
+      const result = await studentLifecycleService.readmitStudent({
+        studentId: student._id,
+        lifecycleStatus: req.body?.lifecycleStatus || 'Pending',
+        reason: req.body?.reason || '',
+        remarks: req.body?.remarks || '',
+        actorId: req.adminId,
+        accountType: req.accountType || 'registrar',
+        effectiveDate: new Date()
+      });
+
+      return res.json({
+        success: true,
+        message: `Readmission approved. Student status is now ${String(result.student.lifecycleStatus || 'Pending').toUpperCase()}.`,
+        data: result.student,
+        historyEvent: result.event,
+        notificationCreated: result.notificationCreated
+      });
+    } catch (error) {
+      console.error('Error readmitting student:', error);
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        code: error.code,
+        message: error.message || 'Failed to readmit student'
+      });
+    }
+  }
+
+  static async reactivateStudent(req, res) {
+    try {
+      const { id } = req.params;
+      const schoolYearLockService = require('../services/schoolYearLockService');
+      const student = await StudentController.getStudentByIdRecord(id);
+      if (!student) {
+        return res.status(404).json({
+          success: false,
+          message: 'Student not found'
+        });
+      }
+
+      await schoolYearLockService.assertSchoolYearWritable(student.schoolYear, 'student reactivation');
+
+      const result = await studentLifecycleService.reactivateStudent({
+        studentId: student._id,
+        lifecycleStatus: req.body?.lifecycleStatus || 'Pending',
+        reason: req.body?.reason || '',
+        remarks: req.body?.remarks || '',
+        actorId: req.adminId,
+        accountType: req.accountType || 'registrar',
+        effectiveDate: new Date()
+      });
+
+      return res.json({
+        success: true,
+        message: `Student reactivated. Status is now ${String(result.student.lifecycleStatus || 'Pending').toUpperCase()}.`,
+        data: result.student,
+        historyEvent: result.event,
+        notificationCreated: result.notificationCreated
+      });
+    } catch (error) {
+      console.error('Error reactivating student:', error);
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        code: error.code,
+        message: error.message || 'Failed to reactivate student'
       });
     }
   }
@@ -2473,6 +2780,13 @@ class StudentController {
         return res.status(404).json({
           success: false,
           message: 'Student not found'
+        });
+      }
+      if (String(student.lifecycleStatus || '').trim() === 'Dropped') {
+        return res.status(403).json({
+          success: false,
+          code: 'STUDENT_DROPPED',
+          message: 'This student was dropped for academic deficiency. Authorized readmission is required before a new enrollment can be created.'
         });
       }
 
@@ -3102,23 +3416,83 @@ class StudentController {
     }
   }
 
-  static async resolveCorEnrollment(student) {
-    const base = { studentId: student._id, status: { $ne: 'Dropped' } };
-    const schoolYear = String(student.schoolYear || '').trim();
-    const semester = String(student.semester || '').trim();
+  static async resolveCorEnrollment(student, { schoolYear, semester, enrollmentId } = {}) {
+    const base = { studentId: student._id };
 
-    // 1) enrollment matching the student's current term, 2) any current enrollment, 3) latest one
-    const filters = [];
-    if (schoolYear && semester) filters.push({ ...base, schoolYear, semester });
-    filters.push({ ...base, isCurrent: true });
-    filters.push(base);
+    // 1. Specific enrollmentId
+    if (enrollmentId && mongoose.Types.ObjectId.isValid(String(enrollmentId))) {
+      const enr = await Enrollment.findOne({ _id: enrollmentId, ...base })
+        .populate('curriculumId', 'name code version programName totalUnits');
+      if (enr) return enr;
+    }
 
-    for (const filter of filters) {
+    const cleanSem = (val) => {
+      const v = String(val || '').trim();
+      if (/^1(st)?/i.test(v)) return '1st';
+      if (/^2(nd)?/i.test(v)) return '2nd';
+      if (/summer/i.test(v)) return 'Summer';
+      return v;
+    };
+
+    const targetYear = String(schoolYear || '').trim();
+    const targetSem = cleanSem(semester);
+
+    // 2. Specific schoolYear + semester
+    if (targetYear && targetSem) {
+      const enr = await Enrollment.findOne({
+        ...base,
+        schoolYear: targetYear,
+        semester: targetSem,
+        status: { $ne: 'Dropped' }
+      })
+        .sort({ isCurrent: -1, createdAt: -1 })
+        .populate('curriculumId', 'name code version programName totalUnits');
+      if (enr) return enr;
+
+      const anyStatusEnr = await Enrollment.findOne({
+        ...base,
+        schoolYear: targetYear,
+        semester: targetSem
+      })
+        .sort({ isCurrent: -1, createdAt: -1 })
+        .populate('curriculumId', 'name code version programName totalUnits');
+      if (anyStatusEnr) return anyStatusEnr;
+      return null;
+    }
+
+    // 3. Only semester specified
+    if (targetSem && !targetYear) {
+      const studentYear = String(student.schoolYear || '').trim();
+      const filters = [];
+      if (studentYear) filters.push({ ...base, schoolYear: studentYear, semester: targetSem, status: { $ne: 'Dropped' } });
+      filters.push({ ...base, semester: targetSem, status: { $ne: 'Dropped' } });
+      for (const f of filters) {
+        const enr = await Enrollment.findOne(f)
+          .sort({ isCurrent: -1, createdAt: -1 })
+          .populate('curriculumId', 'name code version programName totalUnits');
+        if (enr) return enr;
+      }
+      return null;
+    }
+
+    // 4. Default: match student's current term, or isCurrent, or latest active enrollment
+    const studentYear = String(student.schoolYear || '').trim();
+    const studentSem = cleanSem(student.semester);
+    const defaultFilters = [];
+    if (studentYear && studentSem) {
+      defaultFilters.push({ ...base, schoolYear: studentYear, semester: studentSem, status: { $ne: 'Dropped' } });
+    }
+    defaultFilters.push({ ...base, isCurrent: true, status: { $ne: 'Dropped' } });
+    defaultFilters.push({ ...base, status: { $ne: 'Dropped' } });
+    defaultFilters.push(base);
+
+    for (const filter of defaultFilters) {
       const enrollment = await Enrollment.findOne(filter)
         .sort({ isCurrent: -1, createdAt: -1 })
         .populate('curriculumId', 'name code version programName totalUnits');
       if (enrollment) return enrollment;
     }
+
     return null;
   }
 
@@ -3175,17 +3549,45 @@ class StudentController {
     }
   }
 
-  static async resolveClassBlockLabel(student, courseAbbreviation) {
-    const assignment = await StudentBlockAssignment.findOne({
-      studentId: String(student._id),
-      status: 'ASSIGNED'
-    })
-      .sort({ createdAt: -1 })
-      .select('sectionId')
-      .lean();
-    if (!assignment?.sectionId) return 'N/A';
+  static async resolveClassBlockLabel(student, courseAbbreviation, enrollment = null) {
+    let sectionId = null;
 
-    const section = await BlockSection.findById(assignment.sectionId)
+    if (enrollment) {
+      const specificAssignment = await StudentBlockAssignment.findOne({
+        studentId: String(student._id),
+        $or: [
+          { enrollmentId: enrollment._id },
+          {
+            $and: [
+              { $or: [{ schoolYear: enrollment.schoolYear }, { year: enrollment.schoolYear }] },
+              { semester: enrollment.semester }
+            ]
+          }
+        ],
+        status: { $ne: 'ARCHIVED' }
+      })
+        .sort({ createdAt: -1 })
+        .select('sectionId')
+        .lean();
+      if (specificAssignment?.sectionId) {
+        sectionId = specificAssignment.sectionId;
+      }
+    }
+
+    if (!sectionId) {
+      const assignment = await StudentBlockAssignment.findOne({
+        studentId: String(student._id),
+        status: 'ASSIGNED'
+      })
+        .sort({ createdAt: -1 })
+        .select('sectionId')
+        .lean();
+      if (assignment?.sectionId) sectionId = assignment.sectionId;
+    }
+
+    if (!sectionId) return 'N/A';
+
+    const section = await BlockSection.findById(sectionId)
       .select('sectionCode blockCode name')
       .lean();
 
@@ -3205,7 +3607,7 @@ class StudentController {
     return generated;
   }
 
-  static async buildCorViewModel(student, { adminId, username, baseUrl } = {}) {
+  static async buildCorViewModel(student, { adminId, username, baseUrl, schoolYear, semester, enrollmentId } = {}) {
     const h = CorPdfService.helpers;
 
     // --- program / course ---
@@ -3220,34 +3622,71 @@ class StudentController {
       student.course ||
       'N/A';
 
-    // --- enrollment + subjects ---
-    const enrollment = await StudentController.resolveCorEnrollment(student);
+    // --- enrollment + subjects for THIS EXACT SEMESTER ONLY ---
+    const enrollment = await StudentController.resolveCorEnrollment(student, { schoolYear, semester, enrollmentId });
+    if (!enrollment) {
+      const requestedTerm = [semester, schoolYear].filter(Boolean).join(' ');
+      const err = new Error(
+        requestedTerm
+          ? `No official enrollment record found for ${student.studentNumber} in ${requestedTerm}.`
+          : `No enrollment record found for ${student.studentNumber}.`
+      );
+      err.statusCode = 404;
+      throw err;
+    }
+
     await StudentController.clearStaleInstructors(enrollment);
 
-    const activeSubjects = (Array.isArray(enrollment?.subjects) ? enrollment.subjects : []).filter(
-      (subject) => String(subject?.status || '').toLowerCase() !== 'dropped'
-    );
-    const classBlockLabel = await StudentController.resolveClassBlockLabel(student, courseAbbreviation);
+    // Filter only eligible registered subjects for THIS semester
+    const activeSubjects = [];
+    const seenSubjectKeys = new Set();
+    const rawSubjects = Array.isArray(enrollment.subjects) ? enrollment.subjects : [];
+
+    for (const sub of rawSubjects) {
+      if (!sub) continue;
+      const statusLower = String(sub.status || '').trim().toLowerCase();
+      if (statusLower === 'dropped' || statusLower === 'removed') continue;
+      if (sub.droppedAt) continue;
+      const mark = String(sub.gradeMark || '').trim().toUpperCase();
+      if (mark === 'DRP') continue;
+
+      const key = String(sub.subjectId || sub.code || '').trim().toUpperCase();
+      if (key && seenSubjectKeys.has(key)) {
+        continue;
+      }
+      if (key) seenSubjectKeys.add(key);
+      activeSubjects.push(sub);
+    }
+
+    const classBlockLabel = await StudentController.resolveClassBlockLabel(student, courseAbbreviation, enrollment);
     const unitBreakdown = h.computeUnitBreakdown(activeSubjects);
     const totalUnits = activeSubjects.reduce((sum, subject) => sum + (Number(subject?.units) || 0), 0);
+
+    const corSemester = String(enrollment.semester || student.semester || 'N/A').trim();
+    const corSchoolYear = String(enrollment.schoolYear || student.schoolYear || 'N/A').trim();
+    const corYearLevel = String(enrollment.yearLevel || student.yearLevel || 'N/A').trim();
 
     // --- registrar ---
     const registrar = adminId ? await Admin.findById(adminId).select('displayName') : null;
     const registrarName = registrar?.displayName || username || "Registrar's Office";
 
-    // --- QR target ---
-    // Priority: explicit baseUrl (e.g. derived from the generating request)
-    // -> APP_DOWNLOAD_URL env -> legacy fallback. Deriving from the request
-    // keeps scanned codes working on any host (local, LAN, production)
-    // without configuration.
     const appBaseUrl = String(
       baseUrl || process.env.APP_DOWNLOAD_URL || 'https://west-coast-college-admin-production.up.railway.app'
     ).replace(/\/+$/, '');
 
+    const regDateSource = enrollment.enrollmentDate || enrollment.createdAt || new Date();
+    const regDate = new Date(regDateSource);
+    const issuedDate = Number.isNaN(regDate.getTime())
+      ? new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+      : regDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
     return {
       registrationNumber: await StudentController.ensureRegistrationNumber(student),
-      issuedDate: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+      issuedDate,
       registrarName,
+      enrollmentId: String(enrollment._id),
+      enrollmentStatus: enrollment.status,
+      isCurrent: Boolean(enrollment.isCurrent),
       qrUrl: process.env.APP_DOWNLOAD_URL || 'https://west-coast-college-admin-production.up.railway.app/download-apk',
       qrImagePath: path.join(__dirname, '../../public/WccPortal-Downloadlink.png'),
       student: {
@@ -3258,9 +3697,9 @@ class StudentController {
           .join(' '),
         program: h.extractProgram(courseLabel),
         major: h.extractMajor(student.major) || h.extractMajor(courseLabel) || 'N/A',
-        yearLevel: String(enrollment?.yearLevel || student.yearLevel || 'N/A'),
-        semester: String(enrollment?.semester || student.semester || 'N/A'),
-        schoolYear: String(enrollment?.schoolYear || student.schoolYear || 'N/A'),
+        yearLevel: corYearLevel,
+        semester: corSemester,
+        schoolYear: corSchoolYear,
         sex: h.cleanText(student.gender, 'N/A'),
         age: h.calculateAge(student.birthDate),
         college: 'Pio Duran',
@@ -3280,7 +3719,7 @@ class StudentController {
   }
 
   /**
-   * Generate Certificate of Registration (COR) as PDF
+   * Generate Certificate of Registration (COR) as PDF or JSON
    */
   static async generateCorPdf(req, res) {
     try {
@@ -3295,23 +3734,56 @@ class StudentController {
         ? `${forwardedProto || req.protocol || 'http'}://${forwardedHost}`
         : null;
 
+      const { schoolYear, semester, enrollmentId, format } = req.query;
+
       const corData = await StudentController.buildCorViewModel(student, {
         adminId: req.adminId,
         username: req.username,
-        baseUrl: requestBaseUrl
+        baseUrl: requestBaseUrl,
+        schoolYear,
+        semester,
+        enrollmentId
       });
+
+      if (format === 'json') {
+        return res.json({ success: true, data: corData });
+      }
 
       const pdf = await CorPdfService.generate(corData);
       const safeName = String(student.studentNumber || student._id).replace(/[^\w.-]+/g, '_');
+      const safeSem = String(corData.student.semester || '').replace(/[^\w.-]+/g, '_');
+      const safeYear = String(corData.student.schoolYear || '').replace(/[^\w.-]+/g, '_');
+
+      // Audit log the COR generation / download
+      if (req.adminId && mongoose.Types.ObjectId.isValid(String(req.adminId))) {
+        AuditLog.create({
+          action: 'DOWNLOAD',
+          resourceType: 'STUDENT',
+          resourceId: String(student._id),
+          resourceName: `${student.studentNumber} - ${student.firstName} ${student.lastName}`,
+          description: `Generated COR for ${student.studentNumber} — SY ${corData.student.schoolYear} ${corData.student.semester}`,
+          performedBy: req.adminId,
+          performedByRole: req.accountType || 'registrar',
+          status: 'SUCCESS',
+          severity: 'LOW',
+          newValue: {
+            schoolYear: corData.student.schoolYear,
+            semester: corData.student.semester,
+            registrationNumber: corData.registrationNumber,
+            subjectCount: corData.totals.subjects,
+            totalUnits: corData.totals.units
+          }
+        }).catch((err) => console.error('Failed to log COR audit:', err));
+      }
 
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="COR-${safeName}.pdf"`);
+      res.setHeader('Content-Disposition', `attachment; filename="COR-${safeName}-${safeYear}-${safeSem}.pdf"`);
       res.setHeader('Content-Length', pdf.length);
       return res.end(pdf);
     } catch (error) {
       console.error('Error generating COR PDF:', error);
       if (!res.headersSent) {
-        return res.status(500).json({ success: false, message: error.message || 'Failed to generate COR' });
+        return res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Failed to generate COR' });
       }
       res.end();
     }
@@ -3331,6 +3803,17 @@ class StudentController {
       // Verify enrollment belongs to this student
       if (String(enrollment.studentId) !== String(studentId)) {
         return res.status(403).json({ error: 'Enrollment does not belong to this student.' });
+      }
+
+      const student = await Student.findById(studentId).select('lifecycleStatus').lean();
+      if (!student) {
+        return res.status(404).json({ error: 'Student not found.' });
+      }
+      if (String(student.lifecycleStatus || '').trim() === 'Dropped') {
+        return res.status(403).json({
+          code: 'STUDENT_DROPPED',
+          error: 'This student was dropped for academic deficiency. Authorized readmission is required before adding new subjects.'
+        });
       }
 
       // Sync curriculum subjects

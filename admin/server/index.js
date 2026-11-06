@@ -43,6 +43,7 @@ const Backup = require('./models/Backup')
 const BlockedIP = require('./models/BlockedIP')
 const SecurityScan = require('./models/SecurityScan')
 const Student = require('./models/Student')
+const StudentNotification = require('./models/StudentNotification')
 const Enrollment = require('./models/Enrollment')
 const BlockSection = require('./models/BlockSection')
 const StudentBlockAssignment = require('./models/StudentBlockAssignment')
@@ -545,6 +546,87 @@ app.use('/api/registrar', authMiddleware, registrarRoutes)
 app.use('/api/registrar/grade-submissions', authMiddleware, gradeSubmissionRoutes)
 app.use('/registrar/grade-submissions', apiLimiter, authMiddleware, gradeSubmissionRoutes)
 
+// Professor all courses summary route for pre-submission preview
+app.get(
+  '/api/professor/grade-submissions/all-courses-summary',
+  authMiddleware,
+  async (req, res, next) => {
+    if (String(req.accountType || '').toLowerCase() !== 'professor') {
+      return res.status(403).json({ error: 'Forbidden. Professor access required.' })
+    }
+    try {
+      if (!dbReady) {
+        return res.status(503).json({ error: 'Database unavailable.' })
+      }
+      const access = await getProfessorRouteAccess(req.adminId)
+      req.professorAccess = access
+      req.instructorMatchesProfessor = access.instructorMatchesProfessor
+      next()
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({ error: error.message || 'Ownership verification failed.' })
+    }
+  },
+  gradeSubmissionController.getAllCoursesSummary
+)
+
+// Professor submit all courses route
+app.post(
+  '/api/professor/grade-submissions/bulk-submit-all-courses',
+  authMiddleware,
+  invalidateApiCacheOnSuccess(
+    '/api/professor/sections/',
+    '/api/professor/assigned-blocks',
+    '/api/registrar/grade-submissions',
+    '/registrar/grade-submissions'
+  ),
+  async (req, res, next) => {
+    if (String(req.accountType || '').toLowerCase() !== 'professor') {
+      return res.status(403).json({ error: 'Forbidden. Professor access required.' })
+    }
+    try {
+      if (!dbReady) {
+        return res.status(503).json({ error: 'Database unavailable.' })
+      }
+      const access = await getProfessorRouteAccess(req.adminId)
+      req.professorAccess = access
+      req.instructorMatchesProfessor = access.instructorMatchesProfessor
+      next()
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({ error: error.message || 'Ownership verification failed.' })
+    }
+  },
+  gradeSubmissionController.bulkSubmitAllCourses
+)
+
+// Bulk professor grade submission route (professor-only, with ownership verification)
+app.post(
+  '/api/professor/grade-submissions/bulk-submit',
+  authMiddleware,
+  invalidateApiCacheOnSuccess(
+    '/api/professor/sections/',
+    '/api/professor/assigned-blocks',
+    '/api/registrar/grade-submissions',
+    '/registrar/grade-submissions'
+  ),
+  async (req, res, next) => {
+    if (String(req.accountType || '').toLowerCase() !== 'professor') {
+      return res.status(403).json({ error: 'Forbidden. Professor access required.' })
+    }
+    try {
+      if (!dbReady) {
+        return res.status(503).json({ error: 'Database unavailable.' })
+      }
+      const access = await getProfessorRouteAccess(req.adminId)
+      req.professorAccess = access
+      req.instructorMatchesProfessor = access.instructorMatchesProfessor
+      next()
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({ error: error.message || 'Ownership verification failed.' })
+    }
+  },
+  gradeSubmissionController.bulkSubmitGrades
+)
+
 // Professor grade submission route (professor-only, with ownership verification)
 app.post('/api/professor/grade-submissions/:enrollmentId/submit', authMiddleware, async (req, res, next) => {
   if (String(req.accountType || '').toLowerCase() !== 'professor') {
@@ -742,7 +824,20 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
       (value) => new RegExp(`^\\s*${escapeRegExp(value)}\\s*$`, 'i')
     )
 
-    const enrollments = await Enrollment.find({
+    let activeSchoolYear = '2026-2027';
+    let activeSemester = '1st';
+    try {
+      const { DEFAULT_SCHOOL_YEAR, DEFAULT_SEMESTER } = require('./lib/academicTerm');
+      activeSchoolYear = DEFAULT_SCHOOL_YEAR;
+      activeSemester = DEFAULT_SEMESTER;
+      const termSetting = await SystemSetting.findOne({ key: 'academicTerm' }).lean();
+      if (termSetting?.value?.schoolYear) activeSchoolYear = termSetting.value.schoolYear;
+      if (termSetting?.value?.semester) activeSemester = termSetting.value.semester;
+    } catch {
+      // ignore
+    }
+
+    const enrollmentFilter = {
       status: { $ne: 'Dropped' },
       subjects: {
         $elemMatch: {
@@ -750,8 +845,23 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
           status: { $ne: 'Dropped' }
         }
       }
-    })
-      .select('studentId course schoolYear semester yearLevel subjects')
+    }
+
+    if (req.query.activeOnly === 'true') {
+      enrollmentFilter.schoolYear = activeSchoolYear
+      enrollmentFilter.semester = activeSemester
+    } else {
+      if (req.query.semester) {
+        enrollmentFilter.semester = req.query.semester
+      }
+      if (req.query.schoolYear) {
+        enrollmentFilter.schoolYear = req.query.schoolYear
+      }
+    }
+
+    const enrollments = await Enrollment.find(enrollmentFilter)
+      .select('studentId course schoolYear semester yearLevel subjects isCurrent status createdAt')
+      .sort({ isCurrent: -1, createdAt: -1 })
       .lean()
 
     if (enrollments.length === 0) {
@@ -887,6 +997,9 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
         courseMap.set(courseCode, courseEntry)
       }
 
+      const isCurrentEnrollment = Boolean(enrollment.isCurrent) ||
+        (enrollment.status === 'Enrolled' && normalizeText(enrollment.semester) === activeSemester && toSchoolYear(enrollment.schoolYear) === toSchoolYear(activeSchoolYear));
+
       const blockKey = `${effectiveSectionId || effectiveSectionCode}::${semester}::${schoolYear}`
       let blockEntry = courseEntry.blocks.get(blockKey)
       if (!blockEntry) {
@@ -896,10 +1009,14 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
           semester,
           schoolYear,
           yearLevel,
+          isCurrent: isCurrentEnrollment,
+          status: enrollment.status,
           needsBlockAssignment,
           subjects: new Map()
         }
         courseEntry.blocks.set(blockKey, blockEntry)
+      } else if (isCurrentEnrollment) {
+        blockEntry.isCurrent = true
       }
 
       ;(enrollment.subjects || []).forEach((subject) => {
@@ -948,12 +1065,23 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
               semester: blockEntry.semester,
               schoolYear: blockEntry.schoolYear,
               yearLevel: blockEntry.yearLevel,
+              isCurrent: Boolean(blockEntry.isCurrent),
+              status: blockEntry.status,
               needsBlockAssignment: blockEntry.needsBlockAssignment || false,
               subjects
             }
           })
           .filter((block) => block.subjects.length > 0)
-          .sort((a, b) => a.sectionCode.localeCompare(b.sectionCode))
+          .sort((a, b) => {
+            if (Boolean(a.isCurrent) !== Boolean(b.isCurrent)) {
+              return a.isCurrent ? -1 : 1
+            }
+            const syCompare = String(b.schoolYear || '').localeCompare(String(a.schoolYear || ''))
+            if (syCompare !== 0) return syCompare
+            const semCompare = String(b.semester || '').localeCompare(String(a.semester || ''))
+            if (semCompare !== 0) return semCompare
+            return String(a.sectionCode || '').localeCompare(String(b.sectionCode || ''))
+          })
 
         return {
           courseCode: courseEntry.courseCode,
@@ -985,7 +1113,11 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
         totalCourses: courses.length,
         totalBlocks,
         totalSubjects,
-        totalStudents: uniqueStudentIds.size
+        totalStudents: uniqueStudentIds.size,
+        activeTerm: {
+          schoolYear: activeSchoolYear,
+          semester: activeSemester
+        }
       }
     })
   } catch (error) {
@@ -1007,6 +1139,23 @@ function escapeProfessorRouteRegExp(value) {
 function parseProfessorRouteSchoolYearStart(schoolYearValue) {
   const match = String(schoolYearValue || '').trim().match(/^(\d{4})\s*-\s*\d{4}$/)
   return match ? Number(match[1]) : null
+}
+
+function normalizeProfessorRouteSchoolYear(value) {
+  const text = String(value ?? '').trim()
+  if (!text) return ''
+  if (/^\d{4}-\d{4}$/.test(text)) return text
+  const startYear = Number(text)
+  return Number.isFinite(startYear) && startYear > 0 ? `${startYear}-${startYear + 1}` : text
+}
+
+function normalizeProfessorRouteSemester(value) {
+  const raw = String(value || '').toLowerCase().replace(/\s+/g, '')
+  if (!raw) return ''
+  if (['1', '1st', 'first', 'firstsemester', '1stsemester', 'firstsem', 'sem1', '1stsem'].includes(raw)) return '1st'
+  if (['2', '2nd', 'second', 'secondsemester', '2ndsemester', 'secondsem', 'sem2', '2ndsem'].includes(raw)) return '2nd'
+  if (['summer', 'summerterm', 'summersemester'].includes(raw)) return 'Summer'
+  return String(value || '').trim()
 }
 
 async function getProfessorRouteAccess(adminId) {
@@ -1079,24 +1228,48 @@ app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authM
       return res.status(404).json({ error: 'Section not found.' })
     }
 
-    const yearStart = parseProfessorRouteSchoolYearStart(schoolYear)
+    const normSem = normalizeProfessorRouteSemester(semester)
+    const canonicalSY = normalizeProfessorRouteSchoolYear(schoolYear)
+    const yearStart = parseProfessorRouteSchoolYearStart(canonicalSY || schoolYear)
     const assignmentQuery = {
       sectionId: new mongoose.Types.ObjectId(sectionId),
       status: 'ASSIGNED'
     }
-    if (semester) assignmentQuery.semester = semester
-    if (Number.isFinite(yearStart)) assignmentQuery.year = yearStart
+    if (normSem) {
+      assignmentQuery.semester = { $in: Array.from(new Set([semester, normSem].filter(Boolean))) }
+    } else if (semester) {
+      assignmentQuery.semester = semester
+    }
+    const yearValues = Array.from(new Set([
+      schoolYear,
+      canonicalSY,
+      yearStart,
+      Number.isFinite(yearStart) ? String(yearStart) : null,
+      Number.isFinite(yearStart) ? `${yearStart}-${yearStart + 1}` : null
+    ].filter(Boolean)))
+    if (yearValues.length > 0) {
+      assignmentQuery.$or = [
+        { year: { $in: yearValues } },
+        { schoolYear: { $in: yearValues } }
+      ]
+    }
 
     let assignments = await StudentBlockAssignment.find(assignmentQuery)
       .select('studentId assignedAt semester year')
       .sort({ assignedAt: 1 })
       .lean()
 
-    if (assignments.length === 0 && (semester || Number.isFinite(yearStart))) {
-      assignments = await StudentBlockAssignment.find({
+    if (assignments.length === 0 && (normSem || yearValues.length > 0)) {
+      const fallbackQuery = {
         sectionId: new mongoose.Types.ObjectId(sectionId),
         status: 'ASSIGNED'
-      })
+      }
+      if (normSem) {
+        fallbackQuery.semester = { $in: Array.from(new Set([semester, normSem].filter(Boolean))) }
+      } else if (semester) {
+        fallbackQuery.semester = semester
+      }
+      assignments = await StudentBlockAssignment.find(fallbackQuery)
         .select('studentId assignedAt semester year')
         .sort({ assignedAt: 1 })
         .lean()
@@ -1154,74 +1327,87 @@ app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authM
         }
       }
     }
-    if (semester) enrollmentQuery.semester = semester
-    if (schoolYear) enrollmentQuery.schoolYear = schoolYear
+    if (normSem) {
+      enrollmentQuery.semester = { $in: Array.from(new Set([semester, normSem].filter(Boolean))) }
+    } else if (semester) {
+      enrollmentQuery.semester = semester
+    }
+    const syVariants = Array.from(new Set([schoolYear, canonicalSY].filter(Boolean)))
+    if (syVariants.length > 0) {
+      enrollmentQuery.schoolYear = { $in: syVariants }
+    }
 
     const enrollments = await Enrollment.find(enrollmentQuery)
       .select('_id studentId studentNumber schoolYear semester subjects isCurrent createdAt updatedAt')
       .sort({ isCurrent: -1, createdAt: -1 })
       .lean()
 
-    const subjectRows = enrollments
-      .map((enrollment) => {
-        const studentId = String(enrollment.studentId || '')
-        const student = studentsById.get(studentId)
-        if (!student) return null
+    const seenStudentIds = new Set()
+    const subjectRows = []
 
-        const matchedEntry = (Array.isArray(enrollment.subjects) ? enrollment.subjects : []).find((entry) => {
-          if (String(entry?.subjectId || '') !== String(subjectId)) return false
-          const isOfficialDrop = String(entry?.status || '').toLowerCase() === 'dropped'
-            && entry?.dropReason !== 'Marked DRP by professor'
-            && !['DRP', 'INC', 'W', 'FA', 'NG'].includes(entry?.gradeMark)
-          if (isOfficialDrop) return false
-          return access.instructorMatchesProfessor(entry?.instructor)
-        })
+    for (const enrollment of enrollments) {
+      const studentId = String(enrollment.studentId || '')
+      if (!studentId || seenStudentIds.has(studentId)) continue
 
-        if (!matchedEntry) return null
+      const student = studentsById.get(studentId)
+      if (!student) continue
 
-        const isCorruptedDrop = matchedEntry.status === 'Dropped' && (matchedEntry.dropReason === 'Marked DRP by professor' || ['DRP', 'INC', 'W', 'FA', 'NG'].includes(matchedEntry.gradeMark))
-        if (isCorruptedDrop) {
-          Enrollment.updateOne(
-            { _id: enrollment._id, 'subjects._id': matchedEntry._id },
-            { $set: { 'subjects.$.status': 'Enrolled' }, $unset: { 'subjects.$.dropReason': '', 'subjects.$.droppedAt': '' } }
-          ).catch(() => {})
-        }
-
-        const effectiveSubjectStatus = isCorruptedDrop
-          ? 'Enrolled'
-          : (normalizeProfessorRouteText(matchedEntry.status) || 'Enrolled')
-
-        return {
-          _id: String(student._id),
-          enrollmentId: String(enrollment._id),
-          subjectEntryId: String(matchedEntry._id || ''),
-          studentNumber: String(student.studentNumber || enrollment.studentNumber || '').trim(),
-          firstName: normalizeProfessorRouteText(student.firstName),
-          middleName: normalizeProfessorRouteText(student.middleName),
-          lastName: normalizeProfessorRouteText(student.lastName),
-          suffix: normalizeProfessorRouteText(student.suffix),
-          yearLevel: Number(student.yearLevel || 0) || null,
-          studentStatus: normalizeProfessorRouteText(student.studentStatus) || 'Active',
-          course: student.course,
-          email: normalizeProfessorRouteText(student.email),
-          contactNumber: normalizeProfessorRouteText(student.contactNumber),
-          corStatus: normalizeProfessorRouteText(student.corStatus) || 'Pending',
-          currentGrade: matchedEntry.grade ?? null,
-          currentGradeMark: matchedEntry.gradeMark || null,
-          remarks: normalizeProfessorRouteText(matchedEntry.remarks),
-          subjectStatus: effectiveSubjectStatus,
-          classSubjectCode: normalizeProfessorRouteText(matchedEntry.code),
-          classSubjectTitle: normalizeProfessorRouteText(matchedEntry.title),
-          gradeUpdatedAt: matchedEntry.dateModified || enrollment.updatedAt || enrollment.createdAt || null,
-          gradeSubmissionStatus: matchedEntry.submissionStatus || 'Draft'
-        }
+      const matchedEntry = (Array.isArray(enrollment.subjects) ? enrollment.subjects : []).find((entry) => {
+        if (String(entry?.subjectId || '') !== String(subjectId)) return false
+        const isOfficialDrop = String(entry?.status || '').toLowerCase() === 'dropped'
+          && entry?.dropReason !== 'Marked DRP by professor'
+          && !['DRP', 'INC', 'W', 'FA', 'NG'].includes(entry?.gradeMark)
+        if (isOfficialDrop) return false
+        return access.instructorMatchesProfessor(entry?.instructor)
       })
-      .filter(Boolean)
-      .sort((a, b) => {
-        const lastNameCompare = String(a.lastName || '').localeCompare(String(b.lastName || ''))
-        if (lastNameCompare !== 0) return lastNameCompare
-        return String(a.firstName || '').localeCompare(String(b.firstName || ''))
+
+      if (!matchedEntry) continue
+
+      seenStudentIds.add(studentId)
+
+      const isCorruptedDrop = matchedEntry.status === 'Dropped' && (matchedEntry.dropReason === 'Marked DRP by professor' || ['DRP', 'INC', 'W', 'FA', 'NG'].includes(matchedEntry.gradeMark))
+      if (isCorruptedDrop) {
+        Enrollment.updateOne(
+          { _id: enrollment._id, 'subjects._id': matchedEntry._id },
+          { $set: { 'subjects.$.status': 'Enrolled' }, $unset: { 'subjects.$.dropReason': '', 'subjects.$.droppedAt': '' } }
+        ).catch(() => {})
+      }
+
+      const effectiveSubjectStatus = isCorruptedDrop
+        ? 'Enrolled'
+        : (normalizeProfessorRouteText(matchedEntry.status) || 'Enrolled')
+
+      subjectRows.push({
+        _id: String(student._id),
+        enrollmentId: String(enrollment._id),
+        subjectEntryId: String(matchedEntry._id || ''),
+        studentNumber: String(student.studentNumber || enrollment.studentNumber || '').trim(),
+        firstName: normalizeProfessorRouteText(student.firstName),
+        middleName: normalizeProfessorRouteText(student.middleName),
+        lastName: normalizeProfessorRouteText(student.lastName),
+        suffix: normalizeProfessorRouteText(student.suffix),
+        yearLevel: Number(student.yearLevel || 0) || null,
+        studentStatus: normalizeProfessorRouteText(student.studentStatus) || 'Active',
+        course: student.course,
+        email: normalizeProfessorRouteText(student.email),
+        contactNumber: normalizeProfessorRouteText(student.contactNumber),
+        corStatus: normalizeProfessorRouteText(student.corStatus) || 'Pending',
+        currentGrade: matchedEntry.grade ?? null,
+        currentGradeMark: matchedEntry.gradeMark || null,
+        remarks: normalizeProfessorRouteText(matchedEntry.remarks),
+        subjectStatus: effectiveSubjectStatus,
+        classSubjectCode: normalizeProfessorRouteText(matchedEntry.code),
+        classSubjectTitle: normalizeProfessorRouteText(matchedEntry.title),
+        gradeUpdatedAt: matchedEntry.dateModified || enrollment.updatedAt || enrollment.createdAt || null,
+        gradeSubmissionStatus: matchedEntry.submissionStatus || 'Draft'
       })
+    }
+
+    subjectRows.sort((a, b) => {
+      const lastNameCompare = String(a.lastName || '').localeCompare(String(b.lastName || ''))
+      if (lastNameCompare !== 0) return lastNameCompare
+      return String(a.firstName || '').localeCompare(String(b.firstName || ''))
+    })
 
     const subjectMeta = subjectRows[0]
       ? {
@@ -1296,16 +1482,23 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
 
 
 
+  const normSem = normalizeProfessorRouteSemester(semester)
+  const canonicalSY = normalizeProfessorRouteSchoolYear(schoolYear)
+
   // School-year lock enforcement: a locked or rolled-over school year's
   // grades are immutable historical data (see schoolYearLockService.js).
-  await schoolYearLockService.assertSchoolYearWritable(schoolYear, 'professor grade edit')
+  // Normalize first so legacy "2026" values are still matched against the
+  // "2026-2027" state instead of silently bypassing the guard.
+  await schoolYearLockService.assertSchoolYearWritable(canonicalSY || schoolYear, 'professor grade edit')
 
   // A grade mark (INC/DRP/W/FA/NG) and a numerical grade are normally mutually
   // exclusive. FA is the exception: it is recorded together with its failing
-  // 5.0 equivalent so GPA/history calculations see the failure.
+  // 5.0 equivalent so GWA/history calculations see the failure.
   if (normalizedGradeMark) {
-    normalizedGrade = normalizedGradeMark === 'FA' ? 5 : null
+    normalizedGrade = gradingScaleService.failingEquivalentForMark(normalizedGradeMark)
   }
+
+  const syVariants = Array.from(new Set([schoolYear, canonicalSY].filter(Boolean)))
 
   // Block grade changes if THIS SUBJECT's submissionStatus is Submitted, Verified, or Published.
   // Per-subject status allows different professors (teaching different subjects in the same
@@ -1321,12 +1514,19 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
       }
     }
   }
-  if (semester) submissionBlockQuery.semester = semester
-  if (schoolYear) submissionBlockQuery.schoolYear = schoolYear
+  if (normSem) {
+    submissionBlockQuery.semester = { $in: Array.from(new Set([semester, normSem].filter(Boolean))) }
+  } else if (semester) {
+    submissionBlockQuery.semester = semester
+  }
+  if (syVariants.length > 0) {
+    submissionBlockQuery.schoolYear = { $in: syVariants }
+  }
   let blockedEnrollment = await Enrollment.findOne(submissionBlockQuery).lean().select('subjects')
-  if (!blockedEnrollment && (semester || schoolYear)) {
+  if (!blockedEnrollment && syVariants.length > 0) {
     blockedEnrollment = await Enrollment.findOne({
       studentId: new mongoose.Types.ObjectId(studentId),
+      schoolYear: { $in: syVariants },
       status: { $nin: ['Dropped', 'Cancelled'] },
       subjects: {
         $elemMatch: {
@@ -1355,25 +1555,47 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
 
   try {
     const access = await getProfessorRouteAccess(req.adminId)
-    const yearStart = parseProfessorRouteSchoolYearStart(schoolYear)
+    const yearStart = parseProfessorRouteSchoolYearStart(canonicalSY || schoolYear)
     const assignmentQuery = {
       sectionId: new mongoose.Types.ObjectId(sectionId),
       studentId: String(studentId).trim(),
       status: 'ASSIGNED'
     }
-    if (semester) assignmentQuery.semester = semester
-    if (Number.isFinite(yearStart)) assignmentQuery.year = yearStart
+    if (normSem) {
+      assignmentQuery.semester = { $in: Array.from(new Set([semester, normSem].filter(Boolean))) }
+    } else if (semester) {
+      assignmentQuery.semester = semester
+    }
+    const yearValues = Array.from(new Set([
+      schoolYear,
+      canonicalSY,
+      yearStart,
+      Number.isFinite(yearStart) ? String(yearStart) : null,
+      Number.isFinite(yearStart) ? `${yearStart}-${yearStart + 1}` : null
+    ].filter(Boolean)))
+    if (yearValues.length > 0) {
+      assignmentQuery.$or = [
+        { year: { $in: yearValues } },
+        { schoolYear: { $in: yearValues } }
+      ]
+    }
 
     let assignment = await StudentBlockAssignment.findOne(assignmentQuery)
       .select('_id studentId sectionId semester year')
       .lean()
 
-    if (!assignment && (semester || Number.isFinite(yearStart))) {
-      assignment = await StudentBlockAssignment.findOne({
+    if (!assignment && (normSem || yearValues.length > 0)) {
+      const fallbackQuery = {
         sectionId: new mongoose.Types.ObjectId(sectionId),
         studentId: String(studentId).trim(),
         status: 'ASSIGNED'
-      })
+      }
+      if (normSem) {
+        fallbackQuery.semester = { $in: Array.from(new Set([semester, normSem].filter(Boolean))) }
+      } else if (semester) {
+        fallbackQuery.semester = semester
+      }
+      assignment = await StudentBlockAssignment.findOne(fallbackQuery)
         .select('_id studentId sectionId semester year')
         .lean()
     }
@@ -1397,15 +1619,22 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
         }
       }
     }
-    if (semester) enrollmentQuery.semester = semester
-    if (schoolYear) enrollmentQuery.schoolYear = schoolYear
+    if (normSem) {
+      enrollmentQuery.semester = { $in: Array.from(new Set([semester, normSem].filter(Boolean))) }
+    } else if (semester) {
+      enrollmentQuery.semester = semester
+    }
+    if (syVariants.length > 0) {
+      enrollmentQuery.schoolYear = { $in: syVariants }
+    }
 
     let enrollment = await Enrollment.findOne(enrollmentQuery)
       .sort({ isCurrent: -1, createdAt: -1 })
 
-    if (!enrollment && (semester || schoolYear)) {
+    if (!enrollment && syVariants.length > 0) {
       enrollment = await Enrollment.findOne({
         studentId: new mongoose.Types.ObjectId(studentId),
+        schoolYear: { $in: syVariants },
         status: { $nin: ['Dropped', 'Cancelled'] },
         subjects: {
           $elemMatch: {
@@ -1443,9 +1672,10 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
     const oldGradeMark = matchedEntry.gradeMark || null
     const oldRemarks = matchedEntry.remarks || ''
 
-    if (normalizedGrade !== null) {
+    if (normalizedGrade !== null && normalizedGradeMark !== 'FA') {
       // Validate against the institution's configured scale (decimal steps such
       // as 0.1 by default) instead of hard-coding the quarter-point format.
+      // FA is exempt: its 5.0 equivalent is fixed by CHED policy.
       const gradeScale = await gradingScaleService.loadGradeScale()
       const parsedGrade = gradingScaleService.parseGradeInput(normalizedGrade, gradeScale)
       if (parsedGrade.error) {
@@ -3183,9 +3413,9 @@ app.post('/api/student/login', authLimiter, async (req, res) => {
     }
 
     // If the student has a stored (hashed) password, compare against it.
-    // If not, fall back to the generated default password (initials + last 4
-    // digits of student number) so newly-enrolled students can log in before
-    // a registrar sets a custom password.
+    // If not, fall back to the generated default password (first initial +
+    // full last name + last 5 digits of the student number) so newly-enrolled
+    // students can log in before a registrar sets a custom password.
     let isPasswordValid = false
     if (student.password) {
       isPasswordValid = await student.comparePassword(password)
@@ -3515,6 +3745,11 @@ app.get('/api/student/me', async (req, res) => {
           schoolYear: student.schoolYear,
           studentStatus: student.studentStatus,
           lifecycleStatus: student.lifecycleStatus,
+          lifecycleStatusReason: student.lifecycleStatusReason || null,
+          lifecycleStatusEffectiveDate: student.lifecycleStatusEffectiveDate || null,
+          lifecycleStatusTerm: student.lifecycleStatusTerm || null,
+          lifecycleStatusFailedSubjects: student.lifecycleStatusFailedSubjects || [],
+          lifecycleStatusHistory: student.lifecycleStatusHistory || [],
           enrollmentStatus: resolvedEnrollmentStatus,
           corStatus: student.corStatus,
           scholarship: student.scholarship,
@@ -3931,6 +4166,10 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
         const code = String(subject.code || '').trim().toUpperCase()
         const evaluationCompleted = Boolean(evaluationStatus.subjectsByCode.get(code)?.evaluationCompleted)
         const canShowGrade = isPublished && evaluationCompleted
+        const numericGrade = subject.grade !== null && subject.grade !== undefined && String(subject.grade).trim() !== ''
+          ? Number(subject.grade)
+          : null
+        const faEquivalent = gradingScaleService.failingEquivalentForMark(subject.gradeMark)
         return {
           subjectId: subject.subjectId ? String(subject.subjectId) : null,
           subjectCode: subject.code,
@@ -3939,11 +4178,17 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
           schedule: subject.schedule || 'TBA',
           room: subject.room || 'TBA',
           instructor: evaluationStatus.subjectsByCode.get(code)?.professorName || subject.instructor || 'TBA',
+          professorId: evaluationStatus.subjectsByCode.get(code)?.professorId || null,
           subjectStatus: subject.status || 'Enrolled',
-          grade: canShowGrade ? (subject.grade ?? null) : null,
+          grade: canShowGrade
+            ? (Number.isFinite(numericGrade) && numericGrade > 0 ? numericGrade : faEquivalent)
+            : null,
           gradeMark: canShowGrade ? (subject.gradeMark || null) : null,
           remarks: canShowGrade ? (subject.remarks || '') : '',
-          gradePublished: isPublished
+          gradePublished: isPublished,
+          evaluationRequired: true,
+          evaluationCompleted,
+          canEvaluate: Boolean(evaluationStatus.subjectsByCode.get(code)?.canEvaluate)
         }
       })
 
@@ -4014,26 +4259,36 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
           ? 'today'
           : 'none_today'
 
-      // Only show published subject grades on the dashboard.
+      // Only show published subject grades on the dashboard. Legacy FA rows may
+      // have no numeric grade stored yet, so derive their 5.0 equivalent here.
       const gradeScale = await gradingScaleService.loadGradeScale()
       latestGrades = activeSubjects
-        .filter((subject) =>
-          (subject.submissionStatus || 'Draft') === 'Published'
-          && subject.grade !== null
-          && subject.grade !== undefined
-        )
+        .filter((subject) => {
+          if ((subject.submissionStatus || 'Draft') !== 'Published') return false
+          if (subject.grade !== null && subject.grade !== undefined && String(subject.grade).trim() !== '') return true
+          return gradingScaleService.failingEquivalentForMark(subject.gradeMark) !== null
+        })
         .sort((a, b) => new Date(b.dateModified || 0) - new Date(a.dateModified || 0))
         .slice(0, 5)
         .map((subject) => {
           const code = String(subject.code || '').trim().toUpperCase()
           const evaluationCompleted = Boolean(evaluationStatus.subjectsByCode.get(code)?.evaluationCompleted)
+          const numericGrade = subject.grade !== null && subject.grade !== undefined && String(subject.grade).trim() !== ''
+            ? Number(subject.grade)
+            : null
+          const faEquivalent = gradingScaleService.failingEquivalentForMark(subject.gradeMark)
+          const effectiveGrade = Number.isFinite(numericGrade) && numericGrade > 0
+            ? numericGrade
+            : faEquivalent
           return {
             subjectCode: subject.code,
             subjectTitle: subject.title,
             units: subject.units,
-            grade: evaluationCompleted ? subject.grade : 0,
+            grade: evaluationCompleted ? (effectiveGrade ?? 0) : 0,
             remarks: evaluationCompleted
-              ? (subject.remarks || (gradingScaleService.isPassingGrade(subject.grade, gradeScale) ? 'PASSED' : 'FAILED'))
+              ? (subject.remarks || (effectiveGrade !== null
+                ? (gradingScaleService.isPassingGrade(effectiveGrade, gradeScale) ? 'PASSED' : 'FAILED')
+                : (subject.gradeMark || '')))
               : '',
             status: subject.status
           }
@@ -4048,6 +4303,11 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
       .limit(3)
       .select('title message type isPinned createdAt')
       .lean()
+
+    const notificationUnreadCount = await StudentNotification.countDocuments({
+      studentId: student._id,
+      isRead: false
+    }).catch(() => 0)
 
     res.json({
       success: true,
@@ -4065,6 +4325,10 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
           semester: student.semester,
           studentStatus: student.studentStatus,
           lifecycleStatus: student.lifecycleStatus,
+          lifecycleStatusReason: student.lifecycleStatusReason || null,
+          lifecycleStatusEffectiveDate: student.lifecycleStatusEffectiveDate || null,
+          lifecycleStatusTerm: student.lifecycleStatusTerm || null,
+          lifecycleStatusFailedSubjects: student.lifecycleStatusFailedSubjects || [],
           enrollmentStatus: enrollment?.status || (student.lifecycleStatus === 'Enrolled' ? 'Enrolled' : (student.enrollmentStatus || 'Not Enrolled')),
           corStatus: student.corStatus,
           profilePictureUrl: student.profilePicture && student.profilePictureMimeType
@@ -4091,6 +4355,7 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
           classes: nextDayClasses
         } : null,
         latestGrades,
+        notificationUnreadCount,
         announcements: announcements.map((announcement) => ({
           id: announcement._id.toString(),
           title: announcement.title,
@@ -4146,9 +4411,9 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
             if (isCurrent) {
               return ['Enrolled', 'Incomplete', 'Completed'].includes(subject.status)
             }
-            return (subject.submissionStatus || 'Draft') === 'Published'
-              && subject.grade !== null
-              && subject.grade !== undefined
+            const isPublished = (subject.submissionStatus || 'Draft') === 'Published'
+            return isPublished
+              && ((subject.grade !== null && subject.grade !== undefined) || Boolean(subject.gradeMark))
           })
           .map((subject) => {
             const code = String(subject.code || '').trim().toUpperCase()
@@ -4158,7 +4423,17 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
             const evaluationGatesGrade = isCurrent && !evaluationCompleted
             const gradeUnlocked = !evaluationGatesGrade && isPublished
             const professorName = meta?.professorName || subject.instructor || 'Assigned Faculty'
-            const hasPublishedGrade = gradeUnlocked && subject.grade !== null && subject.grade !== undefined
+            const numericGrade = subject.grade !== null && subject.grade !== undefined && String(subject.grade).trim() !== ''
+              ? Number(subject.grade)
+              : null
+            const isFaMark = gradingScaleService.failingEquivalentForMark(subject.gradeMark) !== null
+            // CHED records a failure due to absences as 5.0. Legacy entries can
+            // carry the FA mark with no numeric grade, so derive the equivalent
+            // here or the subject drops out of the GWA calculation entirely.
+            const publishedGrade = Number.isFinite(numericGrade) && numericGrade > 0
+              ? numericGrade
+              : (isFaMark ? gradingScaleService.CHED_FAILING_GRADE : 0)
+            const hasPublishedGrade = gradeUnlocked && publishedGrade > 0
             const hasPublishedValue = hasPublishedGrade || (gradeUnlocked && Boolean(subject.gradeMark))
 
             return {
@@ -4178,10 +4453,12 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
                 ? `Evaluate ${professorName} on the Dashboard to unlock this grade.`
                 : (!isPublished ? 'The Registrar has not released this grade yet.' : null),
               // Missing or unpublished grades are shown as 0.00 by the app.
-              grade: hasPublishedGrade ? subject.grade : 0,
+              grade: gradeUnlocked ? publishedGrade : 0,
               gradeMark: gradeUnlocked ? (subject.gradeMark || null) : null,
               remarks: hasPublishedValue
-                ? (subject.remarks || (subject.gradeMark ? subject.gradeMark : (subject.grade != null && gradingScaleService.isPassingGrade(subject.grade, gradeScale) ? 'PASSED' : 'FAILED')))
+                ? (subject.remarks || (publishedGrade > 0
+                  ? (gradingScaleService.isPassingGrade(publishedGrade, gradeScale) ? 'PASSED' : 'FAILED')
+                  : (subject.gradeMark || '')))
                 : '',
               status: subject.status || 'Enrolled'
             }
@@ -4212,7 +4489,7 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
 
     const periods = rawPeriods.filter(Boolean)
 
-    // Cumulative GPA/units only count published subjects with actual grades
+    // Cumulative GWA/units only count published subjects with actual grades
     const allGradedSubjects = periods
       .flatMap((p) => p.subjects)
       .filter((s) => s.gradePublished && typeof s.grade === 'number' && s.grade > 0)
@@ -4251,6 +4528,7 @@ app.post(['/api/registrar/evaluation-periods', '/registrar/evaluation-periods'],
 app.patch(['/api/registrar/evaluation-periods/:id/status', '/registrar/evaluation-periods/:id/status'], authMiddleware, requireAnyRole('registrar'), EvaluationController.updateEvaluationPeriodStatus)
 app.delete(['/api/registrar/evaluation-periods/:id', '/registrar/evaluation-periods/:id'], authMiddleware, requireAnyRole('registrar'), EvaluationController.deleteEvaluationPeriod)
 app.get(['/api/registrar/evaluations/overview', '/registrar/evaluations/overview'], authMiddleware, requireAnyRole('registrar'), EvaluationController.getRegistrarEvaluationOverview)
+app.get(['/api/registrar/evaluations/export', '/registrar/evaluations/export'], authMiddleware, requireAnyRole('registrar'), EvaluationController.exportEvaluationReport)
 
 // GET /api/student/announcements — paginated, student-facing announcements.
 // Reuses the same Announcement model the admin/registrar writes to, scoped
@@ -4309,6 +4587,104 @@ app.get('/api/student/announcements', studentAuthMiddleware, async (req, res) =>
 // Reuses the exact same StudentController.generateCorPdf the registrar uses
 // (spec §17: "Do not generate fake COR documents on the mobile client"),
 // just routed through the student auth guard instead of an admin guard.
+// GET /api/student/notifications — persistent in-app status notifications.
+// The record itself is the delivery; read/unread state is stored server-side
+// so it survives app restarts and multiple devices.
+app.get('/api/student/notifications', studentAuthMiddleware, async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50)
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0)
+    const filter = { studentId: req.student._id }
+
+    const [items, total, unreadCount] = await Promise.all([
+      StudentNotification.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(offset)
+        .limit(limit)
+        .lean(),
+      StudentNotification.countDocuments(filter),
+      StudentNotification.countDocuments({ ...filter, isRead: false })
+    ])
+
+    res.json({
+      success: true,
+      data: {
+        items: items.map((notification) => ({
+          id: notification._id.toString(),
+          type: notification.type,
+          title: notification.title,
+          message: notification.message,
+          data: notification.data || {},
+          isRead: notification.isRead === true,
+          readAt: notification.readAt || null,
+          createdAt: notification.createdAt
+        })),
+        total,
+        unreadCount,
+        limit,
+        offset,
+        hasMore: offset + items.length < total
+      }
+    })
+  } catch (error) {
+    console.error('Get student notifications error:', error)
+    res.status(500).json({ error: 'Failed to load notifications.' })
+  }
+})
+
+// PUT /api/student/notifications/read-all
+app.put('/api/student/notifications/read-all', studentAuthMiddleware, async (req, res) => {
+  try {
+    const now = new Date()
+    const result = await StudentNotification.updateMany(
+      { studentId: req.student._id, isRead: false },
+      { $set: { isRead: true, readAt: now } }
+    )
+    res.json({
+      success: true,
+      data: {
+        updatedCount: Number(result.modifiedCount || result.nModified || 0),
+        readAt: now
+      }
+    })
+  } catch (error) {
+    console.error('Mark all student notifications read error:', error)
+    res.status(500).json({ error: 'Failed to update notifications.' })
+  }
+})
+
+// PUT /api/student/notifications/:notificationId/read
+app.put('/api/student/notifications/:notificationId/read', studentAuthMiddleware, async (req, res) => {
+  try {
+    const notificationId = String(req.params.notificationId || '').trim()
+    if (!mongoose.Types.ObjectId.isValid(notificationId)) {
+      return res.status(400).json({ error: 'Invalid notification id.' })
+    }
+
+    const notification = await StudentNotification.findOneAndUpdate(
+      { _id: notificationId, studentId: req.student._id },
+      { $set: { isRead: true, readAt: new Date() } },
+      { new: true }
+    )
+
+    if (!notification) {
+      return res.status(404).json({ error: 'Notification not found.' })
+    }
+
+    res.json({
+      success: true,
+      data: {
+        id: notification._id.toString(),
+        isRead: notification.isRead === true,
+        readAt: notification.readAt || null
+      }
+    })
+  } catch (error) {
+    console.error('Mark student notification read error:', error)
+    res.status(500).json({ error: 'Failed to update notification.' })
+  }
+})
+
 app.get('/api/student/cor', studentAuthMiddleware, async (req, res) => {
   // generateCorPdf expects req.params.id; synthesize it from the authed student.
   req.params = { id: req.student._id.toString() }
