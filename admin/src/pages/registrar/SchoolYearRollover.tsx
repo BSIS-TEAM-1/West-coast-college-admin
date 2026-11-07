@@ -527,14 +527,16 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
       setSummaryPreview(data)
       const autoApproved = new Set<string>()
       const defaultActions: Record<string, RolloverAction> = {}
+      const allStudentsHaveGrades = data.summary.needsReview === 0 && data.totalStudents > 0
       for (const g of data.groups) {
         const key = groupKey(g)
         if (g.status === 'auto_approved') {
           autoApproved.add(key)
         }
-        if (g.graduating > 0 && g.eligible === 0 && g.retained === 0) {
+        const groupHasAllGrades = g.needsReview === 0 && g.total > 0
+        if (g.graduating > 0 && g.eligible === 0 && !isSemesterRollover) {
           defaultActions[key] = 'graduate'
-        } else if (g.eligible > 0) {
+        } else if (allStudentsHaveGrades || groupHasAllGrades || g.eligible > 0) {
           defaultActions[key] = 'promote'
         } else {
           defaultActions[key] = 'retain'
@@ -2017,7 +2019,7 @@ function SchoolYearOversight({
               Retry Rollover (verify recovery first)
             </button>
             <button type="button" className="rollover-page__ghost-button" onClick={onOpenUnlock} disabled={oversightBusy}>
-              <LockOpen size={16} /> Unlock for Corrections (admin)
+              <LockOpen size={16} /> Unlock for Corrections
             </button>
           </>
         ) : null}

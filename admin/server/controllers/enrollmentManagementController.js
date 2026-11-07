@@ -20,6 +20,11 @@ const subjectEnrollmentService = require('../services/subjectEnrollmentService')
 const curriculumProgressService = require('../services/curriculumProgressService');
 const reEnrollmentVerificationService = require('../services/reEnrollmentVerificationService');
 const gradingScaleService = require('../services/gradingScaleService');
+const {
+  RESTRICTED_ENROLLMENT_LIFECYCLES,
+  getLifecycleRestriction,
+  isSupersededByDismissal,
+} = require('../services/lifecycleRestrictions');
 const { SEMESTERS } = require('../lib/curriculumYears');
 
 const SCHOOL_YEAR_PATTERN = /^\d{4}-\d{4}$/;
@@ -269,7 +274,7 @@ class EnrollmentManagementController {
       const currentTermOnly = req.query.currentTermOnly === 'true' || req.query.currentTermOnly === true;
 
       const studentQuery = {
-        lifecycleStatus: { $nin: ['Graduated', 'Dropped'] },
+        lifecycleStatus: { $nin: RESTRICTED_ENROLLMENT_LIFECYCLES },
         isActive: { $ne: false },
       };
 
@@ -289,7 +294,7 @@ class EnrollmentManagementController {
       }
 
       const students = await Student.find(studentQuery)
-        .select('studentNumber firstName middleName lastName suffix course curriculumVersion yearLevel section semester schoolYear studentStatus classification lifecycleStatus email contactNumber isActive')
+        .select('studentNumber firstName middleName lastName suffix course curriculumVersion yearLevel section semester schoolYear studentStatus classification lifecycleStatus lifecycleStatusHistory email contactNumber isActive')
         .sort({ studentNumber: 1 })
         .lean();
 
@@ -307,7 +312,7 @@ class EnrollmentManagementController {
         studentId: { $in: studentIds },
         schoolYear: { $lte: schoolYear },
       })
-        .select('studentId schoolYear semester status isCurrent updatedAt subjects.subjectId subjects.code subjects.title subjects.units subjects.grade subjects.gradeMark subjects.status')
+        .select('studentId schoolYear semester status isCurrent lockedAt createdAt updatedAt subjects.subjectId subjects.code subjects.title subjects.units subjects.grade subjects.gradeMark subjects.status')
         .lean();
 
       const enrollmentsByStudent = new Map();
@@ -321,10 +326,12 @@ class EnrollmentManagementController {
 
       const candidates = [];
       for (const student of students) {
+        if (getLifecycleRestriction(student.lifecycleStatus)) continue;
         const history = enrollmentsByStudent.get(String(student._id)) || [];
 
         const alreadyEnrolled = history.some(
-          (enrollment) => String(enrollment.schoolYear || '').trim() === schoolYear
+          (enrollment) => !isSupersededByDismissal(enrollment, student)
+            && String(enrollment.schoolYear || '').trim() === schoolYear
             && String(enrollment.semester || '').trim() === semester
             && (currentTermOnly
               ? ['Enrolled', 'Completed', 'Retained', 'Graduated'].includes(enrollment.status)
@@ -342,7 +349,8 @@ class EnrollmentManagementController {
             && String(student.schoolYear || '').trim() === String(activeTerm.schoolYear).trim()
             && String(student.semester || '').trim() === String(activeTerm.semester).trim()
           ) || history.some(
-            (enrollment) => String(enrollment.schoolYear || '').trim() === String(activeTerm?.schoolYear || '').trim()
+            (enrollment) => !isSupersededByDismissal(enrollment, student)
+              && String(enrollment.schoolYear || '').trim() === String(activeTerm?.schoolYear || '').trim()
               && String(enrollment.semester || '').trim() === String(activeTerm?.semester || '').trim()
               && enrollment.isCurrent === true
               && ['Enrolled', 'Pending'].includes(enrollment.status)
@@ -433,8 +441,9 @@ class EnrollmentManagementController {
           });
         }
 
+        const { lifecycleStatusHistory: _omittedHistory, ...candidateStudent } = student;
         candidates.push({
-          ...student,
+          ...candidateStudent,
           reEnrollment: {
             targetSchoolYear: schoolYear,
             targetSemester: semester,
@@ -483,10 +492,18 @@ class EnrollmentManagementController {
       }
 
       const student = await Student.findById(studentId)
-        .select('studentNumber firstName middleName lastName suffix email contactNumber schoolYear semester')
+        .select('studentNumber firstName middleName lastName suffix email contactNumber schoolYear semester course yearLevel lifecycleStatus')
         .lean();
       if (!student) {
         return res.status(404).json({ success: false, message: 'Student not found' });
+      }
+      const sendRestriction = getLifecycleRestriction(student.lifecycleStatus);
+      if (sendRestriction) {
+        return res.status(403).json({
+          success: false,
+          code: sendRestriction.code,
+          message: sendRestriction.message,
+        });
       }
 
       const result = await reEnrollmentVerificationService.sendCode({
@@ -536,9 +553,19 @@ class EnrollmentManagementController {
         });
       }
 
-      const student = await Student.findById(studentId).select('email contactNumber').lean();
+      const student = await Student.findById(studentId)
+        .select('email contactNumber course yearLevel lifecycleStatus')
+        .lean();
       if (!student) {
         return res.status(404).json({ success: false, message: 'Student not found' });
+      }
+      const verifyRestriction = getLifecycleRestriction(student.lifecycleStatus);
+      if (verifyRestriction) {
+        return res.status(403).json({
+          success: false,
+          code: verifyRestriction.code,
+          message: verifyRestriction.message,
+        });
       }
 
       const result = await reEnrollmentVerificationService.verifyCode({
@@ -548,6 +575,9 @@ class EnrollmentManagementController {
         code,
         studentEmail: student.email,
         studentPhone: student.contactNumber,
+        actorId: req.registrarId || req.adminId || null,
+        allowRegistrarHandoff: Boolean(req.body?.allowHandoff || req.body?.allowRegistrarHandoff),
+        student,
       });
 
       return res.json({

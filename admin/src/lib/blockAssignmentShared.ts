@@ -31,6 +31,8 @@ export type BlockGroup = {
   section?: string
   curriculumId?: string | null
   studentClassification?: string
+  status?: 'Active' | 'Archived'
+  isArchived?: boolean
 }
 
 export type BlockSection = {
@@ -39,6 +41,7 @@ export type BlockSection = {
   capacity: number
   currentPopulation: number
   status?: string
+  isArchived?: boolean
   blockGroupId?: string
 }
 

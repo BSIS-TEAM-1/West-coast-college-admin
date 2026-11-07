@@ -3,7 +3,7 @@ import { ArrowLeft, Award, BarChart3, CalendarDays, Download, Info, MapPin, User
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import { fetchWithAutoReconnect, isAbortRequestError, isNetworkRequestError } from '../../lib/network'
 import type { ProfessorAssignedStudent, ProfessorSubjectDetailState } from './professorTypes'
-import { buildReconnectMessage } from './professorUtils'
+import { buildReconnectMessage, formatSemesterLabel, normalizeSemester } from './professorUtils'
 import './ProfessorSubjectDetail.css'
 import './ProfessorShared.css'
 
@@ -91,7 +91,7 @@ function ProfessorSubjectDetail({ detail, onBack, onOpenRosterClass, onOpenGrade
       cancelled = true
       controller.abort()
     }
-  }, [detail?.sectionId])
+  }, [detail?.sectionId, detail?.subject?.subjectId, detail?.semester, detail?.schoolYear])
 
   const formatStudentName = (student: ProfessorAssignedStudent) => {
     return [student.lastName, student.firstName, student.middleName, student.suffix]
@@ -208,9 +208,17 @@ function ProfessorSubjectDetail({ detail, onBack, onOpenRosterClass, onOpenGrade
             Back to My Courses
           </button>
           <div className="professor-subject-title-block">
-            <span className="professor-subject-context-pill">{detail.courseCode} / {detail.blockCode}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap', marginBottom: '0.35rem' }}>
+              <span className="professor-subject-context-pill">{detail.courseCode} / {detail.blockCode}</span>
+              <span className={`professor-sem-badge professor-sem-badge-${normalizeSemester(detail.semester) === '2nd' ? '2nd' : '1st'}`}>
+                {formatSemesterLabel(detail.semester)}
+              </span>
+              <span className="professor-sem-badge" style={{ background: 'var(--color-bg-soft)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}>
+                S.Y. {detail.schoolYear}
+              </span>
+            </div>
             <h1 id="professor-subject-heading">{detail.subject.code} - {detail.subject.title}</h1>
-            <p>{detail.semester} {detail.schoolYear} / Section {detail.sectionCode}</p>
+            <p>Section {detail.sectionCode}</p>
           </div>
           <div className="professor-subject-action-bar">
             <button type="button" className="professor-subject-action-btn" onClick={handleOpenAttendance} disabled={!buildClassKey()}>

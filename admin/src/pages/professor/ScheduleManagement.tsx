@@ -1,7 +1,9 @@
-import { Fragment, useMemo, useState } from 'react'
-import { CalendarDays, Clock } from 'lucide-react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
+import { CalendarDays, Clock, MapPin, X } from 'lucide-react'
 import type { ProfessorAssignedCourse } from './professorTypes'
 import { parseClockMinutesFlexible } from '../../lib/scheduleFormatter'
+import { getAcademicTerm, getCachedAcademicTerm, subscribeAcademicTerm, type AcademicTerm } from '../../lib/settingsApi'
+import { DEFAULT_SCHOOL_YEAR, DEFAULT_ACADEMIC_SEMESTER } from '../../lib/academicDefaults'
 import './ScheduleManagement.css'
 
 export interface CalendarEvent {
@@ -14,11 +16,6 @@ export interface CalendarEvent {
   statusTagClass: string
   description: string
   location?: string
-}
-
-interface ScheduleCalendarProps {
-  events: CalendarEvent[]
-  onSelectEvent: (event: CalendarEvent) => void
 }
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -34,6 +31,21 @@ const parseDateKey = (value: string) => {
 }
 const formatLongDate = (key: string) =>
   parseDateKey(key)?.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) ?? key
+
+/* ─── Normalization helpers ─── */
+export const normalizeSemester = (value: string): string => {
+  const raw = String(value || '').toLowerCase().replace(/\s+/g, '')
+  if (!raw) return ''
+  if (['1', '1st', 'first', 'firstsemester', '1stsemester', 'firstsem', 'sem1', '1stsem'].includes(raw)) return '1st'
+  if (['2', '2nd', 'second', 'secondsemester', '2ndsemester', 'secondsem', 'sem2', '2ndsem'].includes(raw)) return '2nd'
+  if (['summer', 'summerterm', 'summersemester'].includes(raw)) return 'Summer'
+  return String(value || '').trim()
+}
+
+export const normalizeSchoolYear = (value: string): string => {
+  const match = String(value || '').trim().match(/^(\d{4})\s*[-–—/]\s*(\d{4})$/)
+  return match ? `${match[1]}-${match[2]}` : String(value || '').trim()
+}
 
 /* ─── Weekly timeline helpers ─── */
 
@@ -62,13 +74,16 @@ interface TimelineEntry {
   room: string
 }
 
-interface TimelineClass {
+export interface TimelineClass {
   id: string
   code: string
   title: string
   section: string
   courseCode: string
   room: string
+  semester?: string
+  schoolYear?: string
+  enrolledStudents?: number
   entries: TimelineEntry[]
 }
 
@@ -102,7 +117,7 @@ const parseClockMinutes = (value: string): number | null => {
   return hour * 60 + minute
 }
 
-// Handles both formats the registrar workspace writes:
+// Handles both formats:
 //   classic   "MW 07:30-09:00"        (room in a separate field)
 //   per-day   "M 07:30-09:00 @ Room 205 / W 13:00-14:30 @ Lab 3"
 const parseScheduleSegments = (schedule: string): TimelineEntry[] => {
@@ -137,24 +152,31 @@ const parseScheduleSegments = (schedule: string): TimelineEntry[] => {
   return entries
 }
 
-const buildTimelineClasses = (courses: ProfessorAssignedCourse[]): TimelineClass[] =>
-  (courses || []).flatMap((course) =>
-    (course.blocks || []).flatMap((block) =>
-      (block.subjects || []).map((subject) => {
-        const entries = parseScheduleSegments(subject.schedule)
-        const fallbackRoom = subject.room && !/^tba$/i.test(subject.room.trim()) ? subject.room.trim() : ''
-        return {
-          id: `${course.courseCode}|${block.sectionCode}|${subject.subjectId}`,
-          code: subject.code || 'Subject',
-          title: subject.title || '',
-          section: block.sectionCode || '',
-          courseCode: course.courseCode,
-          room: entries.find((entry) => entry.room)?.room || fallbackRoom,
-          entries
-        }
-      })
-    )
+const buildTimelineClasses = (courses: ProfessorAssignedCourse[]): TimelineClass[] => {
+  const hasCurrentBlocks = (courses || []).some((c) => (c.blocks || []).some((b) => b.isCurrent))
+  return (courses || []).flatMap((course) =>
+    (course.blocks || [])
+      .filter((block) => !hasCurrentBlocks || block.isCurrent)
+      .flatMap((block) =>
+        (block.subjects || []).map((subject) => {
+          const entries = parseScheduleSegments(subject.schedule)
+          const fallbackRoom = subject.room && !/^tba$/i.test(subject.room.trim()) ? subject.room.trim() : ''
+          return {
+            id: `${course.courseCode}|${block.sectionCode}|${subject.subjectId}`,
+            code: subject.code || 'Subject',
+            title: subject.title || '',
+            section: block.sectionCode || '',
+            courseCode: course.courseCode,
+            room: entries.find((entry) => entry.room)?.room || fallbackRoom,
+            semester: block.semester,
+            schoolYear: block.schoolYear,
+            enrolledStudents: subject.enrolledStudents,
+            entries
+          }
+        })
+      )
   )
+}
 
 const formatClock = (minutes: number) => {
   const hours = Math.floor(minutes / 60) % 24
@@ -165,10 +187,145 @@ const formatClock = (minutes: number) => {
 const formatHourLabel = (hour: number) =>
   new Date(2000, 0, 1, hour).toLocaleTimeString(undefined, { hour: 'numeric' })
 
-function ScheduleTimeline({ courses }: { courses: ProfessorAssignedCourse[] }) {
+// Get last Monday of August for National Heroes Day
+const getNationalHeroesDay = (year: number): string => {
+  const lastDayOfAugust = new Date(year, 7, 31)
+  const dayOfWeek = lastDayOfAugust.getDay()
+  const daysToSubtract = (dayOfWeek + 6) % 7
+  const heroesDay = new Date(year, 7, 31 - daysToSubtract)
+  return toDateKey(heroesDay)
+}
+
+// Generate Philippine holidays for a year
+const getPhilippineHolidays = (year: number): CalendarEvent[] => {
+  const nationalHeroesDay = getNationalHeroesDay(year)
+  return [
+    {
+      id: `holiday-new-year-${year}`,
+      title: "New Year's Day",
+      date: `${year}-01-01`,
+      time: 'All Day',
+      category: 'holiday',
+      statusTag: 'Holiday',
+      statusTagClass: 'holiday',
+      description: 'Regular Holiday'
+    },
+    {
+      id: `holiday-araw-ng-kagitingan-${year}`,
+      title: 'Araw ng Kagitingan',
+      date: `${year}-04-09`,
+      time: 'All Day',
+      category: 'holiday',
+      statusTag: 'Holiday',
+      statusTagClass: 'holiday',
+      description: 'Regular Holiday'
+    },
+    {
+      id: `holiday-labor-day-${year}`,
+      title: 'Labor Day',
+      date: `${year}-05-01`,
+      time: 'All Day',
+      category: 'holiday',
+      statusTag: 'Holiday',
+      statusTagClass: 'holiday',
+      description: 'Regular Holiday'
+    },
+    {
+      id: `holiday-independence-day-${year}`,
+      title: 'Independence Day',
+      date: `${year}-06-12`,
+      time: 'All Day',
+      category: 'holiday',
+      statusTag: 'Holiday',
+      statusTagClass: 'holiday',
+      description: 'Regular Holiday'
+    },
+    {
+      id: `holiday-national-heroes-${year}`,
+      title: 'National Heroes Day',
+      date: nationalHeroesDay,
+      time: 'All Day',
+      category: 'holiday',
+      statusTag: 'Holiday',
+      statusTagClass: 'holiday',
+      description: 'Regular Holiday'
+    },
+    {
+      id: `holiday-bonifacio-day-${year}`,
+      title: 'Bonifacio Day',
+      date: `${year}-11-30`,
+      time: 'All Day',
+      category: 'holiday',
+      statusTag: 'Holiday',
+      statusTagClass: 'holiday',
+      description: 'Regular Holiday'
+    },
+    {
+      id: `holiday-christmas-${year}`,
+      title: 'Christmas Day',
+      date: `${year}-12-25`,
+      time: 'All Day',
+      category: 'holiday',
+      statusTag: 'Holiday',
+      statusTagClass: 'holiday',
+      description: 'Regular Holiday'
+    },
+    {
+      id: `holiday-rizal-day-${year}`,
+      title: 'Rizal Day',
+      date: `${year}-12-30`,
+      time: 'All Day',
+      category: 'holiday',
+      statusTag: 'Holiday',
+      statusTagClass: 'holiday',
+      description: 'Regular Holiday'
+    }
+  ]
+}
+
+interface ScheduleTimelineProps {
+  courses: ProfessorAssignedCourse[]
+  selectedTermLabel: string
+  isCurrentTerm: boolean
+  allCoursesCount: number
+  onResetToActiveTerm?: () => void
+  onSelectClass?: (item: TimelineClass, entry: TimelineEntry) => void
+}
+
+function ScheduleTimeline({
+  courses,
+  selectedTermLabel,
+  isCurrentTerm,
+  allCoursesCount,
+  onResetToActiveTerm,
+  onSelectClass
+}: ScheduleTimelineProps) {
   const allClasses = useMemo(() => buildTimelineClasses(courses), [courses])
   const scheduledClasses = useMemo(() => allClasses.filter((item) => item.entries.length > 0), [allClasses])
   const unscheduledClasses = useMemo(() => allClasses.filter((item) => item.entries.length === 0), [allClasses])
+
+  const totalStudents = useMemo(() => {
+    const ids = new Set<string>()
+    courses.forEach((c) => {
+      c.blocks.forEach((b) => {
+        b.subjects.forEach((s) => {
+          if (Array.isArray(s.studentIds)) {
+            s.studentIds.forEach((id) => ids.add(id))
+          }
+        })
+      })
+    })
+    if (ids.size > 0) return ids.size
+    return courses.reduce(
+      (sum, c) =>
+        sum +
+        c.blocks.reduce(
+          (bSum, b) => bSum + b.subjects.reduce((sSum, s) => sSum + (s.enrolledStudents || 0), 0),
+          0
+        ),
+      0
+    )
+  }, [courses])
 
   const accentById = useMemo(() => {
     const map: Record<string, string> = {}
@@ -178,25 +335,20 @@ function ScheduleTimeline({ courses }: { courses: ProfessorAssignedCourse[] }) {
     return map
   }, [allClasses])
 
-  const days = useMemo(() => TIMELINE_DAYS, [scheduledClasses])
+  const days = useMemo(() => TIMELINE_DAYS, [])
 
   const bounds = useMemo(() => {
-    // Always start at 6 AM, end time adjusts based on latest class
     let startHour = 6
     let endHour = 20
     if (scheduledClasses.length > 0) {
       const ends = scheduledClasses.flatMap((item) => item.entries.map((entry) => entry.end))
       if (ends.length > 0) {
-        endHour = Math.max(24, Math.max(...ends) / 60 | 0 + 1)
+        endHour = Math.max(20, Math.min(24, Math.floor(Math.max(...ends) / 60) + 1))
       }
-      // Ensure end time doesn't exceed midnight
-      if (endHour > 24) endHour = 24
     }
     return { startHour, endHour }
   }, [scheduledClasses])
 
-  // Each day column gets lane numbers so overlapping classes sit side by side.
-  // All 7 days are always present in the grid; days without classes have empty lanes.
   const dayColumns = useMemo(() => {
     return days.map((day) => {
       const items = scheduledClasses
@@ -235,25 +387,75 @@ function ScheduleTimeline({ courses }: { courses: ProfessorAssignedCourse[] }) {
     <div className="professor-tl">
       <div className="professor-tl-head">
         <div>
-          <h4>Weekly class timeline</h4>
+          <div className="professor-tl-title-row">
+            <h4>Weekly class timeline</h4>
+            {isCurrentTerm ? (
+              <span className="professor-tl-active-badge">
+                <span className="professor-active-dot" aria-hidden="true" />
+                Active Term ({selectedTermLabel})
+              </span>
+            ) : (
+              <span className="professor-tl-term-badge">
+                {selectedTermLabel}
+              </span>
+            )}
+          </div>
           <p>
-            {scheduledClasses.length} subject{scheduledClasses.length === 1 ? '' : 's'}
+            {scheduledClasses.length} scheduled subject{scheduledClasses.length === 1 ? '' : 's'}
             {weeklyHours > 0 ? ` · ${weeklyHours} class hour${weeklyHours === 1 ? '' : 's'} per week` : ''}
+            {totalStudents > 0 ? ` · ${totalStudents} enrolled student${totalStudents === 1 ? '' : 's'}` : ''}
           </p>
         </div>
-        <span className="professor-tl-today-pill">
-          <Clock size={13} /> Today is {DAY_LABELS[todayCode]}
-        </span>
+        <div className="professor-tl-head-actions">
+          {!isCurrentTerm && onResetToActiveTerm && (
+            <button
+              type="button"
+              className="professor-tl-switch-btn"
+              onClick={onResetToActiveTerm}
+            >
+              Switch to Active Term
+            </button>
+          )}
+          <span className="professor-tl-today-pill">
+            <Clock size={13} /> Today is {DAY_LABELS[todayCode]}
+          </span>
+        </div>
       </div>
 
-      {scheduledClasses.length === 0 ? (
-        <p className="professor-tl-empty">
-          No class schedules assigned yet. Subjects appear here once the registrar sets their day and time.
-        </p>
+      {courses.length === 0 ? (
+        <div className="professor-tl-empty-state">
+          <CalendarDays size={32} className="professor-tl-empty-icon" />
+          <h5>No schedule records for {selectedTermLabel}</h5>
+          <p>
+            {isCurrentTerm
+              ? 'No classes are currently assigned to you for the active term. Once the registrar assigns blocks and subjects for this semester, they will appear here automatically.'
+              : 'There are no classes assigned to you for this selected semester.'}
+          </p>
+          {!isCurrentTerm && onResetToActiveTerm && (
+            <button type="button" className="professor-tl-reset-btn" onClick={onResetToActiveTerm}>
+              View Current Active Term
+            </button>
+          )}
+          {isCurrentTerm && allCoursesCount > 0 && (
+            <p className="professor-tl-empty-hint">
+              You have class assignments in other terms. Use the term selector above to view them.
+            </p>
+          )}
+        </div>
+      ) : scheduledClasses.length === 0 ? (
+        <div className="professor-tl-empty-state">
+          <Clock size={32} className="professor-tl-empty-icon" />
+          <h5>No class times assigned yet</h5>
+          <p>
+            You have {allClasses.length} assigned subject{allClasses.length === 1 ? '' : 's'} in {selectedTermLabel}, but their day and time schedules have not been finalized by the registrar yet.
+          </p>
+        </div>
       ) : (
-        <div className="professor-tl-scroll"><div
+        <div className="professor-tl-scroll">
+          <div
             className="professor-tl-grid"
-            style={{ gridTemplateColumns: `3.1rem repeat(7, 1fr)` }}>
+            style={{ gridTemplateColumns: `3.1rem repeat(7, 1fr)` }}
+          >
             <div className="professor-tl-corner" style={{ gridColumn: 1, gridRow: 1 }}>Time</div>
             {days.map((day, index) => (
               <div
@@ -263,7 +465,6 @@ function ScheduleTimeline({ courses }: { courses: ProfessorAssignedCourse[] }) {
               >
                 {DAY_LABELS[day]}
               </div>
-
             ))}
 
             {hours.map((hour, index) => (
@@ -297,11 +498,29 @@ function ScheduleTimeline({ courses }: { courses: ProfessorAssignedCourse[] }) {
                       width: `calc(${100 / lanes}% - 0.25rem)`,
                       ['--tl-accent' as string]: accentById[item.id] || TIMELINE_ACCENTS[0]
                     }}
-                    title={`${item.code} — ${item.title}\n${formatClock(entry.start)} – ${formatClock(entry.end)}${
-                      room ? `\n${room}` : ''
-                    }`}
+                    title={`${item.code} — ${item.title}\n${item.section ? `Section: ${item.section}\n` : ''}${
+                      item.semester ? `Term: ${item.semester} Sem · S.Y. ${item.schoolYear || ''}\n` : ''
+                    }${formatClock(entry.start)} – ${formatClock(entry.end)}${
+                      room ? `\nRoom: ${room}` : ''
+                    }${item.enrolledStudents ? `\n${item.enrolledStudents} students enrolled` : ''}`}
+                    onClick={() => onSelectClass?.(item, entry)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        onSelectClass?.(item, entry)
+                      }
+                    }}
                   >
-                    <span className="professor-tl-block-code professor-tl-block-code">{item.code}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.25rem' }}>
+                      <span className="professor-tl-block-code">{item.code}</span>
+                      {item.semester && (
+                        <span className="professor-tl-sem-tag" style={{ fontSize: '0.65rem', fontWeight: 700, opacity: 0.85 }}>
+                          {item.semester === '1st' ? '1st Sem' : item.semester === '2nd' ? '2nd Sem' : `${item.semester} Sem`}
+                        </span>
+                      )}
+                    </div>
                     <span className="professor-tl-block-time">
                       {formatClock(entry.start)} – {formatClock(entry.end)}
                     </span>
@@ -319,7 +538,7 @@ function ScheduleTimeline({ courses }: { courses: ProfessorAssignedCourse[] }) {
 
       {unscheduledClasses.length > 0 && (
         <div className="professor-tl-unscheduled">
-          <strong>No time set yet</strong>
+          <strong>Pending class schedule assignment ({unscheduledClasses.length})</strong>
           <div className="professor-tl-unscheduled-list">
             {unscheduledClasses.map((item) => (
               <span key={item.id} className="professor-tl-unscheduled-item">
@@ -335,26 +554,84 @@ function ScheduleTimeline({ courses }: { courses: ProfessorAssignedCourse[] }) {
   )
 }
 
-function ScheduleCalendar({ events, onSelectEvent }: ScheduleCalendarProps) {
+interface ScheduleCalendarProps {
+  timelineClasses: TimelineClass[]
+  onSelectEvent: (event: CalendarEvent) => void
+  selectedTermLabel: string
+  isCurrentTerm: boolean
+}
+
+function ScheduleCalendar({
+  timelineClasses,
+  onSelectEvent,
+  selectedTermLabel,
+  isCurrentTerm
+}: ScheduleCalendarProps) {
   const [month, setMonth] = useState(() => {
     const now = new Date()
     return new Date(now.getFullYear(), now.getMonth(), 1)
   })
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
 
+  const holidays = useMemo(() => {
+    return getPhilippineHolidays(month.getFullYear())
+  }, [month])
+
+  // Build events for each day of the active calendar grid
   const eventsByDate = useMemo(() => {
     const map: Record<string, CalendarEvent[]> = {}
-    events.forEach((event) => {
+
+    holidays.forEach((event) => {
       ;(map[event.date] ||= []).push(event)
     })
-    return map
-  }, [events])
 
-  // Always 42 cells (6 weeks) so the calendar height is identical every month.
-  const cells = useMemo(() => {
     const year = month.getFullYear()
     const m = month.getMonth()
     const offset = (new Date(year, m, 1).getDay() + 6) % 7 // Monday-first
+
+    for (let index = 0; index < 42; index++) {
+      const date = new Date(year, m, 1 - offset + index)
+      const dateKey = toDateKey(date)
+      const dayCode = TODAY_DAY_CODE[date.getDay()]
+      if (!dayCode) continue
+
+      timelineClasses.forEach((item) => {
+        item.entries.forEach((entry) => {
+          if (entry.day === dayCode) {
+            const event: CalendarEvent = {
+              id: `class-${item.id}-${dateKey}-${entry.start}`,
+              title: `${item.code} (${item.section})`,
+              date: dateKey,
+              time: `${formatClock(entry.start)} – ${formatClock(entry.end)}`,
+              category: 'academic',
+              statusTag: item.section ? `Sec ${item.section}` : 'Class',
+              statusTagClass: 'academic',
+              description: `${item.title || item.code}${
+                entry.room || item.room ? ` • Room ${entry.room || item.room}` : ''
+              }${item.semester ? ` • ${item.semester} Sem` : ''}`,
+              location: entry.room || item.room
+            }
+            ;(map[dateKey] ||= []).push(event)
+          }
+        })
+      })
+    }
+
+    Object.keys(map).forEach((dateKey) => {
+      map[dateKey].sort((a, b) => {
+        if (a.category === 'holiday' && b.category !== 'holiday') return -1
+        if (b.category === 'holiday' && a.category !== 'holiday') return 1
+        return a.time.localeCompare(b.time)
+      })
+    })
+
+    return map
+  }, [month, holidays, timelineClasses])
+
+  const cells = useMemo(() => {
+    const year = month.getFullYear()
+    const m = month.getMonth()
+    const offset = (new Date(year, m, 1).getDay() + 6) % 7
     const todayKey = toDateKey(new Date())
 
     return Array.from({ length: 42 }, (_, index) => {
@@ -374,11 +651,17 @@ function ScheduleCalendar({ events, onSelectEvent }: ScheduleCalendarProps) {
 
   const monthPrefix = `${month.getFullYear()}-${pad(month.getMonth() + 1)}-`
   const agendaEvents = useMemo(() => {
-    const list = selectedDate
-      ? eventsByDate[selectedDate] || []
-      : events.filter((e) => e.date.startsWith(monthPrefix))
-    return [...list].sort((a, b) => a.date.localeCompare(b.date))
-  }, [selectedDate, events, eventsByDate, monthPrefix])
+    if (selectedDate) {
+      return eventsByDate[selectedDate] || []
+    }
+    const list: CalendarEvent[] = []
+    Object.keys(eventsByDate)
+      .filter((dateKey) => dateKey.startsWith(monthPrefix))
+      .forEach((dateKey) => {
+        list.push(...eventsByDate[dateKey])
+      })
+    return list.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
+  }, [selectedDate, eventsByDate, monthPrefix])
 
   const shiftMonth = (delta: number) => {
     setSelectedDate(null)
@@ -396,17 +679,40 @@ function ScheduleCalendar({ events, onSelectEvent }: ScheduleCalendarProps) {
       <div className="professor-cal">
         <div className="professor-cal-head">
           <div className="professor-cal-nav">
-            <button type="button" className="professor-cal-nav-btn" onClick={() => shiftMonth(-1)} aria-label="Previous month">◀</button>
-            <button type="button" className="professor-cal-nav-btn" onClick={() => shiftMonth(1)} aria-label="Next month">▶</button>
+            <button
+              type="button"
+              className="professor-cal-nav-btn"
+              onClick={() => shiftMonth(-1)}
+              aria-label="Previous month"
+            >
+              ◀
+            </button>
+            <button
+              type="button"
+              className="professor-cal-nav-btn"
+              onClick={() => shiftMonth(1)}
+              aria-label="Next month"
+            >
+              ▶
+            </button>
           </div>
           <strong className="professor-cal-title">
             {month.toLocaleString(undefined, { month: 'long', year: 'numeric' })}
+            {isCurrentTerm && (
+              <span className="professor-active-pill" style={{ marginLeft: '0.5rem', fontSize: '0.68rem', padding: '0.15rem 0.5rem' }}>
+                Active Term
+              </span>
+            )}
           </strong>
-          <button type="button" className="professor-cal-today-btn" onClick={goToday}>Today</button>
+          <button type="button" className="professor-cal-today-btn" onClick={goToday}>
+            Today
+          </button>
         </div>
 
         <div className="professor-cal-weekdays">
-          {WEEKDAYS.map((d) => <span key={d}>{d}</span>)}
+          {WEEKDAYS.map((d) => (
+            <span key={d}>{d}</span>
+          ))}
         </div>
 
         <div className="professor-cal-grid">
@@ -417,12 +723,16 @@ function ScheduleCalendar({ events, onSelectEvent }: ScheduleCalendarProps) {
               cell.inMonth ? '' : 'is-outside',
               cell.isToday ? 'is-today' : '',
               active ? 'is-active' : ''
-            ].filter(Boolean).join(' ')
+            ]
+              .filter(Boolean)
+              .join(' ')
             const popClass = [
               'professor-cal-popover',
               cell.column >= 5 ? 'align-right' : cell.column >= 3 ? 'align-center' : '',
               cell.row >= 3 ? 'is-above' : ''
-            ].filter(Boolean).join(' ')
+            ]
+              .filter(Boolean)
+              .join(' ')
 
             return (
               <div
@@ -477,7 +787,7 @@ function ScheduleCalendar({ events, onSelectEvent }: ScheduleCalendarProps) {
         </div>
 
         <div className="professor-cal-legend" aria-hidden="true">
-          <span className="tag-academic">Academic</span>
+          <span className="tag-academic">Class / Academic</span>
           <span className="tag-exam">Exam</span>
           <span className="tag-holiday">Holiday</span>
           <span className="tag-meeting">Meeting</span>
@@ -488,17 +798,30 @@ function ScheduleCalendar({ events, onSelectEvent }: ScheduleCalendarProps) {
 
       <aside className="professor-cal-agenda">
         <div className="professor-cal-agenda-inner">
-          <h4>{selectedDate ? formatLongDate(selectedDate) : month.toLocaleString(undefined, { month: 'long' }) + ' events'}</h4>
+          <h4>
+            {selectedDate
+              ? formatLongDate(selectedDate)
+              : month.toLocaleString(undefined, { month: 'long' }) + ' events'}
+          </h4>
           {agendaEvents.length === 0 ? (
-            <p className="professor-cal-agenda-empty">No events {selectedDate ? 'on this day' : 'this month'}.</p>
+            <p className="professor-cal-agenda-empty">
+              No classes or events {selectedDate ? 'on this day' : 'this month'} for {selectedTermLabel}.
+            </p>
           ) : (
             <ul>
               {agendaEvents.map((event) => (
                 <li key={event.id}>
-                  <button type="button" className={`professor-cal-agenda-item tag-${event.statusTagClass}`} onClick={() => onSelectEvent(event)}>
-                    <span className="professor-cal-agenda-date">{formatLongDate(event.date)} • {event.time}</span>
+                  <button
+                    type="button"
+                    className={`professor-cal-agenda-item tag-${event.statusTagClass}`}
+                    onClick={() => onSelectEvent(event)}
+                  >
+                    <span className="professor-cal-agenda-date">
+                      {formatLongDate(event.date)} • {event.time}
+                    </span>
                     <strong>{event.title}</strong>
                     <small>{event.statusTag}</small>
+                    {event.description && <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>{event.description}</span>}
                   </button>
                 </li>
               ))}
@@ -511,157 +834,156 @@ function ScheduleCalendar({ events, onSelectEvent }: ScheduleCalendarProps) {
 }
 
 interface ScheduleManagementProps {
-  courses: any[]
+  courses: ProfessorAssignedCourse[]
   loading: boolean
   error: string | null
   onRefresh: () => void
+  activeTerm?: AcademicTerm | null
 }
 
-function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleManagementProps) {
-  const [view, setView] = useState<'month' | 'timeline'>('month')
+function ScheduleManagement({ courses, loading, error, onRefresh, activeTerm: propActiveTerm }: ScheduleManagementProps) {
+  // Default view is 'timeline' to immediately show the teaching schedule
+  const [view, setView] = useState<'timeline' | 'month'>('timeline')
+  const [activeTerm, setActiveTerm] = useState<AcademicTerm | null>(() => propActiveTerm || getCachedAcademicTerm())
+  const [selectedTermKey, setSelectedTermKey] = useState<string>('active')
+  const [selectedModalEvent, setSelectedModalEvent] = useState<CalendarEvent | null>(null)
 
-  // Get last Monday of August for National Heroes Day
-  const getNationalHeroesDay = (year: number): string => {
-    const lastDayOfAugust = new Date(year, 7, 31) // August 31 (month is 0-indexed)
-    const dayOfWeek = lastDayOfAugust.getDay() // 0 = Sunday, 1 = Monday, etc.
-    const daysToSubtract = (dayOfWeek + 6) % 7 // Get to previous Monday
-    const heroesDay = new Date(year, 7, 31 - daysToSubtract)
-    return toDateKey(heroesDay)
-  }
-
-  // Generate Philippine holidays for the current year
-  const getPhilippineHolidays = (year: number): CalendarEvent[] => {
-    const nationalHeroesDay = getNationalHeroesDay(year)
-    
-    const holidays: CalendarEvent[] = [
-      {
-        id: `holiday-new-year-${year}`,
-        title: "New Year's Day",
-        date: `${year}-01-01`,
-        time: 'All Day',
-        category: 'holiday',
-        statusTag: 'Holiday',
-        statusTagClass: 'holiday',
-        description: 'Regular Holiday'
-      },
-      {
-        id: `holiday-araw-ng-kagitingan-${year}`,
-        title: "Araw ng Kagitingan",
-        date: `${year}-04-09`,
-        time: 'All Day',
-        category: 'holiday',
-        statusTag: 'Holiday',
-        statusTagClass: 'holiday',
-        description: 'Regular Holiday'
-      },
-      {
-        id: `holiday-labor-day-${year}`,
-        title: "Labor Day",
-        date: `${year}-05-01`,
-        time: 'All Day',
-        category: 'holiday',
-        statusTag: 'Holiday',
-        statusTagClass: 'holiday',
-        description: 'Regular Holiday'
-      },
-      {
-        id: `holiday-independence-day-${year}`,
-        title: "Independence Day",
-        date: `${year}-06-12`,
-        time: 'All Day',
-        category: 'holiday',
-        statusTag: 'Holiday',
-        statusTagClass: 'holiday',
-        description: 'Regular Holiday'
-      },
-      {
-        id: `holiday-national-heroes-${year}`,
-        title: "National Heroes Day",
-        date: nationalHeroesDay,
-        time: 'All Day',
-        category: 'holiday',
-        statusTag: 'Holiday',
-        statusTagClass: 'holiday',
-        description: 'Regular Holiday'
-      },
-      {
-        id: `holiday-bonifacio-day-${year}`,
-        title: "Bonifacio Day",
-        date: `${year}-11-30`,
-        time: 'All Day',
-        category: 'holiday',
-        statusTag: 'Holiday',
-        statusTagClass: 'holiday',
-        description: 'Regular Holiday'
-      },
-      {
-        id: `holiday-christmas-${year}`,
-        title: "Christmas Day",
-        date: `${year}-12-25`,
-        time: 'All Day',
-        category: 'holiday',
-        statusTag: 'Holiday',
-        statusTagClass: 'holiday',
-        description: 'Regular Holiday'
-      },
-      {
-        id: `holiday-rizal-day-${year}`,
-        title: "Rizal Day",
-        date: `${year}-12-30`,
-        time: 'All Day',
-        category: 'holiday',
-        statusTag: 'Holiday',
-        statusTagClass: 'holiday',
-        description: 'Regular Holiday'
-      }
-    ]
-    return holidays
-  }
-
-  // Convert courses to calendar events
-  const events: CalendarEvent[] = useMemo(() => {
-    const currentYear = new Date().getFullYear()
-    const holidays = getPhilippineHolidays(currentYear)
-    
-    const courseEvents = courses.flatMap((course) => {
-      // Extract schedule from course data
-      const schedule = course.schedule || course.schedules || []
-      return schedule.map((sched: any, idx: number) => ({
-        id: `${course.id}-${idx}`,
-        title: course.name || course.courseName || 'Course',
-        date: sched.date || sched.day || '',
-        time: sched.time || sched.startTime || '',
-        category: course.category || 'academic',
-        statusTag: course.status || 'Scheduled',
-        statusTagClass: 'academic',
-        description: course.description || '',
-        location: sched.location || course.location || ''
-      }))
-    })
-    
-    // End of school year 2027
-    const endOfSchool2027: CalendarEvent = {
-      id: 'end-of-school-2027',
-      title: 'End of School Year',
-      date: '2027-04-08',
-      time: 'All Day',
-      category: 'deadline',
-      statusTag: 'Deadline',
-      statusTagClass: 'deadline',
-      description: 'Last day of classes for SY 2026-2027'
+  useEffect(() => {
+    if (propActiveTerm) {
+      setActiveTerm(propActiveTerm)
     }
-    
-    const today = toDateKey(new Date())
-    
-    // Combine holidays and course events, filter out expired
-    // Include the end-of-school event for 2027 even though it's in the future
-    const allEvents = [...holidays, ...courseEvents, endOfSchool2027]
-    return allEvents.filter((event) => event.date >= today || event.date === '2027-04-08')
-  }, [courses])
+  }, [propActiveTerm])
+
+  // Fetch and subscribe to active academic term
+  useEffect(() => {
+    let cancelled = false
+    getAcademicTerm()
+      .then((term) => {
+        if (!cancelled && term) {
+          setActiveTerm(term)
+        }
+      })
+      .catch(() => {})
+
+    const unsubscribe = subscribeAcademicTerm((term) => {
+      if (!cancelled && term) {
+        setActiveTerm(term)
+      }
+    })
+
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [])
+
+  // Close modal on Escape key
+  useEffect(() => {
+    if (!selectedModalEvent) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedModalEvent(null)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedModalEvent])
+
+  const activeSemester = normalizeSemester(activeTerm?.semester || DEFAULT_ACADEMIC_SEMESTER)
+  const activeSchoolYear = normalizeSchoolYear(activeTerm?.schoolYear || DEFAULT_SCHOOL_YEAR)
+  const activeTermKey = `${activeSemester}|${activeSchoolYear}`
+  const activeTermDisplay = `${activeSemester} Sem · S.Y. ${activeSchoolYear}`
+
+  // Collect available terms from courses
+  const availableTerms = useMemo(() => {
+    const termMap = new Map<string, { key: string; semester: string; schoolYear: string; label: string }>()
+
+    // Always include the current active term
+    termMap.set(activeTermKey, {
+      key: activeTermKey,
+      semester: activeSemester,
+      schoolYear: activeSchoolYear,
+      label: `${activeSemester} Sem · S.Y. ${activeSchoolYear} (Active)`
+    })
+
+    ;(courses || []).forEach((course) => {
+      ;(course.blocks || []).forEach((block) => {
+        const sem = normalizeSemester(block.semester) || String(block.semester || '').trim()
+        const sy = block.schoolYear ? normalizeSchoolYear(block.schoolYear) : ''
+        if (!sem && !sy) return
+        const key = `${sem}|${sy}`
+        if (!termMap.has(key)) {
+          termMap.set(key, {
+            key,
+            semester: sem,
+            schoolYear: sy,
+            label: `${sem || 'N/A'} Sem${sy ? ` · S.Y. ${sy}` : ''}`
+          })
+        }
+      })
+    })
+
+    return Array.from(termMap.values())
+  }, [courses, activeTermKey, activeSemester, activeSchoolYear])
+
+  const otherTerms = useMemo(() => {
+    return availableTerms.filter((term) => term.key !== activeTermKey)
+  }, [availableTerms, activeTermKey])
+
+  const isCurrentTermActive = selectedTermKey === 'active' || selectedTermKey === activeTermKey
+
+  const selectedTermLabel = useMemo(() => {
+    if (selectedTermKey === 'active') return `${activeSemester} Semester (S.Y. ${activeSchoolYear})`
+    if (selectedTermKey === 'all') return 'All Semesters'
+    const found = availableTerms.find((t) => t.key === selectedTermKey)
+    return found ? `${found.semester} Semester · S.Y. ${found.schoolYear}` : selectedTermKey
+  }, [selectedTermKey, activeSemester, activeSchoolYear, availableTerms])
+
+  // Filter courses based on active/selected term
+  const filteredCourses = useMemo(() => {
+    if (!courses || courses.length === 0) return []
+    if (selectedTermKey === 'all') return courses
+
+    const targetSem = selectedTermKey === 'active'
+      ? activeSemester
+      : selectedTermKey.split('|')[0]
+    const targetSY = selectedTermKey === 'active'
+      ? activeSchoolYear
+      : (selectedTermKey.split('|')[1] || '')
+
+    return courses
+      .map((course) => ({
+        ...course,
+        blocks: (course.blocks || []).filter((block) => {
+          const bSem = normalizeSemester(block.semester)
+          const bSY = block.schoolYear ? normalizeSchoolYear(block.schoolYear) : ''
+          const semMatches = !targetSem || bSem === targetSem
+          const syMatches = !targetSY || !bSY || bSY === targetSY
+          return semMatches && syMatches
+        })
+      }))
+      .filter((course) => course.blocks.length > 0)
+  }, [courses, selectedTermKey, activeSemester, activeSchoolYear])
+
+  const timelineClasses = useMemo(() => buildTimelineClasses(filteredCourses), [filteredCourses])
 
   const handleSelectEvent = (event: CalendarEvent) => {
-    // TODO: Show event details modal or navigate to event details
-    console.log('Selected event:', event)
+    setSelectedModalEvent(event)
+  }
+
+  const handleSelectTimelineClass = (item: TimelineClass, entry: TimelineEntry) => {
+    const room = entry.room || item.room
+    setSelectedModalEvent({
+      id: `${item.id}-${entry.day}-${entry.start}`,
+      title: `${item.code} — ${item.title || item.code}`,
+      date: `Every ${DAY_LABELS[entry.day]}`,
+      time: `${formatClock(entry.start)} – ${formatClock(entry.end)}`,
+      category: 'academic',
+      statusTag: item.section ? `Section ${item.section}` : 'Class',
+      statusTagClass: 'academic',
+      description: `${item.courseCode ? `Course: ${item.courseCode}` : ''}${
+        item.semester ? ` • Term: ${item.semester} Sem · S.Y. ${item.schoolYear || ''}` : ''
+      }${item.enrolledStudents ? ` • ${item.enrolledStudents} students enrolled` : ''}`,
+      location: room || 'TBA'
+    })
   }
 
   if (loading) {
@@ -680,34 +1002,150 @@ function ScheduleManagement({ courses, loading, error, onRefresh }: ScheduleMana
   return (
     <div className="professor-schedule-shell">
       <div className="professor-schedule-toolbar">
-        <div className="professor-view-switch" role="group" aria-label="Schedule view">
-          <button
-            type="button"
-            aria-pressed={view === 'month'}
-            className={view === 'month' ? 'is-active' : ''}
-            onClick={() => setView('month')}
-          >
-            <CalendarDays size={14} /> Month
-          </button>
-          <button
-            type="button"
-            aria-pressed={view === 'timeline'}
-            className={view === 'timeline' ? 'is-active' : ''}
-            onClick={() => setView('timeline')}
-          >
-            <Clock size={14} /> Timeline
-          </button>
+        <div className="professor-toolbar-left">
+          <div className="professor-view-switch" role="group" aria-label="Schedule view">
+            <button
+              type="button"
+              aria-pressed={view === 'timeline'}
+              className={view === 'timeline' ? 'is-active' : ''}
+              onClick={() => setView('timeline')}
+            >
+              <Clock size={14} /> Timeline
+            </button>
+            <button
+              type="button"
+              aria-pressed={view === 'month'}
+              className={view === 'month' ? 'is-active' : ''}
+              onClick={() => setView('month')}
+            >
+              <CalendarDays size={14} /> Month
+            </button>
+          </div>
+
+          <div className="professor-term-filter-group">
+            <label htmlFor="professor-term-select" className="professor-term-label">
+              Term:
+            </label>
+            <div className="professor-term-select-wrapper">
+              <select
+                id="professor-term-select"
+                className="professor-term-select"
+                value={selectedTermKey}
+                onChange={(e) => setSelectedTermKey(e.target.value)}
+              >
+                <option value="active">
+                  Active: {activeTermDisplay}
+                </option>
+                {otherTerms.length > 0 && (
+                  <optgroup label="Other Semesters">
+                    {otherTerms.map((term) => (
+                      <option key={term.key} value={term.key}>
+                        {term.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                <option value="all">All Semesters</option>
+              </select>
+            </div>
+            {isCurrentTermActive && (
+              <span className="professor-active-pill" title="Currently showing schedule for the active school term">
+                <span className="professor-active-dot" aria-hidden="true" />
+                Active Term
+              </span>
+            )}
+          </div>
         </div>
+
         <p className="professor-schedule-hint">
-          {view === 'month'
-            ? 'Dates, deadlines and Philippine holidays.'
-            : 'Your weekly teaching schedule by day and time.'}
+          {view === 'timeline'
+            ? `Weekly teaching schedule for ${selectedTermLabel}.`
+            : `Monthly academic calendar view for ${selectedTermLabel}.`}
         </p>
       </div>
 
-      {view === 'month'
-        ? <ScheduleCalendar events={events} onSelectEvent={handleSelectEvent} />
-        : <ScheduleTimeline courses={courses} />}
+      {view === 'timeline' ? (
+        <ScheduleTimeline
+          courses={filteredCourses}
+          selectedTermLabel={selectedTermLabel}
+          isCurrentTerm={isCurrentTermActive}
+          allCoursesCount={courses.length}
+          onResetToActiveTerm={() => setSelectedTermKey('active')}
+          onSelectClass={handleSelectTimelineClass}
+        />
+      ) : (
+        <ScheduleCalendar
+          timelineClasses={timelineClasses}
+          onSelectEvent={handleSelectEvent}
+          selectedTermLabel={selectedTermLabel}
+          isCurrentTerm={isCurrentTermActive}
+        />
+      )}
+
+      {selectedModalEvent && (
+        <div
+          className="professor-event-modal-backdrop"
+          onClick={() => setSelectedModalEvent(null)}
+        >
+          <div
+            className="professor-event-modal"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="professor-event-modal-header">
+              <div>
+                <span
+                  className={`professor-cal-chip tag-${selectedModalEvent.statusTagClass}`}
+                  style={{ marginBottom: '0.4rem', display: 'inline-block' }}
+                >
+                  {selectedModalEvent.statusTag}
+                </span>
+                <h3>{selectedModalEvent.title}</h3>
+              </div>
+              <button
+                type="button"
+                className="professor-event-modal-close"
+                onClick={() => setSelectedModalEvent(null)}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="professor-event-modal-body">
+              <div className="professor-event-modal-row">
+                <CalendarDays size={16} />
+                <span>{selectedModalEvent.date}</span>
+              </div>
+              <div className="professor-event-modal-row">
+                <Clock size={16} />
+                <span>{selectedModalEvent.time}</span>
+              </div>
+              {selectedModalEvent.location && (
+                <div className="professor-event-modal-row">
+                  <MapPin size={16} />
+                  <span>Room: {selectedModalEvent.location}</span>
+                </div>
+              )}
+              {selectedModalEvent.description && (
+                <div className="professor-event-modal-desc">
+                  {selectedModalEvent.description}
+                </div>
+              )}
+            </div>
+
+            <div className="professor-event-modal-footer">
+              <button
+                type="button"
+                onClick={() => setSelectedModalEvent(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

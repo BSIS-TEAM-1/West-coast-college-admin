@@ -121,17 +121,25 @@ describe('getReEnrollmentCandidates', () => {
   });
 
   test('returns candidates and reports an earlier failure as a retake', async () => {
+    verificationService.getActiveTerm.mockResolvedValueOnce({ schoolYear: '2027-2028', semester: '1st' });
     Student.find.mockReturnValue(chain([
-      student(),
+      student({
+        schoolYear: '2026-2027',
+        semester: '2nd',
+      }),
       student({
         _id: '64b000000000000000000002',
         studentNumber: '2026-101-0002',
         firstName: 'Ben',
         lastName: 'Santos',
+        schoolYear: '2027-2028',
+        semester: '1st',
       }),
     ]));
     Enrollment.find.mockReturnValue(chain([
       enrollment({
+        schoolYear: '2026-2027',
+        semester: '1st',
         subjects: [
           { subjectId: 'subject-eng', code: 'ENG101', title: 'Rizal', units: 3, grade: 5.0, gradeMark: 'FA', status: 'Completed' },
         ],
@@ -139,14 +147,14 @@ describe('getReEnrollmentCandidates', () => {
       enrollment({
         _id: '64b000000000000000000032',
         studentId: '64b000000000000000000002',
-        schoolYear: '2026-2027',
-        semester: '2nd',
+        schoolYear: '2027-2028',
+        semester: '1st',
         status: 'Enrolled',
         subjects: [],
       }),
     ]));
 
-    const res = await callFeed({ schoolYear: '2026-2027', semester: '2nd' });
+    const res = await callFeed({ schoolYear: '2027-2028', semester: '1st' });
 
     expect(res.statusCode).toBe(200);
     expect(res.body.data).toHaveLength(1);
@@ -168,7 +176,7 @@ describe('getReEnrollmentCandidates', () => {
     expect(res.body.data[0].reEnrollment.verification.status).toBe('none');
     expect(res.body.meta).toEqual(expect.objectContaining({
       rolloverReady: true,
-      activeTerm: { schoolYear: '2026-2027', semester: '1st' },
+      activeTerm: { schoolYear: '2027-2028', semester: '1st' },
     }));
   });
 
@@ -244,5 +252,138 @@ describe('getReEnrollmentCandidates', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.data).toHaveLength(1);
     expect(res.body.data[0].reEnrollment.needsRetake).toBe(false);
+  });
+
+  test('does not return a student currently enrolled in 2026-2027 2nd sem as candidate for 2027-2028 2nd sem', async () => {
+    verificationService.getActiveTerm.mockResolvedValueOnce({ schoolYear: '2026-2027', semester: '2nd' });
+    Student.find.mockReturnValue(chain([
+      student({
+        schoolYear: '2026-2027',
+        semester: '2nd',
+        lifecycleStatus: 'Enrolled',
+        enrollmentStatus: 'Enrolled',
+      }),
+    ]));
+    Enrollment.find.mockReturnValue(chain([
+      enrollment({
+        schoolYear: '2026-2027',
+        semester: '2nd',
+        status: 'Enrolled',
+        subjects: [],
+      }),
+    ]));
+
+    const res = await callFeed({ schoolYear: '2027-2028', semester: '2nd' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data).toHaveLength(0);
+  });
+
+  test('does not return an actively enrolled student in the active term for future terms', async () => {
+    verificationService.getActiveTerm.mockResolvedValueOnce({ schoolYear: '2026-2027', semester: '2nd' });
+    Student.find.mockReturnValue(chain([
+      student({
+        schoolYear: '2026-2027',
+        semester: '2nd',
+        lifecycleStatus: 'Enrolled',
+        enrollmentStatus: 'Enrolled',
+      }),
+    ]));
+    Enrollment.find.mockReturnValue(chain([
+      enrollment({
+        schoolYear: '2026-2027',
+        semester: '2nd',
+        status: 'Enrolled',
+        subjects: [],
+      }),
+    ]));
+
+    const res = await callFeed({ schoolYear: '2027-2028', semester: '1st' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data).toHaveLength(0);
+  });
+
+  test('does not return any candidates for 2nd semester of a future school year', async () => {
+    verificationService.getActiveTerm.mockResolvedValueOnce({ schoolYear: '2026-2027', semester: '2nd' });
+    Student.find.mockReturnValue(chain([student()]));
+    Enrollment.find.mockReturnValue(chain([]));
+
+    const res = await callFeed({ schoolYear: '2027-2028', semester: '2nd' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data).toHaveLength(0);
+  });
+
+  test('detects active term enrollment via history even if student document is not yet updated', async () => {
+    verificationService.getActiveTerm.mockResolvedValueOnce({ schoolYear: '2026-2027', semester: '2nd' });
+    Student.find.mockReturnValue(chain([
+      student({
+        schoolYear: '2026-2027',
+        semester: '1st', // Student doc still says 1st sem
+        lifecycleStatus: 'Enrolled',
+      }),
+    ]));
+    Enrollment.find.mockReturnValue(chain([
+      enrollment({
+        schoolYear: '2026-2027',
+        semester: '2nd', // Active enrollment is in 2nd sem
+        status: 'Enrolled',
+        isCurrent: true,
+        subjects: [],
+      }),
+    ]));
+
+    const res = await callFeed({ schoolYear: '2027-2028', semester: '1st' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data).toHaveLength(0);
+  });
+
+  test('BUG-04: includes a readmitted student whose pre-dismissal enrollment in the target term was superseded by dismissal', async () => {
+    const preDismissalDate = new Date('2026-08-10T00:00:00Z');
+    const dismissalDate = new Date('2026-10-15T00:00:00Z');
+    const readmissionDate = new Date('2026-11-01T00:00:00Z');
+
+    verificationService.getActiveTerm.mockResolvedValueOnce({ schoolYear: '2026-2027', semester: '1st' });
+    Student.find.mockReturnValue(chain([
+      student({
+        schoolYear: '2026-2027',
+        semester: '1st',
+        lifecycleStatus: 'Irregular',
+        lifecycleStatusReason: 'AUTHORIZED_READMISSION',
+        enrollmentStatus: 'Not Enrolled',
+        lifecycleStatusHistory: [
+          {
+            status: 'Dropped',
+            reason: 'ACADEMIC_DEFICIENCY',
+            effectiveDate: dismissalDate,
+            changedAt: dismissalDate,
+          },
+          {
+            status: 'Irregular',
+            reason: 'AUTHORIZED_READMISSION',
+            effectiveDate: readmissionDate,
+            changedAt: readmissionDate,
+          },
+        ],
+      }),
+    ]));
+    Enrollment.find.mockReturnValue(chain([
+      enrollment({
+        schoolYear: '2026-2027',
+        semester: '1st',
+        status: 'Enrolled',
+        createdAt: preDismissalDate,
+        updatedAt: preDismissalDate,
+        subjects: [],
+      }),
+    ]));
+
+    const res = await callFeed({ schoolYear: '2026-2027', semester: '1st' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0].studentNumber).toBe('2026-101-0001');
   });
 });

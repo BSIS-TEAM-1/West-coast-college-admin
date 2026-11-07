@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Pencil, Save, Trash2, X } from 'lucide-react'
+import { Archive, Pencil, Save, Trash2, X } from 'lucide-react'
 import type { BlockGroup, BlockSection, BlockWorkspaceSelection } from './registrarBlockTypes'
 import CapacityIndicator from '../../components/CapacityIndicator'
 import {
@@ -21,12 +21,23 @@ type ViewBlocksPageProps = {
   onOpenWorkspace: (selection: BlockWorkspaceSelection) => void
 }
 
+// Chronological position of a term inside one school year. Used to list the
+// most recently opened term first: after a semester rollover the same block
+// exists twice (closing term + opening term), and the old one must not be the
+// first card the registrar picks.
+const SEMESTER_ORDER: Record<string, number> = { '1st': 0, '2nd': 1, Summer: 2 }
+
+const semesterOrder = (semester: unknown) => SEMESTER_ORDER[String(semester || '').trim()] ?? -1
+
+const isGroupArchived = (group: BlockGroup) => group.status === 'Archived' || group.isArchived === true
+
 function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
   const [blockGroups, setBlockGroups] = useState<BlockGroup[]>([])
   const [selectedGroup, setSelectedGroup] = useState<BlockGroup | null>(null)
   const [sections, setSections] = useState<BlockSection[]>([])
   const [selectedCourseFilter, setSelectedCourseFilter] = useState('')
   const [selectedYearFilter, setSelectedYearFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('active')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -129,6 +140,11 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
   ).sort((a, b) => a - b)
 
   const filteredBlockGroups = blockGroups
+    .filter((group) => {
+      if (statusFilter === 'active') return !isGroupArchived(group)
+      if (statusFilter === 'archived') return isGroupArchived(group)
+      return true
+    })
     .filter((group) => !selectedCourseFilter || getCourseAbbreviation(group.name) === selectedCourseFilter)
     .filter((group) => {
       if (!selectedYearFilter) return true
@@ -143,7 +159,7 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
       const aStart = schoolYearStartYear(a.schoolYear || a.year)
       const bStart = schoolYearStartYear(b.schoolYear || b.year)
       if (aStart !== bStart) return bStart - aStart
-      return String(a.semester).localeCompare(String(b.semester))
+      return semesterOrder(b.semester) - semesterOrder(a.semester)
     })
 
   const openSections = sections.filter((section) => (section.status || 'OPEN').toUpperCase() === 'OPEN')
@@ -420,6 +436,14 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
 
             <div className="block-view-filter-row">
               <label className="block-picker-field">
+                <span>Status</span>
+                <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'all' | 'active' | 'archived')}>
+                  <option value="all">All statuses</option>
+                  <option value="active">Active only</option>
+                  <option value="archived">Archived only</option>
+                </select>
+              </label>
+              <label className="block-picker-field">
                 <span>Curriculum</span>
                 <select value={selectedCourseFilter} onChange={(event) => setSelectedCourseFilter(event.target.value)}>
                   <option value="">All curricula</option>
@@ -444,6 +468,7 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
                   onClick={() => {
                     setSelectedCourseFilter('')
                     setSelectedYearFilter('')
+                    setStatusFilter('active')
                   }}
                 >
                   Clear Filters
@@ -462,10 +487,15 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
                     <button
                       key={group._id}
                       type="button"
-                      className={`created-block-card ${isActive ? 'active' : ''}`}
+                      className={`created-block-card ${isActive ? 'active' : ''} ${isGroupArchived(group) ? 'created-block-card--archived' : ''}`}
                       onClick={() => setSelectedGroup(group)}
                     >
-                      <span className="created-block-card-label">{getCourseAbbreviation(group.name)}</span>
+                      <div className="created-block-card-header-row">
+                        <span className="created-block-card-label">{getCourseAbbreviation(group.name)}</span>
+                        {isGroupArchived(group) && (
+                          <span className="created-block-card-archived-tag">Archived</span>
+                        )}
+                      </div>
                       <strong>{formatBlockColumnLabel(group.name)}</strong>
                       <p>{formatBlockLabel(group.name)}</p>
                       <div className="created-block-card-meta">
@@ -491,6 +521,12 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
 
             {selectedGroup ? (
               <>
+                {isGroupArchived(selectedGroup) && (
+                  <div className="block-archived-banner">
+                    <Archive size={16} />
+                    <span>This block is archived and read-only. It belongs to historical academic records.</span>
+                  </div>
+                )}
                 {groupEditForm ? (
                   <div className="block-detail-edit-card">
                     <span className="block-detail-section-label">Edit Block Group</span>
@@ -612,13 +648,17 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
                     <button type="button" className="registrar-btn" onClick={handleOpenWorkspace}>
                       Open Workspace
                     </button>
-                    <button type="button" className="registrar-btn registrar-btn-secondary" onClick={handleStartEditGroup}>
-                      <Pencil size={16} />
-                      Edit Block
-                    </button>
-                    <button type="button" className="section-delete-btn" onClick={() => void handleDeleteGroup()} disabled={loading}>
-                      Delete Block
-                    </button>
+                    {!isGroupArchived(selectedGroup) && (
+                      <button type="button" className="registrar-btn registrar-btn-secondary" onClick={handleStartEditGroup}>
+                        <Pencil size={16} />
+                        Edit Block
+                      </button>
+                    )}
+                    {!isGroupArchived(selectedGroup) && (
+                      <button type="button" className="section-delete-btn" onClick={() => void handleDeleteGroup()} disabled={loading}>
+                        Delete Block
+                      </button>
+                    )}
                   </div>
                 )}
 

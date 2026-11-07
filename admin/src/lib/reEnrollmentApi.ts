@@ -114,11 +114,16 @@ type ReEnrollmentTermRequest = {
 export async function fetchReEnrollmentCandidates({
   schoolYear,
   semester,
+  currentTermOnly,
 }: {
   schoolYear: string
   semester: ReEnrollmentSemester
+  currentTermOnly?: boolean
 }): Promise<ReEnrollmentCandidatesResponse> {
   const params = new URLSearchParams({ schoolYear, semester })
+  if (currentTermOnly) {
+    params.set('currentTermOnly', 'true')
+  }
   return authorizedFetch<ReEnrollmentCandidatesResponse>(
     `/api/registrar/re-enrollment/candidates?${params.toString()}`
   )

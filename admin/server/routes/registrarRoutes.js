@@ -50,12 +50,15 @@ router.get('/professor-course-loads', cacheMiddleware({ ttlMs: 20 * 1000 }), Stu
 router.get('/sections/:sectionId/subject-assignments', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.sectionAssignments), cacheMiddleware({ ttlMs: 20 * 1000 }), StudentController.getSectionSubjectAssignments);
 router.get('/students', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.query), cacheMiddleware({ ttlMs: 15 * 1000 }), StudentController.getStudents);
 router.post('/students', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.create), invalidateCacheOnSuccess(...studentCachePrefixes), StudentController.createStudent);
+router.post('/students/bulk-verify-cor', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.bulkVerifyCor), invalidateCacheOnSuccess(...studentCachePrefixes), StudentController.bulkVerifyCor);
 router.get('/students/next-number', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.nextStudentNumber), cacheMiddleware({ ttlMs: 10 * 1000 }), StudentController.getNextStudentNumber);
 router.get('/students/:id', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.idParam), cacheMiddleware({ ttlMs: 15 * 1000 }), StudentController.getStudentById);
 router.get('/students/number/:studentNumber', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.studentNumberParam), StudentController.getStudentByNumber);
 router.put('/students/:id', securityMiddleware.inputValidationMiddleware({ ...securityMiddleware.schemas.student.idParam, ...securityMiddleware.schemas.student.update }), invalidateCacheOnSuccess(...studentCachePrefixes), StudentController.updateStudent);
+router.post('/students/:id/readmit', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.readmit), invalidateCacheOnSuccess(...studentCachePrefixes, ...courseLoadCachePrefixes), StudentController.readmitStudent);
+router.post('/students/:id/reactivate', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.reactivate), invalidateCacheOnSuccess(...studentCachePrefixes, ...courseLoadCachePrefixes), StudentController.reactivateStudent);
 router.delete('/students/:id', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.idParam), invalidateCacheOnSuccess(...studentCachePrefixes), StudentController.deleteStudent);
-router.get('/students/:id/cor', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.idParam), StudentController.generateCorPdf);
+router.get('/students/:id/cor', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.cor), StudentController.generateCorPdf);
 
 // Enrollment Routes
 router.post('/students/:id/enroll', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.enroll), invalidateCacheOnSuccess(...studentCachePrefixes, ...courseLoadCachePrefixes), StudentController.enrollStudent);

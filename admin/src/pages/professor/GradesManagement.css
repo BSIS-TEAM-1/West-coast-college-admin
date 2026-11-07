@@ -55,6 +55,53 @@
   }
 }
 
+/* ─── Term & Class Selectors ─── */
+.gm-term-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  width: 100%;
+  min-width: 220px;
+}
+
+@media (min-width: 768px) {
+  .gm-term-select {
+    width: 14rem;
+  }
+}
+
+.gm-term-select label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.gm-term-select select {
+  width: 100%;
+  appearance: none;
+  border: 1px solid var(--color-border);
+  border-radius: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  height: 2.25rem;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23757687' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  padding-right: 2rem;
+}
+
+.gm-term-select select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
 /* ─── Class Selector ─── */
 .gm-class-select {
   display: flex;
@@ -281,6 +328,30 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.gm-bento-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.gm-bento-badge--active {
+  background: color-mix(in srgb, #16a34a 15%, transparent);
+  color: #16a34a;
+  border: 1px solid color-mix(in srgb, #16a34a 30%, transparent);
+}
+
+.gm-bento-badge--past {
+  background: color-mix(in srgb, #f59e0b 15%, transparent);
+  color: #d97706;
+  border: 1px solid color-mix(in srgb, #f59e0b 30%, transparent);
 }
 
 /* ─── Metrics Cards ─── */
@@ -1434,3 +1505,181 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Bulk submission & selection styles */
+.gm-table th.gm-th-checkbox,
+.gm-table td.gm-td-checkbox {
+  width: 40px;
+  text-align: center;
+  padding: 0.5rem 0.25rem;
+}
+
+.gm-checkbox-input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--color-primary);
+  vertical-align: middle;
+}
+
+.gm-checkbox-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.gm-submit-btn--bulk-selected {
+  background: var(--color-primary);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.gm-submit-btn--bulk-selected:hover {
+  filter: brightness(1.08);
+}
+
+/* All Courses Preview Modal Styles */
+.gm-modal--xl {
+  max-width: 980px;
+  width: 95%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.gm-courses-accordion {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  overflow-y: auto;
+  max-height: 48vh;
+  padding-right: 0.25rem;
+}
+
+.gm-course-card {
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+  overflow: hidden;
+  transition: border-color 0.15s ease;
+}
+
+.gm-course-card--ready {
+  border-left: 4px solid #16a34a;
+}
+
+.gm-course-card--partial {
+  border-left: 4px solid #d97706;
+}
+
+.gm-course-card--submitted {
+  border-left: 4px solid #2563eb;
+}
+
+.gm-course-card--empty {
+  border-left: 4px solid #94a3b8;
+}
+
+.gm-course-card-header {
+  padding: 0.75rem 1rem;
+  background: var(--color-bg-soft);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  gap: 0.75rem;
+}
+
+.gm-course-card-header:hover {
+  filter: brightness(0.97);
+}
+
+.gm-course-card-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.gm-course-card-code {
+  font-weight: 700;
+  font-size: 0.9375rem;
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.gm-course-card-desc {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.gm-course-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.gm-course-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.gm-course-badge--success {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.gm-course-badge--warning {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.gm-course-badge--info {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.gm-course-badge--neutral {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.gm-course-card-body {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.gm-review-confirm-box {
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 25%, transparent);
+  border-radius: 0.5rem;
+  padding: 0.85rem 1rem;
+  margin-top: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.gm-review-confirm-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+

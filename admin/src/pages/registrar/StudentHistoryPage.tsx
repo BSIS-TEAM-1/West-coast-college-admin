@@ -9,7 +9,8 @@ import type {
   StudentData,
   SubjectValidationData
 } from '../../lib/studentApi'
-import { getStoredToken } from '../../lib/authApi'
+import { API_URL, getStoredToken } from '../../lib/authApi'
+import { getCachedAcademicTerm } from '../../lib/settingsApi'
 import {
   courseShortLabel,
   extractResponseData,
@@ -177,6 +178,25 @@ function nextSchoolYear(schoolYear: string) {
   const start = Number(String(schoolYear || '').split('-')[0])
   if (!Number.isFinite(start)) return ''
   return `${start + 1}-${start + 2}`
+}
+
+function defaultRetakeTerm(record: EnrollmentRecord): { schoolYear: string; semester: string } {
+  const cached = getCachedAcademicTerm()
+  if (cached?.schoolYear && cached?.semester) {
+    const order: Record<string, number> = { '1st': 0, '2nd': 1, Summer: 2 }
+    const actStart = Number(String(cached.schoolYear).slice(0, 4))
+    const recStart = Number(String(record.schoolYear).slice(0, 4))
+    const isLater = (actStart !== recStart)
+      ? actStart > recStart
+      : (order[cached.semester] ?? -1) > (order[record.semester] ?? -1)
+    if (isLater) {
+      return { schoolYear: cached.schoolYear, semester: cached.semester }
+    }
+  }
+  if (record.semester === '1st') {
+    return { schoolYear: record.schoolYear, semester: '2nd' }
+  }
+  return { schoolYear: nextSchoolYear(record.schoolYear), semester: '1st' }
 }
 
 const STATUS_ORDER = ['completed', 'inProgress', 'failed', 'dropped', 'outstanding'] as const
@@ -468,6 +488,58 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
     }
   }
 
+  // ── Semester-specific COR ──────────────────────────────────────────────────
+  async function handleDownloadRecordCor(record: EnrollmentRecord) {
+    if (!student) return
+    let targetWindow: Window | null = null
+    try {
+      targetWindow = window.open('about:blank', '_blank')
+      if (targetWindow) {
+        targetWindow.document.write('<html><head><title>Certificate of Registration</title></head><body style="font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f8fafc; color: #334155;"><div style="text-align: center;"><div style="font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem;">Generating Certificate of Registration...</div><div style="font-size: 0.875rem; color: #64748b;">Preparing ' + record.semester + ' Semester ' + record.schoolYear + ' COR.</div></div></body></html>')
+      }
+    } catch {}
+
+    try {
+      const token = await getStoredToken()
+      if (!token) throw new Error('Session expired. Please sign in again.')
+      const query = new URLSearchParams({
+        enrollmentId: record._id,
+        schoolYear: record.schoolYear,
+        semester: record.semester
+      })
+      const response = await fetch(`${API_URL}/api/registrar/students/${student._id}/cor?${query.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (!response.ok) {
+        let message = 'Failed to generate COR'
+        try {
+          const data = await response.json()
+          if (data?.message) message = data.message
+        } catch {}
+        throw new Error(message)
+      }
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      if (targetWindow && !targetWindow.closed) {
+        targetWindow.location.href = url
+      } else {
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `COR-${studentNumberDisplay(student)}-${record.schoolYear}-${record.semester}.pdf`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+      }
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 60000)
+    } catch (err) {
+      if (targetWindow && !targetWindow.closed) targetWindow.close()
+      setNotice({
+        tone: 'error',
+        text: err instanceof Error ? err.message : 'Could not generate COR'
+      })
+    }
+  }
+
   const summary = progress?.summary || null
   const requirementTotal = summary ? Math.max(summary.totalRequirements, 1) : 1
   const blockingIds = new Set((progress?.progression.blockedBy || []).map((b) => b.code))
@@ -717,6 +789,16 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                                   Locked
                                 </span>
                               ) : null}
+                              <button
+                                type="button"
+                                className="student-history-page__action-btn"
+                                onClick={() => void handleDownloadRecordCor(record)}
+                                disabled={modalBusy}
+                                title={`Download Certificate of Registration for ${record.semester} ${record.schoolYear}`}
+                              >
+                                <FileText size={13} style={{ marginRight: 4, verticalAlign: 'text-bottom' }} />
+                                COR
+                              </button>
                               {!locked ? (
                                 <button
                                   type="button"
@@ -840,9 +922,10 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                                                     type="button"
                                                     className="student-history-page__action-btn"
                                                     onClick={() => {
+                                                      const next = defaultRetakeTerm(record)
                                                       setRetakeTarget({ record, entry })
-                                                      setRetakeYear(nextSchoolYear(record.schoolYear))
-                                                      setRetakeSemester('1st')
+                                                      setRetakeYear(next.schoolYear)
+                                                      setRetakeSemester(next.semester)
                                                       setRetakeOverride('')
                                                       setModalError('')
                                                     }}

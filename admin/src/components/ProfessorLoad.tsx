@@ -284,36 +284,24 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
       ) : stats ? (
         <section className="professor-load-stats-bar">
           <div className="professor-load-stat-card">
-            <div className="professor-load-stat-icon-circle">
-              <GraduationCap size={20} />
-            </div>
             <div>
               <strong>{formatStat(stats.professors)}</strong>
               <span>Professors</span>
             </div>
           </div>
           <div className="professor-load-stat-card">
-            <div className="professor-load-stat-icon-circle">
-              <BookOpen size={20} />
-            </div>
             <div>
               <strong>{formatStat(stats.assignedSubjects)}</strong>
               <span>Assigned Courses</span>
             </div>
           </div>
           <div className="professor-load-stat-card">
-            <div className="professor-load-stat-icon-circle">
-              <Layers size={20} />
-            </div>
             <div>
               <strong>{formatStat(stats.sectionsCovered)}</strong>
               <span>Sections Covered</span>
             </div>
           </div>
           <div className="professor-load-stat-card">
-            <div className="professor-load-stat-icon-circle">
-              <Users size={20} />
-            </div>
             <div>
               <strong>{formatStat(stats.studentsCovered)}</strong>
               <span>Students Reached</span>

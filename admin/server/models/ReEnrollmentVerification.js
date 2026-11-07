@@ -60,6 +60,24 @@ const reEnrollmentVerificationSchema = new mongoose.Schema({
     ref: 'Admin',
     default: null,
   },
+  verifiedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Admin',
+    default: null,
+  },
+  consumedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Admin',
+    default: null,
+  },
+  course: {
+    type: Number,
+    default: null,
+  },
+  yearLevel: {
+    type: Number,
+    default: null,
+  },
   verifiedAt: {
     type: Date,
     default: null,
@@ -71,6 +89,15 @@ const reEnrollmentVerificationSchema = new mongoose.Schema({
   },
   consumedAt: {
     type: Date,
+    default: null,
+  },
+  invalidatedAt: {
+    type: Date,
+    default: null,
+  },
+  invalidationReason: {
+    type: String,
+    trim: true,
     default: null,
   },
 }, { timestamps: true });

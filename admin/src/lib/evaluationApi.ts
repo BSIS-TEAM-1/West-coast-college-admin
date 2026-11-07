@@ -3,6 +3,9 @@ import { API_URL, getStoredToken } from './authApi'
 export interface EvaluationQuestion {
   number: number
   text: string
+  category?: string
+  criteria?: string
+  required?: boolean
 }
 
 export interface EmojiScaleItem {
@@ -55,6 +58,7 @@ export interface EvaluationPeriodInfo {
   applicableSubjects?: string
   applicableProfessors?: string
   description?: string
+  questions?: EvaluationQuestion[]
   totalResponses?: number
   averageRating?: number
   professorCount?: number
@@ -128,10 +132,16 @@ export interface RegistrarEvaluationRecord {
   id: string
   _id: string
   recordNumber?: string
+  studentId?: string | null
+  teachingAssignmentId?: string | null
   semester: string
   schoolYear: string
+  academicYear?: string
+  subjectId?: string | null
   subjectCode: string
+  subjectName: string
   subjectTitle: string
+  subjectCodes?: string[]
   sectionCode?: string
   course?: string
   professorId: string | null
@@ -173,7 +183,20 @@ export interface RegistrarEvaluationOverviewData {
   activePeriod: EvaluationPeriodInfo | null
   questions: EvaluationQuestion[]
   emojiScale: EmojiScaleItem[]
+  metrics?: {
+    totalEligibleStudents: number
+    completedStudents: number
+    pendingStudents: number
+    completionPercentage: number
+    evaluatedProfessorsCount: number
+    totalResponses: number
+    averageRating: number
+  }
   progress: {
+    totalEligibleStudents?: number
+    completedStudents?: number
+    pendingStudents?: number
+    completionPercentage?: number
     totalResponses: number
     averageRating: number
     professorCount: number
@@ -202,6 +225,15 @@ export interface RegistrarEvaluationOverviewData {
     emoji: string
     label: string
   }>
+  availableFilters?: {
+    sections: string[]
+    professors: string[]
+    subjectCodes: string[]
+    subjectNames: string[]
+    academicYears: string[]
+    semesters: string[]
+    subjects: Array<{ subjectCode: string; subjectName?: string; subjectTitle?: string }>
+  }
 }
 
 async function getStaffHeaders(): Promise<Record<string, string>> {
@@ -255,6 +287,7 @@ export async function createRegistrarEvaluationPeriod(input: {
   closingTime: string
   description?: string
   saveAsDraft?: boolean
+  questions?: EvaluationQuestion[]
   applicablePrograms?: string[]
   applicableSubjects?: string
   applicableProfessors?: string
@@ -275,12 +308,13 @@ export async function createRegistrarEvaluationPeriod(input: {
 export async function updateRegistrarEvaluationPeriodStatus(
   periodId: string,
   input: {
-    action: 'draft' | 'start' | 'close' | 'extend' | 'reopen'
+    action: 'draft' | 'start' | 'close' | 'extend' | 'reopen' | 'configure_questionnaire'
     deadlineDate?: string
     closingTime?: string
     startDate?: string
     startTime?: string
     reason?: string
+    questions?: EvaluationQuestion[]
   }
 ): Promise<EvaluationPeriodInfo> {
   const headers = await getStaffHeaders()
@@ -336,14 +370,20 @@ export async function fetchRegistrarEvaluationOverview(filters?: {
   semester?: string
   schoolYear?: string
   subjectCode?: string
+  subjectName?: string
   professorName?: string
+  sectionCode?: string
+  periodId?: string
 }): Promise<RegistrarEvaluationOverviewData> {
   const headers = await getStaffHeaders()
   const query = new URLSearchParams()
   if (filters?.semester) query.set('semester', filters.semester)
   if (filters?.schoolYear) query.set('schoolYear', filters.schoolYear)
   if (filters?.subjectCode) query.set('subjectCode', filters.subjectCode)
+  if (filters?.subjectName) query.set('subjectName', filters.subjectName)
   if (filters?.professorName) query.set('professorName', filters.professorName)
+  if (filters?.sectionCode) query.set('sectionCode', filters.sectionCode)
+  if (filters?.periodId) query.set('periodId', filters.periodId)
   const qs = query.toString()
 
   const response = await fetch(`${API_URL}/api/registrar/evaluations/overview${qs ? `?${qs}` : ''}`, {
@@ -354,4 +394,23 @@ export async function fetchRegistrarEvaluationOverview(filters?: {
     throw new Error(payload?.error || 'Failed to load evaluation overview.')
   }
   return payload.data
+}
+
+export async function exportRegistrarEvaluationReport(filters?: {
+  semester?: string
+  schoolYear?: string
+}): Promise<Blob> {
+  const headers = await getStaffHeaders()
+  const query = new URLSearchParams()
+  if (filters?.semester) query.set('semester', filters.semester)
+  if (filters?.schoolYear) query.set('schoolYear', filters.schoolYear)
+  const qs = query.toString()
+
+  const response = await fetch(`${API_URL}/api/registrar/evaluations/export${qs ? `?${qs}` : ''}`, {
+    headers
+  })
+  if (!response.ok) {
+    throw new Error('Failed to export evaluation report.')
+  }
+  return await response.blob()
 }

@@ -172,7 +172,7 @@ describe('resolveShiftSection', () => {
       course: 102, semester: SEM, schoolYear: SY, selection: '102-1-A',
     });
     expect(result.section).toBeNull();
-    expect(result.reason).toContain('No 1st block exists for the selected course');
+    expect(result.reason).toContain('No open block sections exist for this program, year level, school year, and semester');
   });
 
   test('rejects when the matching block has no open section', async () => {
@@ -205,50 +205,39 @@ describe('resolveShiftSection', () => {
     expect(result.section?.currentPopulation).toBe(0);
   });
 
-  describe('term-stamp mismatch fallback', () => {
-    test('resolves the section when the student term predates the block stamp', async () => {
-      // Student's schoolYear "2026-2027" matches nothing; the legacy
-      // "2021-2022" group for the same semester is still assignable because
-      // performAssignment keys the term to the BLOCK group.
+  describe('strict term and year-level matching (BUG-06)', () => {
+    test('resolves the section when the target term matches the block query', async () => {
       const result = await StudentController.resolveShiftSection({
-        course: 102, semester: SEM, schoolYear: SY, selection: '1-A',
+        course: 102, semester: SEM, schoolYear: SY, yearLevel: 1, selection: '1-A',
       });
-      expect(BlockGroup.find).toHaveBeenCalledTimes(1); // no fallback needed
+      expect(BlockGroup.find).toHaveBeenCalledTimes(1);
       expect(result.section?.sectionCode).toBe('102-1-A');
     });
 
-    test('falls back to the latest matching term when the student term has no groups', async () => {
+    test('never falls back to historical or other school-year blocks when the target term has no groups', async () => {
       const newer = groupDoc('group-102-newer', { courseId: 102, schoolYear: NEWER_SY });
       const newerSection = sectionDoc('section-newer', 'group-102-newer', '102-1-A', 30, 0);
       // Strict pass: no groups stamped with the student's term at all.
       BlockGroup.find.mockImplementation(mockGroupFind([], [group102, newer]));
       BlockSection.find.mockImplementation(
-        mockSectionFind([sec102, newerSection]) // both ids present; $in decides
+        mockSectionFind([sec102, newerSection])
       );
 
       const result = await StudentController.resolveShiftSection({
-        course: 102, semester: SEM, schoolYear: SY, selection: '102-1-A',
+        course: 102, semester: SEM, schoolYear: SY, yearLevel: 1, selection: '102-1-A',
       });
-      // Two BlockGroup.find calls: the strict pass, then the semester-only
-      // fallback pass.
-      expect(BlockGroup.find).toHaveBeenCalledTimes(2);
-      expect(result.section?.sectionCode).toBe('102-1-A');
-      expect(result.section?.capacity).toBe(30);
-      // The fallback must pick the MOST RECENT stamp (2027-2028 group).
-      expect(result.section?._id).toBe('section-newer');
+      // Only the strict term pass is executed; historical fallback is prohibited.
+      expect(BlockGroup.find).toHaveBeenCalledTimes(1);
+      expect(result.section).toBeNull();
+      expect(result.reason).toContain('No open block sections exist for this program, year level, school year, and semester');
     });
 
-    test('prefers the strict term pass even when a newer stamp exists', async () => {
-      const newer = groupDoc('group-102-newer', { courseId: 102, schoolYear: NEWER_SY });
-      const newerSection = sectionDoc('section-newer', 'group-102-newer', '102-1-B', 30, 0);
-      BlockGroup.find.mockImplementation(mockGroupFind([group102], [group102, newer]));
-      BlockSection.find.mockImplementation(mockSectionFind([sec102, newerSection]));
-
+    test('rejects blocks whose yearLevel does not match the target yearLevel', async () => {
       const result = await StudentController.resolveShiftSection({
-        course: 102, semester: SEM, schoolYear: SY, selection: '102-1-A',
+        course: 102, semester: SEM, schoolYear: SY, yearLevel: 2, selection: '102-1-A',
       });
-      expect(BlockGroup.find).toHaveBeenCalledTimes(1);
-      expect(result.section?.sectionCode).toBe('102-1-A');
+      expect(result.section).toBeNull();
+      expect(result.reason).toContain('No open block sections exist for this program, year level, school year, and semester');
     });
 
     test('rejects when neither the student term nor any term has blocks', async () => {
@@ -257,7 +246,7 @@ describe('resolveShiftSection', () => {
         course: 102, semester: SEM, schoolYear: SY, selection: '102-1-A',
       });
       expect(result.section).toBeNull();
-      expect(result.reason).toContain('No 1st block exists for the selected course');
+      expect(result.reason).toContain('No open block sections exist for this program, year level, school year, and semester');
     });
   });
 });
@@ -323,8 +312,8 @@ describe('getShiftSectionOptions', () => {
     expect(missingCourse.statusCode).toBe(400);
   });
 
-  describe('term-stamp mismatch fallback', () => {
-    test('offers the latest matching term when the student term has no groups', async () => {
+  describe('strict term and year-level matching (BUG-06)', () => {
+    test('does not fall back to historical or other school-year groups when the target term has no groups', async () => {
       const newer = groupDoc('group-102-newer', { courseId: 102, schoolYear: NEWER_SY });
       const newerSection = sectionDoc('section-newer', 'group-102-newer', '102-1-A', 8, 2);
       BlockGroup.find.mockImplementation(
@@ -339,13 +328,19 @@ describe('getShiftSectionOptions', () => {
       );
       expect(res.statusCode).toBe(200);
       expect(res.payload?.success).toBe(true);
-      expect(res.payload?.data).toHaveLength(1);
-      expect(res.payload?.data[0]).toMatchObject({
-        sectionCode: '102-1-A',
-        schoolYear: NEWER_SY,
-        freeSlots: 6,
-      });
-      expect(res.payload?.term).toBe(NEWER_SY);
+      expect(res.payload?.data).toEqual([]);
+      expect(res.payload?.reason).toContain('No open block sections exist for this program, year level, school year, and semester');
+    });
+
+    test('filters out groups whose yearLevel does not match requested yearLevel', async () => {
+      const res = mockRes();
+      await blockController.getShiftSectionOptions(
+        { query: { course: '102', semester: SEM, schoolYear: SY, yearLevel: '2' } },
+        res
+      );
+      expect(res.statusCode).toBe(200);
+      expect(res.payload?.data).toEqual([]);
+      expect(res.payload?.reason).toContain('No open block sections exist for this program, year level, school year, and semester');
     });
 
     test('explains when no block groups exist for the program in the semester', async () => {
@@ -357,7 +352,7 @@ describe('getShiftSectionOptions', () => {
       );
       expect(res.statusCode).toBe(200);
       expect(res.payload?.data).toEqual([]);
-      expect(res.payload?.reason).toContain('No block groups exist');
+      expect(res.payload?.reason).toContain('No open block sections exist for this program, year level, school year, and semester');
     });
 
     test('explains when the program blocks have no open sections', async () => {

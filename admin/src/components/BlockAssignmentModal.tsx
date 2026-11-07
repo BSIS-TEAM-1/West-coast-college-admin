@@ -100,6 +100,8 @@ export default function BlockAssignmentModal({
           const compatibleGroups = fetchedGroups.filter((group) => {
             const groupSchoolYear = group.schoolYear || schoolYearFromStartYear(group.year)
             return (
+              group.status !== 'Archived' &&
+              group.isArchived !== true &&
               (!firstStudent.course || !group.courseId || String(group.courseId) === String(firstStudent.course)) &&
               (!firstStudent.yearLevel || !group.yearLevel || Number(group.yearLevel) === Number(firstStudent.yearLevel)) &&
               (!targetSemester || !group.semester || group.semester === targetSemester) &&
@@ -111,7 +113,8 @@ export default function BlockAssignmentModal({
             compatibleGroups.map(async (group) => {
               try {
                 const sections = await authorizedFetch<BlockSection[]>(`/api/blocks/groups/${group._id}/sections`)
-                return [group._id, sections] as const
+                const openSections = sections.filter((s) => (s.status || 'OPEN').toUpperCase() === 'OPEN' && !s.isArchived)
+                return [group._id, openSections] as const
               } catch {
                 return [group._id, []] as const
               }

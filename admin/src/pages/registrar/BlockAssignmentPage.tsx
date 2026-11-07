@@ -27,7 +27,7 @@ import {
   studentNumberDisplay,
   COURSE_OPTIONS
 } from '../../lib/blockAssignmentShared'
-import { getAcademicTerm, getCachedAcademicTerm, type AcademicTerm } from '../../lib/settingsApi'
+import { getAcademicTerm, getCachedAcademicTerm, subscribeAcademicTerm, type AcademicTerm } from '../../lib/settingsApi'
 import {
   fetchReEnrollmentCandidates,
   type ReEnrollmentSemester,
@@ -111,17 +111,6 @@ function statusTone(status?: string | null) {
   return 'neutral'
 }
 
-function nextAcademicTerm(term: AcademicTerm): { schoolYear: string; semester: Semester } {
-  const start = Number(String(term.schoolYear || '').slice(0, 4))
-  if (!Number.isFinite(start) || start <= 0) {
-    return { schoolYear: String(term.schoolYear || ''), semester: '1st' }
-  }
-  if (term.semester === '1st') {
-    return { schoolYear: term.schoolYear, semester: '2nd' }
-  }
-  return { schoolYear: `${start + 1}-${start + 2}`, semester: '1st' }
-}
-
 export default function BlockAssignmentPage({ mode = 'assignment' }: BlockAssignmentPageProps = {}) {
   const isReEnrollment = mode === 're-enrollment'
   const headerCheckboxRef = useRef<HTMLInputElement | null>(null)
@@ -179,7 +168,8 @@ export default function BlockAssignmentPage({ mode = 'assignment' }: BlockAssign
         if (!targetSchoolYear || !targetSemester) return
         const response = await fetchReEnrollmentCandidates({
           schoolYear: targetSchoolYear,
-          semester: targetSemester
+          semester: targetSemester,
+          currentTermOnly: true
         })
         records = Array.isArray(response.data) ? response.data : []
         if (response.meta) {
@@ -214,12 +204,15 @@ export default function BlockAssignmentPage({ mode = 'assignment' }: BlockAssign
     let cancelled = false
     ;(async () => {
       try {
-        const term = activeTerm || await getAcademicTerm()
+        const term = await getAcademicTerm()
         if (cancelled) return
         setActiveTerm(term)
-        const next = nextAcademicTerm(term)
-        setTargetSchoolYear(next.schoolYear)
-        setTargetSemester(next.semester)
+        const start = Number(String(term.schoolYear || '').slice(0, 4))
+        const rolloverSY = term.semester === '1st' || !Number.isFinite(start) || start <= 0
+          ? term.schoolYear
+          : `${start + 1}-${start + 2}`
+        setTargetSchoolYear(rolloverSY)
+        setTargetSemester('1st')
         setTargetTermReady(true)
       } catch (loadError) {
         if (cancelled) return
@@ -232,8 +225,20 @@ export default function BlockAssignmentPage({ mode = 'assignment' }: BlockAssign
       }
     })()
 
+    const unsubscribe = subscribeAcademicTerm((term) => {
+      if (cancelled) return
+      setActiveTerm(term)
+      const start = Number(String(term.schoolYear || '').slice(0, 4))
+      const rolloverSY = term.semester === '1st' || !Number.isFinite(start) || start <= 0
+        ? term.schoolYear
+        : `${start + 1}-${start + 2}`
+      setTargetSchoolYear(rolloverSY)
+      setTargetSemester('1st')
+    })
+
     return () => {
       cancelled = true
+      unsubscribe()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReEnrollment])
@@ -254,6 +259,12 @@ export default function BlockAssignmentPage({ mode = 'assignment' }: BlockAssign
         if (yearFilter !== 'all' && String(student.yearLevel) !== yearFilter) return false
 
         if (isReEnrollment) {
+          // Re-enrollment strictly displays current active term students
+          const isCurrentTermStudent = activeTerm &&
+            String(student.schoolYear || '').trim() === String(activeTerm.schoolYear).trim() &&
+            String(student.semester || '').trim() === String(activeTerm.semester).trim()
+          if (!isCurrentTermStudent) return false
+
           const needsRetake = Boolean(student.reEnrollment?.needsRetake)
           if (retakeFilter === 'retakes' && !needsRetake) return false
           if (retakeFilter === 'regular' && needsRetake) return false
@@ -305,7 +316,7 @@ export default function BlockAssignmentPage({ mode = 'assignment' }: BlockAssign
         if (lastNameComparison !== 0) return lastNameComparison
         return String(left.firstName || '').localeCompare(String(right.firstName || ''))
       })
-  }, [blockStatusFilter, courseFilter, deferredSearch, isReEnrollment, retakeFilter, sortBy, students, yearFilter])
+  }, [activeTerm, blockStatusFilter, courseFilter, deferredSearch, isReEnrollment, retakeFilter, sortBy, students, yearFilter])
 
   const selectedStudents = useMemo(
     () => students.filter((student) => selectedStudentIds.includes(student._id)),
@@ -330,13 +341,6 @@ export default function BlockAssignmentPage({ mode = 'assignment' }: BlockAssign
       )
     ).sort((left, right) => left - right)
   }, [students])
-
-  const schoolYearOptions = useMemo(() => {
-    const source = String(activeTerm?.schoolYear || targetSchoolYear || '').trim()
-    const start = Number(source.slice(0, 4))
-    if (!Number.isFinite(start) || start <= 0) return []
-    return [-1, 0, 1, 2, 3].map((offset) => `${start + offset}-${start + offset + 1}`)
-  }, [activeTerm?.schoolYear, targetSchoolYear])
 
   useEffect(() => {
     setCurrentPage(1)
@@ -479,7 +483,14 @@ export default function BlockAssignmentPage({ mode = 'assignment' }: BlockAssign
       <section className="student-workspace">
         <header className="student-workspace__header">
           <div className="student-workspace__heading">
-            <span className="student-workspace__eyebrow">{isReEnrollment ? 'Re-enrollment' : 'Block assignment'}</span>
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.6rem' }}>
+              <span className="student-workspace__eyebrow">{isReEnrollment ? 'Re-enrollment' : 'Block assignment'}</span>
+              {isReEnrollment && activeTerm ? (
+                <span className="student-workspace__active-term-pill">
+                  Current Term: {activeTerm.schoolYear} · {activeTerm.semester} Sem
+                </span>
+              ) : null}
+            </div>
             <h1>{isReEnrollment ? 'Re-enrollment' : 'Assign Block'}</h1>
             <p>
               {isReEnrollment
@@ -522,37 +533,14 @@ export default function BlockAssignmentPage({ mode = 'assignment' }: BlockAssign
             </label>
 
             {isReEnrollment ? (
-              <>
-                <label>
-                  <span>Target school year</span>
-                  <select value={targetSchoolYear} onChange={(event) => setTargetSchoolYear(event.target.value)}>
-                    {targetSchoolYear && !schoolYearOptions.includes(targetSchoolYear) ? (
-                      <option value={targetSchoolYear}>{targetSchoolYear}</option>
-                    ) : null}
-                    {schoolYearOptions.map((schoolYear) => (
-                      <option key={schoolYear} value={schoolYear}>{schoolYear}</option>
-                    ))}
-                  </select>
-                </label>
-
-                <label>
-                  <span>Target semester</span>
-                  <select value={targetSemester} onChange={(event) => setTargetSemester(event.target.value as Semester)}>
-                    <option value="1st">1st</option>
-                    <option value="2nd">2nd</option>
-                    <option value="Summer">Summer</option>
-                  </select>
-                </label>
-
-                <label>
-                  <span>Retakes</span>
-                  <select value={retakeFilter} onChange={(event) => setRetakeFilter(event.target.value as RetakeFilter)}>
-                    <option value="all">All candidates</option>
-                    <option value="retakes">With failed/dropped</option>
-                    <option value="regular">No failed/dropped</option>
-                  </select>
-                </label>
-              </>
+              <label>
+                <span>Retakes</span>
+                <select value={retakeFilter} onChange={(event) => setRetakeFilter(event.target.value as RetakeFilter)}>
+                  <option value="all">All candidates</option>
+                  <option value="retakes">With failed/dropped</option>
+                  <option value="regular">No failed/dropped</option>
+                </select>
+              </label>
             ) : null}
 
             <label>
@@ -656,7 +644,7 @@ export default function BlockAssignmentPage({ mode = 'assignment' }: BlockAssign
               <h2>{isReEnrollment ? 'Students due for re-enrollment' : 'Students for block assignment'}</h2>
               <p>
                 {isReEnrollment
-                  ? `Candidates without a live ${targetSemester || ''} ${targetSchoolYear || ''} enrollment. Click a row to view student details and verify their contact information.`
+                  ? `Only displaying students currently enrolled in the active term (${activeTerm ? `${activeTerm.schoolYear} ${activeTerm.semester} Sem` : ''}) eligible for School Year rollover re-enrollment. Click a row to view student details and verify their contact information.`
                   : 'Select one or more students, then use Assign Selected to choose a block section. Click a row for full student info.'}
               </p>
             </div>

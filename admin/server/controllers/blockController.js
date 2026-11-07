@@ -23,6 +23,11 @@ const enrollmentGuard = require('../services/enrollmentGuard');
 const { describeAssignmentFailure } = require('../services/assignmentFailure');
 const { normalizeSchoolYear } = require('../services/blockTerm');
 const { validateTeachingHours, shouldTriggerWarning } = require('../services/teachingHoursValidationService');
+const {
+  getLifecycleRestriction,
+  latestDismissalAt,
+  isSupersededByDismissal,
+} = require('../services/lifecycleRestrictions');
 
 class BlockController {
   extractBlockSlotFromName(value) {
@@ -263,6 +268,11 @@ class BlockController {
           });
         }
       }
+
+      // Dismissed students are never candidates for an active roster. They
+      // remain searchable in Student Management, but block assignment must go
+      // through authorized readmission first.
+      andConditions.push({ lifecycleStatus: { $ne: 'Dropped' } });
 
       const query = andConditions.length > 0 ? { $and: andConditions } : {};
       logger.debug('query:', JSON.stringify(query));
@@ -553,6 +563,10 @@ class BlockController {
         return res.status(404).json({ error: 'Block group not found' });
       }
 
+      if (group.status === 'Archived' || group.isArchived) {
+        return res.status(409).json({ error: 'Cannot delete an archived block group. It is part of permanent historical academic records.' });
+      }
+
       const { name, courseId, courseCode, yearLevel, schoolYear, section, semester, year, policies, curriculumId, studentClassification } = req.body;
 
       const nextCourseId = (courseId !== undefined || courseCode !== undefined)
@@ -616,7 +630,7 @@ class BlockController {
           if (assignmentCount > 0) {
             const activePeriod = await AcademicPeriod.findOne({ status: 'Active' }).lean();
             const groupSchoolYear = group.schoolYear || group.year;
-            const isArchived = activePeriod && groupSchoolYear && activePeriod.schoolYear !== groupSchoolYear;
+            const isArchived = (group.status === 'Archived' || group.isArchived) || (activePeriod && groupSchoolYear && activePeriod.schoolYear !== groupSchoolYear);
 
             if (isArchived) {
               return res.status(409).json({
@@ -647,6 +661,30 @@ class BlockController {
       }
 
       // Update studentClassification if provided
+      if (req.body.status !== undefined) {
+        if (['Active', 'Archived'].includes(req.body.status)) {
+          group.status = req.body.status;
+          group.isArchived = req.body.status === 'Archived';
+          if (group.isArchived) {
+            group.archivedAt = new Date();
+            if (req.user?.id || req.adminId) group.archivedBy = req.user?.id || req.adminId;
+          } else {
+            group.archivedAt = null;
+            group.archivedBy = null;
+          }
+        }
+      } else if (req.body.isArchived !== undefined) {
+        group.isArchived = Boolean(req.body.isArchived);
+        group.status = group.isArchived ? 'Archived' : 'Active';
+        if (group.isArchived) {
+          group.archivedAt = new Date();
+          if (req.user?.id || req.adminId) group.archivedBy = req.user?.id || req.adminId;
+        } else {
+          group.archivedAt = null;
+          group.archivedBy = null;
+        }
+      }
+
       if (studentClassification !== undefined) {
         // Safety: prevent classification changes on archived school years with existing assignments
         if (String(group.studentClassification || 'All') !== String(studentClassification)) {
@@ -658,7 +696,7 @@ class BlockController {
           if (assignmentCount > 0) {
             const activePeriod = await AcademicPeriod.findOne({ status: 'Active' }).lean();
             const groupSchoolYear = group.schoolYear || group.year;
-            const isArchived = activePeriod && groupSchoolYear && activePeriod.schoolYear !== groupSchoolYear;
+            const isArchived = (group.status === 'Archived' || group.isArchived) || (activePeriod && groupSchoolYear && activePeriod.schoolYear !== groupSchoolYear);
 
             if (isArchived) {
               return res.status(409).json({
@@ -942,7 +980,8 @@ class BlockController {
           status: { $in: ['ASSIGNED', 'WAITLISTED'] }
         }).select('_id studentId sectionId status');
         const waitlistEntries = await SectionWaitlist.find({
-          sectionId: { $in: sectionIds }
+          sectionId: { $in: sectionIds },
+          status: { $ne: 'ARCHIVED' }
         }).select('_id studentId sectionId');
         const loggedStudentIds = await BlockActionLog.distinct('studentId', {
           sectionId: { $in: sectionIds }
@@ -981,7 +1020,10 @@ class BlockController {
           sectionId: { $in: sectionIds },
           status: { $in: ['ASSIGNED', 'WAITLISTED'] }
         });
-        const waitlistCount = await SectionWaitlist.countDocuments({ sectionId: { $in: sectionIds } });
+        const waitlistCount = await SectionWaitlist.countDocuments({
+          sectionId: { $in: sectionIds },
+          status: { $ne: 'ARCHIVED' }
+        });
 
         if (assignedCount > 0 || waitlistCount > 0) {
           return res.status(409).json({
@@ -1193,6 +1235,7 @@ class BlockController {
     session,
     enforceReEnrollmentVerification = false,
     forceReEnrollmentVerification = false,
+    allowRegistrarHandoff = false,
   }) {
     if (!session) {
       throw new Error('performAssignment requires an active session');
@@ -1216,7 +1259,7 @@ class BlockController {
 
       const group = await BlockGroup.findById(section.blockGroupId).session(session);
       const student = await Student.findById(studentId)
-        .select('studentNumber yearLevel studentStatus course firstName lastName classification curriculumVersion schoolYear semester')
+        .select('studentNumber yearLevel studentStatus course firstName lastName classification curriculumVersion schoolYear semester lifecycleStatus lifecycleStatusHistory')
         .session(session);
       if (!student) {
         return {
@@ -1224,6 +1267,20 @@ class BlockController {
           httpStatus: 404,
           error: 'Student not found',
           reasons: ['Student not found'],
+        };
+      }
+
+      // Explicit server-side lifecycle guard before any verification consumption,
+      // enrollment auto-creation, or section capacity mutation.
+      const lifecycleRestriction = getLifecycleRestriction(student.lifecycleStatus);
+      if (lifecycleRestriction) {
+        return {
+          ok: false,
+          httpStatus: 403,
+          code: lifecycleRestriction.code,
+          error: lifecycleRestriction.message,
+          reasons: [lifecycleRestriction.message],
+          checks: { lifecycle: false },
         };
       }
 
@@ -1251,14 +1308,59 @@ class BlockController {
         assignmentYear ||
         normalizeSchoolYear(student.schoolYear);
       const targetSemester = blockSemester || group.semester || student.semester;
-      const isLaterTermAssignment = isLaterTerm(
-        targetSchoolYear,
-        targetSemester,
-        normalizeSchoolYear(student.schoolYear),
-        student.semester
-      );
+      const targetStart = Number(String(targetSchoolYear || '').split('-')[0]);
+      const studentStart = Number(String(student.schoolYear || '').split('-')[0]);
+      const isSchoolYearRolloverAssignment = Number.isFinite(targetStart) && Number.isFinite(studentStart) && targetStart > studentStart;
+      const isLaterTermAssignment = isSchoolYearRolloverAssignment;
 
-      if (enforceReEnrollmentVerification && (forceReEnrollmentVerification || isLaterTermAssignment)) {
+      // Determine server-side whether re-enrollment verification is required
+      // even when the caller omits `reEnrollment: true` (direct API call).
+      const hasDismissalOrReadmissionHistory =
+        latestDismissalAt(student) !== null ||
+        (Array.isArray(student.lifecycleStatusHistory) &&
+          student.lifecycleStatusHistory.some((entry) => entry && entry.decision === 'READMITTED'));
+      const isReturneeOrIrregular =
+        String(student.studentStatus || '').trim() === 'Returnee' ||
+        String(student.classification || '').trim() === 'Returning' ||
+        ['Not Enrolled', 'Irregular'].includes(String(student.lifecycleStatus || '').trim());
+      const isFirstSemReEnrollmentCandidate =
+        String(targetSemester || '').trim() === '1st' &&
+        (Number(student.yearLevel) > 1 ||
+          ['Pending', 'Not Enrolled', 'Irregular'].includes(String(student.lifecycleStatus || '').trim()));
+
+      let preloadedEnrollment;
+      let hasPreloadedEnrollment = false;
+      let isServerDetectedReEnrollment = false;
+      if (
+        enforceReEnrollmentVerification &&
+        !forceReEnrollmentVerification &&
+        !isLaterTermAssignment
+      ) {
+        preloadedEnrollment = await blockEligibilityService.findActiveEnrollment(
+          studentId,
+          blockSchoolYear || student.schoolYear,
+          blockSemester || student.semester,
+          session
+        );
+        hasPreloadedEnrollment = true;
+        const hasActiveTargetEnrollment =
+          preloadedEnrollment &&
+          !preloadedEnrollment.lockedAt &&
+          !isSupersededByDismissal(preloadedEnrollment, student) &&
+          ['Pending', 'Enrolled'].includes(String(preloadedEnrollment.status || '').trim()) &&
+          String(preloadedEnrollment.schoolYear || '').trim() === String(targetSchoolYear || '').trim() &&
+          String(preloadedEnrollment.semester || '').trim() === String(targetSemester || '').trim() &&
+          !hasDismissalOrReadmissionHistory &&
+          !isReturneeOrIrregular;
+        if (!hasActiveTargetEnrollment) {
+          isServerDetectedReEnrollment = true;
+        }
+      }
+
+      if (
+        enforceReEnrollmentVerification &&
+        (forceReEnrollmentVerification || isLaterTermAssignment || isServerDetectedReEnrollment)
+      ) {
         const activeTerm = await reEnrollmentVerificationService.getActiveTerm();
         const readiness = reEnrollmentVerificationService.getRolloverReadiness({
           schoolYear: targetSchoolYear,
@@ -1285,7 +1387,7 @@ class BlockController {
           return {
             ok: false,
             httpStatus: 428,
-            error: 'Re-enrollment verification required',
+            error: 'Re-enrollment verification required.',
             reasons: [
               `Send the student a re-enrollment verification code by email and/or SMS and enter it before enrolling them for ${targetSemester} ${targetSchoolYear}.`,
             ],
@@ -1293,28 +1395,80 @@ class BlockController {
           };
         }
 
-        await reEnrollmentVerificationService.consumeVerification({
-          id: verification._id,
-          session,
-        });
+        if (typeof reEnrollmentVerificationService.validateVerificationContext === 'function') {
+          const contextValidation = reEnrollmentVerificationService.validateVerificationContext({
+            verification,
+            student,
+            actorId,
+            allowRegistrarHandoff,
+          });
+          if (!contextValidation.ok) {
+            return {
+              ok: false,
+              httpStatus: contextValidation.httpStatus || 409,
+              code: contextValidation.reasonCode,
+              error: contextValidation.message,
+              reasons: [contextValidation.message],
+              checks: { reEnrollmentVerified: false },
+            };
+          }
+        }
+
+        let consumeResult;
+        try {
+          consumeResult = await reEnrollmentVerificationService.consumeVerification({
+            id: verification._id,
+            session,
+          });
+        } catch (consumeError) {
+          if (consumeError && consumeError.reasonCode === 'VERIFICATION_ALREADY_CONSUMED') {
+            return {
+              ok: false,
+              httpStatus: 409,
+              code: 'VERIFICATION_ALREADY_CONSUMED',
+              error: consumeError.message,
+              reasons: [consumeError.message],
+              checks: { reEnrollmentVerified: false },
+            };
+          }
+          throw consumeError;
+        }
+        const modifiedCount =
+          consumeResult === false
+            ? 0
+            : consumeResult && typeof consumeResult === 'object'
+              ? (consumeResult.modifiedCount ?? consumeResult.nModified ?? 1)
+              : 1;
+        if (modifiedCount !== 1) {
+          return {
+            ok: false,
+            httpStatus: 409,
+            code: 'VERIFICATION_ALREADY_CONSUMED',
+            error: 'Re-enrollment verification session has already been consumed or expired.',
+            reasons: ['Re-enrollment verification session has already been consumed or expired.'],
+            checks: { reEnrollmentVerified: false },
+          };
+        }
       }
 
-      let enrollment = await blockEligibilityService.findActiveEnrollment(
-        studentId,
-        blockSchoolYear || student.schoolYear,
-        blockSemester || student.semester,
-        session
-      );
+      let enrollment = hasPreloadedEnrollment
+        ? preloadedEnrollment
+        : await blockEligibilityService.findActiveEnrollment(
+            studentId,
+            blockSchoolYear || student.schoolYear,
+            blockSemester || student.semester,
+            session
+          );
 
       // Ensure a usable enrollment record exists. A missing, Dropped,
-      // Cancelled, or locked (historical) enrollment cannot receive block
-      // assignments — in those cases auto-create a fresh Pending one from
-      // the block's curriculum inside the same transaction, so "add student
-      // to block" stays a single action: enroll (Pending) → assign →
-      // finalize (Enrolled), all-or-nothing. An active Pending/Enrolled
-      // record is reused, never duplicated.
+      // Cancelled, locked (historical), or dismissal-superseded enrollment
+      // cannot receive block assignments — in those cases auto-create a fresh
+      // Pending one from the block's curriculum inside the same transaction.
       const enrollmentUnusable =
-        !enrollment || enrollment.lockedAt || ['Dropped', 'Cancelled'].includes(enrollment.status);
+        !enrollment ||
+        enrollment.lockedAt ||
+        ['Dropped', 'Cancelled'].includes(enrollment.status) ||
+        isSupersededByDismissal(enrollment, student);
       if (enrollmentUnusable) {
         try {
           enrollment = await this.createEnrollmentForBlockAssignment({
@@ -1434,7 +1588,18 @@ class BlockController {
       // above. A pre-existing WAITLISTED row is promoted in place rather than
       // duplicated (the unique index would reject the insert).
       let assignment;
+      let previousArchivedAssignment = null;
       if (sameTermRecord) {
+        if (sameTermRecord.status === 'ARCHIVED' || sameTermRecord.archivedAt || sameTermRecord.archiveReason) {
+          previousArchivedAssignment = {
+            previousSectionId: sameTermRecord.sectionId ? String(sameTermRecord.sectionId) : null,
+            previousStatus: sameTermRecord.status || null,
+            archivePreviousStatus: sameTermRecord.archivePreviousStatus || null,
+            archivedAt: sameTermRecord.archivedAt || null,
+            archivedBy: sameTermRecord.archivedBy ? String(sameTermRecord.archivedBy) : null,
+            archiveReason: sameTermRecord.archiveReason || null,
+          };
+        }
         assignment = await StudentBlockAssignment.findOneAndUpdate(
           { _id: sameTermRecord._id },
           {
@@ -1446,6 +1611,10 @@ class BlockController {
               schoolYear: assignmentSchoolYear,
               status: 'ASSIGNED',
               assignedAt: new Date(),
+              archivedAt: null,
+              archivedBy: null,
+              archiveReason: null,
+              archivePreviousStatus: null,
             },
             $unset: { waitlistPriority: 1 },
           },
@@ -1482,6 +1651,7 @@ class BlockController {
           schoolYear: assignmentSchoolYear || undefined,
           blockGroupId: section.blockGroupId ? String(section.blockGroupId) : undefined,
           blockSectionId: String(sectionId),
+          ...(previousArchivedAssignment ? { previousArchivedAssignment } : {}),
         }
       }], { session });
 
@@ -1555,6 +1725,7 @@ class BlockController {
         session,
         enforceReEnrollmentVerification: true,
         forceReEnrollmentVerification: Boolean(reEnrollment),
+        allowRegistrarHandoff: Boolean(req.body?.allowHandoff || req.body?.allowRegistrarHandoff),
       });
 
       if (!result.ok) {
@@ -1600,7 +1771,18 @@ class BlockController {
     try {
       const section = await BlockSection.findById(sectionId).session(session);
       const group = await BlockGroup.findById(section.blockGroupId).session(session);
-      const student = studentId ? await Student.findById(studentId).select('firstName lastName').session(session) : null;
+      const student = studentId ? await Student.findById(studentId).select('firstName lastName lifecycleStatus').session(session) : null;
+      if (student) {
+        const overcapRestriction = getLifecycleRestriction(student.lifecycleStatus);
+        if (overcapRestriction) {
+          await session.abortTransaction();
+          return res.status(403).json({
+            error: overcapRestriction.message,
+            code: overcapRestriction.code,
+            reasons: [overcapRestriction.message],
+          });
+        }
+      }
 
       // Re-check capacity
       if (section.currentPopulation + 1 > section.capacity + group.policies.maxOvercap && action !== 'WAITLIST') {
@@ -1913,10 +2095,32 @@ class BlockController {
   // GET /api/blocks/groups - list all block groups
   async getBlockGroups(req, res) {
     try {
-      const groups = await BlockGroup.find().sort({ name: 1 });
+      const filter = {};
+      const status = String(req.query.status || '').trim().toLowerCase();
+      if (status === 'active') {
+        filter.$and = [
+          { status: { $ne: 'Archived' } },
+          { isArchived: { $ne: true } }
+        ];
+      } else if (status === 'archived') {
+        filter.$or = [
+          { status: 'Archived' },
+          { isArchived: true }
+        ];
+      }
 
-      // Return all block groups (including historical ones) without filtering by current year
-      // This allows registrar to see and manage historical blocks from past academic years
+      if (req.query.semester) {
+        filter.semester = String(req.query.semester).trim();
+      }
+
+      if (req.query.schoolYear || req.query.year) {
+        const sy = String(req.query.schoolYear || req.query.year).trim();
+        filter.$or = filter.$or
+          ? [{ $and: [filter.$or, { $or: [{ schoolYear: sy }, { year: sy }] }] }]
+          : [{ schoolYear: sy }, { year: sy }];
+      }
+
+      const groups = await BlockGroup.find(filter).sort({ name: 1 });
       res.json(groups);
     } catch (error) {
       console.error('Get block groups error:', error);
@@ -1936,6 +2140,8 @@ class BlockController {
       const course = Number(req.query.course);
       const semester = String(req.query.semester || '').trim();
       const schoolYear = String(req.query.schoolYear || '').trim();
+      const hasYearLevelFilter = req.query.yearLevel !== undefined && String(req.query.yearLevel).trim() !== '';
+      const yearLevel = hasYearLevelFilter ? Number(req.query.yearLevel) : null;
 
       if (!Number.isFinite(course) || course <= 0) {
         return res.status(400).json({ success: false, error: 'A valid course query parameter is required' });
@@ -1953,59 +2159,34 @@ class BlockController {
         const groupCourse = blockEligibilityService.normalizeCourseCode(
           group.courseId || group.courseCode || group.name
         );
-        return groupCourse !== null && groupCourse === course;
+        if (groupCourse === null || groupCourse !== course) return false;
+        if (
+          yearLevel !== null &&
+          Number.isFinite(yearLevel) &&
+          yearLevel > 0 &&
+          Number.isFinite(Number(group.yearLevel)) &&
+          Number(group.yearLevel) > 0 &&
+          Number(group.yearLevel) !== yearLevel
+        ) {
+          return false;
+        }
+        return true;
       };
 
-      // Strict pass: block groups stamped with the student's own term.
-      const strictGroups = (await BlockGroup.find(groupQuery).sort({ name: 1 }).lean())
+      // Strict pass only: block groups must match the target schoolYear,
+      // semester, program, and (when provided) yearLevel. Never fall back to
+      // blocks from previous school years.
+      const candidateGroups = (await BlockGroup.find(groupQuery).sort({ name: 1 }).lean())
         .filter(matchesProgram);
-
-      // Fallback for the term-stamp mismatch: newly created students carry a
-      // current-date school year while the school's groups may be stamped
-      // with the legacy term they were created under. performAssignment keys
-      // the assignment to the BLOCK group's term (no student school-year
-      // check), so those blocks remain assignable — offer the most recent
-      // matching term instead of an empty dropdown. The semester the
-      // registrar explicitly selected stays a hard filter.
-      let candidateGroups = strictGroups;
-      let termOffered = null;
-      if (candidateGroups.length === 0) {
-        const looseGroups = (await BlockGroup.find({ semester }).sort({ name: 1 }).lean())
-          .filter(matchesProgram);
-        if (looseGroups.length > 0) {
-          const latestTermStart = Math.max(
-            ...looseGroups.map((group) => {
-              const stamp = [group.schoolYear, group.year]
-                .map((value) => String(value ?? '').match(/(\d{4})/))
-                .find(Boolean);
-              return stamp ? Number(stamp[1]) : 0;
-            })
-          );
-          candidateGroups =
-            latestTermStart > 0
-              ? looseGroups.filter((group) => {
-                  const stamp = [group.schoolYear, group.year]
-                    .map((value) => String(value ?? '').match(/(\d{4})/))
-                    .find(Boolean);
-                  return stamp ? Number(stamp[1]) === latestTermStart : false;
-                })
-              : looseGroups;
-          const stampGroup = candidateGroups[0];
-          const termStamp = [stampGroup?.schoolYear, stampGroup?.year]
-            .map((value) => String(value ?? '').trim())
-            .find(Boolean);
-          termOffered = termStamp || null;
-        }
-      }
+      const termOffered = null;
 
       if (candidateGroups.length === 0) {
-        // Nothing exists for this course in this semester at all — explain
-        // why instead of leaving the registrar with only the fallback option.
         return res.json({
           success: true,
           data: [],
           reason:
-            `No block groups exist for the selected program in ${semester}. ` +
+            `No open block sections exist for this program, year level, school year, and semester. ` +
+            `No block groups exist for the selected program in ${semester}${schoolYear ? ` (${schoolYear})` : ''}. ` +
             'Create the block in Block Management, or shift without a block.',
         });
       }

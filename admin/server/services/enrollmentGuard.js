@@ -38,6 +38,7 @@ const StudentBlockAssignment = require('../models/StudentBlockAssignment');
 const BlockSection = require('../models/BlockSection');
 const BlockGroup = require('../models/BlockGroup');
 const { normalizeCourseCode } = require('../lib/programMapping');
+const { getLifecycleRestriction } = require('./lifecycleRestrictions');
 
 const SEMESTERS = ['1st', '2nd', 'Summer'];
 const SCHOOL_YEAR_PATTERN = /^\d{4}-\d{4}$/;
@@ -221,6 +222,14 @@ async function assertEnrolledRequirements(studentLike, options = {}) {
     reasons.push('Student record does not exist');
   }
 
+  // RESTRICTED LIFECYCLE: Dropped, Leave of Absence, Inactive, and Graduated
+  // students cannot be finalized as ENROLLED without first completing the
+  // authorized readmission/reactivation workflow.
+  const lifecycleRestriction = getLifecycleRestriction(studentLike?.lifecycleStatus);
+  if (lifecycleRestriction) {
+    reasons.push(lifecycleRestriction.message);
+  }
+
   const schoolYear = String(studentLike?.schoolYear || '').trim();
   if (!SCHOOL_YEAR_PATTERN.test(schoolYear)) {
     reasons.push(`Academic school year is missing or invalid ("${studentLike?.schoolYear || 'none'}")`);
@@ -385,6 +394,13 @@ async function finalizeEnrollment({ studentId, schoolYear, semester, actorId, se
   const student = session ? await findQuery.session(session) : await findQuery;
   if (!student) {
     throw Object.assign(new Error('Student not found'), { statusCode: 404 });
+  }
+  const lifecycleRestriction = getLifecycleRestriction(student.lifecycleStatus);
+  if (lifecycleRestriction) {
+    throw Object.assign(
+      new Error(lifecycleRestriction.message),
+      { statusCode: 403, code: lifecycleRestriction.code }
+    );
   }
 
   const effectiveSchoolYear = String(schoolYear || student.schoolYear || '').trim();

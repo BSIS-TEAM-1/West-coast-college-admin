@@ -65,6 +65,17 @@ const EvaluationCompletionSchema = new mongoose.Schema({
     trim: true,
     index: true
   },
+  academicYear: {
+    type: String,
+    trim: true,
+    default: '',
+    index: true
+  },
+  teachingAssignmentId: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null,
+    index: true
+  },
   subjectId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Subject',
@@ -75,6 +86,11 @@ const EvaluationCompletionSchema = new mongoose.Schema({
     required: true,
     trim: true,
     uppercase: true
+  },
+  subjectName: {
+    type: String,
+    trim: true,
+    default: ''
   },
   subjectTitle: {
     type: String,
@@ -97,6 +113,21 @@ const EvaluationCompletionSchema = new mongoose.Schema({
   }
 }, {
   timestamps: true
+});
+
+EvaluationCompletionSchema.pre('validate', function(next) {
+  if (!this.subjectName && this.subjectTitle) {
+    this.subjectName = this.subjectTitle;
+  } else if (!this.subjectTitle && this.subjectName) {
+    this.subjectTitle = this.subjectName;
+  }
+
+  if (!this.academicYear && this.schoolYear) {
+    this.academicYear = this.schoolYear;
+  } else if (!this.schoolYear && this.academicYear) {
+    this.schoolYear = this.academicYear;
+  }
+  next();
 });
 
 EvaluationCompletionSchema.index(

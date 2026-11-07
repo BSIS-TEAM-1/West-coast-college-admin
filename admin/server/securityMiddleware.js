@@ -580,6 +580,8 @@ const schemas = {
         year: Joi.number().integer().min(2000).max(3000).optional(),
         schoolYear: Joi.string().pattern(/^\d{4}-\d{4}$/).optional(),
         curriculumId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).allow(null).optional(),
+        status: Joi.string().valid('Active', 'Archived').optional(),
+        isArchived: Joi.boolean().optional(),
         yearLevel: Joi.alternatives().try(
           Joi.number().integer().min(1).max(5),
           Joi.string().valid('1st', '2nd', '3rd', '4th', '5th', '1', '2', '3', '4', '5')
@@ -754,6 +756,30 @@ const schemas = {
     update: {
       body: Joi.object(studentMutationFields).min(1)
     },
+    readmit: {
+      params: Joi.object({
+        id: subjectIdSchema.required()
+      }),
+      body: Joi.object({
+        lifecycleStatus: Joi.string().valid('Pending', 'Not Enrolled', 'Irregular').optional(),
+        reason: nonEmptyTrimmedString(500).required(),
+        remarks: optionalTrimmedString(1000).allow('', null).optional(),
+        schoolYear: schoolYearSchema.optional(),
+        semester: Joi.string().valid(...STUDENT_SEMESTERS).optional()
+      })
+    },
+    reactivate: {
+      params: Joi.object({
+        id: subjectIdSchema.required()
+      }),
+      body: Joi.object({
+        lifecycleStatus: Joi.string().valid('Pending', 'Not Enrolled', 'Irregular').optional(),
+        reason: nonEmptyTrimmedString(500).required(),
+        remarks: optionalTrimmedString(1000).allow('', null).optional(),
+        schoolYear: schoolYearSchema.optional(),
+        semester: Joi.string().valid(...STUDENT_SEMESTERS).optional()
+      })
+    },
     query: {
       query: Joi.object({
         course: Joi.number().integer().valid(...STUDENT_COURSES).optional(),
@@ -762,6 +788,7 @@ const schemas = {
         schoolYear: schoolYearSchema.optional(),
         studentStatus: Joi.string().valid(...STUDENT_STATUSES).optional(),
         lifecycleStatus: Joi.string().valid(...STUDENT_LIFECYCLE_STATUSES).optional(),
+        includeDropped: Joi.boolean().optional(),
         enrollmentStatus: Joi.string().valid(...ENROLLMENT_STATUSES).optional()
       })
     },
@@ -774,6 +801,22 @@ const schemas = {
     idParam: {
       params: Joi.object({
         id: subjectIdSchema.required()
+      })
+    },
+    cor: {
+      params: Joi.object({
+        id: subjectIdSchema.required()
+      }),
+      query: Joi.object({
+        schoolYear: schoolYearSchema.optional(),
+        semester: Joi.string().valid(...STUDENT_SEMESTERS, '1st Semester', '2nd Semester').optional(),
+        enrollmentId: subjectIdSchema.optional(),
+        format: Joi.string().valid('pdf', 'json').optional()
+      }).options({ stripUnknown: true })
+    },
+    bulkVerifyCor: {
+      body: Joi.object({
+        studentIds: Joi.array().items(subjectIdSchema).min(1).required()
       })
     },
     studentNumberParam: {

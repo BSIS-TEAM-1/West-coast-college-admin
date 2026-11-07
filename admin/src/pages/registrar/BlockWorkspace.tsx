@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Archive } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import type { BlockGroup, BlockSection, BlockStudent, SectionStudent, BlockWorkspaceSelection } from './registrarBlockTypes'
 import CapacityIndicator from '../../components/CapacityIndicator'
@@ -414,7 +415,13 @@ function BlockWorkspace({ selection, onBack }: BlockWorkspaceProps) {
         </div>
 
         <div className="block-workspace-hero">
-          <div className="block-workspace-hero-badge">Active Block Workspace</div>
+          {group.status === 'Archived' || group.isArchived ? (
+            <div className="block-workspace-hero-badge block-workspace-hero-badge--archived">
+              <Archive size={14} /> Archived Block Workspace (Read-Only)
+            </div>
+          ) : (
+            <div className="block-workspace-hero-badge">Active Block Workspace</div>
+          )}
           <h2>{formatBlockLabel(group.name)}</h2>
           <p>{courseFullLabel(getCourseAbbreviation(group.name))}</p>
           <div className="block-workspace-meta">
@@ -431,8 +438,14 @@ function BlockWorkspace({ selection, onBack }: BlockWorkspaceProps) {
         {error && <p className="registrar-feedback registrar-feedback-error">{error}</p>}
         {success && <p className="registrar-feedback registrar-feedback-success">{success}</p>}
 
-        <div className="assignment-section">
-          <h3>Step 3: Assign Students</h3>
+        {group.status === 'Archived' || group.isArchived ? (
+          <div className="block-archived-banner">
+            <Archive size={16} />
+            <span>This block is archived and read-only. Student assignments cannot be added or modified in an archived block.</span>
+          </div>
+        ) : (
+          <div className="assignment-section">
+            <h3>Step 3: Assign Students</h3>
           <p className="assignment-help-text">Search and select students, then assign them to the target section.</p>
           <div className="assignment-form">
             <label>
@@ -521,6 +534,7 @@ function BlockWorkspace({ selection, onBack }: BlockWorkspaceProps) {
             <p className="block-student-empty">No assignable students found for this block.</p>
           )}
         </div>
+        )}
 
         <div className="assignment-section">
           <h3>Step 4: Block Details</h3>

@@ -3,6 +3,7 @@ const Student = require('../models/Student');
 const BlockGroup = require('../models/BlockGroup');
 const BlockSection = require('../models/BlockSection');
 const Enrollment = require('../models/Enrollment');
+const { getLifecycleRestriction } = require('./lifecycleRestrictions');
 
 const COURSE_MAP = {
   101: 'BEED',
@@ -94,7 +95,17 @@ function evaluateStudentEligibility(enrollment, student, blockGroup, blockSectio
     program: true,
     yearLevel: true,
     capacity: true,
+    lifecycle: true,
   };
+
+  // 0. Restricted lifecycles (Dropped, Leave of Absence, Inactive, Graduated)
+  //    are never eligible for an active roster until the matching authorized
+  //    workflow (readmission / reactivation) restores an active status.
+  const lifecycleRestriction = getLifecycleRestriction(student?.lifecycleStatus);
+  if (lifecycleRestriction) {
+    checks.lifecycle = false;
+    reasons.push(lifecycleRestriction.message);
+  }
 
   // 1. Course / program only. The enrollment is authoritative when present,
   //    because its course enum may be coarser than the numeric student code
@@ -145,7 +156,7 @@ function evaluateStudentEligibility(enrollment, student, blockGroup, blockSectio
  */
 async function getEligibleBlocks(studentId, options = {}) {
   const student = await Student.findById(studentId)
-    .select('studentNumber firstName lastName course yearLevel classification curriculumVersion schoolYear semester studentStatus')
+    .select('studentNumber firstName lastName course yearLevel classification curriculumVersion schoolYear semester studentStatus lifecycleStatus')
     .lean();
 
   if (!student) {
@@ -191,7 +202,12 @@ async function getEligibleBlocks(studentId, options = {}) {
 
   // Only blocks for the student's current term are offered; course, year
   // level and capacity decide the rest.
-  const groups = await BlockGroup.find({ schoolYear: effectiveSchoolYear, semester: effectiveSemester }).lean();
+  const groups = await BlockGroup.find({
+    schoolYear: effectiveSchoolYear,
+    semester: effectiveSemester,
+    isArchived: { $ne: true },
+    status: { $ne: 'Archived' },
+  }).lean();
 
   if (!groups.length) {
     return { student: studentSummary, enrollment: enrollmentSummary, eligible: [], ineligible: [], recommended: null };
@@ -293,9 +309,10 @@ async function getBulkEligibility(studentIds, sectionId) {
     throw new Error('Block group not found for this section');
   }
 
-  // Load all students in one query
+  // Load all students in one query. lifecycleStatus is required: without it
+  // evaluateStudentEligibility cannot see a Dropped/LOA/Inactive student.
   const students = await Student.find({ _id: { $in: studentIds } })
-    .select('studentNumber firstName lastName course yearLevel classification curriculumVersion schoolYear semester studentStatus')
+    .select('studentNumber firstName lastName course yearLevel classification curriculumVersion schoolYear semester studentStatus lifecycleStatus')
     .lean();
 
   const studentById = Object.fromEntries(students.map((s) => [String(s._id), s]));

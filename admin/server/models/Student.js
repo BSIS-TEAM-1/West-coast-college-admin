@@ -24,6 +24,40 @@ const locationSchema = new Schema({
   streetAddress: { type: String, trim: true }
 }, { _id: false });
 
+// ─── Academic lifecycle provenance ───
+// A dismissal is a student-lifecycle event, never a deletion. The snapshot
+// below records exactly which published, finalized subject enrollments
+// qualified, while the history keeps every prior transition for audit and
+// readmission review.
+const lifecycleFailedSubjectSchema = new Schema({
+  enrollmentId: { type: Schema.Types.ObjectId, ref: 'Enrollment', default: null },
+  subjectEntryId: { type: String, trim: true, default: null },
+  subjectId: { type: Schema.Types.ObjectId, ref: 'Subject', default: null },
+  code: { type: String, trim: true, default: '' },
+  title: { type: String, trim: true, default: '' },
+  units: { type: Number, default: null },
+  grade: { type: Number, default: null },
+  gradeMark: { type: String, trim: true, default: null },
+  schoolYear: { type: String, trim: true, default: '' },
+  semester: { type: String, trim: true, default: '' },
+  finalizedAt: { type: Date, default: null }
+}, { _id: false });
+
+const lifecycleHistorySchema = new Schema({
+  eventId: { type: Schema.Types.ObjectId, default: () => new mongoose.Types.ObjectId() },
+  status: { type: String, required: true, trim: true },
+  reason: { type: String, trim: true, default: null },
+  effectiveDate: { type: Date, default: null },
+  schoolYear: { type: String, trim: true, default: '' },
+  semester: { type: String, trim: true, default: '' },
+  failedSubjects: { type: [lifecycleFailedSubjectSchema], default: [] },
+  decision: { type: String, trim: true, default: null },
+  remarks: { type: String, trim: true, default: null },
+  source: { type: String, trim: true, default: null },
+  changedAt: { type: Date, default: Date.now },
+  changedBy: { type: Schema.Types.ObjectId, ref: 'Admin', default: null }
+}, { _id: false });
+
 const studentSchema = new Schema({
   // Student Information
   studentNumber: { 
@@ -122,9 +156,67 @@ const studentSchema = new Schema({
   },
   lifecycleStatus: {
     type: String,
-    enum: ['Pending', 'Enrolled', 'Not Enrolled', 'Irregular', 'Inactive', 'Graduated', 'Leave of Absence'],
+    enum: ['Pending', 'Enrolled', 'Not Enrolled', 'Irregular', 'Inactive', 'Graduated', 'Leave of Absence', 'Dropped'],
     default: 'Pending',
     index: true
+  },
+  // Current lifecycle provenance (history is append-only). `Dropped` is a
+  // student-lifecycle state distinct from a dropped subject entry; the
+  // structured reason makes the distinction explicit to every consumer.
+  lifecycleStatusReason: {
+    type: String,
+    trim: true,
+    default: null,
+    index: true
+  },
+  lifecycleStatusEffectiveDate: {
+    type: Date,
+    default: null,
+    index: true
+  },
+  lifecycleStatusTerm: {
+    schoolYear: { type: String, trim: true, default: '' },
+    semester: { type: String, trim: true, default: '' }
+  },
+  lifecycleStatusFailedSubjects: {
+    type: [lifecycleFailedSubjectSchema],
+    default: []
+  },
+  lifecycleStatusHistory: {
+    type: [lifecycleHistorySchema],
+    default: []
+  },
+  lifecycleStatusEventId: {
+    type: Schema.Types.ObjectId,
+    default: null
+  },
+  lifecycleStatusChangedAt: {
+    type: Date,
+    default: null
+  },
+  lifecycleStatusChangedBy: {
+    type: Schema.Types.ObjectId,
+    ref: 'Admin',
+    default: null
+  },
+  lifecycleStatusNotificationPending: {
+    type: Boolean,
+    default: false
+  },
+  // Academic standing is deliberately separate from the lifecycle status: it
+  // reports where the student stands against the retention policy, while the
+  // lifecycle records whether the student is currently active. It is derived
+  // from the count of distinct unresolved failed subjects, never from the raw
+  // number of historical failing attempts.
+  academicStanding: {
+    type: String,
+    enum: ['GOOD_STANDING', 'ACADEMIC_PROBATION', 'DISMISSED'],
+    default: 'GOOD_STANDING',
+    index: true
+  },
+  academicStandingUpdatedAt: {
+    type: Date,
+    default: null
   },
   enrollmentStatus: {
     type: String,

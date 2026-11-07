@@ -32,6 +32,10 @@ export const DEFAULT_GRADE_SCALE: GradeScale = {
   passingGrade: 3
 }
 
+// CHED records a failure due to absences (FA) as 5.0. This is fixed policy,
+// not the configurable maximum of the grade scale.
+export const FAILING_GRADE = 5
+
 const EPSILON = 1e-9
 
 let currentScale: GradeScale = { ...DEFAULT_GRADE_SCALE }

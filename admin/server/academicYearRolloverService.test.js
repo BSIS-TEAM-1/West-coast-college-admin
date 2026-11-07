@@ -53,8 +53,9 @@ jest.mock('mongoose', () => {
 
 jest.mock('./models/Student', () => ({ find: jest.fn(), findOne: jest.fn() }));
 jest.mock('./models/Enrollment', () => ({}));
-jest.mock('./models/BlockGroup', () => ({ find: jest.fn(), create: jest.fn() }));
-jest.mock('./models/BlockSection', () => ({ find: jest.fn(), create: jest.fn(), bulkWrite: jest.fn() }));
+jest.mock('./models/BlockGroup', () => ({ find: jest.fn(), create: jest.fn(), updateMany: jest.fn() }));
+jest.mock('./models/BlockSection', () => ({ find: jest.fn(), create: jest.fn(), bulkWrite: jest.fn(), updateMany: jest.fn() }));
+jest.mock('./models/AcademicPeriod', () => ({ findOne: jest.fn(), findOneAndUpdate: jest.fn(), updateMany: jest.fn() }));
 jest.mock('./models/StudentBlockAssignment', () => ({ find: jest.fn(), bulkWrite: jest.fn() }));
 jest.mock('./models/ArchiveSnapshot', () => ({ create: jest.fn(), findOne: jest.fn() }));
 jest.mock('./models/RolloverBatch', () => ({ findOne: jest.fn(), find: jest.fn(), create: jest.fn() }));
@@ -145,7 +146,9 @@ describe('executeRollover', () => {
 
     Student.find = jest.fn();
     Student.bulkWrite = jest.fn(async (ops) => ({ matchedCount: ops.length, modifiedCount: ops.length }));
-    Enrollment.find = jest.fn();
+    // The service reads two enrollment sets: the closing current enrollments and
+    // the target term's existing records (used to reject duplicates).
+    Enrollment.find = jest.fn(() => mockChain([]));
     Enrollment.updateMany = jest.fn(async () => ({ modifiedCount: 0 }));
     expectBulkWriteOk(Enrollment);
     Enrollment.insertMany = jest.fn(async (docs) => docs);
@@ -155,11 +158,17 @@ describe('executeRollover', () => {
       _id: `bg_${i}_${d.yearLevel}`,
       name: d.name,
       courseId: d.courseId,
+      yearLevel: d.yearLevel,
+      semester: d.semester,
+      schoolYear: d.schoolYear,
+      year: d.year,
+      section: d.section,
       policies: d.policies,
     })));
     BlockSection.find = jest.fn();
     BlockSection.create = jest.fn(async (docs) => docs.map((d, i) => ({
       _id: `sec_${i}_${d.sectionCode}`,
+      blockGroupId: d.blockGroupId,
       sectionCode: d.sectionCode,
       capacity: d.capacity,
       currentPopulation: 0,
@@ -288,8 +297,147 @@ describe('executeRollover', () => {
     expect(createdGroupDocs[0].curriculumId).toBe('curr_2026-2029');
   });
 
+  test('the opening term receives EMPTY copies of the closing term’s blocks', async () => {
+    // The closing (2nd) semester has one BEED block with two sections, both
+    // nearly full. The opening term must get the same block structure with
+    // fresh, empty sections so the registrar can re-enroll students into it
+    // instead of only finding the block of the term that just closed.
+    // Reset any queued `mockImplementationOnce` from earlier tests so the
+    // first BlockGroup.find is unambiguously the closing-year query.
+    BlockGroup.find.mockReset();
+    BlockGroup.find.mockImplementation(() => mockChain([]));
+    BlockGroup.find.mockImplementationOnce(() => mockChain([
+      {
+        _id: 'bg_closing_y1',
+        name: '101-1-A',
+        courseId: 101,
+        courseCode: 'BEED',
+        yearLevel: 1,
+        section: 'A',
+        semester: '2nd',
+        curriculumId: 'curr_2026-2029',
+        studentClassification: 'Regular',
+        policies: { maxOvercap: 5 },
+      },
+    ]));
+    BlockGroup.find.mockImplementationOnce(() => mockChain([])); // no target-year blocks yet
+    arrangeHappyPath();
+    BlockSection.find = jest.fn(() => mockChain([
+      { _id: 'sec_close_a', blockGroupId: 'bg_closing_y1', sectionCode: '101-1-A', capacity: 45, currentPopulation: 30, status: 'OPEN' },
+      { _id: 'sec_close_b', blockGroupId: 'bg_closing_y1', sectionCode: '101-1-B', capacity: 40, currentPopulation: 12, status: 'OPEN' },
+    ]));
 
-  test('an ineligible student (withdrawn after planning) aborts the whole rollover', async () => {
+    const results = await RolloverService.executeRollover({
+      fromSchoolYear: FROM_SY,
+      toSchoolYear: TO_SY,
+      semester: '1st',
+      decisions: [{ studentId: 'stu1', action: 'promote' }],
+      adminId: 'user1',
+      adminRole: 'registrar',
+    });
+
+    const createdGroupDocs = BlockGroup.create.mock.calls.flatMap((call) => call[0]);
+    const copiedGroup = createdGroupDocs.find((doc) => doc.name === '101-1-A');
+    expect(copiedGroup).toMatchObject({
+      semester: '1st',
+      schoolYear: TO_SY,
+      year: TO_SY,
+      yearLevel: 1,
+      section: 'A',
+      curriculumId: 'curr_2026-2029',
+      studentClassification: 'Regular',
+    });
+
+    const copiedSections = BlockSection.create.mock.calls
+      .flatMap((call) => call[0])
+      .filter((doc) => String(doc.sectionCode).startsWith('101-1-'));
+    expect(copiedSections).toHaveLength(2);
+    expect(copiedSections.map((section) => section.capacity)).toEqual([45, 40]);
+    // Rosters start empty — students are re-enrolled into the opening term.
+    expect(copiedSections.every((section) => section.currentPopulation === 0)).toBe(true);
+    expect(copiedSections.every((section) => section.status === 'OPEN')).toBe(true);
+
+    // The copies are part of the revert manifest, so a rollback removes them.
+    expect(results.blocksCreated.some((entry) => entry.name === '101-1-A')).toBe(true);
+    expect(results.blocksCreated.some((entry) => entry.sectionCode === '101-1-B')).toBe(true);
+
+    // Nothing was assigned into the copies: the promoted student moved to Year 2.
+    const assignmentOps = StudentBlockAssignment.bulkWrite.mock.calls[0][0];
+    expect(assignmentOps).toHaveLength(1);
+  });
+
+
+
+  test('closing school year blocks and sections are archived on rollover', async () => {
+    BlockGroup.find.mockReset();
+    BlockGroup.find.mockImplementation(() => mockChain([]));
+    BlockGroup.find.mockImplementationOnce(() => mockChain([
+      {
+        _id: 'bg_closing_y1',
+        name: '101-1-A',
+        courseId: 101,
+        courseCode: 'BEED',
+        yearLevel: 1,
+        section: 'A',
+        semester: '2nd',
+        curriculumId: 'curr_2026-2029',
+        studentClassification: 'Regular',
+        policies: { maxOvercap: 5 },
+      },
+    ]));
+    BlockGroup.find.mockImplementationOnce(() => mockChain([])); // target year groups
+    arrangeHappyPath();
+    BlockSection.find = jest.fn(() => mockChain([
+      { _id: 'sec_close_a', blockGroupId: 'bg_closing_y1', sectionCode: '101-1-A', capacity: 45, currentPopulation: 30, status: 'OPEN' },
+    ]));
+    BlockGroup.updateMany = jest.fn().mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+    BlockSection.updateMany = jest.fn().mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+
+    const results = await RolloverService.executeRollover({
+      fromSchoolYear: FROM_SY,
+      toSchoolYear: TO_SY,
+      semester: '1st',
+      decisions: [{ studentId: 'stu1', action: 'promote' }],
+      adminId: 'user1',
+      adminRole: 'registrar',
+    });
+
+    expect(results.blocksArchived).toHaveLength(1);
+    expect(results.blocksArchived[0].blockGroupId).toBe('bg_closing_y1');
+    expect(results.blocksArchived[0].name).toBe('101-1-A');
+
+    // BlockGroup.updateMany was called to archive the closing groups
+    expect(BlockGroup.updateMany).toHaveBeenCalledWith(
+      { _id: { $in: ['bg_closing_y1'] } },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status: 'Archived',
+          isArchived: true,
+          archivedBy: 'user1',
+        }),
+      }),
+      expect.any(Object)
+    );
+
+    // BlockSection.updateMany was called to archive the closing sections
+    expect(BlockSection.updateMany).toHaveBeenCalledWith(
+      { _id: { $in: ['sec_close_a'] } },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status: 'ARCHIVED',
+          isArchived: true,
+        }),
+      }),
+      expect.any(Object)
+    );
+
+    // RolloverBatch stores archivedBlockGroupIds and archivedBlockSectionIds
+    const manifest = RolloverBatch.create.mock.calls[0][0][0];
+    expect(manifest.archivedBlockGroupIds).toEqual(['bg_closing_y1']);
+    expect(manifest.archivedBlockSectionIds).toEqual(['sec_close_a']);
+  });
+
+    test('an ineligible student (withdrawn after planning) aborts the whole rollover', async () => {
     arrangeHappyPath({ studentOverrides: { lifecycleStatus: 'Inactive', isActive: false } });
 
     await expect(
@@ -338,11 +486,15 @@ describe('executeRollover', () => {
       studentOverrides: { latestGrade: 1.0 },
     });
 
-    // The from-year enrollment must also exist for the closing step.
     Enrollment.find.mockReset();
+    Enrollment.find.mockImplementation(() => mockChain([]));
+    // First read: the closing current enrollment. Second read: the student is
+    // already registered for the target term (a Pending pre-enrollment).
     Enrollment.find.mockReturnValueOnce(mockChain([
       makeCurrentEnrollment('stu1', { studentNumber: '2025-101-001' }),
-      makeCurrentEnrollment('stu1', { studentNumber: '2025-101-001', _id: 'enr_future', schoolYear: TO_SY, status: 'Pending' }),
+    ]));
+    Enrollment.find.mockReturnValueOnce(mockChain([
+      makeCurrentEnrollment('stu1', { studentNumber: '2025-101-001', _id: 'enr_future', schoolYear: TO_SY, semester: '1st', status: 'Pending' }),
     ]));
 
     await expect(
@@ -772,7 +924,10 @@ describe('revertRollover', () => {
   });
 
   test('a clean revert restores the pre-rollover state and preserves grade fields', async () => {
-    const batch = makeBatch();
+    const batch = makeBatch({
+      archivedBlockGroupIds: ['bg_closed'],
+      archivedBlockSectionIds: ['sec_closed'],
+    });
     const student = makeStudent({
       _id: 'stu1',
       studentNumber: '2025-101-001',
@@ -831,6 +986,31 @@ describe('revertRollover', () => {
       { key: 'academicTerm' },
       { $set: { value: { schoolYear: FROM_SY, semester: '1st' } } },
       expect.objectContaining({ upsert: true })
+    );
+
+    // Archived blocks are restored to active status
+    expect(BlockGroup.updateMany).toHaveBeenCalledWith(
+      { _id: { $in: ['bg_closed'] } },
+      {
+        $set: {
+          status: 'Active',
+          isArchived: false,
+          archivedAt: null,
+          archivedBy: null,
+        },
+      },
+      expect.any(Object)
+    );
+    expect(BlockSection.updateMany).toHaveBeenCalledWith(
+      { _id: { $in: ['sec_closed'] } },
+      {
+        $set: {
+          status: 'OPEN',
+          isArchived: false,
+          archivedAt: null,
+        },
+      },
+      expect.any(Object)
     );
 
     // The batch is marked reverted and audited.
@@ -964,6 +1144,16 @@ describe('preview guard rails', () => {
     jest.clearAllMocks();
     Student.find = jest.fn(() => mockChain([]));
     StudentBlockAssignment.find = jest.fn(() => mockChain([]));
+    Enrollment.find = jest.fn(() => mockChain([]));
+    Enrollment.distinct = jest.fn(async () => []);
+    // Closing-term resolution reads the active academic term. Default to the
+    // 1st semester of the closing year; tests override it where the term
+    // alignment itself is under test.
+    SystemSetting.findOne.mockImplementation(() => mockChain({
+      key: 'academicTerm',
+      value: { schoolYear: FROM_SY, semester: '1st' },
+    }));
+    SystemSetting.findOneAndUpdate = jest.fn(async () => ({}));
   });
 
   test('invalid school years are rejected', async () => {
@@ -986,7 +1176,10 @@ describe('preview guard rails', () => {
       })
     ).rejects.toMatchObject({
       statusCode: 400,
-      message: expect.stringMatching(/opening semester must be 2nd or Summer/),
+      // Only the 1st -> 2nd semester transition exists inside one school year:
+      // once the year is past its 1st semester the school year must be closed
+      // instead, so Summer is not a valid opening semester here.
+      message: expect.stringMatching(/opening semester must be 2nd/),
     });
     expect(mongoose.startSession).not.toHaveBeenCalled();
   });
@@ -1019,6 +1212,111 @@ describe('preview guard rails', () => {
 
     expect(preview.mode).toBe('year');
     expect(preview.evaluations[0].recommendedAction).toBe('graduate');
+  });
+
+  test('recognizes a professor-submitted closing-term grade when latestGrade is empty', async () => {
+    const student = makeStudent({ _id: 'stu5', studentNumber: '2025-101-005', yearLevel: 1, latestGrade: null });
+    Student.find = jest.fn(() => mockChain([student]));
+    Enrollment.find = jest.fn(() => mockChain([{
+      studentId: 'stu5',
+      schoolYear: FROM_SY,
+      semester: '1st',
+      status: 'Enrolled',
+      subjects: [
+        { code: 'ENG101', grade: 1.75, gradeMark: null, status: 'Enrolled', submissionStatus: 'Submitted' },
+      ],
+    }]));
+
+    const preview = await RolloverService.previewRollover({
+      fromSchoolYear: FROM_SY,
+      toSchoolYear: TO_SY,
+      semester: '1st',
+    });
+
+    expect(preview.evaluations).toHaveLength(1);
+    expect(preview.evaluations[0]).toMatchObject({
+      latestGrade: 1.75,
+      recommendedAction: 'promote',
+      needsReview: false,
+    });
+    expect(preview.evaluations[0].reason).toMatch(/Passing grade/);
+    expect(preview.summary).toMatchObject({ promote: 1, needsReview: 0 });
+  });
+
+  test('a legacy FA mark without a numeric grade resolves to 5.0 and retains the student', async () => {
+    const student = makeStudent({ _id: 'stu6', studentNumber: '2025-101-006', yearLevel: 1, latestGrade: null });
+    Student.find = jest.fn(() => mockChain([student]));
+    Enrollment.find = jest.fn(() => mockChain([{
+      studentId: 'stu6',
+      schoolYear: FROM_SY,
+      semester: '1st',
+      status: 'Enrolled',
+      subjects: [
+        { code: 'ENG101', grade: null, gradeMark: 'FA', status: 'Enrolled', submissionStatus: 'Published' },
+      ],
+    }]));
+
+    const preview = await RolloverService.previewRollover({
+      fromSchoolYear: FROM_SY,
+      toSchoolYear: TO_SY,
+      semester: '1st',
+    });
+
+    expect(preview.evaluations[0]).toMatchObject({
+      latestGrade: 5,
+      recommendedAction: 'retain',
+      needsReview: false,
+    });
+    expect(preview.evaluations[0].reason).toMatch(/Failing grade \(5\)/);
+  });
+
+  test('the worst subject grade in the closing term decides the recommendation', async () => {
+    const student = makeStudent({ _id: 'stu7', studentNumber: '2025-101-007', yearLevel: 1, latestGrade: null });
+    Student.find = jest.fn(() => mockChain([student]));
+    Enrollment.find = jest.fn(() => mockChain([{
+      studentId: 'stu7',
+      schoolYear: FROM_SY,
+      semester: '1st',
+      status: 'Enrolled',
+      subjects: [
+        { code: 'MATH101', grade: 1.2, gradeMark: null, status: 'Enrolled', submissionStatus: 'Published' },
+        { code: 'ENG101', grade: null, gradeMark: 'FA', status: 'Enrolled', submissionStatus: 'Published' },
+      ],
+    }]));
+
+    const preview = await RolloverService.previewRollover({
+      fromSchoolYear: FROM_SY,
+      toSchoolYear: TO_SY,
+      semester: '1st',
+    });
+
+    expect(preview.evaluations[0]).toMatchObject({
+      latestGrade: 5,
+      recommendedAction: 'retain',
+      needsReview: false,
+    });
+  });
+
+  test('the exception list excludes students whose closing-term grade exists', async () => {
+    Student.countDocuments = jest.fn(async () => 0);
+    Student.find = jest.fn(() => mockChain([]));
+    Enrollment.distinct = jest.fn(async () => ['stu5']);
+
+    await RolloverService.previewExceptions({
+      fromSchoolYear: FROM_SY,
+      toSchoolYear: TO_SY,
+      semester: '1st',
+    });
+
+    expect(Enrollment.distinct).toHaveBeenCalledWith(
+      'studentId',
+      expect.objectContaining({ schoolYear: FROM_SY, semester: '1st' })
+    );
+    const query = Student.find.mock.calls[0][0];
+    expect(query.$and).toEqual(expect.arrayContaining([
+      { _id: { $nin: ['stu5'] } },
+      { latestGrade: { $not: { $type: 'number' } } },
+    ]));
   });
 });
 

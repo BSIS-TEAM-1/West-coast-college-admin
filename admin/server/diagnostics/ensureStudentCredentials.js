@@ -2,8 +2,8 @@
  * DATA MIGRATION (test-data only): give every student their own login credentials
  * in THE SYSTEM's official format (StudentPasswordService.generateDefaultPassword).
  *
- * Format: firstInitial + middleInitial + lastInitial (lowercase, no filler) +
- *         last 5 digits of the studentNumber — e.g. "lnfp28391".
+ * Format: firstInitial + full last name (lowercase, no filler) +
+ *         last 5 digits of the studentNumber — e.g. "lprepotente28391".
  * This is the same format the app's student-creation flow and the
  * addStudentPasswords migration use, so the credentials match the system.
  *

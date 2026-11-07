@@ -10,6 +10,18 @@ function hasGrade(value) {
   return Number.isFinite(Number(value));
 }
 
+/**
+ * Numeric grade used by GWA/transcript calculations. Legacy FA entries may not
+ * have a numeric grade stored, so they resolve to CHED's fixed 5.0 equivalent.
+ */
+function effectiveGrade(subject) {
+  if (!subject) return null;
+  if (hasGrade(subject.grade)) return Number(subject.grade);
+  return String(subject.gradeMark || '').trim().toUpperCase() === 'FA'
+    ? gradingScaleService.CHED_FAILING_GRADE
+    : null;
+}
+
 /** Subjects that count toward GWA / units. */
 function isCounted(subject) {
   return Boolean(subject) && subject.status !== 'Dropped' && subject.status !== 'Removed';
@@ -94,8 +106,9 @@ function computeGpa(subjects) {
   let totalUnits = 0;
   for (const s of subjects) {
     if (s.status === 'Dropped' || s.status === 'Removed') continue;
-    if (s.grade === null || s.grade === undefined) continue;
-    totalPoints += (s.units * s.grade);
+    const grade = effectiveGrade(s);
+    if (grade === null) continue;
+    totalPoints += (s.units * grade);
     totalUnits += s.units;
   }
   return totalUnits > 0 ? (totalPoints / totalUnits).toFixed(2) : 'N/A';
@@ -150,7 +163,7 @@ async function generateReportCard(req, res) {
     
     if (enrollment.subjects && enrollment.subjects.length > 0) {
       enrollment.subjects.forEach((subject, index) => {
-        doc.text(`${index + 1}. ${subject.code || 'N/A'} - ${subject.title || 'N/A'}: ${formatGrade(subject.grade, subject.gradeMark || 'N/A')}`);
+        doc.text(`${index + 1}. ${subject.code || 'N/A'} - ${subject.title || 'N/A'}: ${formatGrade(effectiveGrade(subject), subject.gradeMark || 'N/A')}`);
       });
     } else {
       doc.text('No subjects found.');
@@ -230,14 +243,15 @@ async function generateTranscript(req, res) {
         textLine(doc, s.code, 50, rowY, 55);
         textLine(doc, s.title, 110, rowY, 205);
         textLine(doc, s.units, 320, rowY, 55);
-        textLine(doc, formatGrade(s.grade, s.gradeMark || 'INC'), 380, rowY, 75);
-        const remarks = s.status === 'Dropped' ? 'Dropped' : (s.remarks || (hasGrade(s.grade) ? '' : 'Incomplete'));
+        textLine(doc, formatGrade(effectiveGrade(s), s.gradeMark || 'INC'), 380, rowY, 75);
+        const remarks = s.status === 'Dropped' ? 'Dropped' : (s.remarks || (effectiveGrade(s) !== null ? '' : 'Incomplete'));
         textLine(doc, remarks, 460, rowY, 100);
         doc.y = rowY + 14;
 
-        if (isCounted(s) && hasGrade(s.grade)) {
+        const grade = effectiveGrade(s);
+        if (isCounted(s) && grade !== null) {
           const units = Number(s.units) || 0;
-          cumulativePoints += units * Number(s.grade);
+          cumulativePoints += units * grade;
           cumulativeUnits += units;
         }
       }
@@ -246,7 +260,7 @@ async function generateTranscript(req, res) {
       // Term GPA
       const termGpa = computeGpa(enrollment.subjects || []);
       const termUnits = (enrollment.subjects || [])
-        .filter((s) => isCounted(s) && hasGrade(s.grade))
+        .filter((s) => isCounted(s) && effectiveGrade(s) !== null)
         .reduce((sum, s) => sum + (Number(s.units) || 0), 0);
       doc.font('Helvetica').fontSize(8);
       doc.text(`Term Average: ${termGpa}    Units Earned: ${termUnits}`, 50, doc.y + 4);
@@ -357,7 +371,7 @@ async function generateClassGradeSheet(req, res) {
       textLine(doc, student?.studentNumber || enr.studentNumber || '', colX[1], y, colW[1]);
       textLine(doc, name, colX[2], y, colW[2]);
       textLine(doc, student?.yearLevel || enr.yearLevel || '', colX[3], y, colW[3]);
-      textLine(doc, formatGrade(subj.grade), colX[4], y, colW[4]);
+      textLine(doc, formatGrade(effectiveGrade(subj)), colX[4], y, colW[4]);
       textLine(doc, subj.status, colX[5], y, colW[5]);
       textLine(doc, subj.remarks, colX[6], y, colW[6]);
       y += 16;
@@ -368,13 +382,13 @@ async function generateClassGradeSheet(req, res) {
 
     // Summary
     const graded = enrollments.flatMap((e) =>
-      e.subjects.filter((s) => isThisSubject(s) && hasGrade(s.grade) && isCounted(s))
+      e.subjects.filter((s) => isThisSubject(s) && effectiveGrade(s) !== null && isCounted(s))
     );
     const gradeScale = await gradingScaleService.loadGradeScale();
     const classAvg = graded.length > 0
-      ? (graded.reduce((sum, s) => sum + Number(s.grade), 0) / graded.length).toFixed(2)
+      ? (graded.reduce((sum, s) => sum + effectiveGrade(s), 0) / graded.length).toFixed(2)
       : 'N/A';
-    const passingCount = graded.filter((s) => gradingScaleService.isPassingGrade(s.grade, gradeScale)).length;
+    const passingCount = graded.filter((s) => gradingScaleService.isPassingGrade(effectiveGrade(s), gradeScale)).length;
     const failingCount = graded.length - passingCount;
 
     if (y > doc.page.height - 110) { doc.addPage(); y = 50; }

@@ -9,6 +9,7 @@ import {
   parseBlockSlot
 } from '../../lib/blockAssignmentShared'
 import type { BlockGroup, BlockSection, BlockWorkspaceSelection } from './registrarBlockTypes'
+import { getAcademicTerm, getCachedAcademicTerm, subscribeAcademicTerm, type AcademicTerm } from '../../lib/settingsApi'
 import '../BlockManagement.css'
 
 type BlockOverviewDashboardProps = {
@@ -26,7 +27,7 @@ type OverviewRow = {
   course: string
   yearLevel: number
   sectionLetter: string
-  status: 'OPEN' | 'CLOSED'
+  status: 'OPEN' | 'CLOSED' | 'ARCHIVED'
   utilization: number
   capacityState: CapacityState
 }
@@ -166,10 +167,29 @@ export default function BlockOverviewDashboard({
   const [error, setError] = useState('')
   const [warning, setWarning] = useState('')
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [institutionalTerm, setInstitutionalTerm] = useState<AcademicTerm | null>(() => getCachedAcademicTerm())
   const [selectedTerm, setSelectedTerm] = useState('')
   const [selectedProgram, setSelectedProgram] = useState('all')
-  const [selectedStatus, setSelectedStatus] = useState('all')
+  const [selectedStatus, setSelectedStatus] = useState<'active' | 'OPEN' | 'CLOSED' | 'risk' | 'ARCHIVED' | 'all'>('active')
   const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    getAcademicTerm()
+      .then((term) => {
+        if (!cancelled && term) setInstitutionalTerm(term)
+      })
+      .catch(() => {})
+
+    const unsubscribe = subscribeAcademicTerm((term) => {
+      if (!cancelled && term) setInstitutionalTerm(term)
+    })
+
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [])
 
   const fetchBlockData = useCallback(async () => {
     setLoading(true)
@@ -237,7 +257,14 @@ export default function BlockOverviewDashboard({
 
   const rows = useMemo<OverviewRow[]>(() => {
     const groupsById = new Map(blockGroups.map((group) => [String(group._id), group]))
-    const groupsByName = new Map(blockGroups.map((group) => [group.name, group]))
+    const groupsByName = new Map<string, BlockGroup>()
+    // Prioritize active groups over archived groups in groupsByName
+    blockGroups.forEach((group) => {
+      const existing = groupsByName.get(group.name)
+      if (!existing || (existing.status === 'Archived' && group.status !== 'Archived')) {
+        groupsByName.set(group.name, group)
+      }
+    })
 
     return allSections.reduce<OverviewRow[]>((collected, section) => {
       const group = groupsById.get(String(section.blockGroupId || '')) || groupsByName.get(section.sectionCode)
@@ -247,6 +274,12 @@ export default function BlockOverviewDashboard({
       const slot = parseBlockSlot(group.name)
       const capacity = Number(section.capacity) || 0
       const population = Number(section.currentPopulation) || 0
+      const isArchived = (
+        String(section.status || '').toUpperCase() === 'ARCHIVED' ||
+        section.isArchived === true ||
+        group.status === 'Archived' ||
+        group.isArchived === true
+      )
 
       collected.push({
         section,
@@ -255,13 +288,19 @@ export default function BlockOverviewDashboard({
         course: getCourseAbbreviation(group.name),
         yearLevel: Number(meta.yearLevel) || slot?.yearLevel || 0,
         sectionLetter: String(group.section || slot?.letter || ''),
-        status: String(section.status || 'OPEN').toUpperCase() === 'CLOSED' ? 'CLOSED' : 'OPEN',
+        status: isArchived
+          ? 'ARCHIVED'
+          : String(section.status || 'OPEN').toUpperCase() === 'CLOSED' ? 'CLOSED' : 'OPEN',
         utilization: capacity > 0 ? (population / capacity) * 100 : 0,
         capacityState: getCapacityState(population, capacity)
       })
       return collected
     }, [])
   }, [allSections, blockGroups])
+
+  const institutionalActiveTermKey = useMemo(() => {
+    return institutionalTerm ? termKey(institutionalTerm.schoolYear, institutionalTerm.semester) : ''
+  }, [institutionalTerm])
 
   const termOptions = useMemo<TermOption[]>(() => {
     const byTerm = new Map<string, TermOption>()
@@ -277,20 +316,51 @@ export default function BlockOverviewDashboard({
       }
     })
 
+    if (institutionalActiveTermKey && institutionalTerm && !byTerm.has(institutionalActiveTermKey)) {
+      byTerm.set(institutionalActiveTermKey, {
+        key: institutionalActiveTermKey,
+        schoolYear: institutionalTerm.schoolYear,
+        semester: institutionalTerm.semester,
+        count: 0
+      })
+    }
+
     return [...byTerm.values()].sort((a, b) => {
+      if (institutionalActiveTermKey) {
+        if (a.key === institutionalActiveTermKey) return -1
+        if (b.key === institutionalActiveTermKey) return 1
+      }
       const aKnown = /^\d{4}-\d{4}$/.test(a.schoolYear)
       const bKnown = /^\d{4}-\d{4}$/.test(b.schoolYear)
       if (aKnown !== bKnown) return aKnown ? -1 : 1
       if (a.schoolYear !== b.schoolYear) return b.schoolYear.localeCompare(a.schoolYear)
-      return (SEMESTER_RANK[a.semester] ?? 99) - (SEMESTER_RANK[b.semester] ?? 99)
+      return (SEMESTER_RANK[b.semester] ?? -1) - (SEMESTER_RANK[a.semester] ?? -1)
     })
-  }, [blockGroups])
+  }, [blockGroups, institutionalActiveTermKey, institutionalTerm])
 
-  const selectedTermOption = termOptions.find((term) => term.key === selectedTerm) || termOptions[0] || null
+  const selectedTermOption = useMemo(() => {
+    if (selectedTerm) {
+      const found = termOptions.find((term) => term.key === selectedTerm)
+      if (found) return found
+    }
+    if (institutionalActiveTermKey) {
+      const activeFound = termOptions.find((term) => term.key === institutionalActiveTermKey)
+      if (activeFound) return activeFound
+    }
+    return termOptions[0] || null
+  }, [selectedTerm, termOptions, institutionalActiveTermKey])
+
   const activeTerm = selectedTermOption?.key || ''
+  const isSelectedTermActive = selectedTermOption && institutionalActiveTermKey === selectedTermOption.key
   const termLabel = selectedTermOption
-    ? `SY ${selectedTermOption.schoolYear} \u00b7 ${semesterLabel(selectedTermOption.semester)}`
+    ? `SY ${selectedTermOption.schoolYear} \u00b7 ${semesterLabel(selectedTermOption.semester)}${isSelectedTermActive ? ' (Active Term)' : ''}`
     : 'the current term'
+
+  useEffect(() => {
+    if (!selectedTerm && institutionalActiveTermKey && termOptions.some((t) => t.key === institutionalActiveTermKey)) {
+      setSelectedTerm(institutionalActiveTermKey)
+    }
+  }, [institutionalActiveTermKey, termOptions, selectedTerm])
 
   const termRows = useMemo(
     () => rows.filter((row) => termKey(row.schoolYear, row.group.semester) === activeTerm),
@@ -313,21 +383,22 @@ export default function BlockOverviewDashboard({
     selectedProgram !== 'all' && programOptions.includes(selectedProgram) ? selectedProgram : 'all'
 
   const summary = useMemo(() => {
-    const totalCapacity = termRows.reduce((sum, row) => sum + (Number(row.section.capacity) || 0), 0)
-    const totalPopulation = termRows.reduce(
+    const activeSections = termRows.filter((row) => row.status !== 'ARCHIVED')
+    const totalCapacity = activeSections.reduce((sum, row) => sum + (Number(row.section.capacity) || 0), 0)
+    const totalPopulation = activeSections.reduce(
       (sum, row) => sum + (Number(row.section.currentPopulation) || 0),
       0
     )
     const openSections = termRows.filter((row) => row.status === 'OPEN').length
     const closedSections = termRows.filter((row) => row.status === 'CLOSED').length
-    const nearCapacity = termRows.filter((row) => row.capacityState === 'near').length
-    const fullSections = termRows.filter((row) => row.capacityState === 'full').length
-    const overCapacity = termRows.filter((row) => row.capacityState === 'over').length
+    const nearCapacity = activeSections.filter((row) => row.capacityState === 'near').length
+    const fullSections = activeSections.filter((row) => row.capacityState === 'full').length
+    const overCapacity = activeSections.filter((row) => row.capacityState === 'over').length
     const utilization = totalCapacity > 0 ? (totalPopulation / totalCapacity) * 100 : 0
 
     return {
       totalBlocks: selectedTermOption?.count || 0,
-      totalSections: termRows.length,
+      totalSections: selectedStatus === 'all' || selectedStatus === 'ARCHIVED' ? termRows.length : activeSections.length,
       totalCapacity,
       totalPopulation,
       openSections,
@@ -340,7 +411,7 @@ export default function BlockOverviewDashboard({
       utilization,
       capacityTone: utilization >= 100 ? 'danger' : utilization >= 85 ? 'warning' : 'normal'
     }
-  }, [selectedTermOption, termRows])
+  }, [selectedStatus, selectedTermOption, termRows])
 
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -348,9 +419,11 @@ export default function BlockOverviewDashboard({
     return termRows
       .filter((row) => {
         if (activeProgram !== 'all' && row.course !== activeProgram) return false
+        if (selectedStatus === 'active' && row.status === 'ARCHIVED') return false
         if (selectedStatus === 'OPEN' && row.status !== 'OPEN') return false
         if (selectedStatus === 'CLOSED' && row.status !== 'CLOSED') return false
-        if (selectedStatus === 'risk' && row.capacityState === 'normal') return false
+        if (selectedStatus === 'ARCHIVED' && row.status !== 'ARCHIVED') return false
+        if (selectedStatus === 'risk' && (row.status === 'ARCHIVED' || row.capacityState === 'normal')) return false
         if (!query) return true
 
         const haystack = [
@@ -367,17 +440,21 @@ export default function BlockOverviewDashboard({
 
         return haystack.includes(query)
       })
-      .sort(
-        (a, b) =>
+      .sort((a, b) => {
+        if ((a.status === 'ARCHIVED') !== (b.status === 'ARCHIVED')) {
+          return a.status === 'ARCHIVED' ? 1 : -1
+        }
+        return (
           b.utilization - a.utilization ||
           compareBlockOrder(a.section.sectionCode, b.section.sectionCode)
-      )
+        )
+      })
   }, [activeProgram, search, selectedStatus, termRows])
 
   const attentionRows = useMemo(
     () =>
       [...termRows]
-        .filter((row) => row.capacityState !== 'normal')
+        .filter((row) => row.status !== 'ARCHIVED' && row.capacityState !== 'normal')
         .sort(
           (a, b) =>
             CAPACITY_RANK[a.capacityState] - CAPACITY_RANK[b.capacityState] ||
@@ -386,11 +463,11 @@ export default function BlockOverviewDashboard({
     [termRows]
   )
 
-  const filtersActive = activeProgram !== 'all' || selectedStatus !== 'all' || search.trim() !== ''
+  const filtersActive = activeProgram !== 'all' || selectedStatus !== 'active' || search.trim() !== ''
 
   const clearFilters = () => {
     setSelectedProgram('all')
-    setSelectedStatus('all')
+    setSelectedStatus('active')
     setSearch('')
   }
 
@@ -536,7 +613,7 @@ export default function BlockOverviewDashboard({
                 >
                   {termOptions.map((term) => (
                     <option key={term.key} value={term.key}>
-                      {`SY ${term.schoolYear} \u00b7 ${semesterLabel(term.semester)}`}
+                      {`SY ${term.schoolYear} \u00b7 ${semesterLabel(term.semester)}${term.key === institutionalActiveTermKey ? ' (Active)' : ''}`}
                     </option>
                   ))}
                 </select>
@@ -576,12 +653,14 @@ export default function BlockOverviewDashboard({
                 <span className="bo-field-label">Status</span>
                 <select
                   value={selectedStatus}
-                  onChange={(event) => setSelectedStatus(event.target.value)}
+                  onChange={(event) => setSelectedStatus(event.target.value as any)}
                 >
-                  <option value="all">All statuses</option>
+                  <option value="active">Active blocks only</option>
                   <option value="OPEN">Open</option>
                   <option value="CLOSED">Closed</option>
                   <option value="risk">At risk</option>
+                  <option value="ARCHIVED">Archived (Old blocks)</option>
+                  <option value="all">All blocks (include archived)</option>
                 </select>
               </label>
             </div>
@@ -607,7 +686,7 @@ export default function BlockOverviewDashboard({
                 <div className="bo-empty bo-empty--table">
                   <p>
                     {summary.totalSections === 0
-                      ? 'No sections in this term.'
+                      ? 'No active sections in this term.'
                       : 'No sections match these filters.'}
                   </p>
                   <span>
@@ -615,6 +694,16 @@ export default function BlockOverviewDashboard({
                       ? 'Create a block to start placing students.'
                       : 'Try a different program, status, or search term.'}
                   </span>
+                  {selectedStatus === 'active' && termRows.some((r) => r.status === 'ARCHIVED') && (
+                    <button
+                      type="button"
+                      className="bo-link-btn"
+                      style={{ marginTop: '0.5rem' }}
+                      onClick={() => setSelectedStatus('ARCHIVED')}
+                    >
+                      View {termRows.filter((r) => r.status === 'ARCHIVED').length} archived block(s) in this term
+                    </button>
+                  )}
                   {summary.totalSections === 0 ? (
                     <button type="button" className="bo-link-btn" onClick={onViewBlocks}>
                       Go to blocks
@@ -673,7 +762,7 @@ export default function BlockOverviewDashboard({
                             <td>
                               <span className={`bo-status bo-status--${row.status.toLowerCase()}`}>
                                 <span className="bo-status-dot" aria-hidden="true" />
-                                {row.status === 'OPEN' ? 'Open' : 'Closed'}
+                                {row.status === 'OPEN' ? 'Open' : row.status === 'ARCHIVED' ? 'Archived' : 'Closed'}
                               </span>
                             </td>
                             <td className="bo-num">

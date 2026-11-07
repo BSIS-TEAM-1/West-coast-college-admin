@@ -9,7 +9,12 @@ const mongoose = require('mongoose');
  *   rollover_ready        locked AND passed pre-rollover validation
  *   rollover_in_progress  a rollover execution is running
  *   rollover_failed       the execution failed; recovery required before retry
- *   rolled_over           the rollover completed; the year is immutable history
+ *   rolled_over           the SCHOOL YEAR rollover completed; the year is immutable history
+ *
+ * A semester rollover (same school year, e.g. 1st → 2nd) closes a term, not
+ * the year. It is recorded with rolloverMode="semester" and the year returns
+ * to "open" so the newly opened semester stays writable; only the closing
+ * term's records are locked at the enrollment level.
  *
  * One document per school year. Documents are created lazily; a missing
  * document means the year is "open".
@@ -59,6 +64,13 @@ const schoolYearStateSchema = new mongoose.Schema({
 
   // ---- Rollover execution ----
   rolloverBatchId: { type: String, default: null },
+  // 'year' closes the whole school year; 'semester' closes only a term and
+  // leaves the same school year open for the newly opened semester.
+  rolloverMode: {
+    type: String,
+    enum: ['year', 'semester', null],
+    default: null,
+  },
   rolloverToSchoolYear: { type: String, default: null },
   rolloverSemester: { type: String, default: null },
   rolloverStartedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },

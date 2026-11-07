@@ -26,12 +26,30 @@ const GRADE_SCALE_KEY = 'gradeScale';
 const CACHE_TTL_MS = 30 * 1000;
 const EPSILON = 1e-9;
 
+// CHED records a failure due to absences (FA) as the highest failing grade.
+// The equivalent is fixed by policy, not by the configurable scale maximum.
+const CHED_FAILING_GRADE = 5;
+
 const DEFAULT_GRADE_SCALE = Object.freeze({
   min: 1,
   max: 5,
   step: 0.1,
   passingGrade: 3
 });
+
+function normalizeGradeMark(value) {
+  return String(value ?? '').trim().toUpperCase();
+}
+
+/**
+ * Numeric equivalent carried by a special grade mark.
+ *
+ * Only FA has one: 5.0. INC/DRP/W/NG deliberately stay non-numerical so they
+ * never contribute to GWA calculations.
+ */
+function failingEquivalentForMark(value) {
+  return normalizeGradeMark(value) === 'FA' ? CHED_FAILING_GRADE : null;
+}
 
 let cachedScale = null;
 let cachedAt = 0;
@@ -232,8 +250,11 @@ function listAllowedGrades(scale = DEFAULT_GRADE_SCALE) {
 
 module.exports = {
   GRADE_SCALE_KEY,
+  CHED_FAILING_GRADE,
   DEFAULT_GRADE_SCALE,
   decimalsForStep,
+  normalizeGradeMark,
+  failingEquivalentForMark,
   roundGrade,
   isOnScale,
   parseGradeInput,

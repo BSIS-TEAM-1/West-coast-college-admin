@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
-  BookOpen,
   Calendar,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock,
+  Download,
   FileCheck2,
   FileEdit,
   MoreVertical,
@@ -18,14 +18,13 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Square,
-  Star,
   Trash2,
-  Users,
   X
 } from 'lucide-react'
 import {
   createRegistrarEvaluationPeriod,
   deleteRegistrarEvaluationPeriod,
+  exportRegistrarEvaluationReport,
   fetchFacultyCourseLoads,
   fetchRegistrarEvaluationOverview,
   fetchRegistrarEvaluationPeriods,
@@ -68,14 +67,23 @@ type FacultyEvaluationRow = {
   averageRating: number
   evaluatedCourses: number
   totalCourses: number
-  status: 'evaluated' | 'partial' | 'pending' | 'unassigned'
+  status: 'evaluated' | 'pending' | 'unassigned'
 }
 
 const FACULTY_STATUS_LABELS: Record<FacultyEvaluationRow['status'], string> = {
   evaluated: 'Evaluated',
-  partial: 'Partially Evaluated',
   pending: 'Awaiting Evaluation',
   unassigned: 'No Courses'
+}
+
+const dedupeEvaluationResponses = (responses: RegistrarEvaluationRecord[]) => {
+  const seen = new Set<string>()
+  return responses.filter((response) => {
+    const key = String(response.id || response._id || `${response.subjectCode}-${response.submittedAt}`)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 export default function EvaluationManagementPage() {
@@ -89,6 +97,10 @@ export default function EvaluationManagementPage() {
   const cachedTerm = getCachedAcademicTerm()
   const [selectedSemester, setSelectedSemester] = useState<'1st' | '2nd' | 'Summer'>(cachedTerm?.semester || '1st')
   const [selectedSchoolYear, setSelectedSchoolYear] = useState(cachedTerm?.schoolYear || '')
+  const [filterProfessor, setFilterProfessor] = useState('')
+  const [filterSubjectCode, setFilterSubjectCode] = useState('')
+  const [filterSubjectName, setFilterSubjectName] = useState('')
+  const [filterSection, setFilterSection] = useState('')
   const [activeTab, setActiveTab] = useState<'monitoring' | 'periods'>('monitoring')
   const [searchQuery, setSearchQuery] = useState('')
   const [sortBy, setSortBy] = useState<'name_asc' | 'name_desc' | 'rating_desc' | 'rating_asc' | 'responses_desc'>('name_asc')
@@ -99,6 +111,7 @@ export default function EvaluationManagementPage() {
   // Period Configuration Form State
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [creatingPeriod, setCreatingPeriod] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [formTitle, setFormTitle] = useState('')
   const [formSemester, setFormSemester] = useState<'1st' | '2nd' | 'Summer'>(cachedTerm?.semester || '1st')
   const [formSchoolYear, setFormSchoolYear] = useState(cachedTerm?.schoolYear || '')
@@ -191,7 +204,11 @@ export default function EvaluationManagementPage() {
         fetchRegistrarEvaluationPeriods(),
         fetchRegistrarEvaluationOverview({
           semester: selectedSemester,
-          schoolYear: selectedSchoolYear
+          schoolYear: selectedSchoolYear,
+          professorName: filterProfessor || undefined,
+          subjectCode: filterSubjectCode || undefined,
+          subjectName: filterSubjectName || undefined,
+          sectionCode: filterSection || undefined
         }),
         fetchFacultyCourseLoads({
           semester: selectedSemester,
@@ -206,7 +223,7 @@ export default function EvaluationManagementPage() {
     } finally {
       setLoading(false)
     }
-  }, [selectedSemester, selectedSchoolYear])
+  }, [selectedSemester, selectedSchoolYear, filterProfessor, filterSubjectCode, filterSubjectName, filterSection])
 
   useEffect(() => {
     void loadAll()
@@ -214,7 +231,17 @@ export default function EvaluationManagementPage() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchQuery, sortBy, selectedSemester, selectedSchoolYear])
+  }, [searchQuery, sortBy, selectedSemester, selectedSchoolYear, filterProfessor, filterSubjectCode, filterSubjectName, filterSection])
+
+  // Reset all evaluation result filters
+  const resetEvaluationFilters = () => {
+    setFilterProfessor('')
+    setFilterSubjectCode('')
+    setFilterSubjectName('')
+    setFilterSection('')
+  }
+
+  const hasActiveEvaluationFilters = Boolean(filterProfessor || filterSubjectCode || filterSubjectName || filterSection)
 
   useEffect(() => {
     if (!openPeriodMenu) return
@@ -254,6 +281,30 @@ export default function EvaluationManagementPage() {
         ? { bottom: window.innerHeight - rect.top + 6 }
         : { top: rect.bottom + 6 })
     })
+  }
+
+  const handleExportReport = async () => {
+    setExporting(true)
+    setError('')
+    try {
+      const blob = await exportRegistrarEvaluationReport({
+        semester: selectedSemester,
+        schoolYear: selectedSchoolYear
+      })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `evaluation-report-${selectedSchoolYear}-${selectedSemester}.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+      setStatusBanner('Evaluation report exported successfully.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to export evaluation report.')
+    } finally {
+      setExporting(false)
+    }
   }
 
   const handleSavePeriod = async (saveAsDraft: boolean) => {
@@ -447,14 +498,41 @@ export default function EvaluationManagementPage() {
         || aliasToId.get(normalize(response.professorName))
         || `response:${normalize(response.professorName) || 'unknown'}`
       const row = ensureRow(rowId, response.professorName)
-      const course = ensureCourse(rowId, response.subjectCode, response.subjectTitle, response.course || '')
-      const sectionCode = String(response.sectionCode || '').trim()
-      if (sectionCode && !course.sectionLabels.includes(sectionCode)) {
-        course.sectionLabels.push(sectionCode)
+      const responseId = String(response.id || response._id || `${response.subjectCode}-${response.submittedAt}`)
+      const anchorCode = String(response.subjectCode || '').trim().toUpperCase()
+      const coveredCodes = new Set<string>()
+      ;[...(Array.isArray(response.subjectCodes) ? response.subjectCodes : []), response.subjectCode]
+        .forEach((code) => {
+          const normalizedCode = String(code || '').trim().toUpperCase()
+          if (normalizedCode) coveredCodes.add(normalizedCode)
+        })
+      // A professor-level evaluation covers every course assigned to that
+      // professor this term, including legacy responses without subjectCodes.
+      const assignedCourses = courseMaps.get(rowId)
+      if (assignedCourses) {
+        for (const code of assignedCourses.keys()) coveredCodes.add(code)
       }
-      course.responses.push(response)
-      course.responseCount += 1
-      course.averageRating += Number(response.averageRating || 0)
+      if (coveredCodes.size === 0) coveredCodes.add('SUBJECT')
+
+      for (const code of coveredCodes) {
+        const course = ensureCourse(
+          rowId,
+          code,
+          code === anchorCode ? response.subjectTitle : '',
+          code === anchorCode ? response.course || '' : ''
+        )
+        if (code === anchorCode) {
+          const sectionCode = String(response.sectionCode || '').trim()
+          if (sectionCode && !course.sectionLabels.includes(sectionCode)) {
+            course.sectionLabels.push(sectionCode)
+          }
+        }
+        if (!course.responses.some((item) => String(item.id || item._id || '') === responseId)) {
+          course.responses.push(response)
+          course.responseCount += 1
+          course.averageRating += Number(response.averageRating || 0)
+        }
+      }
       row.responseCount += 1
       row.ratingSum += Number(response.averageRating || 0)
     }
@@ -472,11 +550,9 @@ export default function EvaluationManagementPage() {
       const evaluatedCourses = courses.filter((course) => course.responseCount > 0).length
       const status: FacultyEvaluationRow['status'] = courses.length === 0
         ? 'unassigned'
-        : evaluatedCourses === courses.length
+        : row.responseCount > 0
           ? 'evaluated'
-          : evaluatedCourses === 0
-            ? 'pending'
-            : 'partial'
+          : 'pending'
 
       return {
         professorId: row.professorId,
@@ -539,9 +615,9 @@ export default function EvaluationManagementPage() {
     ? detailFaculty.courses.find((course) => course.key === detailCourseCode) || null
     : null
   const detailResponses = detailCourse
-    ? detailCourse.responses
+    ? dedupeEvaluationResponses(detailCourse.responses)
     : detailFaculty
-      ? detailFaculty.courses.flatMap((course) => course.responses)
+      ? dedupeEvaluationResponses(detailFaculty.courses.flatMap((course) => course.responses))
       : []
   const detailQuestionSummaries = (() => {
     if (!detailFaculty || detailResponses.length === 0) return []
@@ -584,11 +660,21 @@ export default function EvaluationManagementPage() {
           </div>
           <h1 className="reg-eval-title">Professor Evaluation Management</h1>
           <p className="reg-eval-subtitle">
-            Configure per-semester evaluation schedules and monitor faculty evaluation status and results by course.
+            Configure per-semester evaluation schedules and monitor professor-level evaluation status and results.
           </p>
         </div>
 
         <div className="reg-eval-header-actions">
+          <button
+            type="button"
+            className="reg-eval-btn reg-eval-btn-secondary"
+            onClick={() => void handleExportReport()}
+            disabled={exporting}
+            title="Export evaluation results as CSV"
+          >
+            <Download size={15} />
+            <span>{exporting ? 'Exporting...' : 'Export CSV Report'}</span>
+          </button>
           <button
             type="button"
             className="reg-eval-btn reg-eval-btn-secondary"
@@ -899,9 +985,28 @@ export default function EvaluationManagementPage() {
       {/* Summary KPI Cards */}
       <section className="reg-eval-kpi-grid" aria-label="Evaluation results summary">
         <div className="reg-eval-kpi-card">
-          <div className="reg-eval-kpi-icon">
-            <FileCheck2 size={20} />
+          <div className="reg-eval-kpi-body">
+            <span className="reg-eval-kpi-label">Eligible Students</span>
+            <strong className="reg-eval-kpi-value">
+              {overview?.metrics?.totalEligibleStudents ?? progress?.totalEligibleStudents ?? 0}
+            </strong>
+            <span className="reg-eval-kpi-sub">
+              {overview?.metrics?.completedStudents ?? progress?.completedStudents ?? 0} completed • {overview?.metrics?.pendingStudents ?? progress?.pendingStudents ?? 0} pending
+            </span>
           </div>
+        </div>
+
+        <div className="reg-eval-kpi-card">
+          <div className="reg-eval-kpi-body">
+            <span className="reg-eval-kpi-label">Student Completion</span>
+            <strong className="reg-eval-kpi-value">
+              {overview?.metrics?.completionPercentage ?? progress?.completionPercentage ?? 0}%
+            </strong>
+            <span className="reg-eval-kpi-sub">Overall student compliance</span>
+          </div>
+        </div>
+
+        <div className="reg-eval-kpi-card">
           <div className="reg-eval-kpi-body">
             <span className="reg-eval-kpi-label">Total Responses</span>
             <strong className="reg-eval-kpi-value">{progress?.totalResponses ?? 0}</strong>
@@ -910,9 +1015,6 @@ export default function EvaluationManagementPage() {
         </div>
 
         <div className="reg-eval-kpi-card">
-          <div className="reg-eval-kpi-icon">
-            <Star size={20} />
-          </div>
           <div className="reg-eval-kpi-body">
             <span className="reg-eval-kpi-label">Average Rating</span>
             <strong className="reg-eval-kpi-value">
@@ -923,9 +1025,6 @@ export default function EvaluationManagementPage() {
         </div>
 
         <div className="reg-eval-kpi-card">
-          <div className="reg-eval-kpi-icon">
-            <Users size={20} />
-          </div>
           <div className="reg-eval-kpi-body">
             <span className="reg-eval-kpi-label">Faculty Monitored</span>
             <strong className="reg-eval-kpi-value">{facultyRows.length}</strong>
@@ -936,9 +1035,6 @@ export default function EvaluationManagementPage() {
         </div>
 
         <div className="reg-eval-kpi-card">
-          <div className="reg-eval-kpi-icon">
-            <BookOpen size={20} />
-          </div>
           <div className="reg-eval-kpi-body">
             <span className="reg-eval-kpi-label">Courses Monitored</span>
             <strong className="reg-eval-kpi-value">{totalCoursesMonitored}</strong>
@@ -994,6 +1090,58 @@ export default function EvaluationManagementPage() {
 
             <div className="reg-eval-toolbar-controls">
               <div className="reg-eval-control-group">
+                <select
+                  value={filterProfessor}
+                  onChange={(e) => setFilterProfessor(e.target.value)}
+                  aria-label="Filter by professor name"
+                >
+                  <option value="">All Professors</option>
+                  {(overview?.availableFilters?.professors || []).map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="reg-eval-control-group">
+                <select
+                  value={filterSubjectCode}
+                  onChange={(e) => setFilterSubjectCode(e.target.value)}
+                  aria-label="Filter by subject code"
+                >
+                  <option value="">All Subject Codes</option>
+                  {(overview?.availableFilters?.subjectCodes || []).map((code) => (
+                    <option key={code} value={code}>{code}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="reg-eval-control-group">
+                <select
+                  value={filterSubjectName}
+                  onChange={(e) => setFilterSubjectName(e.target.value)}
+                  aria-label="Filter by subject name"
+                >
+                  <option value="">All Subject Names</option>
+                  {(overview?.availableFilters?.subjectNames || []).map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="reg-eval-control-group">
+                <select
+                  value={filterSection}
+                  onChange={(e) => setFilterSection(e.target.value)}
+                  aria-label="Filter by section or block"
+                >
+                  <option value="">All Sections</option>
+                  {(overview?.availableFilters?.sections || []).map((section) => (
+                    <option key={section} value={section}>{section}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="reg-eval-control-group">
                 <SlidersHorizontal size={14} />
                 <select
                   value={sortBy}
@@ -1019,6 +1167,17 @@ export default function EvaluationManagementPage() {
                   <option value={50}>50 / page</option>
                 </select>
               </div>
+
+              {hasActiveEvaluationFilters && (
+                <button
+                  type="button"
+                  className="reg-eval-btn-xs is-secondary"
+                  onClick={resetEvaluationFilters}
+                >
+                  <X size={13} />
+                  <span>Clear Filters</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -1063,9 +1222,7 @@ export default function EvaluationManagementPage() {
                                     {course.subjectTitle}
                                   </span>
                                   <span className={`reg-eval-course-chip is-${course.status}`}>
-                                    {course.responseCount > 0
-                                      ? `${course.responseCount} response${course.responseCount === 1 ? '' : 's'}`
-                                      : 'No responses'}
+                                    {course.status === 'evaluated' ? 'Evaluated' : 'No responses'}
                                   </span>
                                 </div>
                               ))}
@@ -1513,7 +1670,7 @@ export default function EvaluationManagementPage() {
                 </div>
               </div>
 
-              <h4 className="reg-eval-detail-heading">Course Evaluation Status</h4>
+              <h4 className="reg-eval-detail-heading">Course Coverage</h4>
               {detailFaculty.courses.length === 0 ? (
                 <p className="reg-eval-subtext">
                   No courses are assigned to this professor for {termLabel}.
@@ -1530,8 +1687,8 @@ export default function EvaluationManagementPage() {
                         <strong>All Courses</strong>
                         <span>{detailFaculty.totalCourses} assigned course(s)</span>
                       </span>
-                      <span className="reg-eval-course-chip is-evaluated">
-                        {detailFaculty.responseCount} response(s)
+                      <span className={`reg-eval-course-chip is-${detailFaculty.status === 'evaluated' ? 'evaluated' : 'pending'}`}>
+                        {detailFaculty.responseCount > 0 ? 'Evaluated' : 'No responses'}
                       </span>
                     </button>
                   )}
@@ -1550,23 +1707,23 @@ export default function EvaluationManagementPage() {
                         )}
                       </span>
                       <span className={`reg-eval-course-chip is-${course.status}`}>
-                        {course.responseCount > 0
-                          ? `${course.responseCount} response(s) • ${course.averageRating.toFixed(2)} / 5.00`
-                          : 'No responses'}
+                        {course.status === 'evaluated' ? 'Evaluated' : 'No responses'}
                       </span>
                     </button>
                   ))}
                 </div>
               )}
 
-              <h4 className="reg-eval-detail-heading">
-                {detailCourse ? `${detailCourse.subjectCode} Evaluation Details` : 'Evaluation Details'}
-              </h4>
+              <h4 className="reg-eval-detail-heading">Evaluation Details</h4>
+              {detailCourse && (
+                <p className="reg-eval-subtext">
+                  This professor-level evaluation applies to every course assigned to {detailFaculty.professorName}.
+                </p>
+              )}
               {detailResponses.length === 0 ? (
                 <div className="reg-eval-empty reg-eval-empty-compact">
                   <p>
-                    No anonymous evaluations submitted{' '}
-                    {detailCourse ? 'for this course' : 'for this professor'} yet for {termLabel}.
+                    No anonymous evaluations submitted for this professor yet for {termLabel}.
                   </p>
                 </div>
               ) : (
@@ -1596,7 +1753,11 @@ export default function EvaluationManagementPage() {
                       {detailComments.map((comment) => (
                         <div key={comment.id} className="reg-eval-comment-item">
                           <div className="reg-eval-comment-meta">
-                            <span>{comment.subjectCode}</span>
+                            <span>
+                              {Array.isArray(comment.subjectCodes) && comment.subjectCodes.length > 0
+                                ? comment.subjectCodes.join(', ')
+                                : comment.subjectCode}
+                            </span>
                             <span>
                               {comment.submittedAt
                                 ? new Date(comment.submittedAt).toLocaleString()

@@ -11,7 +11,7 @@
  */
 
 jest.mock('./models/Student', () => ({ find: jest.fn() }));
-jest.mock('./models/Enrollment', () => ({ countDocuments: jest.fn() }));
+jest.mock('./models/Enrollment', () => ({ countDocuments: jest.fn(), find: jest.fn(), distinct: jest.fn() }));
 jest.mock('./models/BlockGroup', () => ({ find: jest.fn() }));
 jest.mock('./models/StudentBlockAssignment', () => ({ find: jest.fn() }));
 jest.mock('./models/RolloverBatch', () => ({ findOne: jest.fn() }));
@@ -58,6 +58,7 @@ beforeEach(() => {
     return Promise.resolve(0);
   });
   Student.find.mockReturnValue(dbResult([]));
+  Enrollment.find.mockReturnValue(dbResult([]));
   StudentBlockAssignment.find.mockReturnValue(dbResult([]));
   BlockGroup.find.mockReturnValue(dbResult([]));
   RolloverBatch.findOne.mockReturnValue(dbResult(null));
@@ -185,6 +186,32 @@ describe('students without grades (warning — never blocking)', () => {
 
   test('every active student graded passes cleanly', async () => {
     Student.find.mockReturnValue(dbResult([student(1), student(2)]));
+    const run = await Service.runChecks(BASE);
+    expect(bucketOf(run.results, 'missing_grades')).toBe('passed');
+  });
+
+  test('a grade on the closing-term enrollment counts even when latestGrade is empty', async () => {
+    Student.find.mockReturnValue(dbResult([student(1, { latestGrade: undefined })]));
+    Enrollment.find.mockReturnValue(dbResult([{
+      studentId: 'student_1',
+      subjects: [
+        { code: 'ENG101', grade: 2.0, gradeMark: null, status: 'Enrolled', submissionStatus: 'Submitted' },
+      ],
+    }]));
+
+    const run = await Service.runChecks(BASE);
+    expect(bucketOf(run.results, 'missing_grades')).toBe('passed');
+  });
+
+  test('a legacy FA mark counts as the fixed 5.0 failing grade', async () => {
+    Student.find.mockReturnValue(dbResult([student(1, { latestGrade: undefined })]));
+    Enrollment.find.mockReturnValue(dbResult([{
+      studentId: 'student_1',
+      subjects: [
+        { code: 'ENG101', grade: null, gradeMark: 'FA', status: 'Enrolled', submissionStatus: 'Published' },
+      ],
+    }]));
+
     const run = await Service.runChecks(BASE);
     expect(bucketOf(run.results, 'missing_grades')).toBe('passed');
   });

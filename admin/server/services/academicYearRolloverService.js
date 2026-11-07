@@ -11,7 +11,10 @@ const AcademicArchiveService = require('./AcademicArchiveService');
 const AuditLog = require('../models/AuditLog');
 const SystemSetting = require('../models/SystemSetting');
 const Curriculum = require('../models/Curriculum');
+const AcademicPeriod = require('../models/AcademicPeriod');
 const curriculumProgressService = require('./curriculumProgressService');
+const rolloverGradeService = require('./rolloverGradeService');
+const { resolveClosingSemesterForRollover } = require('./rolloverTermService');
 const eventBus = require('../domains/shared/EventBus');
 const DomainEvents = require('../domains/shared/DomainEvents');
 
@@ -142,20 +145,6 @@ async function getStudentIdsForBlock({ schoolYear, semester, block }) {
 }
 
 /**
- * The school-year term that block lookups must use for the CLOSING cohort.
- *
- * A year rollover processes the closing year under the chosen semester (the
- * pre-existing behavior). A semester rollover keeps the same school year —
- * the students being processed still live one term BEFORE the opening
- * semester (the assignments registrar sees were created for that term), so
- * closing block lookups must use that earlier term instead of the opening one.
- */
-function resolveClosingSemester(semesterRollover, openingSemester) {
-  if (!semesterRollover) return openingSemester;
-  return openingSemester === '2nd' ? '1st' : '2nd';
-}
-
-/**
  * Classify a student for rollover based on grades and year level.
  * The registrar can override every recommendation before execution
  * (this satisfies the "Registrar Approved" requirement).
@@ -164,17 +153,22 @@ function resolveClosingSemester(semesterRollover, openingSemester) {
  * finished the full year yet, so a passing final-year student is recommended
  * a semester promotion instead of graduation; graduation is only suggested
  * when the whole school year closes.
+ *
+ * `latestGrade` normally comes from the closing-term Enrollment subjects via
+ * rolloverGradeService. Callers that already resolved a grade pass it here;
+ * callers with only a student document fall back to Student.latestGrade.
  */
-function recommendAction(student, { semesterRollover = false } = {}) {
-  const hasGrade = typeof student.latestGrade === 'number';
-  const passed = hasGrade && student.latestGrade <= PASSING_GRADE;
+function recommendAction(student, { semesterRollover = false, latestGrade } = {}) {
+  const grade = latestGrade !== undefined ? latestGrade : student.latestGrade;
+  const hasGrade = Number.isFinite(grade);
+  const passed = hasGrade && grade <= PASSING_GRADE;
   const isFinalYear = Number(student.yearLevel) >= FINAL_YEAR_LEVEL;
 
   if (!hasGrade) {
     return { action: 'retain', reason: 'No grade recorded - needs registrar review', needsReview: true };
   }
   if (!passed) {
-    return { action: 'retain', reason: `Failing grade (${student.latestGrade})`, needsReview: false };
+    return { action: 'retain', reason: `Failing grade (${grade})`, needsReview: false };
   }
   if (isFinalYear) {
     if (semesterRollover) {
@@ -182,7 +176,7 @@ function recommendAction(student, { semesterRollover = false } = {}) {
     }
     return { action: 'graduate', reason: 'Final year completed with passing grade', needsReview: false };
   }
-  return { action: 'promote', reason: `Passing grade (${student.latestGrade})`, needsReview: false };
+  return { action: 'promote', reason: `Passing grade (${grade})`, needsReview: false };
 }
 
 /**
@@ -256,11 +250,28 @@ class AcademicYearRolloverService {
       .sort({ course: 1, yearLevel: 1, lastName: 1 })
       .lean();
 
-    // Block lookups must see the CLOSING term's assignments, not the opening one.
-    const blockSemester = resolveClosingSemester(semesterRollover, semester || '1st');
+    // Block/grade lookups must see the CLOSING term's records, not the opening
+    // term. For a year rollover that is the term the closing year actually
+    // ended in (usually 2nd, or Summer when offered), not the target's 1st.
+    const blockSemester = await resolveClosingSemesterForRollover({
+      fromSchoolYear,
+      toSchoolYear,
+      openingSemester: semester || '1st',
+    });
     const blockMap = await getAssignedBlockMap(fromSchoolYear, blockSemester);
+    // The closing-term enrollment is the authoritative grade source. Student
+    // documents keep latestGrade as a denormalized cache and are often empty
+    // even after the professor submitted and the registrar published grades.
+    const gradeMap = await rolloverGradeService.loadClosingGradeMap({
+      schoolYear: fromSchoolYear,
+      semester: blockSemester,
+    });
     const evaluations = students.map((student) => {
-      const recommendation = recommendAction(student, { semesterRollover });
+      const effectiveGrade = rolloverGradeService.resolveEffectiveGrade(
+        student.latestGrade,
+        gradeMap.get(String(student._id))
+      );
+      const recommendation = recommendAction(student, { semesterRollover, latestGrade: effectiveGrade });
       return {
         studentId: String(student._id),
         studentNumber: student.studentNumber,
@@ -268,7 +279,7 @@ class AcademicYearRolloverService {
         course: student.course,
         yearLevel: student.yearLevel,
         block: blockMap.get(String(student._id)) || null,
-        latestGrade: typeof student.latestGrade === 'number' ? student.latestGrade : null,
+        latestGrade: effectiveGrade,
         lifecycleStatus: student.lifecycleStatus,
         recommendedAction: recommendation.action,
         reason: recommendation.reason,
@@ -318,8 +329,14 @@ class AcademicYearRolloverService {
     const resolvedToSchoolYear = toSchoolYear || `${schoolYearStart(fromSchoolYear) + 1}-${schoolYearStart(fromSchoolYear) + 2}`;
     const targetSemester = ['1st', '2nd', 'Summer'].includes(semester) ? semester : '1st';
     const semesterRollover = fromSchoolYear === toSchoolYear;
-    // Block lookups must see the CLOSING term's assignments, not the opening one.
-    const closingSemester = resolveClosingSemester(semesterRollover, targetSemester);
+    // Block/grade lookups must see the CLOSING term's records, not the opening
+    // term. For a year rollover that is the term the closing year actually
+    // ended in (usually 2nd, or Summer when offered), not the target's 1st.
+    const closingSemester = await resolveClosingSemesterForRollover({
+      fromSchoolYear,
+      toSchoolYear,
+      openingSemester: targetSemester,
+    });
 
     const baseMatch = {
       schoolYear: fromSchoolYear,
@@ -363,23 +380,88 @@ class AcademicYearRolloverService {
       },
       { $unwind: { path: '$_blockSection', preserveNullAndEmptyArrays: true } },
       {
+        // Closing-term subject grades are the authoritative source; the
+        // student's latestGrade is only a fallback cache. The lookup mirrors
+        // rolloverGradeService.subjectEffectiveGrade(): exclude dropped/
+        // removed/returned subjects, resolve FA to 5.0, and take the lowest
+        // (numerically highest) grade so one failure retains the student.
+        $lookup: {
+          from: Enrollment.collection.name,
+          let: { studentId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$studentId', '$$studentId'] },
+                    { $eq: ['$schoolYear', fromSchoolYear] },
+                    { $eq: ['$semester', closingSemester] },
+                    { $not: [{ $in: ['$status', ['Dropped', 'Cancelled']] }] },
+                  ],
+                },
+              },
+            },
+            { $unwind: '$subjects' },
+            {
+              $match: {
+                'subjects.status': { $nin: ['Dropped', 'Removed'] },
+                $expr: {
+                  $and: [
+                    { $ne: [{ $toUpper: { $ifNull: ['$subjects.submissionStatus', ''] } }, 'RETURNED'] },
+                    {
+                      $or: [
+                        {
+                          $and: [
+                            { $in: [{ $type: '$subjects.grade' }, ['double', 'int', 'long', 'decimal']] },
+                            { $gt: ['$subjects.grade', 0] },
+                          ],
+                        },
+                        { $eq: [{ $toUpper: { $ifNull: ['$subjects.gradeMark', ''] } }, 'FA'] },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+            {
+              $project: {
+                _id: 0,
+                grade: {
+                  $cond: [
+                    { $eq: [{ $toUpper: { $ifNull: ['$subjects.gradeMark', ''] } }, 'FA'] },
+                    rolloverGradeService.CHED_FAILING_GRADE,
+                    '$subjects.grade',
+                  ],
+                },
+              },
+            },
+            { $group: { _id: null, grade: { $max: '$grade' }, count: { $sum: 1 } } },
+          ],
+          as: '_closingGrades',
+        },
+      },
+      {
         $addFields: {
           // Aggregation $type returns the BSON type name ("double", "int",
           // "long", "decimal") — there is no "number" alias in aggregation
-          // expressions (that alias only exists in find-query $type), so the
-          // numeric check must accept the individual numeric types.
-          _hasGrade: {
-            $in: [{ $type: '$latestGrade' }, ['double', 'int', 'long', 'decimal']],
-          },
-          _passed: {
-            $and: [
-              {
-                $in: [{ $type: '$latestGrade' }, ['double', 'int', 'long', 'decimal']],
-              },
-              { $lte: ['$latestGrade', PASSING_GRADE] },
+          // expressions (that alias only exists in find-query $type).
+          _latestGrade: {
+            $cond: [
+              { $in: [{ $type: '$latestGrade' }, ['double', 'int', 'long', 'decimal']] },
+              '$latestGrade',
+              null,
             ],
           },
-          _isFinalYear: { $gte: ['$yearLevel', FINAL_YEAR_LEVEL] },
+          _hasClosingGrade: { $gt: [{ $size: '$_closingGrades' }, 0] },
+          _closingGrade: { $arrayElemAt: ['$_closingGrades.grade', 0] },
+        },
+      },
+      {
+        $addFields: {
+          _hasGrade: { $or: ['$_hasClosingGrade', { $ne: ['$_latestGrade', null] }] },
+          _effectiveGrade: {
+            $cond: ['$_hasClosingGrade', '$_closingGrade', '$_latestGrade'],
+          },
         },
       },
       {
@@ -387,15 +469,8 @@ class AcademicYearRolloverService {
           _action: {
             $switch: {
               branches: [
-                {
-                  case: {
-                    $not: [{
-                      $in: [{ $type: '$latestGrade' }, ['double', 'int', 'long', 'decimal']],
-                    }],
-                  },
-                  then: 'retain',
-                },
-                { case: { $gt: ['$latestGrade', PASSING_GRADE] }, then: 'retain' },
+                { case: { $not: ['$_hasGrade'] }, then: 'retain' },
+                { case: { $gt: ['$_effectiveGrade', PASSING_GRADE] }, then: 'retain' },
                 // A semester rollover never graduates mid-year: the final-year
                 // student is still in progress, so they fall through to promote.
                 ...(semesterRollover ? [] : [{ case: { $gte: ['$yearLevel', FINAL_YEAR_LEVEL] }, then: 'graduate' }]),
@@ -403,11 +478,7 @@ class AcademicYearRolloverService {
               default: 'promote',
             },
           },
-          _needsReview: {
-            $not: [{
-              $in: [{ $type: '$latestGrade' }, ['double', 'int', 'long', 'decimal']],
-            }],
-          },
+          _needsReview: { $not: ['$_hasGrade'] },
         },
       },
       {
@@ -481,9 +552,14 @@ class AcademicYearRolloverService {
     }
 
     // Semester-rollover support: when the opening school year equals the
-    // closing one, closing block lookups must use the pre-opening term.
+    // closing one, closing block lookups must use the pre-opening term. For a
+    // year rollover, use the term the closing year actually ended in.
     const semesterRollover = isValidSchoolYear(toSchoolYear) ? fromSchoolYear === toSchoolYear : false;
-    const blockSemester = resolveClosingSemester(semesterRollover, semester);
+    const blockSemester = await resolveClosingSemesterForRollover({
+      fromSchoolYear,
+      toSchoolYear,
+      openingSemester: semester,
+    });
 
     const pageNumber = Math.max(1, Number.parseInt(page, 10) || 1);
     const limitNumber = Math.min(100, Math.max(1, Number.parseInt(limit, 10) || 50));
@@ -519,7 +595,17 @@ class AcademicYearRolloverService {
     }
 
     if (filter === 'needs_review') {
-      query.latestGrade = { $exists: false };
+      // A grade counts when the closing-term enrollment has a recorded subject
+      // grade, even if Student.latestGrade was never backfilled.
+      const gradedStudentIds = await rolloverGradeService.loadGradedStudentIds({
+        schoolYear: fromSchoolYear,
+        semester: blockSemester,
+      });
+      query.$and = [
+        ...(query.$and || []),
+        { _id: { $nin: gradedStudentIds } },
+        { latestGrade: { $not: { $type: 'number' } } },
+      ];
     }
 
     const [students, total] = await Promise.all([
@@ -533,8 +619,17 @@ class AcademicYearRolloverService {
     ]);
 
     const blockMap = await getAssignedBlockMap(fromSchoolYear, blockSemester);
+    const gradeMap = await rolloverGradeService.loadClosingGradeMap({
+      schoolYear: fromSchoolYear,
+      semester: blockSemester,
+      studentIds: students.map((student) => student._id),
+    });
     const studentsWithEvaluations = students.map((student) => {
-      const recommendation = recommendAction(student, { semesterRollover });
+      const effectiveGrade = rolloverGradeService.resolveEffectiveGrade(
+        student.latestGrade,
+        gradeMap.get(String(student._id))
+      );
+      const recommendation = recommendAction(student, { semesterRollover, latestGrade: effectiveGrade });
       return {
         studentId: String(student._id),
         studentNumber: student.studentNumber,
@@ -542,7 +637,7 @@ class AcademicYearRolloverService {
         course: student.course,
         yearLevel: student.yearLevel,
         block: blockMap.get(String(student._id)) || null,
-        latestGrade: typeof student.latestGrade === 'number' ? student.latestGrade : null,
+        latestGrade: effectiveGrade,
         lifecycleStatus: student.lifecycleStatus,
         recommendedAction: recommendation.action,
         reason: recommendation.reason,
@@ -573,19 +668,32 @@ class AcademicYearRolloverService {
     }
 
     // Semester-rollover support: when the opening school year equals the
-    // closing one, closing block lookups must use the pre-opening term.
+    // closing one, closing block lookups must use the pre-opening term. For a
+    // year rollover, use the term the closing year actually ended in.
     const semesterRollover = isValidSchoolYear(toSchoolYear) ? fromSchoolYear === toSchoolYear : false;
-    const blockSemester = resolveClosingSemester(semesterRollover, semester);
+    const blockSemester = await resolveClosingSemesterForRollover({
+      fromSchoolYear,
+      toSchoolYear,
+      openingSemester: semester,
+    });
 
     const pageNumber = Math.max(1, Number.parseInt(page, 10) || 1);
     const limitNumber = Math.min(100, Math.max(1, Number.parseInt(limit, 10) || 50));
 
+    // Match the summary aggregation: a student is an exception when neither
+    // the closing-term enrollment nor the legacy Student.latestGrade carries a
+    // usable grade.
+    const gradedStudentIds = await rolloverGradeService.loadGradedStudentIds({
+      schoolYear: fromSchoolYear,
+      semester: blockSemester,
+    });
     const query = {
       schoolYear: fromSchoolYear,
       lifecycleStatus: { $in: ['Enrolled', 'Pending', 'Not Enrolled'] },
-      // Match the summary aggregation: any non-numeric grade (missing or null)
-      // is an exception that needs registrar review.
-      latestGrade: { $not: { $type: 'number' } },
+      $and: [
+        { _id: { $nin: gradedStudentIds } },
+        { latestGrade: { $not: { $type: 'number' } } },
+      ],
     };
 
     if (course !== undefined && course !== null && course !== '') {
@@ -624,8 +732,17 @@ class AcademicYearRolloverService {
     ]);
 
     const blockMap = await getAssignedBlockMap(fromSchoolYear, blockSemester);
+    const gradeMap = await rolloverGradeService.loadClosingGradeMap({
+      schoolYear: fromSchoolYear,
+      semester: blockSemester,
+      studentIds: students.map((student) => student._id),
+    });
     const exceptions = students.map((student) => {
-      const recommendation = recommendAction(student, { semesterRollover });
+      const effectiveGrade = rolloverGradeService.resolveEffectiveGrade(
+        student.latestGrade,
+        gradeMap.get(String(student._id))
+      );
+      const recommendation = recommendAction(student, { semesterRollover, latestGrade: effectiveGrade });
       return {
         studentId: String(student._id),
         studentNumber: student.studentNumber,
@@ -633,7 +750,7 @@ class AcademicYearRolloverService {
         course: student.course,
         yearLevel: student.yearLevel,
         block: blockMap.get(String(student._id)) || null,
-        latestGrade: typeof student.latestGrade === 'number' ? student.latestGrade : null,
+        latestGrade: effectiveGrade,
         lifecycleStatus: student.lifecycleStatus,
         recommendedAction: recommendation.action,
         reason: recommendation.reason,
@@ -679,14 +796,20 @@ class AcademicYearRolloverService {
     //     opening semester of the SAME school year without changing year
     //     level; year-level promotion is reserved for the year rollover.
     const semesterRollover = fromSchoolYear === toSchoolYear;
-    if (semesterRollover && !['2nd', 'Summer'].includes(targetSemester)) {
+    if (semesterRollover && targetSemester !== '2nd') {
       throw Object.assign(
-        new Error('A semester rollover keeps the same school year, so the opening semester must be 2nd or Summer. Use a different school year to roll the year level forward.'),
+        new Error('A semester rollover keeps the same school year, so the opening semester must be 2nd. Use a different school year to roll the year level forward.'),
         { statusCode: 400 }
       );
     }
-    // Closing-term lookups see the term the cohort currently occupies.
-    const closingSemester = resolveClosingSemester(semesterRollover, targetSemester);
+    // Closing-term lookups see the term the cohort currently occupies. A year
+    // rollover closes the active term of the closing year (2nd/Summer), not the
+    // opening 1st semester of the target year.
+    const closingSemester = await resolveClosingSemesterForRollover({
+      fromSchoolYear,
+      toSchoolYear,
+      openingSemester: targetSemester,
+    });
 
     // ---- Resolve decisions from groupDecisions + decisionOverrides ----
     // If groupDecisions is provided, expand each group to individual student decisions
@@ -803,6 +926,7 @@ class AcademicYearRolloverService {
       skipped: [],
       failures: [],
       blocksCreated: [],
+      blocksArchived: [],
       snapshotIds: [],
       // Automatic "graduate" recommendations that the curriculum corrected to
       // "retain" — surfaced rather than applied silently.
@@ -823,6 +947,7 @@ class AcademicYearRolloverService {
         results.skipped.length = 0;
         results.failures.length = 0;
         results.blocksCreated.length = 0;
+        results.blocksArchived.length = 0;
         results.snapshotIds.length = 0;
         studentChanges.length = 0;
         previousAcademicTerm = null;
@@ -900,6 +1025,129 @@ class AcademicYearRolloverService {
           sectionsByGroup.get(key).push(section);
         }
 
+        // ---- Step 1b: Mirror the closing term's blocks into the opening term ----
+        // The registrar re-enrolls students into the opening term, so its block
+        // structure has to exist up front. Without the copies, the only blocks
+        // left after a rollover were the closing term's — same names, same
+        // year level — and the block workspace opened the past block. The
+        // copies are EMPTY: only the students this rollover actually carries
+        // forward are placed into them in Step 2.
+        const closingSemesterSource = termSetting?.value && sameValue(termSetting.value.schoolYear, fromSchoolYear)
+          ? termSetting.value.semester
+          : closingSemester;
+        const closingTermSemester = ['1st', '2nd', 'Summer'].includes(closingSemesterSource)
+          ? closingSemesterSource
+          : closingSemester;
+
+        // Archive closing groups and sections for this rollover run:
+        // In a semester rollover, only groups for the closing semester are archived.
+        // In a school-year rollover, all groups for the closing school year are archived.
+        const groupsToArchive = semesterRollover
+          ? closingGroups.filter((group) => String(group.semester || '').trim() === closingTermSemester)
+          : closingGroups;
+        const groupIdsToArchive = groupsToArchive.map((group) => group._id);
+        const sectionsToArchive = closingSections.filter((section) =>
+          groupIdsToArchive.some((gid) => String(gid) === String(section.blockGroupId))
+        );
+        const sectionIdsToArchive = sectionsToArchive.map((section) => section._id);
+
+        if (groupIdsToArchive.length > 0) {
+          await BlockGroup.updateMany(
+            { _id: { $in: groupIdsToArchive } },
+            {
+              $set: {
+                status: 'Archived',
+                isArchived: true,
+                archivedAt: now,
+                archivedBy: adminId,
+              },
+            },
+            { session }
+          );
+        }
+
+        if (sectionIdsToArchive.length > 0) {
+          await BlockSection.updateMany(
+            { _id: { $in: sectionIdsToArchive } },
+            {
+              $set: {
+                status: 'ARCHIVED',
+                isArchived: true,
+                archivedAt: now,
+              },
+            },
+            { session }
+          );
+        }
+
+        results.blocksArchived = groupsToArchive.map((group) => ({
+          blockGroupId: String(group._id),
+          name: group.name,
+          semester: group.semester,
+          schoolYear: group.schoolYear || group.year,
+        }));
+
+        const targetGroupKeys = new Set(
+          targetGroups.map((group) => `${group.name}|${group.semester}|${group.year}`)
+        );
+        const blockTemplates = closingGroups.filter((group) => {
+          if (String(group.semester || '').trim() !== closingTermSemester) return false;
+          const key = `${group.name}|${targetSemester}|${toSchoolYear}`;
+          if (targetGroupKeys.has(key)) return false;
+          targetGroupKeys.add(key);
+          return true;
+        });
+
+        if (blockTemplates.length > 0) {
+          const clonedGroups = await BlockGroup.create(blockTemplates.map((template) => ({
+            name: template.name,
+            courseId: template.courseId,
+            courseCode: template.courseCode,
+            yearLevel: template.yearLevel,
+            semester: targetSemester,
+            schoolYear: toSchoolYear,
+            year: toSchoolYear,
+            section: template.section,
+            // Keep the cohort's curriculum and classification: a copied block
+            // without them shows "no curriculum" and cannot auto-assign.
+            curriculumId: template.curriculumId || null,
+            studentClassification: template.studentClassification || 'All',
+            status: 'Active',
+            isArchived: false,
+            archivedAt: null,
+            archivedBy: null,
+            policies: template.policies,
+          })), { session });
+
+          const clonedSections = await BlockSection.create(
+            clonedGroups.flatMap((group, index) => {
+              const templateSections = closingSectionsByGroup[String(blockTemplates[index]._id)] || [];
+              const sources = templateSections.length > 0 ? templateSections : [null];
+              return sources.map((templateSection) => ({
+                blockGroupId: group._id,
+                sectionCode: templateSection?.sectionCode || group.name,
+                capacity: templateSection?.capacity || DEFAULT_SECTION_CAPACITY,
+                currentPopulation: 0,
+                status: 'OPEN',
+              }));
+            }),
+            { session }
+          );
+
+          clonedGroups.forEach((group) => {
+            const cohortKey = `${Number(group.courseId)}_${Number(group.yearLevel)}`;
+            if (!targetGroupByCohort.has(cohortKey)) targetGroupByCohort.set(cohortKey, group);
+            results.blocksCreated.push({ blockGroupId: String(group._id), name: group.name });
+          });
+
+          clonedSections.forEach((section) => {
+            const groupKey = String(section.blockGroupId);
+            if (!sectionsByGroup.has(groupKey)) sectionsByGroup.set(groupKey, []);
+            sectionsByGroup.get(groupKey).push(section);
+            results.blocksCreated.push({ sectionId: String(section._id), sectionCode: section.sectionCode });
+          });
+        }
+
         // Cache of new-year block sections keyed by course+yearLevel
         const newSectionCache = new Map();
 
@@ -926,6 +1174,10 @@ class AcademicYearRolloverService {
               schoolYear: toSchoolYear,
               year: toSchoolYear,
               section: 'A',
+              status: 'Active',
+              isArchived: false,
+              archivedAt: null,
+              archivedBy: null,
               policies: templateGroup?.policies || undefined
             }], { session });
             group = created[0];
@@ -986,6 +1238,24 @@ class AcademicYearRolloverService {
           const key = String(enrollment.studentId);
           if (!currentEnrollmentsByStudent.has(key)) currentEnrollmentsByStudent.set(key, []);
           currentEnrollmentsByStudent.get(key).push(enrollment);
+        }
+
+        // Target-term enrollments are checked across ALL records, not just
+        // isCurrent ones: a pre-registered Pending enrollment for the new year
+        // is usually not marked current yet, but creating another one would
+        // still duplicate the student's term.
+        const targetEnrollmentDocs = studentIds.length > 0
+          ? await Enrollment.find({
+            studentId: { $in: studentIds },
+            schoolYear: toSchoolYear,
+            semester: targetSemester,
+            status: { $nin: ['Dropped', 'Cancelled'] },
+          }).session(session).select('_id studentId schoolYear semester status isCurrent').lean()
+          : [];
+        const targetEnrollmentByStudent = new Map();
+        for (const enrollment of targetEnrollmentDocs) {
+          const key = String(enrollment.studentId);
+          if (!targetEnrollmentByStudent.has(key)) targetEnrollmentByStudent.set(key, enrollment);
         }
 
         // Load target-year assignments once so they can be upserted in one bulk write.
@@ -1073,7 +1343,15 @@ class AcademicYearRolloverService {
           }
 
           const currentEnrollments = currentEnrollmentsByStudent.get(String(student._id)) || [];
+          // Prefer the enrollment for the term actually being closed. The
+          // fallback keeps legacy single-enrollment records working, but stops
+          // an older unlocked term from being closed when the current term is
+          // known.
           const currentEnrollment = currentEnrollments.find(
+            (enrollment) => enrollment.schoolYear === fromSchoolYear
+              && (!closingTermSemester || enrollment.semester === closingTermSemester)
+              && !enrollment.lockedAt
+          ) || currentEnrollments.find(
             (enrollment) => enrollment.schoolYear === fromSchoolYear && !enrollment.lockedAt
           ) || null;
 
@@ -1103,9 +1381,7 @@ class AcademicYearRolloverService {
           // (e.g. pre-registered for the new year), creating a second one
           // would duplicate the record, so the batch is aborted.
           if (decision.action !== 'graduate') {
-            const conflictingEnrollment = currentEnrollments.find(
-              (enrollment) => enrollment.schoolYear === toSchoolYear && enrollment.semester === targetSemester
-            );
+            const conflictingEnrollment = targetEnrollmentByStudent.get(String(student._id));
             if (conflictingEnrollment) {
               results.failures.push({
                 studentId: String(student._id),
@@ -1477,6 +1753,10 @@ class AcademicYearRolloverService {
         const createdBlockSectionIds = results.blocksCreated
           .filter((item) => item.sectionId)
           .map((item) => item.sectionId);
+        const archivedBlockGroupIds = results.blocksArchived
+          .filter((item) => item.blockGroupId)
+          .map((item) => item.blockGroupId);
+        const archivedBlockSectionIds = sectionIdsToArchive;
 
         await RolloverBatch.create([{
           batchId: rolloverBatchId,
@@ -1490,6 +1770,8 @@ class AcademicYearRolloverService {
           previousAcademicTerm,
           createdBlockGroupIds,
           createdBlockSectionIds,
+          archivedBlockGroupIds,
+          archivedBlockSectionIds,
           studentChanges,
           counts,
           snapshotIds: results.snapshotIds,
@@ -1501,6 +1783,31 @@ class AcademicYearRolloverService {
           { $set: { value: { schoolYear: toSchoolYear, semester: targetSemester } } },
           { upsert: true, session }
         );
+
+        if (AcademicPeriod && typeof AcademicPeriod.updateMany === 'function') {
+          await AcademicPeriod.updateMany(
+            { status: 'Active' },
+            { $set: { status: 'Archived', archivedAt: now, archivedBy: adminId } },
+            { session }
+          );
+          if (typeof AcademicPeriod.findOneAndUpdate === 'function') {
+            await AcademicPeriod.findOneAndUpdate(
+              { schoolYear: toSchoolYear, term: targetSemester },
+              {
+                $set: {
+                  status: 'Active',
+                  archivedAt: null,
+                  archivedBy: null,
+                },
+                $setOnInsert: {
+                  termType: targetSemester === 'Summer' ? 'Summer' : 'Semester',
+                  createdBy: adminId,
+                },
+              },
+              { upsert: true, session }
+            );
+          }
+        }
 
         // ---- Step 5: Audit log ----
         await AuditLog.create([{
@@ -1531,6 +1838,17 @@ class AcademicYearRolloverService {
       adminId,
       correlationId: rolloverBatchId,
     });
+
+    for (const entry of results.blocksArchived || []) {
+      eventBus.emit(DomainEvents.BLOCK_ARCHIVED, {
+        blockGroupId: entry.blockGroupId,
+        name: entry.name,
+        schoolYear: entry.schoolYear,
+        semester: entry.semester,
+        adminId,
+        correlationId: rolloverBatchId,
+      });
+    }
 
     for (const entry of results.promoted) {
       eventBus.emit(DomainEvents.STUDENT_PROMOTED, {
@@ -2007,6 +2325,38 @@ class AcademicYearRolloverService {
           }
         }
 
+        const archivedGroupIds = uniqueIdStrings(batch.archivedBlockGroupIds);
+        const archivedSectionIds = uniqueIdStrings(batch.archivedBlockSectionIds);
+
+        if (archivedGroupIds.length > 0) {
+          await BlockGroup.updateMany(
+            { _id: { $in: archivedGroupIds } },
+            {
+              $set: {
+                status: 'Active',
+                isArchived: false,
+                archivedAt: null,
+                archivedBy: null,
+              },
+            },
+            { session }
+          );
+        }
+
+        if (archivedSectionIds.length > 0) {
+          await BlockSection.updateMany(
+            { _id: { $in: archivedSectionIds } },
+            {
+              $set: {
+                status: 'OPEN',
+                isArchived: false,
+                archivedAt: null,
+              },
+            },
+            { session }
+          );
+        }
+
         const restoredAcademicTerm = batch.previousAcademicTerm || {
           schoolYear: batch.fromSchoolYear,
           semester: batch.semester,
@@ -2016,6 +2366,27 @@ class AcademicYearRolloverService {
           { $set: { value: restoredAcademicTerm } },
           { upsert: true, session }
         );
+
+        if (AcademicPeriod && typeof AcademicPeriod.updateMany === 'function' && restoredAcademicTerm?.schoolYear && restoredAcademicTerm?.semester) {
+          await AcademicPeriod.updateMany(
+            { status: 'Active' },
+            { $set: { status: 'Archived', archivedAt: new Date() } },
+            { session }
+          );
+          if (typeof AcademicPeriod.findOneAndUpdate === 'function') {
+            await AcademicPeriod.findOneAndUpdate(
+              { schoolYear: restoredAcademicTerm.schoolYear, term: restoredAcademicTerm.semester },
+              {
+                $set: {
+                  status: 'Active',
+                  archivedAt: null,
+                  archivedBy: null,
+                },
+              },
+              { session }
+            );
+          }
+        }
 
         const revertedAt = new Date();
         batch.status = 'reverted';

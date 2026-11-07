@@ -224,7 +224,7 @@ function buildSubjectRow(subject, classBlockLabel) {
     code: cleanText(subject?.code, '-'),
     title: cleanText(subject?.title, '-'),
     units: Number.isFinite(units) && units > 0 ? units.toFixed(1) : '-',
-    block: classBlockLabel || 'N/A',
+    block: cleanText(subject?.sectionCode) || classBlockLabel || 'N/A',
     days,
     time,
     room,

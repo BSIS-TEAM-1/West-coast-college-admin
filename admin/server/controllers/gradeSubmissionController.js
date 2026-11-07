@@ -6,8 +6,116 @@ const TransmutationTable = require('../models/TransmutationTable');
 const StudentBlockAssignment = require('../models/StudentBlockAssignment');
 const BlockSection = require('../models/BlockSection');
 const Student = require('../models/Student');
+const StudentNotification = require('../models/StudentNotification');
+const SystemSetting = require('../models/SystemSetting');
 const gradingScaleService = require('../services/gradingScaleService');
+const studentLifecycleService = require('../services/studentLifecycleService');
 const { assertSchoolYearWritable } = require('../services/schoolYearLockService');
+
+async function evaluateLifecycleAfterGradeChange({ enrollment, actorId, accountType, source }) {
+  if (!enrollment?.studentId) return null;
+  try {
+    // Every finalized grade write (publication and approved correction) goes
+    // through the one centralized evaluator. Drafts, submissions, and
+    // verifications never reach it.
+    return await studentLifecycleService.evaluateStudentAcademicStanding({
+      studentId: enrollment.studentId,
+      actorId,
+      accountType: accountType || 'registrar',
+      source
+    });
+  } catch (error) {
+    // The grade write already succeeded. Surface the failure without
+    // pretending the publication itself failed; the evaluator is idempotent
+    // and can be retried safely on the next publication or audit review.
+    console.error('[student-lifecycle] Post-publication evaluation failed:', error);
+    return { changed: false, error: error.message || 'Lifecycle evaluation failed' };
+  }
+}
+
+/**
+ * Build the per-transition notification payload for grade verification /
+ * publication and deliver it to the student's in-app notification inbox.
+ *
+ * Delivery is idempotent: `eventKey` is scoped to the enrollment, the changed
+ * subjects, and the exact submission cycle (verifiedAt/publishedAt), so a
+ * retry after a transient failure can never duplicate a notification.
+ * Notification failures are non-fatal — the grade write has already succeeded.
+ */
+async function notifyStudentGradeTransition({
+  enrollment,
+  subjects,
+  action, // 'verified' | 'published'
+  remarks = ''
+}) {
+  if (!enrollment?.studentId) return;
+  try {
+    const subjectLabels = (subjects || [])
+      .map((s) => String(s.code || '').trim().toUpperCase())
+      .filter(Boolean);
+    if (subjectLabels.length === 0) return;
+
+    const codes = subjectLabels.join(', ');
+    const term = `${enrollment.semester || ''} Semester ${enrollment.schoolYear || ''}`.replace('Semester Summer', 'Summer').trim();
+    const now = new Date();
+    const actionEventKey = action === 'published' ? 'grade-published' : 'grade-verified';
+
+    const isPublished = action === 'published';
+    const title = isPublished ? 'Grades Published' : 'Grades Verified';
+    const message = isPublished
+      ? `Your grades for ${codes} (${term}) have been published by the Registrar and are now official. You can view them in the Grades section.${remarks ? ` Remarks: ${remarks}` : ''}`
+      : `Your grades for ${codes} (${term}) have been verified by the Registrar. Publication will follow once processing is complete.${remarks ? ` Remarks: ${remarks}` : ''}`;
+
+    // Per-subject grade snapshot so the notification reflects the official values
+    const subjectDetails = (subjects || []).map((s) => ({
+      subjectId: s.subjectId ? String(s.subjectId) : null,
+      subjectCode: String(s.code || '').trim().toUpperCase(),
+      subjectTitle: String(s.title || s.code || '').trim(),
+      instructor: String(s.instructor || '').trim(),
+      submissionStatus: isPublished ? 'Published' : 'Verified'
+    }));
+
+    // The transition timestamp scopes the eventKey to the exact submission
+    // cycle, so re-verification after a registrar return produces a fresh
+    // notification while retries of the same transition cannot duplicate it.
+    const cycleStamp = isPublished
+      ? (enrollment.gradeSubmission?.publishedAt ? new Date(enrollment.gradeSubmission.publishedAt).toISOString() : now.toISOString())
+      : (enrollment.gradeSubmission?.verifiedAt ? new Date(enrollment.gradeSubmission.verifiedAt).toISOString() : now.toISOString());
+    const eventKey = `${actionEventKey}:${enrollment._id}:${cycleStamp}`;
+
+    await StudentNotification.updateOne(
+      {
+        studentId: enrollment.studentId,
+        eventKey
+      },
+      {
+        $setOnInsert: {
+          studentId: enrollment.studentId,
+          studentNumber: String(enrollment.studentNumber || ''),
+          type: 'ACADEMIC',
+          title,
+          message,
+          eventKey,
+          isRead: false,
+          readAt: null,
+          data: {
+            action,
+            subjectCodes: subjectLabels,
+            subjects: subjectDetails,
+            schoolYear: enrollment.schoolYear || '',
+            semester: enrollment.semester || '',
+            remarks: remarks || '',
+            verifiedAt: enrollment.gradeSubmission?.verifiedAt || null,
+            publishedAt: enrollment.gradeSubmission?.publishedAt || null
+          }
+        }
+      },
+      { upsert: true }
+    );
+  } catch (err) {
+    console.error('Failed to dispatch grade transition notification:', err?.message || err);
+  }
+}
 
 /**
  * GET /registrar/grade-submissions
@@ -321,6 +429,550 @@ async function submitGrades(req, res) {
 }
 
 /**
+ * Professor bulk submits grades for multiple enrollments in a subject.
+ * Validates grades, ownership, and locks for each student, saving in batch.
+ */
+async function bulkSubmitGrades(req, res) {
+  try {
+    const { enrollmentIds, subjectId, semester, schoolYear } = req.body || {};
+    if (!Array.isArray(enrollmentIds) || enrollmentIds.length === 0) {
+      return res.status(400).json({ error: 'enrollmentIds array is required.' });
+    }
+    if (!subjectId) {
+      return res.status(400).json({ error: 'subjectId is required.' });
+    }
+
+    const instructorMatches = req.instructorMatchesProfessor || (() => true);
+
+    const validEnrollmentIds = enrollmentIds
+      .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      .map((id) => new mongoose.Types.ObjectId(id));
+
+    if (validEnrollmentIds.length === 0) {
+      return res.status(400).json({ error: 'No valid enrollment IDs provided.' });
+    }
+
+    const enrollments = await Enrollment.find({
+      _id: { $in: validEnrollmentIds },
+      status: { $nin: ['Dropped', 'Cancelled'] }
+    });
+
+    if (enrollments.length === 0) {
+      return res.status(404).json({ error: 'No matching enrollments found.' });
+    }
+
+    let succeeded = 0;
+    let failed = 0;
+    const errors = [];
+    const submittedEnrollmentIds = [];
+    const auditLogs = [];
+
+    for (const enrollment of enrollments) {
+      try {
+        if (enrollment.lockedAt) {
+          failed++;
+          errors.push(`Enrollment for ${enrollment.studentNumber || enrollment._id} is locked.`);
+          continue;
+        }
+
+        await assertSchoolYearWritable(enrollment.schoolYear, 'grade submission');
+
+        const subjectsToSubmit = (Array.isArray(enrollment.subjects) ? enrollment.subjects : []).filter((s) =>
+          String(s.subjectId) === String(subjectId) &&
+          s.status !== 'Dropped' &&
+          s.status !== 'Removed' &&
+          instructorMatches(s.instructor)
+        );
+
+        if (subjectsToSubmit.length === 0) {
+          failed++;
+          errors.push(`No eligible subject found for student ${enrollment.studentNumber || enrollment._id}.`);
+          continue;
+        }
+
+        const unsubmittedSubjects = subjectsToSubmit.filter((s) =>
+          !['Submitted', 'Verified', 'Published'].includes(s.submissionStatus || 'Draft')
+        );
+
+        if (unsubmittedSubjects.length === 0) {
+          // Already submitted or published
+          succeeded++;
+          submittedEnrollmentIds.push(String(enrollment._id));
+          continue;
+        }
+
+        const ungraded = unsubmittedSubjects.filter(
+          (s) => (s.grade === null || s.grade === undefined) && !s.gradeMark
+        );
+        if (ungraded.length > 0) {
+          failed++;
+          errors.push(`Student ${enrollment.studentNumber || enrollment._id} has no grade or mark.`);
+          continue;
+        }
+
+        unsubmittedSubjects.forEach((s) => {
+          s.submissionStatus = 'Submitted';
+          s.dateModified = new Date();
+        });
+
+        const validStatuses = ['Draft', 'Submitted', 'Verified', 'Published', 'Returned'];
+        enrollment.subjects.forEach((subject) => {
+          if (!validStatuses.includes(subject.submissionStatus)) {
+            subject.submissionStatus = 'Draft';
+          }
+        });
+
+        const aggregateStatus = Enrollment.computeAggregateSubmissionStatus(enrollment.subjects);
+        const existingSubmission = enrollment.gradeSubmission || {};
+        enrollment.gradeSubmission = {
+          status: aggregateStatus,
+          submittedAt: aggregateStatus === 'Submitted' ? new Date() : existingSubmission.submittedAt || null,
+          submittedBy: aggregateStatus === 'Submitted' ? req.adminId : existingSubmission.submittedBy || null,
+          verifiedAt: existingSubmission.verifiedAt || null,
+          verifiedBy: existingSubmission.verifiedBy || null,
+          publishedAt: existingSubmission.publishedAt || null,
+          publishedBy: existingSubmission.publishedBy || null,
+          reviewedAt: existingSubmission.reviewedAt || null,
+          reviewedBy: existingSubmission.reviewedBy || null,
+          reviewRemarks: existingSubmission.reviewRemarks || ''
+        };
+        enrollment.updatedBy = req.adminId;
+        enrollment.markModified('subjects');
+        await enrollment.save();
+
+        auditLogs.push({
+          enrollmentId: enrollment._id,
+          studentId: enrollment.studentId,
+          studentNumber: enrollment.studentNumber,
+          subjectId: unsubmittedSubjects.length === 1 ? unsubmittedSubjects[0].subjectId : null,
+          subjectCode: unsubmittedSubjects.length === 1 ? unsubmittedSubjects[0].code : 'ALL',
+          action: 'submission',
+          changedBy: req.adminId,
+          changedByRole: req.accountType || 'professor',
+          schoolYear: enrollment.schoolYear,
+          semester: enrollment.semester,
+          newRemarks: `Bulk submission for ${unsubmittedSubjects[0].code || 'subject'}`
+        });
+
+        succeeded++;
+        submittedEnrollmentIds.push(String(enrollment._id));
+      } catch (err) {
+        failed++;
+        errors.push(`Student ${enrollment.studentNumber || enrollment._id}: ${err.message}`);
+      }
+    }
+
+    if (auditLogs.length > 0) {
+      await GradeAuditLog.insertMany(auditLogs).catch((err) =>
+        console.error('Failed to write bulk submission audit logs:', err)
+      );
+    }
+
+    return res.json({
+      success: true,
+      message: `Bulk submission completed: ${succeeded} succeeded, ${failed} failed.`,
+      data: {
+        succeeded,
+        failed,
+        submittedEnrollmentIds,
+        errors
+      }
+    });
+  } catch (error) {
+    console.error('Error in bulkSubmitGrades:', error);
+    return res.status(500).json({ error: error.message || 'Failed to bulk submit grades.' });
+  }
+}
+
+/**
+ * GET /api/professor/grade-submissions/all-courses-summary
+ * Returns a summary of all courses/subjects assigned to the professor,
+ * including student rosters and grade completion stats for pre-submission preview.
+ */
+async function getAllCoursesSummary(req, res) {
+  try {
+    const access = req.professorAccess;
+    if (!access) {
+      return res.status(403).json({ error: 'Professor access not found.' });
+    }
+
+    let activeSchoolYear = '2026-2027';
+    let activeSemester = '1st';
+    try {
+      const termSetting = await SystemSetting.findOne({ key: 'academicTerm' }).lean();
+      if (termSetting?.value?.schoolYear) activeSchoolYear = termSetting.value.schoolYear;
+      if (termSetting?.value?.semester) activeSemester = termSetting.value.semester;
+    } catch {
+      // ignore
+    }
+
+    const semester = req.query.semester || activeSemester;
+    const schoolYear = req.query.schoolYear || activeSchoolYear;
+
+    const enrollmentFilter = {
+      status: { $nin: ['Dropped', 'Cancelled'] },
+      subjects: {
+        $elemMatch: {
+          instructor: { $in: access.exactIdentifierPatterns },
+          status: { $nin: ['Dropped', 'Removed'] }
+        }
+      }
+    };
+
+    if (req.query.termFilter !== 'all') {
+      if (semester) enrollmentFilter.semester = semester;
+      if (schoolYear) enrollmentFilter.schoolYear = schoolYear;
+    }
+
+    const enrollments = await Enrollment.find(enrollmentFilter)
+      .select('studentId studentNumber course schoolYear semester yearLevel subjects')
+      .lean();
+
+    if (enrollments.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          courses: [],
+          stats: {
+            totalCourses: 0,
+            totalEnrolled: 0,
+            totalGraded: 0,
+            totalPending: 0,
+            totalSubmitted: 0,
+            totalReadyToSubmit: 0,
+            passedCount: 0,
+            failedCount: 0
+          }
+        }
+      });
+    }
+
+    const studentIds = Array.from(new Set(enrollments.map((e) => e.studentId).filter(Boolean)));
+    const studentObjectIds = studentIds
+      .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      .map((id) => new mongoose.Types.ObjectId(id));
+
+    const students = studentObjectIds.length > 0
+      ? await Student.find({ _id: { $in: studentObjectIds } })
+          .select('_id firstName middleName lastName suffix studentNumber course')
+          .lean()
+      : [];
+
+    const studentMap = new Map(students.map((s) => [String(s._id), s]));
+
+    // Fetch block assignments to know the section codes
+    const assignments = await StudentBlockAssignment.find({
+      studentId: { $in: studentIds.map(String) },
+      status: 'ASSIGNED'
+    }).select('studentId sectionId semester year').lean();
+
+    const assignmentsByStudent = new Map();
+    assignments.forEach((a) => {
+      const sid = String(a.studentId);
+      const list = assignmentsByStudent.get(sid) || [];
+      list.push(a);
+      assignmentsByStudent.set(sid, list);
+    });
+
+    const sectionIds = Array.from(
+      new Set(assignments.map((a) => a.sectionId).filter((id) => mongoose.Types.ObjectId.isValid(id)))
+    );
+    const sections = sectionIds.length > 0
+      ? await BlockSection.find({ _id: { $in: sectionIds.map((id) => new mongoose.Types.ObjectId(id)) } })
+          .select('_id sectionCode')
+          .lean()
+      : [];
+    const sectionMap = new Map(sections.map((s) => [String(s._id), s.sectionCode]));
+
+    // Group subjects by unique class: courseCode + subjectId + sectionCode
+    const courseGroups = new Map();
+
+    let globalEnrolled = 0;
+    let globalGraded = 0;
+    let globalPending = 0;
+    let globalSubmitted = 0;
+    let globalReadyToSubmit = 0;
+    let globalPassed = 0;
+    let globalFailed = 0;
+
+    for (const enrollment of enrollments) {
+      const studentInfo = studentMap.get(String(enrollment.studentId));
+      const studentAssignments = assignmentsByStudent.get(String(enrollment.studentId)) || [];
+      const matchingAssignment = studentAssignments.find((a) =>
+        (!a.semester || a.semester === enrollment.semester) &&
+        (!a.year || String(a.year).includes(enrollment.schoolYear.split('-')[0]))
+      ) || studentAssignments[0];
+
+      const sectionId = matchingAssignment ? String(matchingAssignment.sectionId) : '';
+      const sectionCode = (matchingAssignment && sectionMap.get(sectionId)) || 'Unassigned';
+
+      const profSubjects = (Array.isArray(enrollment.subjects) ? enrollment.subjects : []).filter((s) =>
+        s.status !== 'Dropped' &&
+        s.status !== 'Removed' &&
+        access.instructorMatchesProfessor(s.instructor)
+      );
+
+      for (const subj of profSubjects) {
+        const groupKey = `${enrollment.course}|${subj.code}|${subj.subjectId}|${sectionCode}|${enrollment.semester}|${enrollment.schoolYear}`;
+
+        if (!courseGroups.has(groupKey)) {
+          courseGroups.set(groupKey, {
+            key: groupKey,
+            courseCode: enrollment.course,
+            sectionId,
+            sectionCode,
+            blockCode: `${enrollment.course} ${sectionCode}`.trim(),
+            subjectId: String(subj.subjectId),
+            subjectCode: subj.code,
+            subjectTitle: subj.title,
+            semester: enrollment.semester,
+            schoolYear: enrollment.schoolYear,
+            yearLevel: enrollment.yearLevel,
+            totalEnrolled: 0,
+            totalGraded: 0,
+            totalPending: 0,
+            totalSubmitted: 0,
+            totalReadyToSubmit: 0,
+            passedCount: 0,
+            failedCount: 0,
+            students: []
+          });
+        }
+
+        const group = courseGroups.get(groupKey);
+        group.totalEnrolled++;
+        globalEnrolled++;
+
+        const hasNumericalGrade = subj.grade !== null && subj.grade !== undefined && String(subj.grade).trim() !== '';
+        const hasMark = Boolean(subj.gradeMark);
+        const isGraded = hasNumericalGrade || hasMark;
+        const isSubmitted = ['Submitted', 'Verified', 'Published'].includes(subj.submissionStatus || 'Draft');
+        const isSubmittable = !isSubmitted && isGraded;
+
+        if (isGraded) {
+          group.totalGraded++;
+          globalGraded++;
+
+          if (hasNumericalGrade) {
+            const num = Number(subj.grade);
+            if (num <= 3.0) {
+              group.passedCount++;
+              globalPassed++;
+            } else {
+              group.failedCount++;
+              globalFailed++;
+            }
+          } else if (subj.gradeMark === 'FA') {
+            group.failedCount++;
+            globalFailed++;
+          }
+        } else {
+          group.totalPending++;
+          globalPending++;
+        }
+
+        if (isSubmitted) {
+          group.totalSubmitted++;
+          globalSubmitted++;
+        }
+
+        if (isSubmittable) {
+          group.totalReadyToSubmit++;
+          globalReadyToSubmit++;
+        }
+
+        const studentName = studentInfo
+          ? [studentInfo.lastName, studentInfo.firstName, studentInfo.middleName, studentInfo.suffix]
+              .filter(Boolean)
+              .join(', ')
+          : enrollment.studentNumber;
+
+        group.students.push({
+          studentId: String(enrollment.studentId),
+          enrollmentId: String(enrollment._id),
+          studentNumber: enrollment.studentNumber,
+          name: studentName,
+          grade: subj.grade,
+          gradeMark: subj.gradeMark,
+          remarks: subj.remarks || '',
+          submissionStatus: subj.submissionStatus || 'Draft',
+          isGraded,
+          isSubmitted,
+          isSubmittable
+        });
+      }
+    }
+
+    const coursesList = Array.from(courseGroups.values());
+
+    return res.json({
+      success: true,
+      data: {
+        courses: coursesList,
+        stats: {
+          totalCourses: coursesList.length,
+          totalEnrolled: globalEnrolled,
+          totalGraded: globalGraded,
+          totalPending: globalPending,
+          totalSubmitted: globalSubmitted,
+          totalReadyToSubmit: globalReadyToSubmit,
+          passedCount: globalPassed,
+          failedCount: globalFailed
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error in getAllCoursesSummary:', error);
+    return res.status(500).json({ error: error.message || 'Failed to fetch all courses summary.' });
+  }
+}
+
+/**
+ * POST /api/professor/grade-submissions/bulk-submit-all-courses
+ * Submits all eligible graded students across all assigned courses for this professor.
+ */
+async function bulkSubmitAllCourses(req, res) {
+  try {
+    const access = req.professorAccess;
+    if (!access) {
+      return res.status(403).json({ error: 'Professor access not found.' });
+    }
+
+    const { semester, schoolYear } = req.body || {};
+
+    let activeSchoolYear = '2026-2027';
+    let activeSemester = '1st';
+    try {
+      const termSetting = await SystemSetting.findOne({ key: 'academicTerm' }).lean();
+      if (termSetting?.value?.schoolYear) activeSchoolYear = termSetting.value.schoolYear;
+      if (termSetting?.value?.semester) activeSemester = termSetting.value.semester;
+    } catch {
+      // ignore
+    }
+
+    const targetSemester = semester || activeSemester;
+    const targetSchoolYear = schoolYear || activeSchoolYear;
+
+    await assertSchoolYearWritable(targetSchoolYear, 'all courses grade submission');
+
+    const enrollmentFilter = {
+      status: { $nin: ['Dropped', 'Cancelled'] },
+      schoolYear: targetSchoolYear,
+      subjects: {
+        $elemMatch: {
+          instructor: { $in: access.exactIdentifierPatterns },
+          status: { $nin: ['Dropped', 'Removed'] }
+        }
+      }
+    };
+    if (targetSemester) enrollmentFilter.semester = targetSemester;
+
+    const enrollments = await Enrollment.find(enrollmentFilter);
+
+    if (enrollments.length === 0) {
+      return res.status(404).json({ error: 'No enrollments found for the specified term.' });
+    }
+
+    let succeededStudents = 0;
+    let failedStudents = 0;
+    const affectedCourses = new Set();
+    const errors = [];
+    const auditLogs = [];
+
+    for (const enrollment of enrollments) {
+      try {
+        if (enrollment.lockedAt) {
+          continue;
+        }
+
+        const eligibleSubjects = (Array.isArray(enrollment.subjects) ? enrollment.subjects : []).filter((s) =>
+          s.status !== 'Dropped' &&
+          s.status !== 'Removed' &&
+          access.instructorMatchesProfessor(s.instructor) &&
+          !['Submitted', 'Verified', 'Published'].includes(s.submissionStatus || 'Draft') &&
+          ((s.grade !== null && s.grade !== undefined) || s.gradeMark)
+        );
+
+        if (eligibleSubjects.length === 0) {
+          continue;
+        }
+
+        eligibleSubjects.forEach((s) => {
+          s.submissionStatus = 'Submitted';
+          s.dateModified = new Date();
+          affectedCourses.add(`${enrollment.course}-${s.code}`);
+        });
+
+        const validStatuses = ['Draft', 'Submitted', 'Verified', 'Published', 'Returned'];
+        enrollment.subjects.forEach((subject) => {
+          if (!validStatuses.includes(subject.submissionStatus)) {
+            subject.submissionStatus = 'Draft';
+          }
+        });
+
+        const aggregateStatus = Enrollment.computeAggregateSubmissionStatus(enrollment.subjects);
+        const existingSubmission = enrollment.gradeSubmission || {};
+        enrollment.gradeSubmission = {
+          status: aggregateStatus,
+          submittedAt: aggregateStatus === 'Submitted' ? new Date() : existingSubmission.submittedAt || null,
+          submittedBy: aggregateStatus === 'Submitted' ? req.adminId : existingSubmission.submittedBy || null,
+          verifiedAt: existingSubmission.verifiedAt || null,
+          verifiedBy: existingSubmission.verifiedBy || null,
+          publishedAt: existingSubmission.publishedAt || null,
+          publishedBy: existingSubmission.publishedBy || null,
+          reviewedAt: existingSubmission.reviewedAt || null,
+          reviewedBy: existingSubmission.reviewedBy || null,
+          reviewRemarks: existingSubmission.reviewRemarks || ''
+        };
+        enrollment.updatedBy = req.adminId;
+        enrollment.markModified('subjects');
+        await enrollment.save();
+
+        eligibleSubjects.forEach((s) => {
+          auditLogs.push({
+            enrollmentId: enrollment._id,
+            studentId: enrollment.studentId,
+            studentNumber: enrollment.studentNumber,
+            subjectId: s.subjectId,
+            subjectCode: s.code,
+            action: 'submission',
+            changedBy: req.adminId,
+            changedByRole: req.accountType || 'professor',
+            schoolYear: enrollment.schoolYear,
+            semester: enrollment.semester,
+            newRemarks: `Bulk submission all courses for ${s.code}`
+          });
+          succeededStudents++;
+        });
+      } catch (err) {
+        failedStudents++;
+        errors.push(`Enrollment ${enrollment.studentNumber || enrollment._id}: ${err.message}`);
+      }
+    }
+
+    if (auditLogs.length > 0) {
+      await GradeAuditLog.insertMany(auditLogs).catch((err) =>
+        console.error('Failed to write audit logs for submit all courses:', err)
+      );
+    }
+
+    return res.json({
+      success: true,
+      message: `Successfully submitted grades across all courses: ${succeededStudents} student grades submitted across ${affectedCourses.size} courses.`,
+      data: {
+        succeeded: succeededStudents,
+        failed: failedStudents,
+        totalCoursesAffected: affectedCourses.size,
+        errors
+      }
+    });
+  } catch (error) {
+    console.error('Error in bulkSubmitAllCourses:', error);
+    return res.status(500).json({ error: error.message || 'Failed to submit all course grades.' });
+  }
+}
+
+/**
  * POST /registrar/grade-submissions/:enrollmentId/verify
  * Registrar verifies a submitted grade sheet (administrative/procedural verification).
  * Transition: Submitted → Verified
@@ -383,6 +1035,14 @@ async function verifyGrades(req, res) {
       schoolYear: enrollment.schoolYear,
       semester: enrollment.semester,
       newRemarks: req.body?.remarks || 'Grades verified by registrar'
+    });
+
+    // Notify the student that their grades have been verified
+    void notifyStudentGradeTransition({
+      enrollment,
+      subjects: subjectsToVerify,
+      action: 'verified',
+      remarks: (req.body?.remarks || '').trim()
     });
 
     return res.json({ success: true, message: 'Grades verified.', data: enrollment });
@@ -457,7 +1117,27 @@ async function publishGrades(req, res) {
       newRemarks: req.body?.remarks || 'Grades published — now visible to students'
     });
 
-    return res.json({ success: true, message: 'Grades published. Students can now view their grades.', data: enrollment });
+    const lifecycle = await evaluateLifecycleAfterGradeChange({
+      enrollment,
+      actorId: req.adminId,
+      accountType: req.accountType,
+      source: 'grade_publication'
+    });
+
+    // Notify the student that their grades are officially published and viewable
+    void notifyStudentGradeTransition({
+      enrollment,
+      subjects: subjectsToPublish,
+      action: 'published',
+      remarks: (req.body?.remarks || '').trim()
+    });
+
+    return res.json({
+      success: true,
+      message: 'Grades published. Students can now view their grades.',
+      data: enrollment,
+      lifecycle
+    });
   } catch (error) {
     console.error('Error publishing grades:', error);
     return res.status(500).json({ error: 'Failed to publish grades.' });
@@ -838,7 +1518,19 @@ async function reviewGradeChangeRequest(req, res) {
         newRemarks: reviewRemarksText || `Grade change approved: ${gradingScaleService.formatGrade(oldGrade)} → ${gradingScaleService.formatGrade(request.requestedGrade)}`
       });
 
-      return res.json({ success: true, message: 'Grade change approved and applied.', data: request });
+      const lifecycle = await evaluateLifecycleAfterGradeChange({
+        enrollment,
+        actorId: req.adminId,
+        accountType: req.accountType,
+        source: 'grade_change_approval'
+      });
+
+      return res.json({
+        success: true,
+        message: 'Grade change approved and applied.',
+        data: request,
+        lifecycle
+      });
     } else {
       // Reject
       request.status = 'Rejected';
@@ -1115,6 +1807,9 @@ module.exports = {
   getSubmission,
   getClassSubmissions,
   submitGrades,
+  bulkSubmitGrades,
+  getAllCoursesSummary,
+  bulkSubmitAllCourses,
   verifyGrades,
   publishGrades,
   returnGrades,

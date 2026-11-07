@@ -24,6 +24,7 @@ const StudentBlockAssignment = require('../models/StudentBlockAssignment');
 const RolloverBatch = require('../models/RolloverBatch');
 const Backup = require('../models/Backup');
 const SystemSetting = require('../models/SystemSetting');
+const rolloverGradeService = require('./rolloverGradeService');
 
 const ACADEMIC_TERM_KEY = 'academicTerm';
 const ROLLOVER_ELIGIBLE_LIFECYCLE = ['Enrolled', 'Pending', 'Not Enrolled'];
@@ -197,7 +198,18 @@ async function runChecks({ fromSchoolYear, toSchoolYear, semester }) {
   })
     .select('_id studentNumber course yearLevel section latestGrade lifecycleStatus')
     .lean();
-  const noGrade = eligibleStudents.filter((student) => typeof student.latestGrade !== 'number');
+  // Grades usually live on the closing-term enrollment, not on the student
+  // document; the student's latestGrade is only a legacy fallback.
+  const closingGradeMap = await rolloverGradeService.loadClosingGradeMap({
+    schoolYear: fromSchoolYear,
+    semester: closingSemester,
+  });
+  const noGrade = eligibleStudents.filter((student) => (
+    rolloverGradeService.resolveEffectiveGrade(
+      student.latestGrade,
+      closingGradeMap.get(String(student._id))
+    ) === null
+  ));
   results.push(check(
     'missing_grades',
     'Students without a recorded grade',

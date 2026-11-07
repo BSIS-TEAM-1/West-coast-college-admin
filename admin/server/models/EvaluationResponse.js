@@ -31,12 +31,22 @@ const QuestionRatingSchema = new mongoose.Schema({
 }, { _id: false });
 
 /**
- * EvaluationResponse stores anonymous rating submissions.
- * Student identity fields (studentId, studentNumber, studentName) are
- * intentionally omitted from this schema to protect student anonymity
- * on all professor-facing queries.
+ * EvaluationResponse stores professor evaluation records.
+ * Historical records without studentId/teachingAssignmentId remain preserved.
+ * Student identity is kept internal and never exposed to professors.
  */
 const EvaluationResponseSchema = new mongoose.Schema({
+  studentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Student',
+    default: null,
+    index: true
+  },
+  teachingAssignmentId: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null,
+    index: true
+  },
   periodId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'EvaluationPeriod',
@@ -55,6 +65,12 @@ const EvaluationResponseSchema = new mongoose.Schema({
     trim: true,
     index: true
   },
+  academicYear: {
+    type: String,
+    trim: true,
+    default: '',
+    index: true
+  },
   subjectId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Subject',
@@ -66,6 +82,12 @@ const EvaluationResponseSchema = new mongoose.Schema({
     required: true,
     trim: true,
     uppercase: true,
+    index: true
+  },
+  subjectName: {
+    type: String,
+    trim: true,
+    default: '',
     index: true
   },
   subjectTitle: {
@@ -116,9 +138,9 @@ const EvaluationResponseSchema = new mongoose.Schema({
     required: true,
     validate: {
       validator(arr) {
-        return Array.isArray(arr) && arr.length === 10;
+        return Array.isArray(arr) && arr.length >= 1;
       },
-      message: 'Evaluation must contain exactly 10 question ratings.'
+      message: 'Evaluation must contain question ratings.'
     }
   },
   questionScores: {
@@ -126,9 +148,9 @@ const EvaluationResponseSchema = new mongoose.Schema({
     required: true,
     validate: {
       validator(arr) {
-        return Array.isArray(arr) && arr.length === 10 && arr.every((n) => Number.isInteger(n) && n >= 1 && n <= 5);
+        return Array.isArray(arr) && arr.length >= 1 && arr.every((n) => Number.isInteger(n) && n >= 1 && n <= 5);
       },
-      message: 'Question scores must be 10 integers between 1 and 5.'
+      message: 'Question scores must be integers between 1 and 5.'
     }
   },
   averageRating: {
@@ -152,8 +174,26 @@ const EvaluationResponseSchema = new mongoose.Schema({
   timestamps: true
 });
 
+EvaluationResponseSchema.pre('validate', function(next) {
+  if (!this.subjectName && this.subjectTitle) {
+    this.subjectName = this.subjectTitle;
+  } else if (!this.subjectTitle && this.subjectName) {
+    this.subjectTitle = this.subjectName;
+  }
+
+  if (!this.academicYear && this.schoolYear) {
+    this.academicYear = this.schoolYear;
+  } else if (!this.schoolYear && this.academicYear) {
+    this.schoolYear = this.academicYear;
+  }
+  next();
+});
+
 EvaluationResponseSchema.index({ professorId: 1, schoolYear: 1, semester: 1 });
 EvaluationResponseSchema.index({ professorName: 1, schoolYear: 1, semester: 1 });
 EvaluationResponseSchema.index({ subjectCode: 1, schoolYear: 1, semester: 1 });
+EvaluationResponseSchema.index({ subjectName: 1, schoolYear: 1, semester: 1 });
+EvaluationResponseSchema.index({ sectionCode: 1, schoolYear: 1, semester: 1 });
+EvaluationResponseSchema.index({ studentId: 1, schoolYear: 1, semester: 1, subjectCode: 1 });
 
 module.exports = mongoose.model('EvaluationResponse', EvaluationResponseSchema);

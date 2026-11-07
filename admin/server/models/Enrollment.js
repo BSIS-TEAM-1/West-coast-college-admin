@@ -88,7 +88,9 @@ const enrollmentSchema = new Schema({
       default: null
     },
     // Non-numerical grade mark for special cases (INC, DRP, W, FA, NG).
-    // When set, grade should be null. Displayed instead of the numerical grade.
+    // INC/DRP/W/NG are stored without a numeric grade. FA is the exception:
+    // it is stored together with its fixed CHED failing equivalent, 5.0, so
+    // GWA/history calculations count the failure.
     gradeMark: {
       type: String,
       enum: ['INC', 'DRP', 'W', 'FA', 'NG', null],

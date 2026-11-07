@@ -25,6 +25,9 @@ export type BlockGroup = {
   section?: string
   curriculumId?: string | null
   studentClassification?: string
+  status?: 'Active' | 'Archived'
+  isArchived?: boolean
+  archivedAt?: string | null
   policies?: {
     maxOvercap?: number
   }
@@ -36,7 +39,9 @@ export type BlockSection = {
   sectionCode: string
   capacity: number
   currentPopulation: number
-  status: 'OPEN' | 'CLOSED'
+  status: 'OPEN' | 'CLOSED' | 'ARCHIVED'
+  isArchived?: boolean
+  archivedAt?: string | null
   schedule?: string
   classAdviser?: string
 }

@@ -5,6 +5,7 @@ const VerificationEmailService = require('./verificationEmailService');
 const SmsApiPhService = require('./smsApiPhService');
 const TextlocalSmsService = require('./textlocalSmsService');
 const { DEFAULT_SCHOOL_YEAR, DEFAULT_SEMESTER } = require('../lib/academicTerm');
+const { getLifecycleRestriction } = require('./lifecycleRestrictions');
 
 const ACADEMIC_TERM_KEY = 'academicTerm';
 const SCHOOL_YEAR_PATTERN = /^\d{4}-\d{4}$/;
@@ -194,8 +195,12 @@ function serializeVerification(record, email, phone = '', { includeCode = false 
   const verificationLive = record.verifiedAt
     && record.verificationExpiresAt
     && new Date(record.verificationExpiresAt).getTime() > now
-    && !record.consumedAt;
-  const codeLive = record.codeExpiresAt && new Date(record.codeExpiresAt).getTime() > now;
+    && !record.consumedAt
+    && !record.invalidatedAt;
+  const codeLive = record.codeExpiresAt
+    && new Date(record.codeExpiresAt).getTime() > now
+    && !record.consumedAt
+    && !record.invalidatedAt;
   const status = verificationLive ? 'verified' : codeLive ? 'sent' : 'expired';
 
   return {
@@ -211,6 +216,11 @@ function serializeVerification(record, email, phone = '', { includeCode = false 
 }
 
 async function sendCode({ student, schoolYear, semester, actorId = null, returnCode = false }) {
+  const lifecycleRestriction = getLifecycleRestriction(student?.lifecycleStatus);
+  if (lifecycleRestriction) {
+    throw verificationError(lifecycleRestriction.message, 403, lifecycleRestriction.code);
+  }
+
   const email = String(student?.email || '').trim().toLowerCase();
   const phone = String(student?.contactNumber || '').trim();
   const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -265,6 +275,9 @@ async function sendCode({ student, schoolYear, semester, actorId = null, returnC
     }
   }
 
+  const studentCourse = Number(student?.course);
+  const studentYearLevel = Number(student?.yearLevel);
+
   const record = await ReEnrollmentVerification.findOneAndUpdate(
     { studentId: student._id, schoolYear, semester },
     {
@@ -275,9 +288,15 @@ async function sendCode({ student, schoolYear, semester, actorId = null, returnC
         lastSentAt: now,
         sentVia,
         requestedBy: actorId || null,
+        verifiedBy: null,
+        consumedBy: null,
+        course: Number.isFinite(studentCourse) && studentCourse > 0 ? studentCourse : null,
+        yearLevel: Number.isFinite(studentYearLevel) && studentYearLevel > 0 ? studentYearLevel : null,
         verifiedAt: null,
         verificationExpiresAt: null,
         consumedAt: null,
+        invalidatedAt: null,
+        invalidationReason: null,
       },
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -297,7 +316,24 @@ async function sendCode({ student, schoolYear, semester, actorId = null, returnC
   return response;
 }
 
-async function verifyCode({ studentId, schoolYear, semester, code, studentEmail = '', studentPhone = '' }) {
+async function verifyCode({
+  studentId,
+  schoolYear,
+  semester,
+  code,
+  studentEmail = '',
+  studentPhone = '',
+  actorId = null,
+  allowRegistrarHandoff = false,
+  student = null,
+}) {
+  if (student) {
+    const lifecycleRestriction = getLifecycleRestriction(student.lifecycleStatus);
+    if (lifecycleRestriction) {
+      throw verificationError(lifecycleRestriction.message, 403, lifecycleRestriction.code);
+    }
+  }
+
   const normalizedCode = String(code || '').trim();
   if (!/^\d{6}$/.test(normalizedCode)) {
     throw verificationError('Enter the 6-digit verification code sent to the student.', 400, 'INVALID_CODE_FORMAT');
@@ -312,12 +348,50 @@ async function verifyCode({ studentId, schoolYear, semester, code, studentEmail 
     );
   }
 
+  if (record.invalidatedAt) {
+    throw verificationError(
+      'This re-enrollment verification session was invalidated because the student record changed. Send a new code to the student.',
+      409,
+      'VERIFICATION_INVALIDATED'
+    );
+  }
+
   if (record.consumedAt) {
     throw verificationError(
       'This re-enrollment code was already used. Send a new code if the student needs another enrollment.',
       400,
       'CODE_ALREADY_USED'
     );
+  }
+
+  if (
+    record.requestedBy
+    && actorId
+    && String(record.requestedBy) !== String(actorId)
+    && !allowRegistrarHandoff
+  ) {
+    throw verificationError(
+      'This verification code was requested by another registrar session. Send a new code or authorize handoff.',
+      403,
+      'REGISTRAR_MISMATCH'
+    );
+  }
+
+  if (student) {
+    if (record.course != null && student.course != null && Number(record.course) !== Number(student.course)) {
+      throw verificationError(
+        'Student program changed since the verification code was sent. Send a new code for the updated program.',
+        409,
+        'VERIFICATION_PROGRAM_MISMATCH'
+      );
+    }
+    if (record.yearLevel != null && student.yearLevel != null && Number(record.yearLevel) !== Number(student.yearLevel)) {
+      throw verificationError(
+        'Student year level changed since the verification code was sent. Send a new code.',
+        409,
+        'VERIFICATION_YEAR_LEVEL_MISMATCH'
+      );
+    }
   }
 
   const now = new Date();
@@ -361,15 +435,19 @@ async function verifyCode({ studentId, schoolYear, semester, code, studentEmail 
   }
 
   const verificationExpiresAt = new Date(now.getTime() + VERIFICATION_TTL_MINUTES * 60 * 1000);
+  const updateFields = {
+    verifiedAt: now,
+    verificationExpiresAt,
+    attempts: 0,
+    lastSentAt: record.lastSentAt || now,
+  };
+  if (actorId) {
+    updateFields.verifiedBy = actorId;
+  }
   const updated = await ReEnrollmentVerification.findByIdAndUpdate(
     record._id,
     {
-      $set: {
-        verifiedAt: now,
-        verificationExpiresAt,
-        attempts: 0,
-        lastSentAt: record.lastSentAt || now,
-      },
+      $set: updateFields,
     },
     { new: true }
   );
@@ -403,17 +481,144 @@ async function findVerifiedEnrollment({ studentId, schoolYear, semester, session
     verifiedAt: { $ne: null },
     verificationExpiresAt: { $gt: new Date() },
     consumedAt: null,
+    invalidatedAt: null,
   });
   if (session) query.session(session);
   return query;
 }
 
+/**
+ * Validate that a verified session still matches the student's current state
+ * and registrar context immediately before block assignment.
+ */
+function validateVerificationContext({
+  verification,
+  student,
+  actorId = null,
+  allowRegistrarHandoff = false,
+} = {}) {
+  if (!verification) {
+    return {
+      ok: false,
+      httpStatus: 428,
+      reasonCode: 'VERIFICATION_REQUIRED',
+      message: 'Re-enrollment verification required.',
+    };
+  }
+  if (verification.invalidatedAt) {
+    return {
+      ok: false,
+      httpStatus: 409,
+      reasonCode: 'VERIFICATION_INVALIDATED',
+      message: 'This verification session was invalidated because the student record changed. Send and verify a new code.',
+    };
+  }
+  if (verification.consumedAt) {
+    return {
+      ok: false,
+      httpStatus: 409,
+      reasonCode: 'VERIFICATION_ALREADY_CONSUMED',
+      message: 'Re-enrollment verification session has already been consumed.',
+    };
+  }
+  if (
+    verification.course != null
+    && student?.course != null
+    && Number(verification.course) !== Number(student.course)
+  ) {
+    return {
+      ok: false,
+      httpStatus: 409,
+      reasonCode: 'VERIFICATION_PROGRAM_MISMATCH',
+      message: 'Student program changed after verification. Send and verify a new re-enrollment code for the updated program.',
+    };
+  }
+  if (
+    verification.yearLevel != null
+    && student?.yearLevel != null
+    && Number(verification.yearLevel) !== Number(student.yearLevel)
+  ) {
+    return {
+      ok: false,
+      httpStatus: 409,
+      reasonCode: 'VERIFICATION_YEAR_LEVEL_MISMATCH',
+      message: 'Student year level changed after verification. Send and verify a new re-enrollment code.',
+    };
+  }
+  const boundRegistrar = verification.verifiedBy || verification.requestedBy || null;
+  if (
+    boundRegistrar
+    && actorId
+    && String(boundRegistrar) !== String(actorId)
+    && !allowRegistrarHandoff
+  ) {
+    return {
+      ok: false,
+      httpStatus: 403,
+      reasonCode: 'REGISTRAR_MISMATCH',
+      message: 'This verification session was initiated by another registrar. Send a new code or authorize handoff.',
+    };
+  }
+  return { ok: true, httpStatus: 200, reasonCode: null, message: '' };
+}
+
 async function consumeVerification({ id, session }) {
+  const now = new Date();
   const query = ReEnrollmentVerification.updateOne(
-    { _id: id, consumedAt: null },
-    { $set: { consumedAt: new Date() } }
+    {
+      _id: id,
+      consumedAt: null,
+      invalidatedAt: null,
+      verifiedAt: { $ne: null },
+      verificationExpiresAt: { $gt: now },
+    },
+    { $set: { consumedAt: now } }
   );
-  if (session) query.session(session);
+  if (session && typeof query?.session === 'function') query.session(session);
+  const result = await query;
+  if (result && typeof result === 'object') {
+    const modified = result.modifiedCount ?? result.nModified;
+    if (typeof modified === 'number' && modified !== 1) {
+      throw verificationError(
+        'Re-enrollment verification session has already been consumed or expired.',
+        409,
+        'VERIFICATION_ALREADY_CONSUMED'
+      );
+    }
+  }
+  return result;
+}
+
+/**
+ * Invalidate all active, unconsumed verification records for a student when
+ * their program, lifecycle status, or academic context changes, while
+ * preserving the record for audit history.
+ */
+async function invalidateStudentVerifications({
+  studentId,
+  reason = 'STUDENT_STATE_CHANGED',
+  session = null,
+} = {}) {
+  if (!studentId || typeof ReEnrollmentVerification.updateMany !== 'function') {
+    return { modifiedCount: 0 };
+  }
+  const now = new Date();
+  const query = ReEnrollmentVerification.updateMany(
+    {
+      studentId,
+      consumedAt: null,
+      invalidatedAt: null,
+    },
+    {
+      $set: {
+        invalidatedAt: now,
+        invalidationReason: String(reason || 'STUDENT_STATE_CHANGED'),
+        codeExpiresAt: now,
+        verificationExpiresAt: now,
+      },
+    }
+  );
+  if (session && typeof query?.session === 'function') query.session(session);
   return query;
 }
 
@@ -430,5 +635,7 @@ module.exports = {
   verifyCode,
   getVerificationsForStudents,
   findVerifiedEnrollment,
+  validateVerificationContext,
   consumeVerification,
+  invalidateStudentVerifications,
 };

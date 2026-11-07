@@ -9,6 +9,14 @@ const EvaluationExtensionLogSchema = new mongoose.Schema({
   extendedAt: { type: Date, default: Date.now }
 }, { _id: false });
 
+const EvaluationQuestionSchema = new mongoose.Schema({
+  number: { type: Number, required: true },
+  text: { type: String, required: true, trim: true },
+  category: { type: String, trim: true, default: 'General Teaching Effectiveness' },
+  criteria: { type: String, trim: true, default: '' },
+  required: { type: Boolean, default: true }
+}, { _id: false });
+
 const EvaluationPeriodSchema = new mongoose.Schema({
   title: {
     type: String,
@@ -89,6 +97,10 @@ const EvaluationPeriodSchema = new mongoose.Schema({
     type: String,
     trim: true,
     default: ''
+  },
+  questions: {
+    type: [EvaluationQuestionSchema],
+    default: []
   },
   extensionHistory: {
     type: [EvaluationExtensionLogSchema],

@@ -17,11 +17,9 @@ const Student = require('../models/Student');
       if (s.lastLogin) everLoggedIn += 1;
       if (!s.firstName || !s.lastName) missingNamePart += 1;
       if (samples.length < 5) {
-        const pwPreview = (() => {
-          // mirror generateDefaultPassword formula (no bcrypt decode)
-          const i = (x) => (x ? x.charAt(0).toLowerCase() : '');
-          return `${i(s.firstName)}${i(s.middleName)}${i(s.lastName)}${String(s.studentNumber).slice(-4)}`;
-        })();
+        // Mirror the canonical studentPasswordService format (no bcrypt decode):
+        // first initial + full last name + last 5 digits of the student number.
+        const pwPreview = require('../services/studentPasswordService').generateDefaultPassword(s);
         samples.push(`  ${s.studentNumber} | ${s.firstName || 'NO-FIRST'} ${s.middleName || 'NO-MID'} ${s.lastName || 'NO-LAST'} | y${s.yearLevel} c${s.course} | active=${s.isActive} | pw=${hasPw ? 'SET' : 'none'} (default would be "${pwPreview}") | lastLogin=${s.lastLogin || 'never'} | lifecycle=${s.lifecycleStatus}`);
       }
     }

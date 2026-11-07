@@ -74,6 +74,42 @@ class StudentService {
     return response.json();
   }
 
+  static async readmitStudent(token, id, data = {}) {
+    const response = await fetch(`${API_URL}/api/registrar/students/${id}/readmit`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(data)
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.message || payload.error || 'Failed to readmit student');
+    }
+
+    return response.json();
+  }
+
+  static async reactivateStudent(token, id, data = {}) {
+    const response = await fetch(`${API_URL}/api/registrar/students/${id}/reactivate`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(data)
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.message || payload.error || 'Failed to reactivate student');
+    }
+
+    return response.json();
+  }
+
   static async updateStudent(token, id, studentData) {
     const response = await fetch(`${API_URL}/registrar/students/${id}`, {
       method: 'PUT',

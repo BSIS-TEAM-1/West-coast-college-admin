@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, PencilLine } from 'lucide-react'
 import { API_URL, getStoredToken } from '../lib/authApi'
-import { formatBlockLabel } from '../lib/blockAssignmentShared'
+import { formatBlockLabel, schoolYearFromStartYear } from '../lib/blockAssignmentShared'
+import { getAcademicTerm, type AcademicTerm } from '../lib/settingsApi'
 import { formatScheduleDisplay, timeTo24h, parseClockMinutesFlexible } from '../lib/scheduleFormatter'
 import TeachingHoursWarningModal from './TeachingHoursWarningModal'
 import InstructorOverrideModal from './InstructorOverrideModal'
@@ -10,8 +11,8 @@ import './RegistrarCourseWorkspace.css'
 
 type Semester = '1st' | '2nd' | 'Summer'
 
-type BlockGroup = { _id: string; name: string; semester: Semester; year?: number | string; schoolYear?: string; curriculumId?: string; yearLevel?: number; courseId?: number; courseCode?: string }
-type BlockSection = { _id: string; sectionCode: string; capacity: number; currentPopulation: number }
+type BlockGroup = { _id: string; name: string; semester: Semester; year?: number | string; schoolYear?: string; curriculumId?: string; yearLevel?: number; courseId?: number; courseCode?: string; status?: string; isArchived?: boolean }
+type BlockSection = { _id: string; sectionCode: string; capacity: number; currentPopulation: number; status?: string; isArchived?: boolean }
 type SubjectItem = { _id: string; code: string; title: string; units?: number; lecturePeriods?: number; labPeriods?: number }
 
 type SectionSubjectAssignment = {
@@ -78,11 +79,54 @@ type DayScheduleFields = {
 }
 
 const DEFAULT_DAY_SCHEDULE: DayScheduleFields = {
-  startTime: '1:00',
+  startTime: '6:00',
   startAmPm: 'AM',
-  endTime: '1:00',
+  endTime: '10:00',
   endAmPm: 'AM',
   room: ''
+}
+
+// Allowed class time window expressed in minutes from midnight (6:00 AM - 10:00 PM).
+const CLASS_WINDOW_START_MINUTES = 6 * 60
+const CLASS_WINDOW_END_MINUTES = 22 * 60
+
+// Returns null when the day's times are acceptable, or a short reason to show
+// next to the row as the user types. Times are parsed together with their
+// AM/PM flag so "1:00 AM" is never misread as 1:00 PM. A missing minute is
+// treated as "still typing", not an error.
+const describeDayTimeProblem = (
+  startTimeText: string,
+  startAmPm: 'AM' | 'PM',
+  endTimeText: string,
+  endAmPm: 'AM' | 'PM'
+): string | null => {
+  const toMinutes = (text: string, ampm: 'AM' | 'PM'): number | null | 'incomplete' => {
+    const parts = splitTimeParts(text)
+    if (!parts.hour && !parts.minute) return null // untouched/empty: not an error
+    if (!parts.minute) return 'incomplete' // hour typed, minute empty: still typing
+    const normalized = normalizeTimeText(`${parts.hour}:${parts.minute}`)
+    if (!normalized) return null // impossible value such as 13:00 or 8:75
+    return parseClockMinutesFlexible(`${normalized} ${ampm}`)
+  }
+
+  const startMins = toMinutes(startTimeText, startAmPm)
+  const endMins = toMinutes(endTimeText, endAmPm)
+  const startInvalid = startMins === 'incomplete'
+  const endInvalid = endMins === 'incomplete'
+  const startReady = typeof startMins === 'number'
+  const endReady = typeof endMins === 'number'
+  if (startInvalid) return 'Invalid start time (use 1-12 and 00-59)'
+  if (endInvalid) return 'Invalid end time (use 1-12 and 00-59)'
+  if (startReady && (startMins as number) < CLASS_WINDOW_START_MINUTES) {
+    return 'Start cannot be before 6:00 AM'
+  }
+  if (endReady && (endMins as number) > CLASS_WINDOW_END_MINUTES) {
+    return 'End cannot be after 10:00 PM'
+  }
+  if (startReady && endReady && (endMins as number) <= (startMins as number)) {
+    return 'End time must be later than start time'
+  }
+  return null
 }
 
 // Accepts "8", "8:00", "08:00", "12:30", and compact "800"/"130"/"1230" input,
@@ -123,6 +167,7 @@ type Props = {
 export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   const refreshSignalTimerRef = useRef<number | null>(null)
   const [blockGroups, setBlockGroups] = useState<BlockGroup[]>([])
+  const [activeTerm, setActiveTerm] = useState<AcademicTerm | null>(null)
   const [selectedGroupId, setSelectedGroupId] = useState('')
   const [sections, setSections] = useState<BlockSection[]>([])
   const [selectedSectionId, setSelectedSectionId] = useState('')
@@ -143,6 +188,9 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   const [teachingHoursWarning, setTeachingHoursWarning] = useState<any>(null)
   const [pendingAssignmentPayload, setPendingAssignmentPayload] = useState<any>(null)
   const [instructorOverrideWarning, setInstructorOverrideWarning] = useState<any>(null)
+  // Marks per-day time fields the user has edited. Untouched days keep the
+  // default (example) values, which are rendered dimmed to hint "fill me in".
+  const [subjectDayTouched, setSubjectDayTouched] = useState<Record<string, boolean>>({})
 
   const dayOptions = ['M', 'T', 'W', 'TH', 'F', 'S', 'SU']
 
@@ -220,20 +268,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     setSelectedSubjectId('')
     setSubjectDaySelections([])
     setSubjectDaySchedules({})
-  }
-
-  const convertTo24Hour = (hour: string, minute: string, ampm: string) => {
-    let h = Number.parseInt(hour, 10)
-    if (ampm === 'PM' && h !== 12) h += 12
-    if (ampm === 'AM' && h === 12) h = 0
-    return `${String(h).padStart(2, '0')}:${minute}`
-  }
-
-  const to24Hour = (timeText: string, ampm: string) => {
-    const normalized = normalizeTimeText(timeText)
-    if (!normalized) return null
-    const [hour, minute] = normalized.split(':')
-    return convertTo24Hour(hour, minute, ampm)
+    setSubjectDayTouched({})
   }
 
   const updateDayTimePart = (
@@ -244,6 +279,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     sourceInput?: HTMLInputElement
   ) => {
     const digits = rawValue.replace(/\D/g, '').slice(0, 2)
+    setSubjectDayTouched((curr) => ({ ...curr, [dayCode]: true }))
     setSubjectDaySchedules((curr) => {
       const current = curr[dayCode] || DEFAULT_DAY_SCHEDULE
       const parts = splitTimeParts(current[field])
@@ -298,7 +334,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
 
     const parse24To12 = (time24: string) => {
       const match = time24.match(/^(\d{1,2}):(\d{2})$/)
-      if (!match) return { time: '1:00', ampm: 'AM' as const }
+      if (!match) return { time: '6:00', ampm: 'AM' as const }
       let h = Number.parseInt(match[1], 10)
       const m = match[2]
       const ampm = h >= 12 ? 'PM' as const : 'AM' as const
@@ -307,17 +343,37 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
       return { time: `${h}:${m}`, ampm }
     }
 
+    // When loading a stored schedule into the editor, keep it inside the
+    // allowed class window. Out-of-window or impossible times (legacy records
+    // like "M 1:00 AM - 6:00 AM") fall back to the 6:00 AM - 10:00 AM default.
+    const clampToWindow = (parts: { time: string; ampm: 'AM' | 'PM' }) => {
+      const mins = parseClockMinutesFlexible(`${parts.time} ${parts.ampm}`)
+      if (mins === null) return parts
+      if (mins < CLASS_WINDOW_START_MINUTES) return { time: '6:00', ampm: 'AM' as const }
+      if (mins > CLASS_WINDOW_END_MINUTES) return { time: '10:00', ampm: 'PM' as const }
+      return parts
+    }
+
     const buildFields = (
       start: { time: string; ampm: 'AM' | 'PM' },
       end: { time: string; ampm: 'AM' | 'PM' },
       roomValue: string
-    ): DayScheduleFields => ({
-      startTime: start.time,
-      startAmPm: start.ampm,
-      endTime: end.time,
-      endAmPm: end.ampm,
-      room: roomValue
-    })
+    ): DayScheduleFields => {
+      const clampedStart = clampToWindow(start)
+      const clampedEnd = clampToWindow(end)
+      const startMins = parseClockMinutesFlexible(`${clampedStart.time} ${clampedStart.ampm}`)
+      const endMins = parseClockMinutesFlexible(`${clampedEnd.time} ${clampedEnd.ampm}`)
+      if (startMins === null || endMins === null || endMins <= startMins) {
+        return { ...DEFAULT_DAY_SCHEDULE, room: roomValue }
+      }
+      return {
+        startTime: clampedStart.time,
+        startAmPm: clampedStart.ampm,
+        endTime: clampedEnd.time,
+        endAmPm: clampedEnd.ampm,
+        room: roomValue
+      }
+    }
 
     // Per-day format: "M 07:30-09:00 @ Room 205 / W 13:00-14:30 @ Lab 3"
     if (trimmed.includes('/')) {
@@ -368,8 +424,8 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
       cursor = cursor.slice(token.length)
     }
 
-    const start = timeMatch ? parse24To12(timeTo24h(timeMatch[1].trim())) : { time: '1:00', ampm: 'AM' as const }
-    const end = timeMatch ? parse24To12(timeTo24h(timeMatch[2].trim())) : { time: '1:00', ampm: 'AM' as const }
+    const start = timeMatch ? parse24To12(timeTo24h(timeMatch[1].trim())) : { time: '6:00', ampm: 'AM' as const }
+    const end = timeMatch ? parse24To12(timeTo24h(timeMatch[2].trim())) : { time: '10:00', ampm: 'AM' as const }
     const daySchedules: Record<string, DayScheduleFields> = {}
     days.forEach((day) => { daySchedules[day] = buildFields(start, end, fallbackRoom) })
 
@@ -474,6 +530,32 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     }
   }
 
+  // Only the active academic term's blocks are assignable. `/api/blocks/groups`
+  // intentionally returns historical groups too, so without this filter the
+  // dropdown kept offering blocks from school years/semesters that a rollover
+  // had already closed.
+  const visibleBlockGroups = useMemo(() => {
+    const schoolYear = String(activeTerm?.schoolYear || '').trim()
+    const semester = activeTerm?.semester
+    if (!schoolYear) return blockGroups
+
+    const groups = blockGroups.filter((group) => {
+      if (group.status === 'Archived' || group.isArchived === true) return false
+      const groupYear = String(group.schoolYear || schoolYearFromStartYear(group.year) || '').trim()
+      if (groupYear && groupYear !== schoolYear) return false
+      if (semester && group.semester && group.semester !== semester) return false
+      return true
+    })
+
+    // Keep the currently selected group listed so editing an existing
+    // assignment from another term still shows what is being edited.
+    const selected = blockGroups.find((group) => group._id === selectedGroupId)
+    if (selected && !groups.some((group) => group._id === selected._id)) {
+      groups.push(selected)
+    }
+    return groups
+  }, [activeTerm, blockGroups, selectedGroupId])
+
   const selectedGroup = blockGroups.find((group) => group._id === selectedGroupId) || null
   const selectedSection = sections.find((section) => section._id === selectedSectionId) || null
   const selectedSubject = subjects.find((subject) => subject._id === selectedSubjectId) || null
@@ -495,6 +577,18 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   useEffect(() => {
     void fetchBlockGroups()
     void fetchProfessorCourseLoads()
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    getAcademicTerm()
+      .then((term) => {
+        if (!cancelled) setActiveTerm(term)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => () => {
@@ -531,6 +625,18 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     void fetchSubjects(blockGroups.find((group) => group._id === selectedGroupId) || null)
   }, [selectedGroupId, blockGroups])
 
+  // Live per-day time problems, recomputed as the user edits the time fields.
+  const dayTimeProblems = useMemo(() => {
+    const problems: Record<string, string> = {}
+    for (const day of subjectDaySelections) {
+      const s = subjectDaySchedules[day]
+      if (!s) continue
+      const problem = describeDayTimeProblem(s.startTime, s.startAmPm, s.endTime, s.endAmPm)
+      if (problem) problems[day] = problem
+    }
+    return problems
+  }, [subjectDaySchedules, subjectDaySelections])
+
   const canAssign = !assigning
     && Boolean(selectedProfessor)
     && Boolean(selectedGroupId)
@@ -541,13 +647,17 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
       const s = subjectDaySchedules[day]
       return Boolean(s && normalizeTimeText(s.startTime) && normalizeTimeText(s.endTime) && s.room.trim())
     })
+    && subjectDaySelections.every((day) => !dayTimeProblems[day])
 
   const populateAssignmentEditor = (assignment: Pick<SectionSubjectAssignment, 'subjectId' | 'schedule' | 'room'>) => {
     const parsedSchedule = parseScheduleIntoFields(assignment.schedule, assignment.room)
     setEditingAssignmentId(assignment.subjectId)
     setSelectedSubjectId(assignment.subjectId)
     setSubjectDaySelections(parsedSchedule.days)
-    setSubjectDaySchedules(parsedSchedule.daySchedules) 
+    setSubjectDaySchedules(parsedSchedule.daySchedules)
+    // Loaded schedules carry real stored times, not the example defaults, so
+    // they should not be rendered dimmed.
+    setSubjectDayTouched(Object.fromEntries(parsedSchedule.days.map((day) => [day, true])))
   }
 
   useEffect(() => {
@@ -596,6 +706,22 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
       }
       if (!s.room.trim()) {
         return setError(`Please enter a room for ${day}.`)
+      }
+      // Keep class times inside the allowed 6:00 AM - 10:00 PM window.
+      // NOTE: the AM/PM must be included in the parsed string. Passing a bare
+      // 24h value ("01:00") makes parseClockMinutesFlexible guess via its
+      // school-hours heuristic, which misreads 1:00 AM as 1:00 PM.
+      const startMins = parseClockMinutesFlexible(`${normalizeTimeText(s.startTime)} ${s.startAmPm}`)
+      const endMins = parseClockMinutesFlexible(`${normalizeTimeText(s.endTime)} ${s.endAmPm}`)
+      if (startMins !== null && startMins < CLASS_WINDOW_START_MINUTES) {
+        return setError(`Classes cannot start before 6:00 AM. Please adjust the ${day} start time.`)
+      }
+      if (endMins !== null && endMins > CLASS_WINDOW_END_MINUTES) {
+        return setError(`Classes cannot end after 10:00 PM. Please adjust the ${day} end time.`)
+      }
+      // The end time must come after the start time on the same day.
+      if (startMins !== null && endMins !== null && endMins <= startMins) {
+        return setError(`The ${day} end time must be later than the start time.`)
       }
     }
 
@@ -646,10 +772,8 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
       for (const day of orderedDays) {
         const s = subjectDaySchedules[day]
         if (s) {
-          const start24 = to24Hour(s.startTime, s.startAmPm)
-          const end24 = to24Hour(s.endTime, s.endAmPm)
-          const startMins = start24 ? parseClockMinutesFlexible(start24) : null
-          const endMins = end24 ? parseClockMinutesFlexible(end24) : null
+          const startMins = parseClockMinutesFlexible(`${normalizeTimeText(s.startTime)} ${s.startAmPm}`)
+          const endMins = parseClockMinutesFlexible(`${normalizeTimeText(s.endTime)} ${s.endAmPm}`)
           if (startMins !== null && endMins !== null && endMins > startMins) {
             totalScheduledHours += (endMins - startMins) / 60
           }
@@ -922,7 +1046,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
               Block Group
               <select value={selectedGroupId} onChange={(e) => setSelectedGroupId(e.target.value)} disabled={!selectedProfessor}>
                 <option value="">Select block group</option>
-                {blockGroups.map((group) => (
+                {visibleBlockGroups.map((group) => (
                   <option key={group._id} value={group._id}>
                     {formatBlockLabel(group.name)} ({group.semester} | {group.schoolYear || formatAcademicYear(group.year)})
                     {!group.curriculumId && ' - No Curriculum'}
@@ -981,6 +1105,11 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                             delete copy[dayCode]
                             return copy
                           })
+                          setSubjectDayTouched((curr) => {
+                            const copy = { ...curr }
+                            delete copy[dayCode]
+                            return copy
+                          })
                           return next
                         }
                         // When adding a new day, default its time+room from the first existing day
@@ -990,6 +1119,11 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                           ...curr,
                           [dayCode]: refSchedule ? { ...refSchedule } : { ...DEFAULT_DAY_SCHEDULE }
                         }))
+                        // A copied day holds real times; a fresh default day keeps
+                        // its dimmed "example" look until the user edits it.
+                        setSubjectDayTouched((curr) => (
+                          refSchedule ? { ...curr, [dayCode]: true } : curr
+                        ))
                         return [...prev, dayCode]
                       })}
                       disabled={!selectedSectionId || !selectedSubjectId}
@@ -1002,18 +1136,21 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
 
             {subjectDaySelections.length > 0 && (
               <div className="registrar-course-per-day-times">
-                <span>Time & Room per Day</span>
+                <span>Time & Room per Day <small style={{ fontWeight: 400, opacity: 0.7 }}>(allowed 6:00 AM – 10:00 PM)</small></span>
                 {dayOptions.filter((day) => subjectDaySelections.includes(day)).map((dayCode) => {
               const daySchedule = subjectDaySchedules[dayCode] || DEFAULT_DAY_SCHEDULE
               const startParts = splitTimeParts(daySchedule.startTime)
               const endParts = splitTimeParts(daySchedule.endTime)
+              // Untouched rows still show the defaults (6:00 AM - 10:00 AM);
+              // dim them so users read them as editable example values.
+              const dimmed = !subjectDayTouched[dayCode]
               return (
                 <div key={dayCode} className="per-day-time-row">
                   <span className="per-day-time-label">{dayCode}</span>
                   <div className="per-day-fields">
                     <div className="time-box-group">
                       <div
-                        className="time-box-input-group"
+                        className={`time-box-input-group${dimmed ? ' time-box-dimmed' : ''}`}
                         onBlur={(e) => {
                           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
                             normalizeDayTime(dayCode, 'startTime')
@@ -1047,12 +1184,15 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                         />
                       </div>
                       <select
-                        className="time-box-select"
+                        className={`time-box-select${dimmed ? ' time-box-dimmed' : ''}`}
                         value={daySchedule.startAmPm}
-                        onChange={(e) => setSubjectDaySchedules((curr) => ({
-                          ...curr,
-                          [dayCode]: { ...curr[dayCode], startAmPm: e.target.value as 'AM' | 'PM' }
-                        }))}
+                        onChange={(e) => {
+                          setSubjectDayTouched((curr) => ({ ...curr, [dayCode]: true }))
+                          setSubjectDaySchedules((curr) => ({
+                            ...curr,
+                            [dayCode]: { ...curr[dayCode], startAmPm: e.target.value as 'AM' | 'PM' }
+                          }))
+                        }}
                         aria-label={`${dayCode} start AM or PM`}
                         disabled={!selectedSectionId || !selectedSubjectId}
                       >
@@ -1061,7 +1201,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                       </select>
                       <span className="time-box-separator">to</span>
                       <div
-                        className="time-box-input-group"
+                        className={`time-box-input-group${dimmed ? ' time-box-dimmed' : ''}`}
                         onBlur={(e) => {
                           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
                             normalizeDayTime(dayCode, 'endTime')
@@ -1095,12 +1235,15 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                         />
                       </div>
                       <select
-                        className="time-box-select"
+                        className={`time-box-select${dimmed ? ' time-box-dimmed' : ''}`}
                         value={daySchedule.endAmPm}
-                        onChange={(e) => setSubjectDaySchedules((curr) => ({
-                          ...curr,
-                          [dayCode]: { ...curr[dayCode], endAmPm: e.target.value as 'AM' | 'PM' }
-                        }))}
+                        onChange={(e) => {
+                          setSubjectDayTouched((curr) => ({ ...curr, [dayCode]: true }))
+                          setSubjectDaySchedules((curr) => ({
+                            ...curr,
+                            [dayCode]: { ...curr[dayCode], endAmPm: e.target.value as 'AM' | 'PM' }
+                          }))
+                        }}
                         aria-label={`${dayCode} end AM or PM`}
                         disabled={!selectedSectionId || !selectedSubjectId}
                       >
@@ -1112,13 +1255,19 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
                       type="text"
                       className="per-day-room-input"
                       value={daySchedule.room}
-                      onChange={(e) => setSubjectDaySchedules((curr) => ({
-                        ...curr,
-                        [dayCode]: { ...curr[dayCode], room: e.target.value }
-                      }))}
+                      onChange={(e) => {
+                        setSubjectDayTouched((curr) => ({ ...curr, [dayCode]: true }))
+                        setSubjectDaySchedules((curr) => ({
+                          ...curr,
+                          [dayCode]: { ...curr[dayCode], room: e.target.value }
+                        }))
+                      }}
                       placeholder="Room"
                       disabled={!selectedSectionId || !selectedSubjectId}
                     />
+                    {dayTimeProblems[dayCode] && (
+                      <span className="per-day-time-error" role="alert">{dayTimeProblems[dayCode]}</span>
+                    )}
                   </div>
                 </div>
               )

@@ -8,6 +8,10 @@
  *             |            |                      └→ rollover_failed → (retry) rollover_ready
  *             └── unlock ──┘
  *
+ * A SEMESTER rollover (same school year, e.g. 1st → 2nd) closes a term, not
+ * the year: it completes back to "open" so the newly opened semester remains
+ * writable, while the closing term's enrollments stay locked.
+ *
  * Invariants enforced here:
  *   - Locking never triggers a rollover; they are separate operations.
  *   - A locked year rejects every ordinary mutation path via
@@ -53,8 +57,10 @@ function httpError(statusCode, message, reasonCode) {
 }
 
 function normalizeRole(role) {
-  const text = String(role || '').toLowerCase();
-  return (['admin', 'registrar'].includes(text) ? text : 'registrar');
+  const text = String(role || '').toLowerCase().trim();
+  if (['admin', 'superadmin', 'administrator'].includes(text)) return 'admin';
+  if (['registrar'].includes(text)) return 'registrar';
+  return text || 'guest';
 }
 
 async function writeAudit({
@@ -90,6 +96,7 @@ function stateForUI(state) {
     return {
       schoolYear: null,
       status: STATUSES.OPEN,
+      rolloverMode: null,
       canLock: true,
       canUnlock: false,
       canValidate: false,
@@ -100,9 +107,18 @@ function stateForUI(state) {
     };
   }
   const validation = state.validationSummary || null;
+  // A completed SEMESTER rollover leaves the same school year in progress.
+  // Report it as open so the newly opened semester stays writable and can be
+  // locked again for the next rollover. Legacy documents written before
+  // rolloverMode existed are recognized by their same-year target.
+  const semesterRollover = isSemesterRolloverState(state);
+  const status = state.status === STATUSES.ROLLED_OVER && semesterRollover
+    ? STATUSES.OPEN
+    : state.status;
   return {
     schoolYear: state.schoolYear,
-    status: state.status,
+    status,
+    rolloverMode: state.rolloverMode || (semesterRollover ? 'semester' : null),
     lockedAt: state.lockedAt,
     lockedBy: state.lockedBy,
     lockReason: state.lockReason,
@@ -118,14 +134,30 @@ function stateForUI(state) {
     rolloverError: state.rolloverError,
     rolloverStartedAt: state.rolloverStartedAt,
     rolloverFailedAt: state.rolloverFailedAt,
-    canLock: state.status === STATUSES.OPEN,
-    canUnlock: state.status === STATUSES.LOCKED || state.status === STATUSES.ROLLOVER_READY || state.status === STATUSES.ROLLOVER_FAILED,
-    canValidate: state.status === STATUSES.LOCKED || state.status === STATUSES.ROLLOVER_READY,
-    canProceedToRollover: state.status === STATUSES.ROLLOVER_READY,
-    canRetry: state.status === STATUSES.ROLLOVER_FAILED,
-    needsRecovery: state.status === STATUSES.ROLLOVER_FAILED,
+    canLock: status === STATUSES.OPEN,
+    canUnlock: status === STATUSES.LOCKED || status === STATUSES.ROLLOVER_READY || status === STATUSES.ROLLOVER_FAILED,
+    canValidate: status === STATUSES.LOCKED || status === STATUSES.ROLLOVER_READY,
+    canProceedToRollover: status === STATUSES.ROLLOVER_READY,
+    canRetry: status === STATUSES.ROLLOVER_FAILED,
+    needsRecovery: status === STATUSES.ROLLOVER_FAILED,
     validation,
   };
+}
+
+/**
+ * True when a completed rollover closed a TERM of the same school year
+ * (1st → 2nd / Summer) rather than the whole school year. Such a year is
+ * still in progress and must not be treated as immutable history.
+ */
+function isSemesterRolloverState(state) {
+  if (!state) return false;
+  if (state.rolloverMode === 'semester') return true;
+  // Legacy documents from before rolloverMode existed: a completed rollover
+  // whose target is the source school year can only have been a semester one.
+  return Boolean(
+    state.rolloverToSchoolYear
+    && String(state.rolloverToSchoolYear).trim() === String(state.schoolYear || '').trim()
+  );
 }
 
 async function getSchoolYearState(schoolYear) {
@@ -159,8 +191,23 @@ async function lockSchoolYear({ schoolYear, actorId, actorRole, reason, session 
     throw httpError(400, 'An authenticated actor is required to lock a school year.');
   }
 
-  // Atomic transition: only an OPEN year can be locked (race-safe).
-  const filter = { schoolYear: text, status: { $in: ['', null, STATUSES.OPEN] } };
+  // Atomic transition: only an OPEN year can be locked (race-safe). A year
+  // whose last rollover was a SEMESTER rollover is still in progress and may
+  // be locked again for the next rollover, including legacy documents that
+  // were left in "rolled_over" with a same-year target.
+  const filter = {
+    schoolYear: text,
+    $or: [
+      { status: { $in: ['', null, STATUSES.OPEN] } },
+      {
+        status: STATUSES.ROLLED_OVER,
+        $or: [
+          { rolloverMode: 'semester' },
+          { rolloverToSchoolYear: text },
+        ],
+      },
+    ],
+  };
   const update = {
     $set: {
       status: STATUSES.LOCKED,
@@ -237,8 +284,8 @@ async function unlockSchoolYear({ schoolYear, actorId, actorRole, reason }) {
   if (currentStatus !== STATUSES.LOCKED && currentStatus !== STATUSES.ROLLOVER_READY && currentStatus !== STATUSES.ROLLOVER_FAILED) {
     throw httpError(409, `SY ${text} is already open and cannot be unlocked.`, 'INVALID_STATE');
   }
-  if (currentStatus === STATUSES.ROLLOVER_FAILED && normalizeRole(actorRole) !== 'admin') {
-    throw httpError(403, 'Recovering a failed rollover year requires an administrator. Contact an admin to unlock SY ' + text + '.', 'FORBIDDEN');
+  if (currentStatus === STATUSES.ROLLOVER_FAILED && !['admin', 'registrar'].includes(normalizeRole(actorRole))) {
+    throw httpError(403, 'Recovering a failed rollover year requires an administrator or registrar. Contact an admin to unlock SY ' + text + '.', 'FORBIDDEN');
   }
 
   const wasReady = currentStatus === STATUSES.ROLLOVER_READY || currentStatus === STATUSES.ROLLOVER_FAILED;
@@ -438,8 +485,8 @@ async function listValidationRuns(schoolYear, { limit = 20 } = {}) {
  *      concurrent request loses the race and is rejected.
  *   6. The rollover itself runs inside its existing single-database
  *      transaction (see academicYearRolloverService.executeRollover).
- *   7. Success → 'rolled_over' with counts; any failure → 'rollover_failed'
- *      with the error preserved for recovery.
+ *   7. Success → 'rolled_over' (year rollover) or 'open' (semester rollover)
+ *      with counts; any failure → 'rollover_failed' with the error preserved.
  *
  * @param {Function} execute  the executor, called with the original params
  */
@@ -449,6 +496,7 @@ async function executeWithSafeguards(rolloverParams, execute) {
     toSchoolYear: rolloverParams.toSchoolYear,
     semester: rolloverParams.semester,
   });
+  const rolloverMode = context.fromSchoolYear === context.toSchoolYear ? 'semester' : 'year';
   const actorId = rolloverParams.adminId;
   if (!actorId) {
     throw httpError(400, 'An authenticated actor is required to execute a rollover.');
@@ -589,6 +637,7 @@ async function executeWithSafeguards(rolloverParams, execute) {
       schoolYear: context.fromSchoolYear,
       batchId: result.rolloverBatchId,
       counts: result.counts || null,
+      mode: rolloverMode,
       actorId,
       actorRole: rolloverParams.adminRole,
     });
@@ -610,17 +659,46 @@ function sameText(left, right) {
   return String(left ?? '').trim() === String(right ?? '').trim();
 }
 
-/** rollover_in_progress → rolled_over (only called after verified success). */
-async function completeRollover({ schoolYear, batchId, counts = null, actorId, actorRole }) {
+/** rollover_in_progress → rolled_over (year) or open (semester), after verified success. */
+async function completeRollover({ schoolYear, batchId, counts = null, mode = 'year', actorId, actorRole }) {
+  const rolloverMode = mode === 'semester' ? 'semester' : 'year';
+  const update = rolloverMode === 'semester'
+    ? {
+        // A semester rollover closes a TERM, not the school year. Reopen the
+        // year so the newly opened semester stays writable; the closing term
+        // is protected by its locked enrollment records and archived blocks.
+        $set: {
+          status: STATUSES.OPEN,
+          rolloverMode,
+          rolloverBatchId: batchId,
+          rolloverCounts: counts,
+          lockedBy: null,
+          lockedAt: null,
+          lockReason: null,
+          unlockedBy: null,
+          unlockedAt: null,
+          unlockReason: null,
+          validatedAt: null,
+          activeValidationRunId: null,
+          validationSummary: null,
+          rolloverStartedBy: null,
+          rolloverStartedAt: null,
+          rolloverError: null,
+          rolloverFailedAt: null,
+        },
+      }
+    : {
+        $set: {
+          status: STATUSES.ROLLED_OVER,
+          rolloverMode,
+          rolloverBatchId: batchId,
+          rolloverCounts: counts,
+        },
+      };
+
   const updated = await SchoolYearState.findOneAndUpdate(
     { schoolYear: String(schoolYear).trim(), status: STATUSES.ROLLOVER_IN_PROGRESS },
-    {
-      $set: {
-        status: STATUSES.ROLLED_OVER,
-        rolloverBatchId: batchId,
-        rolloverCounts: counts,
-      },
-    },
+    update,
     { new: true }
   );
   if (!updated) {
@@ -631,7 +709,9 @@ async function completeRollover({ schoolYear, batchId, counts = null, actorId, a
     resourceType: 'SYSTEM',
     resourceId: String(batchId),
     resourceName: `School Year ${String(schoolYear).trim()} rollover completion`,
-    description: `Rollover completed and verified. Batch ${batchId}. Source year is now permanently rolled over. Counts: ${JSON.stringify(counts || {})}`,
+    description: rolloverMode === 'semester'
+      ? `Semester rollover completed and verified. Batch ${batchId}. SY ${String(schoolYear).trim()} remains open for the newly opened semester; only the closing term's records are locked. Counts: ${JSON.stringify(counts || {})}`
+      : `Rollover completed and verified. Batch ${batchId}. Source year is now permanently rolled over. Counts: ${JSON.stringify(counts || {})}`,
     actorId,
     actorRole,
     severity: 'CRITICAL',
@@ -688,7 +768,7 @@ async function retryRollover({ schoolYear, actorId, actorRole, toSchoolYear, sem
     semester: context.semester,
     status: 'applied',
   })
-    .select('batchId executedAt')
+    .select('batchId executedAt mode')
     .lean();
   if (appliedBatch) {
     // The operation actually completed (e.g. the process died after commit
@@ -697,12 +777,13 @@ async function retryRollover({ schoolYear, actorId, actorRole, toSchoolYear, sem
       schoolYear: context.fromSchoolYear,
       batchId: appliedBatch.batchId,
       counts: null,
+      mode: appliedBatch.mode || (context.fromSchoolYear === context.toSchoolYear ? 'semester' : 'year'),
       actorId,
       actorRole,
     });
     throw httpError(
       409,
-      `Rollover batch ${appliedBatch.batchId} was already applied for SY ${context.fromSchoolYear}. The year has been reconciled to "rolled over"; no retry was executed.`,
+      `Rollover batch ${appliedBatch.batchId} was already applied for SY ${context.fromSchoolYear}. The state has been reconciled; no retry was executed.`,
       'ROLL_OVER_DUPLICATE'
     );
   }
@@ -760,7 +841,7 @@ async function reconcileInProgressRollover({ schoolYear, actorId, actorRole }) {
     semester: state.rolloverSemester,
     status: 'applied',
   })
-    .select('batchId')
+    .select('batchId mode')
     .lean();
 
   if (appliedBatch) {
@@ -768,6 +849,7 @@ async function reconcileInProgressRollover({ schoolYear, actorId, actorRole }) {
       schoolYear: text,
       batchId: appliedBatch.batchId,
       counts: null,
+      mode: appliedBatch.mode || (text === state.rolloverToSchoolYear ? 'semester' : 'year'),
       actorId,
       actorRole,
     });
@@ -802,6 +884,10 @@ async function assertSchoolYearWritable(schoolYear, contextLabel = null) {
   if (status === STATUSES.OPEN) return;
 
   if (status === STATUSES.ROLLED_OVER) {
+    // A semester rollover closes a term, not the year: the same school year
+    // continues in its newly opened semester and must stay writable. The
+    // closing term is already protected by locked enrollment records.
+    if (isSemesterRolloverState(state)) return;
     throw httpError(
       409,
       `SY ${text} has been rolled over and is immutable historical data. Corrections to its records require the audited rollover recovery procedure (admin).`,

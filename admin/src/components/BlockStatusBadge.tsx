@@ -1,6 +1,6 @@
-import { CheckCircle, XCircle, AlertCircle } from 'lucide-react'
+import { CheckCircle, XCircle, AlertCircle, Archive } from 'lucide-react'
 
-type BlockStatus = 'OPEN' | 'CLOSED' | 'WARNING' | 'ERROR'
+type BlockStatus = 'OPEN' | 'CLOSED' | 'ARCHIVED' | 'WARNING' | 'ERROR'
 
 type BlockStatusBadgeProps = {
   status: BlockStatus
@@ -19,6 +19,11 @@ const statusConfig = {
     label: 'Closed',
     icon: XCircle,
     className: 'block-status-badge--closed'
+  },
+  ARCHIVED: {
+    label: 'Archived',
+    icon: Archive,
+    className: 'block-status-badge--archived'
   },
   WARNING: {
     label: 'Warning',

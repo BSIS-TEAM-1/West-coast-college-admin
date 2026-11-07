@@ -4,6 +4,7 @@ import Navbar from '../components/Navbar'
 import Profile from './Profile'
 import SettingsPage from './Settings'
 import { API_URL, getProfile, getStoredToken } from '../lib/authApi'
+import { getAcademicTerm, getCachedAcademicTerm, subscribeAcademicTerm, type AcademicTerm } from '../lib/settingsApi'
 import { fetchWithAutoReconnect, isAbortRequestError, isNetworkRequestError } from '../lib/network'
 import type { ProfileResponse } from '../lib/authApi'
 import PersonalDetails from './PersonalDetails'
@@ -43,6 +44,7 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
   const [assignedCourses, setAssignedCourses] = useState<ProfessorAssignedCourse[]>([])
   const [coursesLoading, setCoursesLoading] = useState(false)
   const [coursesError, setCoursesError] = useState('')
+  const [activeTerm, setActiveTerm] = useState<AcademicTerm | null>(() => getCachedAcademicTerm())
   const [selectedSubjectDetail, setSelectedSubjectDetail] = useState<ProfessorSubjectDetailState | null>(null)
   const [selectedRosterClassKey, setSelectedRosterClassKey] = useState('')
   const [selectedRosterFocus, setSelectedRosterFocus] = useState<'students' | 'attendance'>('students')
@@ -77,6 +79,28 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
     }
     void loadProfile()
   }, [initialProfile])
+
+  useEffect(() => {
+    let cancelled = false
+    getAcademicTerm()
+      .then((term) => {
+        if (!cancelled && term) {
+          setActiveTerm(term)
+        }
+      })
+      .catch(() => {})
+
+    const unsubscribe = subscribeAcademicTerm((term) => {
+      if (!cancelled && term) {
+        setActiveTerm(term)
+      }
+    })
+
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [])
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -203,6 +227,9 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
       }
 
       const payload = await response.json().catch(() => ({}))
+      if (payload?.data?.activeTerm?.schoolYear && payload?.data?.activeTerm?.semester) {
+        setActiveTerm(payload.data.activeTerm)
+      }
       const courses = Array.isArray(payload?.data?.courses) ? payload.data.courses : []
       // Keep blocks that have a valid sectionId, OR blocks flagged as needsBlockAssignment
       // (students without a block assignment still need grading access).
@@ -248,6 +275,7 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
             courses={assignedCourses}
             loading={coursesLoading}
             error={coursesError}
+            activeTerm={activeTerm}
             onOpenSubjectDetail={(detail) => {
               setSelectedSubjectDetail(detail)
               setView('subject-detail')
@@ -269,6 +297,7 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
             courses={assignedCourses}
             loading={coursesLoading}
             error={coursesError}
+            activeTerm={activeTerm}
             onRefresh={fetchAssignedCourses}
             initialClassKey={selectedRosterClassKey}
             entryMode={selectedRosterFocus}
@@ -280,6 +309,7 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
             courses={assignedCourses}
             loading={coursesLoading}
             error={coursesError}
+            activeTerm={activeTerm}
             onRefresh={fetchAssignedCourses}
             initialClassKey={selectedGradeClassKey}
           />
@@ -290,6 +320,7 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
             courses={assignedCourses}
             loading={coursesLoading}
             error={coursesError}
+            activeTerm={activeTerm}
             onRefresh={fetchAssignedCourses}
           />
         )

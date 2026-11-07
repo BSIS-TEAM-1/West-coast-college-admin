@@ -137,6 +137,7 @@ function AssignSubjectPage() {
   const academicYearStart = parseAcademicYearStart(academicYear)
   const filteredBlockGroups = useMemo(() => (
     blockGroups.filter((group) => {
+      if (group.status === 'Archived' || group.isArchived === true) return false
       if (course && getBlockGroupCourse(group) !== course) return false
       if (yearLevel && getBlockGroupYearLevel(group) !== yearLevel) return false
       if (semester && group.semester !== semester) return false

@@ -11,6 +11,10 @@ const BlockGroupSchema = new mongoose.Schema({
   section: { type: String, trim: true, uppercase: true },
   curriculumId: { type: mongoose.Schema.Types.ObjectId, ref: 'Curriculum', default: null, index: true },
   studentClassification: { type: String, enum: ['Regular', 'Irregular', 'Transferee', 'Returning', 'All'], default: 'All', index: true },
+  status: { type: String, enum: ['Active', 'Archived'], default: 'Active', index: true },
+  isArchived: { type: Boolean, default: false, index: true },
+  archivedAt: { type: Date, default: null },
+  archivedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
   policies: {
     overcapPolicy: { type: String, enum: ['allow', 'deny', 'waitlist'], default: 'allow' },
     maxOvercap: { type: Number, default: 5 },

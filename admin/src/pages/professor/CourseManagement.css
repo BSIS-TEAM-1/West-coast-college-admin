@@ -254,14 +254,14 @@
 .professor-course-list-row {
   display: grid;
   grid-template-columns:
-    minmax(88px, 0.65fr)
-    minmax(260px, 2fr)
-    minmax(96px, 0.7fr)
-    minmax(120px, 0.85fr)
-    minmax(150px, 1fr)
-    minmax(96px, 0.65fr)
+    minmax(84px, 0.6fr)
+    minmax(230px, 1.8fr)
+    minmax(84px, 0.6fr)
+    minmax(140px, 1.1fr)
+    minmax(165px, 1.25fr)
+    minmax(88px, 0.6fr)
     minmax(112px, max-content);
-  gap: 0.7rem;
+  gap: 0.75rem;
   align-items: center;
 }
 
@@ -358,6 +358,56 @@
   color: var(--color-text-muted);
 }
 
+.professor-course-list-cell-block {
+  min-width: 0;
+}
+
+.professor-course-list-cell-block .professor-course-list-block {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.3;
+}
+
+.professor-course-list-cell-block .professor-course-list-note {
+  font-size: 0.74rem;
+  line-height: 1.35;
+  color: var(--color-text-muted);
+}
+
+.professor-course-list-cell-schedule {
+  min-width: 0;
+}
+
+.professor-course-list-cell-schedule .professor-course-list-text {
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: normal;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  word-break: normal;
+}
+
+.professor-block-status-label {
+  display: inline;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.professor-block-status-label.status-active {
+  color: var(--color-success, #16a34a);
+}
+
+.professor-block-status-label.status-archived,
+.professor-block-status-label.status-inactive,
+.professor-block-status-label.status-closed {
+  color: var(--color-text-muted);
+}
+
+.professor-block-status-label.status-completed {
+  color: var(--color-primary, #4f46e5);
+}
+
 .professor-course-list-inline-meta,
 .professor-course-list-mobile-note {
   display: none;
@@ -367,10 +417,10 @@
   .professor-course-list-header,
   .professor-course-list-row {
     grid-template-columns:
-      9rem
-      minmax(18rem, 1fr)
-      12rem
-      9rem
+      8rem
+      minmax(16rem, 1fr)
+      13.5rem
+      8.5rem
       8rem;
   }
 
@@ -393,9 +443,9 @@
   .professor-course-list-header,
   .professor-course-list-row {
     grid-template-columns:
-      8rem
-      minmax(16rem, 1fr)
-      11rem
+      7.5rem
+      minmax(15rem, 1fr)
+      13rem
       8rem;
     gap: 0.75rem;
   }

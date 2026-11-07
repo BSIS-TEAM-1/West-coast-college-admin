@@ -495,6 +495,26 @@
   white-space: nowrap;
 }
 
+/* Untouched rows keep the example defaults (6:00 AM - 10:00 AM); dim their
+   values so users read them as placeholders to be confirmed or changed. */
+.registrar-course-workspace-page .time-box-input-group.time-box-dimmed input,
+.registrar-course-workspace-page .time-box-input-group.time-box-dimmed .time-box-colon,
+.registrar-course-workspace-page .time-box-select.time-box-dimmed {
+  color: var(--color-text-muted);
+  opacity: 0.85;
+}
+
+/* Live validation message shown while the user edits per-day times. */
+.per-day-time-error {
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: #d32f2f;
+  background: #fdecec;
+  border: 1px solid #f5c2c2;
+  border-radius: 6px;
+  padding: 0.35rem 0.55rem;
+}
+
 /* Per-day time inputs */
 .registrar-course-per-day-times {
   display: grid;

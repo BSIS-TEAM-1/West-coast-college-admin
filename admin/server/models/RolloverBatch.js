@@ -83,6 +83,14 @@ const rolloverBatchSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'BlockSection',
   }],
+  archivedBlockGroupIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'BlockGroup',
+  }],
+  archivedBlockSectionIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'BlockSection',
+  }],
   studentChanges: {
     type: mongoose.Schema.Types.Mixed,
     default: [],

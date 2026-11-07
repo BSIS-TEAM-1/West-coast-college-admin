@@ -5228,7 +5228,7 @@ async function handleSendStudentReEnrollmentCode(req, res) {
     const reEnrollmentVerificationService = require('./services/reEnrollmentVerificationService')
     const Student = require('./models/Student')
     const student = req.student || await Student.findById(studentId)
-      .select('studentNumber firstName middleName lastName suffix email contactNumber')
+      .select('studentNumber firstName middleName lastName suffix email contactNumber course yearLevel lifecycleStatus')
       .lean()
     if (!student) {
       console.log('[STUDENT OTP] Student not found:', studentId)
@@ -5283,7 +5283,7 @@ async function handleVerifyStudentReEnrollmentCode(req, res) {
     const reEnrollmentVerificationService = require('./services/reEnrollmentVerificationService')
     const ReEnrollmentVerification = require('./models/ReEnrollmentVerification')
     const Student = require('./models/Student')
-    const student = req.student || await Student.findById(studentId).select('email contactNumber').lean()
+    const student = req.student || await Student.findById(studentId).select('email contactNumber course yearLevel lifecycleStatus').lean()
     if (!student) return res.status(404).json({ success: false, message: 'Student not found' })
     let schoolYear = String(req.body?.schoolYear || '').trim()
     let semester = String(req.body?.semester || '').trim()
@@ -5313,6 +5313,7 @@ async function handleVerifyStudentReEnrollmentCode(req, res) {
       code,
       studentEmail: student.email,
       studentPhone: student.contactNumber,
+      student,
     })
     return res.json({
       success: true,

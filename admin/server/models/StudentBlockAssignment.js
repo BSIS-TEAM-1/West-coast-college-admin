@@ -7,9 +7,21 @@ const StudentBlockAssignmentSchema = new mongoose.Schema({
   semester: { type: String, required: true, enum: ['1st', '2nd', 'Summer'] },
   year: { type: String, required: true, match: /^\d{4}-\d{4}$/ },
   schoolYear: { type: String, match: /^\d{4}-\d{4}$/ },
-  status: { type: String, enum: ['ASSIGNED', 'WAITLISTED'], default: 'ASSIGNED' },
+  status: { type: String, enum: ['ASSIGNED', 'WAITLISTED', 'ARCHIVED'], default: 'ASSIGNED' },
   assignedAt: { type: Date, default: Date.now },
-  waitlistPriority: { type: Number } // for waitlist
+  waitlistPriority: { type: Number }, // for waitlist
+  // A dismissed student's roster membership is archived, never deleted, so the
+  // section/year history remains available after readmission.
+  archivedAt: { type: Date, default: null },
+  archivedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
+  archiveReason: { type: String, trim: true, default: null },
+  // Status the assignment held before it was archived, so an automatic
+  // restoration can put the membership back exactly where it was.
+  archivePreviousStatus: {
+    type: String,
+    enum: ['ASSIGNED', 'WAITLISTED', null],
+    default: null
+  }
 }, {
   timestamps: true
 });

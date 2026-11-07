@@ -22,6 +22,8 @@ const { DEFAULT_SCHOOL_YEAR } = require('../lib/academicTerm');
 const SystemSetting = require('../models/SystemSetting');
 const enrollmentGuard = require('../services/enrollmentGuard');
 const studentLifecycleService = require('../services/studentLifecycleService');
+const reEnrollmentVerificationService = require('../services/reEnrollmentVerificationService');
+const { getLifecycleRestriction } = require('../services/lifecycleRestrictions');
 const { autoAssignCurriculumSubjects, verifyRetakeReferences } = require('../services/subjectEnrollmentService');
 const { calculateWeeklyContactHours, validateTeachingHours, shouldTriggerWarning } = require('../services/teachingHoursValidationService');
 const TeachingHoursOverride = require('../models/TeachingHoursOverride');
@@ -987,17 +989,42 @@ class StudentController {
     }
   }
 
-  static async cleanupBlockMembershipForStudent(studentId, { session = null } = {}) {
+  static async cleanupBlockMembershipForStudent(studentId, {
+    session = null,
+    schoolYear = null,
+    semester = null,
+    archive = false,
+    archiveReason = 'ACADEMIC_CONTEXT_CHANGE',
+    actorId = null,
+    effectiveDate = new Date(),
+  } = {}) {
     const normalizedStudentId = String(studentId || '').trim();
     if (!normalizedStudentId) return;
 
     const scoped = (query) => (session ? query.session(session) : query);
+    const normalizedSchoolYear = String(schoolYear || '').trim();
+    const normalizedSemester = String(semester || '').trim();
+    const isTermScoped = Boolean(normalizedSchoolYear || normalizedSemester);
+
+    const assignmentFilter = { studentId: normalizedStudentId };
+    if (archive || isTermScoped) {
+      assignmentFilter.status = { $in: ['ASSIGNED', 'WAITLISTED'] };
+    }
+    if (normalizedSemester) {
+      assignmentFilter.semester = normalizedSemester;
+    }
+    if (normalizedSchoolYear) {
+      assignmentFilter.$or = [
+        { schoolYear: normalizedSchoolYear },
+        { year: normalizedSchoolYear },
+      ];
+    }
 
     const assignments = await scoped(
-      StudentBlockAssignment.find({ studentId: normalizedStudentId }).select('sectionId')
+      StudentBlockAssignment.find(assignmentFilter).select('_id sectionId status')
     ).lean();
     const waitlists = await scoped(
-      SectionWaitlist.find({ studentId: normalizedStudentId, status: { $ne: 'ARCHIVED' } }).select('sectionId')
+      SectionWaitlist.find({ studentId: normalizedStudentId, status: { $ne: 'ARCHIVED' } }).select('_id sectionId status')
     ).lean();
 
     const affectedSectionIds = Array.from(
@@ -1009,10 +1036,51 @@ class StudentController {
     );
 
     if (assignments.length > 0) {
-      await scoped(StudentBlockAssignment.deleteMany({ studentId: normalizedStudentId }));
+      if (archive || isTermScoped) {
+        for (const previousStatus of ['ASSIGNED', 'WAITLISTED']) {
+          const ids = assignments
+            .filter((entry) => (String(entry.status || '').trim() || 'ASSIGNED') === previousStatus)
+            .map((entry) => entry._id);
+          if (ids.length === 0) continue;
+          await scoped(
+            StudentBlockAssignment.updateMany(
+              { _id: { $in: ids } },
+              {
+                $set: {
+                  status: 'ARCHIVED',
+                  archivePreviousStatus: previousStatus,
+                  archivedAt: effectiveDate,
+                  archivedBy: actorId || null,
+                  archiveReason: archiveReason || 'ACADEMIC_CONTEXT_CHANGE',
+                },
+              }
+            )
+          );
+        }
+      } else {
+        await scoped(StudentBlockAssignment.deleteMany({ studentId: normalizedStudentId }));
+      }
     }
     if (waitlists.length > 0) {
-      await scoped(SectionWaitlist.deleteMany({ studentId: normalizedStudentId }));
+      if (archive || isTermScoped) {
+        const waitlistIds = waitlists.map((entry) => entry._id);
+        await scoped(
+          SectionWaitlist.updateMany(
+            { _id: { $in: waitlistIds } },
+            {
+              $set: {
+                status: 'ARCHIVED',
+                archivePreviousStatus: 'ACTIVE',
+                archivedAt: effectiveDate,
+                archivedBy: actorId || null,
+                archiveReason: archiveReason || 'ACADEMIC_CONTEXT_CHANGE',
+              },
+            }
+          )
+        );
+      } else {
+        await scoped(SectionWaitlist.deleteMany({ studentId: normalizedStudentId }));
+      }
     }
 
     if (affectedSectionIds.length === 0) return;
@@ -1240,9 +1308,12 @@ class StudentController {
    * Returns { section: null, reason } when nothing matches, so the caller can
    * reject the shift instead of inventing an assignment.
    */
-  static async resolveShiftSection({ course, semester, schoolYear, selection }) {
+  static async resolveShiftSection({ course, semester, schoolYear, yearLevel, selection }) {
     const token = StudentController.normalizeSectionLabel(selection);
     const programCode = Number(course);
+    const numericYearLevel = yearLevel !== undefined && yearLevel !== null && String(yearLevel).trim() !== ''
+      ? Number(yearLevel)
+      : null;
     if (!token) return { section: null, reason: 'No section selected.' };
 
     const groups = await BlockGroup.find({
@@ -1251,37 +1322,17 @@ class StudentController {
     }).lean();
 
     let candidateGroups = StudentController.filterShiftGroupsForProgram(groups, programCode);
-
-    // Fallback for the term-stamp mismatch: freshly created students carry
-    // the current-date school year, while the school's block groups can be
-    // stamped with the term they were created under (e.g. all groups on
-    // "2021-2022"). The assignment pipeline itself — performAssignment, its
-    // eligibility check and the auto-created enrollment — keys everything to
-    // the BLOCK group's term and imposes no student school-year restriction,
-    // so the real blocks remain assignable. Offer the most recent matching
-    // term among the semester's groups instead of failing the whole shift.
-    if (candidateGroups.length === 0) {
-      const looseGroups = StudentController.filterShiftGroupsForProgram(
-        await BlockGroup.find({ semester }).lean(),
-        programCode
-      );
-      if (looseGroups.length > 0) {
-        const latestTermStart = Math.max(
-          ...looseGroups.map((group) => StudentController.blockGroupTermStart(group))
-        );
-        candidateGroups =
-          latestTermStart > 0
-            ? looseGroups.filter(
-                (group) => StudentController.blockGroupTermStart(group) === latestTermStart
-              )
-            : looseGroups;
-      }
+    if (numericYearLevel !== null && Number.isFinite(numericYearLevel) && numericYearLevel > 0) {
+      candidateGroups = candidateGroups.filter((group) => {
+        const groupYear = Number(group.yearLevel);
+        return !Number.isFinite(groupYear) || groupYear <= 0 || groupYear === numericYearLevel;
+      });
     }
 
     if (candidateGroups.length === 0) {
       return {
         section: null,
-        reason: `No ${semester} block exists for the selected course. Create the block first, or shift the student without a block.`,
+        reason: `No open block sections exist for this program, year level, school year, and semester (no ${semester} block exists for the selected course in ${schoolYear}). Create the block first, or shift the student without a block.`,
       };
     }
 
@@ -1377,6 +1428,14 @@ class StudentController {
       if (!student) {
         return res.status(404).json({ success: false, message: 'Student not found' });
       }
+      const shiftRestriction = getLifecycleRestriction(student.lifecycleStatus);
+      if (shiftRestriction) {
+        return res.status(403).json({
+          success: false,
+          code: shiftRestriction.code,
+          message: shiftRestriction.message,
+        });
+      }
       if (student.yearLevel && Number(student.yearLevel) > 1) {
         return res.status(409).json({
           success: false,
@@ -1412,6 +1471,7 @@ class StudentController {
           course: newCourse,
           semester: targetSemester,
           schoolYear: targetSchoolYear,
+          yearLevel: Number(student.yearLevel) || 1,
           selection: section,
         });
         if (!resolution.section) {
@@ -1484,10 +1544,26 @@ class StudentController {
         }
       }
 
-      // 2. The previous program's block membership cannot survive the shift.
+      // 2. The previous program's current-term block membership cannot survive
+      //    the shift, while historical assignments from earlier terms remain
+      //    intact. Also invalidate any active verification sessions.
       const clearedBlockAssignment = programChanged && priorAssignmentCount > 0;
       if (clearedBlockAssignment) {
-        await StudentController.cleanupBlockMembershipForStudent(studentId, { session });
+        await StudentController.cleanupBlockMembershipForStudent(studentId, {
+          session,
+          schoolYear: targetSchoolYear,
+          semester: targetSemester,
+          archive: true,
+          archiveReason: 'PROGRAM_SHIFT',
+          actorId,
+        });
+      }
+      if (programChanged && typeof reEnrollmentVerificationService.invalidateStudentVerifications === 'function') {
+        await reEnrollmentVerificationService.invalidateStudentVerifications({
+          studentId,
+          reason: 'PROGRAM_SHIFT',
+          session,
+        });
       }
 
       // 3. Move the student record itself.
@@ -2452,7 +2528,19 @@ class StudentController {
 
       let blockMembershipCleared = false;
       if (hasAcademicChange) {
-        await StudentController.cleanupBlockMembershipForStudent(id);
+        await StudentController.cleanupBlockMembershipForStudent(id, {
+          schoolYear: student.schoolYear || previousObject.schoolYear,
+          semester: student.semester || previousObject.semester,
+          archive: true,
+          archiveReason: 'ACADEMIC_RECORD_EDIT',
+          actorId: req.adminId,
+        });
+        if (typeof reEnrollmentVerificationService.invalidateStudentVerifications === 'function') {
+          await reEnrollmentVerificationService.invalidateStudentVerifications({
+            studentId: id,
+            reason: 'ACADEMIC_RECORD_EDIT',
+          });
+        }
         blockMembershipCleared = true;
       }
 
@@ -2645,13 +2733,18 @@ class StudentController {
         });
       }
 
-      await schoolYearLockService.assertSchoolYearWritable(student.schoolYear, 'authorized readmission');
+      await schoolYearLockService.assertSchoolYearWritable(
+        req.body?.schoolYear || student.schoolYear,
+        'authorized readmission'
+      );
 
       const result = await studentLifecycleService.readmitStudent({
         studentId: student._id,
         lifecycleStatus: req.body?.lifecycleStatus || 'Pending',
         reason: req.body?.reason || '',
         remarks: req.body?.remarks || '',
+        schoolYear: req.body?.schoolYear || null,
+        semester: req.body?.semester || null,
         actorId: req.adminId,
         accountType: req.accountType || 'registrar',
         effectiveDate: new Date()

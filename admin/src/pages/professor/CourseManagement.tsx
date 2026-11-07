@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Award, BookOpen, CalendarDays, ChevronRight, Clock, Eye, GraduationCap, Grid3X3, Info, List, MapPin, MoreHorizontal, Search } from 'lucide-react'
 import type { ProfessorAssignedBlock, ProfessorAssignedCourse, ProfessorAssignedSubject, ProfessorSubjectDetailState } from './professorTypes'
+import { buildBlockMeta, formatSemesterLabel, isBlockInActiveTerm, normalizeSemester, toSchoolYear } from './professorUtils'
+import { formatScheduleDisplay } from '../../lib/scheduleFormatter'
+import type { AcademicTerm } from '../../lib/settingsApi'
 import './CourseManagement.css'
 import './ProfessorShared.css'
 
@@ -9,6 +12,7 @@ interface CourseManagementProps {
   courses: ProfessorAssignedCourse[]
   loading: boolean
   error: string
+  activeTerm?: AcademicTerm | null
   onOpenSubjectDetail: (detail: ProfessorSubjectDetailState) => void
   onOpenRosterClass: (classKey: string, mode?: 'students' | 'attendance') => void
   onOpenGradesView: (classKey?: string) => void
@@ -19,6 +23,7 @@ function CourseManagement({
   courses,
   loading,
   error,
+  activeTerm,
   onOpenSubjectDetail,
   onOpenRosterClass,
   onOpenGradesView
@@ -26,7 +31,7 @@ function CourseManagement({
   const [layoutMode, setLayoutMode] = useState<'grid' | 'list'>('list')
   const [searchQuery, setSearchQuery] = useState('')
   const [courseFilter, setCourseFilter] = useState('all')
-  const [semesterFilter, setSemesterFilter] = useState('all')
+  const [termFilter, setTermFilter] = useState<string>('active')
   const [schoolYearFilter, setSchoolYearFilter] = useState('all')
   const [subjectSort, setSubjectSort] = useState<'default' | 'code' | 'students'>('default')
   const [showUsageTips, setShowUsageTips] = useState(false)
@@ -157,7 +162,7 @@ function CourseManagement({
 
   const getRosterClassKey = (courseCode: string, block: ProfessorAssignedBlock, subject: ProfessorAssignedSubject) => {
     if (!block.sectionId) return ''
-    return `${courseCode}|${block.sectionId}|${subject.subjectId}`
+    return `${courseCode}|${block.sectionId}|${block.semester || ''}|${block.schoolYear || ''}|${subject.subjectId}`
   }
 
   const getBlockRosterCount = (block: ProfessorAssignedBlock) => {
@@ -200,18 +205,6 @@ function CourseManagement({
     return trimmed.split(/\s+/)[0]
   }, [professorName])
 
-  const semesterOptions = useMemo(() => {
-    const semesters = new Set<string>()
-    courses.forEach((course) => {
-      course.blocks.forEach((block) => {
-        if (block.semester) {
-          semesters.add(block.semester)
-        }
-      })
-    })
-    return Array.from(semesters).sort((a, b) => a.localeCompare(b))
-  }, [courses])
-
   const schoolYearOptions = useMemo(() => {
     const years = new Set<string>()
     courses.forEach((course) => {
@@ -248,8 +241,14 @@ function CourseManagement({
           : false
 
         const blocks = course.blocks
-          .filter((block) => semesterFilter === 'all' || block.semester === semesterFilter)
-          .filter((block) => schoolYearFilter === 'all' || block.schoolYear === schoolYearFilter)
+          .filter((block) => {
+            if (termFilter === 'all') return true
+            if (termFilter === '1st') return normalizeSemester(block.semester) === '1st'
+            if (termFilter === '2nd') return normalizeSemester(block.semester) === '2nd'
+            if (termFilter === 'summer') return normalizeSemester(block.semester) === 'Summer'
+            return isBlockInActiveTerm(block, activeTerm)
+          })
+          .filter((block) => schoolYearFilter === 'all' || block.schoolYear === schoolYearFilter || toSchoolYear(block.schoolYear) === toSchoolYear(schoolYearFilter))
           .map((block) => {
             const blockCode = formatBlockCode(course.courseCode, block.sectionCode)
             const blockMatch = normalizedQuery
@@ -289,7 +288,7 @@ function CourseManagement({
         }
       })
       .filter((course) => course.blocks.length > 0)
-  }, [courses, courseFilter, semesterFilter, schoolYearFilter, normalizedQuery, subjectSort])
+  }, [courses, courseFilter, termFilter, schoolYearFilter, normalizedQuery, subjectSort, activeTerm])
 
   // Count unique students across subjects/blocks. Summing per-subject
   // enrollment counts double-counts students taking multiple subjects.
@@ -343,7 +342,7 @@ function CourseManagement({
 
   const hasActiveFilters = Boolean(normalizedQuery)
     || courseFilter !== 'all'
-    || semesterFilter !== 'all'
+    || termFilter !== 'active'
     || schoolYearFilter !== 'all'
     || subjectSort !== 'default'
 
@@ -371,7 +370,7 @@ function CourseManagement({
   const clearFilters = () => {
     setSearchQuery('')
     setCourseFilter('all')
-    setSemesterFilter('all')
+    setTermFilter('active')
     setSchoolYearFilter('all')
     setSubjectSort('default')
   }
@@ -393,14 +392,10 @@ function CourseManagement({
 
       return course.blocks.flatMap((block) => {
         const blockCode = formatBlockCode(course.courseCode, block.sectionCode)
-        const blockMeta = [
-          block.semester,
-          block.schoolYear,
-          block.yearLevel ? `Year ${block.yearLevel}` : ''
-        ].filter(Boolean).join(' • ')
+        const blockMeta = buildBlockMeta(block, { termFilter, activeTerm })
 
         return block.subjects.map((subject) => {
-          const scheduleText = subject.schedule?.trim() ? subject.schedule : 'TBA'
+          const scheduleText = formatScheduleDisplay(subject.schedule)
           const roomText = subject.room?.trim() ? subject.room : 'TBA'
           const classKey = getRosterClassKey(course.courseCode, block, subject)
 
@@ -420,7 +415,7 @@ function CourseManagement({
         })
       })
     })
-  }, [filteredCourses])
+  }, [filteredCourses, termFilter, activeTerm])
 
   useEffect(() => {
     if (!openListActionMenuId) return
@@ -605,12 +600,14 @@ function CourseManagement({
               </select>
             </label>
             <label className="professor-course-select">
-              <span>Semester</span>
-              <select value={semesterFilter} onChange={(event) => setSemesterFilter(event.target.value)}>
-                <option value="all">All semesters</option>
-                {semesterOptions.map((semester) => (
-                  <option key={semester} value={semester}>{semester}</option>
-                ))}
+              <span>Term / Semester</span>
+              <select value={termFilter} onChange={(event) => setTermFilter(event.target.value)}>
+                <option value="active">
+                  Active Term {activeTerm ? `(${formatSemesterLabel(activeTerm.semester)} · S.Y. ${activeTerm.schoolYear})` : ''}
+                </option>
+                <option value="1st">1st Semester</option>
+                <option value="2nd">2nd Semester</option>
+                <option value="all">All Semesters</option>
               </select>
             </label>
             <label className="professor-course-select">
@@ -658,9 +655,9 @@ function CourseManagement({
               Course: {toCourseDisplayLabel(courseFilter)} x
             </button>
           )}
-          {semesterFilter !== 'all' && (
-            <button type="button" className="professor-filter-chip" onClick={() => setSemesterFilter('all')}>
-              Semester: {semesterFilter} x
+          {termFilter !== 'active' && (
+            <button type="button" className="professor-filter-chip" onClick={() => setTermFilter('active')}>
+              Term: {termFilter === '1st' ? '1st Sem' : termFilter === '2nd' ? '2nd Sem' : 'All Semesters'} ×
             </button>
           )}
           {schoolYearFilter !== 'all' && (
@@ -766,7 +763,7 @@ function CourseManagement({
                   <div className="professor-course-list-primary">
                     <strong className="professor-course-list-title">{row.subject.title || 'Untitled subject'}</strong>
                     <span className="professor-course-list-inline-meta">
-                      {row.courseLabel} • {row.blockCode}
+                      {row.courseLabel} · {row.blockCode}
                     </span>
                   </div>
                 </div>
@@ -776,7 +773,17 @@ function CourseManagement({
                 <div className="professor-course-list-cell professor-course-list-cell-block" data-label="Block">
                   <div className="professor-course-list-primary">
                     <strong className="professor-course-list-block">{row.blockCode}</strong>
-                    <span className="professor-course-list-note">{row.blockMeta}</span>
+                    <span className="professor-course-list-note">
+                      {row.blockMeta.metaText}
+                      {row.blockMeta.statusLabel && (
+                        <>
+                          {row.blockMeta.metaText ? ' · ' : ''}
+                          <span className={`professor-block-status-label status-${row.blockMeta.statusLabel.toLowerCase()}`}>
+                            {row.blockMeta.statusLabel}
+                          </span>
+                        </>
+                      )}
+                    </span>
                   </div>
                 </div>
                 <div className="professor-course-list-cell professor-course-list-cell-schedule" data-label="Schedule">
@@ -833,6 +840,7 @@ function CourseManagement({
                     const isExpanded = expandedBlockKeys.includes(blockKey)
                     const blockStudentCount = getBlockRosterCount(block)
                     const blockStudentLabel = formatStudentCountLabel(blockStudentCount)
+                    const blockMeta = buildBlockMeta(block, { termFilter, activeTerm })
 
                     return (
                       <div
@@ -850,8 +858,15 @@ function CourseManagement({
                             <span className="professor-block-label">Block</span>
                             <strong>{blockCode}</strong>
                             <span className="professor-block-meta">
-                              {block.semester} • {block.schoolYear}
-                              {block.yearLevel ? ` • Year ${block.yearLevel}` : ''}
+                              {blockMeta.metaText}
+                              {blockMeta.statusLabel && (
+                                <>
+                                  {blockMeta.metaText ? ' · ' : ''}
+                                  <span className={`professor-block-status-label status-${blockMeta.statusLabel.toLowerCase()}`}>
+                                    {blockMeta.statusLabel}
+                                  </span>
+                                </>
+                              )}
                             </span>
                           </div>
                           <div className="professor-block-accordion-metrics">
@@ -864,7 +879,7 @@ function CourseManagement({
                         {isExpanded && (
                           <div className="professor-subject-compact-list">
                             {block.subjects.map((subject) => {
-                              const scheduleText = subject.schedule?.trim() ? subject.schedule : 'TBA'
+                              const scheduleText = formatScheduleDisplay(subject.schedule)
                               const roomText = subject.room?.trim() ? subject.room : 'TBA'
                               const classKey = getRosterClassKey(course.courseCode, block, subject)
                               const canOpenRoster = Boolean(classKey)

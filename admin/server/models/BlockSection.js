@@ -5,7 +5,9 @@ const BlockSectionSchema = new mongoose.Schema({
   sectionCode: { type: String, required: true }, // e.g., "BSIT-1A"
   capacity: { type: Number, required: true, min: 1 },
   currentPopulation: { type: Number, default: 0, min: 0 },
-  status: { type: String, enum: ['OPEN', 'CLOSED'], default: 'OPEN' },
+  status: { type: String, enum: ['OPEN', 'CLOSED', 'ARCHIVED'], default: 'OPEN' },
+  isArchived: { type: Boolean, default: false, index: true },
+  archivedAt: { type: Date, default: null },
   schedule: { type: String, trim: true },
   classAdviser: { type: String, trim: true, default: '' }
 }, {

@@ -49,7 +49,7 @@ const LIVE_STATUSES = ['Enrolled', 'Incomplete'];
 /** Statuses that mean "this attempt was stopped and may be retaken". */
 const PRIOR_ATTEMPT_STATUSES = ['Dropped', 'Removed', 'Failed'];
 /** Lifecycle states that make a student non-enrollable. */
-const NON_ENROLLABLE_LIFECYCLE = ['Graduated'];
+const NON_ENROLLABLE_LIFECYCLE = ['Graduated', 'Dropped'];
 
 const REASON = {
   SUBJECT_NOT_FOUND: 'SUBJECT_NOT_FOUND',

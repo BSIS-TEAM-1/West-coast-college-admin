@@ -10,12 +10,13 @@ import {
   studentNumberDisplay
 } from '../lib/blockAssignmentShared'
 import type { ReEnrollmentInfo } from '../lib/reEnrollmentApi'
+import { gradeStatusLabel } from '../lib/gradeStatus'
+import { useGradeScale } from '../lib/gradingScale'
 import { StudentWorkspaceOverlay, isStudentWorkspaceBackdropTarget } from './shared/StudentWorkspaceOverlay'
 
-function gradeLabel(grade: number | null, gradeMark: string | null, status: string | null) {
+function gradeLabel(grade: number | null, gradeMark: string | null) {
   if (grade != null) return grade.toFixed(2)
   if (gradeMark) return gradeMark
-  if (status) return status
   return '—'
 }
 
@@ -44,6 +45,7 @@ export default function StudentInfoPopup({
   const gradeSummary = reEnrollment?.gradeSummary
   const retakeSubjects = reEnrollment?.retakeSubjects || []
   const verification = reEnrollment?.verification
+  const gradeScale = useGradeScale()
 
   return (
     <StudentWorkspaceOverlay>
@@ -181,8 +183,8 @@ export default function StudentInfoPopup({
                               <span>{subject.title || ''}</span>
                             </td>
                             <td>{subject.units ?? '—'}</td>
-                            <td>{gradeLabel(subject.grade, subject.gradeMark, subject.status)}</td>
-                            <td>{subject.status || '—'}</td>
+                            <td>{gradeLabel(subject.grade, subject.gradeMark)}</td>
+                            <td>{gradeStatusLabel(subject, gradeScale)}</td>
                           </tr>
                         ))}
                       </tbody>

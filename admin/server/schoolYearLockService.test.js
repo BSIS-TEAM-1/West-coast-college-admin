@@ -121,11 +121,21 @@ describe('lockSchoolYear', () => {
     });
 
     expect(state.status).toBe('locked');
-    // The transition atomically matches only an OPEN year.
+    // The transition atomically matches an OPEN year (or a year whose last
+    // rollover closed only a semester, which is still in progress).
     const filter = SchoolYearState.findOneAndUpdate.mock.calls[0][0];
     expect(filter).toEqual({
       schoolYear: SY,
-      status: { $in: ['', null, 'open'] },
+      $or: [
+        { status: { $in: ['', null, 'open'] } },
+        {
+          status: 'rolled_over',
+          $or: [
+            { rolloverMode: 'semester' },
+            { rolloverToSchoolYear: SY },
+          ],
+        },
+      ],
     });
     const update = SchoolYearState.findOneAndUpdate.mock.calls[0][1];
     expect(update.$set.status).toBe('locked');
@@ -221,21 +231,29 @@ describe('unlockSchoolYear', () => {
     ).rejects.toMatchObject({ statusCode: 409, reasonCode: 'ROLL_OVER_IN_PROGRESS' });
   });
 
-  test('a failed-rollover year can only be unlocked by an administrator', async () => {
+  test('a failed-rollover year can be unlocked by an administrator or registrar', async () => {
     SchoolYearState.findOne.mockReturnValue(dbResult(makeState('rollover_failed')));
 
     await expect(
-      LockService.unlockSchoolYear({ schoolYear: SY, actorId: 'r1', actorRole: 'registrar', reason: 'Fix records' })
+      LockService.unlockSchoolYear({ schoolYear: SY, actorId: 'f1', actorRole: 'faculty', reason: 'Fix records' })
     ).rejects.toMatchObject({ statusCode: 403, reasonCode: 'FORBIDDEN' });
 
     SchoolYearState.findOneAndUpdate.mockResolvedValue(makeState('open'));
-    const state = await LockService.unlockSchoolYear({
+    const stateRegistrar = await LockService.unlockSchoolYear({
+      schoolYear: SY,
+      actorId: 'r1',
+      actorRole: 'registrar',
+      reason: 'Authorized corrections after failure by registrar',
+    });
+    expect(stateRegistrar.status).toBe('open');
+
+    const stateAdmin = await LockService.unlockSchoolYear({
       schoolYear: SY,
       actorId: 'a1',
       actorRole: 'admin',
-      reason: 'Authorized corrections after failure',
+      reason: 'Authorized corrections after failure by admin',
     });
-    expect(state.status).toBe('open');
+    expect(stateAdmin.status).toBe('open');
   });
 });
 
@@ -465,6 +483,86 @@ describe('executeWithSafeguards', () => {
     const startTransitions = SchoolYearState.findOneAndUpdate.mock.calls.filter(([filter]) => filter.status === 'rollover_ready');
     expect(startTransitions).toHaveLength(2);
   });
+
+  test('a completed semester rollover reopens the same school year instead of freezing it', async () => {
+    const semesterParams = {
+      fromSchoolYear: SY,
+      toSchoolYear: SY,
+      semester: '2nd',
+      adminId: 'r1',
+      adminRole: 'registrar',
+    };
+    SchoolYearState.findOne.mockReturnValue(dbResult(makeState('rollover_ready', { activeValidationRunId: 'run_1' })));
+    RolloverValidationRun.findById.mockReturnValue(dbResult(makeRun({
+      toSchoolYear: SY,
+      semester: '2nd',
+      status: 'passed',
+      summary: { blockingErrors: 0, warnings: 0, passedChecks: 7 },
+      results: [],
+    })));
+    SchoolYearState.findOneAndUpdate
+      .mockResolvedValueOnce(makeState('rollover_in_progress'))
+      .mockResolvedValueOnce(makeState('open', {
+        rolloverBatchId: 'batch_sem',
+        rolloverToSchoolYear: SY,
+        rolloverSemester: '2nd',
+      }));
+
+    const result = await LockService.executeWithSafeguards(semesterParams, executor());
+    expect(result.rolloverBatchId).toBe('batch_9');
+
+    const completion = SchoolYearState.findOneAndUpdate.mock.calls.find(
+      ([, update]) => update.$set.rolloverBatchId === 'batch_9'
+    );
+    expect(completion).toBeTruthy();
+    expect(completion[1].$set.status).toBe('open');
+    expect(completion[1].$set.rolloverMode).toBe('semester');
+  });
+});
+
+describe('completeRollover (state transition)', () => {
+  test('a year rollover marks the source year rolled_over and immutable', async () => {
+    SchoolYearState.findOneAndUpdate.mockResolvedValue(makeState('rolled_over', { rolloverBatchId: 'batch_y' }));
+
+    const state = await LockService.completeRollover({
+      schoolYear: SY,
+      batchId: 'batch_y',
+      counts: { promoted: 1 },
+      mode: 'year',
+      actorId: 'a1',
+      actorRole: 'admin',
+    });
+
+    const update = SchoolYearState.findOneAndUpdate.mock.calls[0][1];
+    expect(update.$set.status).toBe('rolled_over');
+    expect(update.$set.rolloverMode).toBe('year');
+    expect(state.status).toBe('rolled_over');
+  });
+
+  test('a semester rollover reopens the year and clears lock/validation state', async () => {
+    SchoolYearState.findOneAndUpdate.mockResolvedValue(makeState('open', {
+      rolloverBatchId: 'batch_s',
+      rolloverToSchoolYear: SY,
+      rolloverSemester: '2nd',
+    }));
+
+    const state = await LockService.completeRollover({
+      schoolYear: SY,
+      batchId: 'batch_s',
+      counts: { promoted: 1 },
+      mode: 'semester',
+      actorId: 'a1',
+      actorRole: 'admin',
+    });
+
+    const update = SchoolYearState.findOneAndUpdate.mock.calls[0][1];
+    expect(update.$set.status).toBe('open');
+    expect(update.$set.rolloverMode).toBe('semester');
+    expect(update.$set.activeValidationRunId).toBeNull();
+    expect(update.$set.validationSummary).toBeNull();
+    expect(update.$set.lockedAt).toBeNull();
+    expect(state.status).toBe('open');
+  });
 });
 
 describe('retryRollover (recovery)', () => {
@@ -538,6 +636,27 @@ describe('assertSchoolYearWritable (backend mutation enforcement)', () => {
       statusCode: 409,
       reasonCode: 'SCHOOL_YEAR_ROLLED_OVER',
     });
+  });
+
+  test('a semester rollover leaves the same school year writable', async () => {
+    // A same-year rollover closes a term, not the year: the newly opened
+    // semester must remain editable (e.g. professors entering grades).
+    SchoolYearState.findOne.mockReturnValue(dbResult(makeState('rolled_over', {
+      rolloverBatchId: 'batch_sem',
+      rolloverToSchoolYear: SY,
+      rolloverSemester: '2nd',
+    })));
+
+    await expect(LockService.assertSchoolYearWritable(SY, 'professor grade edit')).resolves.toBeUndefined();
+  });
+
+  test('legacy semester rollover state (explicit mode) stays writable', async () => {
+    SchoolYearState.findOne.mockReturnValue(dbResult({
+      ...makeState('rolled_over', { rolloverBatchId: 'batch_sem' }),
+      rolloverMode: 'semester',
+    }));
+
+    await expect(LockService.assertSchoolYearWritable(SY)).resolves.toBeUndefined();
   });
 
   test('in-progress rollovers reject mutations', async () => {

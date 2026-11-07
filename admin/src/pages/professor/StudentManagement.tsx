@@ -4,7 +4,8 @@ import { Download, Search, Send } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import { fetchWithAutoReconnect, isAbortRequestError, isNetworkRequestError } from '../../lib/network'
 import type { ProfessorAssignedCourse, ProfessorRosterClassOption, ProfessorRosterSectionOption, ProfessorRosterStudent, RosterSortBy } from './professorTypes'
-import { buildReconnectMessage } from './professorUtils'
+import { buildReconnectMessage, formatSemesterLabel, isBlockInActiveTerm, normalizeSemester } from './professorUtils'
+import type { AcademicTerm } from '../../lib/settingsApi'
 import { formatGrade } from '../../lib/gradingScale'
 import { formatScheduleDisplay } from '../../lib/scheduleFormatter'
 import './ProfessorShared.css'
@@ -17,9 +18,10 @@ interface StudentManagementProps {
   initialClassKey?: string
   entryMode?: 'students' | 'attendance'
   onShiftStudent?: (studentId: string) => void
+  activeTerm?: AcademicTerm | null
 }
 
-function StudentManagement({ courses, loading, error, onRefresh, initialClassKey = '', entryMode = 'students' }: StudentManagementProps) {
+function StudentManagement({ courses, loading, error, onRefresh, initialClassKey = '', entryMode = 'students', activeTerm }: StudentManagementProps) {
   const [selectedClassKey, setSelectedClassKey] = useState('')
   const [selectedSectionKey, setSelectedSectionKey] = useState('all')
   const [students, setStudents] = useState<ProfessorRosterStudent[]>([])
@@ -27,6 +29,7 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
   const [studentsError, setStudentsError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'dropped'>('all')
+  const [termFilter, setTermFilter] = useState<string>('active')
   const [sortBy, setSortBy] = useState<RosterSortBy>('name-asc')
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedStudent, setSelectedStudent] = useState<ProfessorRosterStudent | null>(null)
@@ -73,15 +76,23 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
     return `${formatCourseLabel(courseCode)} ${sectionCode}`.trim()
   }
 
+  const isMatchTerm = (block: { semester?: string; schoolYear?: string; isCurrent?: boolean }) => {
+    if (termFilter === 'all') return true
+    if (termFilter === '1st') return normalizeSemester(block.semester) === '1st'
+    if (termFilter === '2nd') return normalizeSemester(block.semester) === '2nd'
+    return isBlockInActiveTerm(block, activeTerm)
+  }
+
   const classOptions = useMemo<ProfessorRosterClassOption[]>(() => {
     return courses.flatMap((course) => {
       return course.blocks
         .filter((block) => Boolean(block.sectionId))
+        .filter((block) => isMatchTerm(block))
         .flatMap((block) => {
           return block.subjects.map((subject) => {
             const blockCode = formatBlockCode(course.courseCode, block.sectionCode)
             return {
-              key: `${course.courseCode}|${block.sectionId}|${subject.subjectId}`,
+              key: `${course.courseCode}|${block.sectionId}|${block.semester || ''}|${block.schoolYear || ''}|${subject.subjectId}`,
               courseCode: course.courseCode,
               blockCode,
               sectionId: block.sectionId as string,
@@ -89,6 +100,7 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
               semester: block.semester,
               schoolYear: block.schoolYear,
               yearLevel: block.yearLevel,
+              isCurrent: Boolean(block.isCurrent),
               subjectId: subject.subjectId,
               subjectCode: subject.code,
               subjectTitle: subject.title,
@@ -98,14 +110,15 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
           })
         })
     })
-  }, [courses])
+  }, [courses, termFilter, activeTerm])
 
   const sectionOptions = useMemo<ProfessorRosterSectionOption[]>(() => {
     return courses.flatMap((course) => {
       return course.blocks
         .filter((block) => Boolean(block.sectionId))
+        .filter((block) => isMatchTerm(block))
         .map((block) => ({
-          key: `${course.courseCode}|${block.sectionId}`,
+          key: `${course.courseCode}|${block.sectionId}|${block.semester || ''}|${block.schoolYear || ''}`,
           courseCode: course.courseCode,
           blockCode: formatBlockCode(course.courseCode, block.sectionCode),
           sectionId: block.sectionId as string,
@@ -113,6 +126,7 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
           semester: block.semester,
           schoolYear: block.schoolYear,
           yearLevel: block.yearLevel,
+          isCurrent: Boolean(block.isCurrent),
           subjectCount: block.subjects.length,
           subjects: block.subjects.map((subject) => ({
             subjectId: subject.subjectId,
@@ -123,7 +137,7 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
           }))
         }))
     })
-  }, [courses])
+  }, [courses, termFilter, activeTerm])
 
   const selectedClass = useMemo(
     () => classOptions.find((item) => item.key === selectedClassKey) || null,
@@ -137,16 +151,22 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
 
   useEffect(() => {
     if (!initialClassKey) return
-    const matchedClass = classOptions.find((item) => item.key === initialClassKey)
+    const matchedClass = classOptions.find(
+      (item) => item.key === initialClassKey || item.key.startsWith(`${initialClassKey}|`)
+    )
     if (matchedClass) {
-      setSelectedClassKey(initialClassKey)
-      setSelectedSectionKey(`${matchedClass.courseCode}|${matchedClass.sectionId}`)
+      setSelectedClassKey(matchedClass.key)
+      setSelectedSectionKey(`${matchedClass.courseCode}|${matchedClass.sectionId}|${matchedClass.semester || ''}|${matchedClass.schoolYear || ''}`)
+      if (termFilter === 'active' && !isBlockInActiveTerm(matchedClass, activeTerm)) {
+        const norm = normalizeSemester(matchedClass.semester)
+        setTermFilter(norm === '1st' || norm === '2nd' ? norm : 'all')
+      }
       setSearchQuery('')
       setStatusFilter('all')
       setSortBy('name-asc')
       setCurrentPage(1)
     }
-  }, [classOptions, initialClassKey])
+  }, [classOptions, initialClassKey, termFilter, activeTerm])
 
   useEffect(() => {
     const active = classOptions.some((item) => item.key === selectedClassKey)
@@ -347,8 +367,16 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
               normalized.reduce((rowsByStudent, row) => {
                 // Dedupe by student across all blocks/subjects so each student is counted once.
                 const key = row._id || String(row.studentNumber)
-                if (!rowsByStudent.has(key)) {
+                const existing = rowsByStudent.get(key)
+                if (!existing) {
                   rowsByStudent.set(key, row)
+                } else {
+                  // Prefer current / active enrollments over older / completed ones
+                  const isExistingCompleted = existing.subjectStatus === 'Completed' || existing.studentStatus === 'Completed'
+                  const isRowActive = row.subjectStatus !== 'Completed' && row.studentStatus !== 'Completed'
+                  if (isExistingCompleted && isRowActive) {
+                    rowsByStudent.set(key, row)
+                  }
                 }
                 return rowsByStudent
               }, new Map<string, ProfessorRosterStudent>()).values()
@@ -561,6 +589,31 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
 
       <div className="professor-roster-controls">
         <div className="professor-roster-class-select">
+          <label htmlFor="professor-term-select">Term / Semester</label>
+          <select
+            id="professor-term-select"
+            value={termFilter}
+            onChange={(event) => {
+              const nextTerm = event.target.value
+              setTermFilter(nextTerm)
+              setSelectedSectionKey('all')
+              setSelectedClassKey('')
+              setSearchQuery('')
+              setStatusFilter('all')
+              setSortBy('name-asc')
+              setCurrentPage(1)
+            }}
+          >
+            <option value="active">
+              Active Term {activeTerm ? `(${formatSemesterLabel(activeTerm.semester)} · S.Y. ${activeTerm.schoolYear})` : ''}
+            </option>
+            <option value="1st">1st Semester</option>
+            <option value="2nd">2nd Semester</option>
+            <option value="all">All Semesters</option>
+          </select>
+        </div>
+
+        <div className="professor-roster-class-select">
           <label htmlFor="professor-class-select">Block / Section Filter</label>
           <select
             id="professor-class-select"
@@ -570,7 +623,10 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
               setSelectedSectionKey(nextValue)
               if (nextValue === 'all') {
                 setSelectedClassKey('')
-              } else if (selectedClass && `${selectedClass.courseCode}|${selectedClass.sectionId}` !== nextValue) {
+              } else if (
+                selectedClass &&
+                `${selectedClass.courseCode}|${selectedClass.sectionId}|${selectedClass.semester || ''}|${selectedClass.schoolYear || ''}` !== nextValue
+              ) {
                 setSelectedClassKey('')
               }
               setSearchQuery('')
@@ -579,10 +635,16 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
               setCurrentPage(1)
             }}
           >
-            <option value="all">All assigned classes</option>
+            <option value="all">
+              {termFilter === 'active' && activeTerm
+                ? `All assigned classes (${formatSemesterLabel(activeTerm.semester)})`
+                : termFilter === '1st' || termFilter === '2nd'
+                ? `All assigned classes (${termFilter} Sem)`
+                : 'All assigned classes'}
+            </option>
             {sectionOptions.map((option) => (
               <option key={option.key} value={option.key}>
-                {option.blockCode} - {option.subjectCount} subject(s)
+                [{formatSemesterLabel(option.semester)}] {option.blockCode} (S.Y. {option.schoolYear}) - {option.subjectCount} subject(s){option.isCurrent ? ' • Active' : ''}
               </option>
             ))}
           </select>
@@ -622,7 +684,26 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
           <div className="professor-overview-row"><span>Scope</span><strong>{rosterScopeLabel}</strong></div>
           <div className="professor-overview-row"><span>Course</span><strong>{selectedClass ? `${selectedClass.subjectCode} - ${selectedClass.subjectTitle}` : 'All courses in view'}</strong></div>
           <div className="professor-overview-row"><span>Schedule</span><strong>{selectedClass ? formatScheduleDisplay(selectedClass.schedule) : 'Mixed schedules'}</strong></div>
-          <div className="professor-overview-row"><span>Semester / School Year</span><strong>{selectedSection ? `${selectedSection.semester} / ${selectedSection.schoolYear}` : 'Across assigned classes'}</strong></div>
+          <div className="professor-overview-row">
+            <span>Semester / School Year</span>
+            <strong>
+              {selectedSection ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span className={`professor-sem-badge professor-sem-badge-${normalizeSemester(selectedSection.semester) === '2nd' ? '2nd' : '1st'}`}>
+                    {formatSemesterLabel(selectedSection.semester)}
+                  </span>
+                  <span>S.Y. {selectedSection.schoolYear}</span>
+                </span>
+              ) : termFilter === 'active' && activeTerm ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span className={`professor-sem-badge professor-sem-badge-${normalizeSemester(activeTerm.semester) === '2nd' ? '2nd' : '1st'}`}>
+                    {formatSemesterLabel(activeTerm.semester)}
+                  </span>
+                  <span>S.Y. {activeTerm.schoolYear} (Active Term)</span>
+                </span>
+              ) : 'Across assigned classes'}
+            </strong>
+          </div>
           <div className="professor-overview-row"><span>Visible Classes</span><strong>{rosterClassCount}</strong></div>
           <div className="professor-overview-row"><span>Total Students</span><strong>{totalStudents}</strong></div>
         </div>

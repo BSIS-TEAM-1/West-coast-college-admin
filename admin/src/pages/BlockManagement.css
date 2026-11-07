@@ -2569,3 +2569,69 @@
   width: 100%;
   gap: 0.12rem;
 }
+/* Archived Block UI Elements */
+.created-block-card-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+.created-block-card-archived-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 9999px;
+  background-color: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.created-block-card--archived {
+  opacity: 0.85;
+  border-color: #cbd5e1;
+  background-color: #f8fafc;
+}
+
+.block-archived-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background-color: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #475569;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.block-workspace-hero-badge--archived {
+  background-color: #64748b !important;
+  color: #ffffff !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bo-status--archived {
+  background-color: #f1f5f9;
+  color: #64748b;
+}
+
+.bo-status--archived .bo-status-dot {
+  background-color: #94a3b8;
+}
+
+.block-status-badge--archived {
+  background-color: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+}

@@ -175,4 +175,158 @@ describe('performAssignment re-enrollment gate', () => {
 
     expect(verificationService.findVerifiedEnrollment).not.toHaveBeenCalled();
   });
+
+  test('does not require re-enrollment verification when assigning within the same school year (by semester)', async () => {
+    const section = {
+      _id: 'section-2nd',
+      status: 'OPEN',
+      blockGroupId: 'group-2nd',
+      sectionCode: '101-1-A',
+      capacity: 40,
+      currentPopulation: 10,
+    };
+    const group = {
+      _id: 'group-2nd',
+      schoolYear: '2026-2027',
+      semester: '2nd',
+      year: '2026-2027',
+      courseId: 101,
+      yearLevel: 1,
+      name: '101-1-A',
+    };
+    const student = {
+      _id: 'student-1',
+      studentNumber: '2026-101-0001',
+      course: 101,
+      yearLevel: 1,
+      schoolYear: '2026-2027',
+      semester: '1st', // Same school year, earlier semester
+      studentStatus: 'Regular',
+      classification: 'Regular',
+    };
+    section.toObject = () => section;
+    group.toObject = () => group;
+    student.toObject = () => student;
+
+    BlockSection.findById.mockReturnValue(chain(section));
+    BlockGroup.findById.mockReturnValue(chain(group));
+    Student.findById.mockReturnValue(chain(student));
+
+    blockEligibilityService.findActiveEnrollment.mockResolvedValue({
+      _id: 'enrollment-2nd',
+      schoolYear: '2026-2027',
+      semester: '2nd',
+      status: 'Enrolled',
+      subjects: [],
+    });
+    blockEligibilityService.evaluateStudentEligibility.mockReturnValue({
+      eligible: false,
+      reasons: ['Stop after gate check.'],
+      checks: {},
+    });
+
+    await blockController.performAssignment({
+      studentId: 'student-1',
+      sectionId: 'section-2nd',
+      year: '2026-2027',
+      actorId: 'registrar-1',
+      session: {},
+      enforceReEnrollmentVerification: true,
+      forceReEnrollmentVerification: false,
+    });
+
+    expect(verificationService.findVerifiedEnrollment).not.toHaveBeenCalled();
+  });
+
+  test('BUG-01: immediately rejects a Dropped student before checking or consuming verification', async () => {
+    const droppedStudent = {
+      _id: 'student-1',
+      studentNumber: '2026-101-0001',
+      course: 101,
+      yearLevel: 1,
+      schoolYear: '2026-2027',
+      semester: '2nd',
+      lifecycleStatus: 'Dropped',
+      studentStatus: 'Regular',
+      classification: 'Regular',
+    };
+    droppedStudent.toObject = () => droppedStudent;
+    Student.findById.mockReturnValue(chain(droppedStudent));
+
+    const result = await blockController.performAssignment(assignmentInput());
+
+    expect(result.ok).toBe(false);
+    expect(result.httpStatus).toBe(403);
+    expect(result.error).toContain('Dropped students require authorized readmission before block assignment.');
+    expect(verificationService.findVerifiedEnrollment).not.toHaveBeenCalled();
+    expect(verificationService.consumeVerification).not.toHaveBeenCalled();
+  });
+
+  test('BUG-02: requires verification server-side when a returning student has no active enrollment for the target term even without forceReEnrollmentVerification', async () => {
+    const section = {
+      _id: 'section-2nd',
+      status: 'OPEN',
+      blockGroupId: 'group-2nd',
+      sectionCode: '101-1-A',
+      capacity: 40,
+      currentPopulation: 10,
+      toObject() { return this; },
+    };
+    const group = {
+      _id: 'group-2nd',
+      schoolYear: '2026-2027',
+      semester: '2nd',
+      year: '2026-2027',
+      courseId: 101,
+      yearLevel: 1,
+      name: '101-1-A',
+      toObject() { return this; },
+    };
+    const student = {
+      _id: 'student-1',
+      studentNumber: '2026-101-0001',
+      course: 101,
+      yearLevel: 1,
+      schoolYear: '2026-2027',
+      semester: '1st',
+      lifecycleStatus: 'Enrolled',
+      studentStatus: 'Regular',
+      classification: 'Regular',
+      toObject() { return this; },
+    };
+
+    BlockSection.findById.mockReturnValue(chain(section));
+    BlockGroup.findById.mockReturnValue(chain(group));
+    Student.findById.mockReturnValue(chain(student));
+    // No active enrollment for 2026-2027 2nd semester -> server detects re-enrollment!
+    blockEligibilityService.findActiveEnrollment.mockResolvedValue(null);
+    verificationService.findVerifiedEnrollment.mockResolvedValue(null);
+
+    const result = await blockController.performAssignment({
+      studentId: 'student-1',
+      sectionId: 'section-2nd',
+      year: '2026-2027',
+      actorId: 'registrar-1',
+      session: {},
+      enforceReEnrollmentVerification: true,
+      forceReEnrollmentVerification: false,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.httpStatus).toBe(428);
+    expect(result.checks?.reEnrollmentVerified).toBe(false);
+    expect(verificationService.findVerifiedEnrollment).toHaveBeenCalled();
+  });
+
+  test('BUG-08: aborts assignment with 409 when verification is concurrently consumed by another request', async () => {
+    verificationService.findVerifiedEnrollment.mockResolvedValue({ _id: 'verification-1' });
+    verificationService.consumeVerification.mockResolvedValue(false);
+    blockEligibilityService.findActiveEnrollment.mockResolvedValue(null);
+
+    const result = await blockController.performAssignment(assignmentInput());
+
+    expect(result.ok).toBe(false);
+    expect(result.httpStatus).toBe(409);
+    expect(result.checks?.reEnrollmentVerified).toBe(false);
+  });
 });

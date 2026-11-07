@@ -168,6 +168,16 @@ declare class StudentService {
   static getStudentByNumber(token: string, studentNumber: string): Promise<ApiResponse<StudentData>>;
   static createStudent(token: string, studentData: Partial<StudentData>): Promise<StudentData>;
   static updateStudent(token: string, id: string, studentData: Partial<StudentData>): Promise<StudentData>;
+  static readmitStudent(
+    token: string,
+    id: string,
+    data: { lifecycleStatus?: 'Pending' | 'Not Enrolled' | 'Irregular'; reason: string; remarks?: string }
+  ): Promise<ApiResponse<StudentData> & { notificationCreated?: boolean }>;
+  static reactivateStudent(
+    token: string,
+    id: string,
+    data: { lifecycleStatus?: 'Pending' | 'Not Enrolled' | 'Irregular'; reason: string; remarks?: string }
+  ): Promise<ApiResponse<StudentData> & { notificationCreated?: boolean }>;
   static deleteStudent(token: string, id: string): Promise<ApiResponse<StudentData>>;
   static enrollStudent(token: string, id: string, enrollmentData: EnrollmentData): Promise<ApiResponse<unknown>>;
   static getCurrentEnrollment(token: string, id: string, schoolYear: string, semester: string): Promise<ApiResponse<unknown> | null>;

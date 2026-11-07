@@ -22,6 +22,7 @@ import {
   Upload,
   UserPlus,
   UserRound,
+  UserCheck,
   Users,
   X
 } from 'lucide-react'
@@ -59,7 +60,7 @@ import {
 import { downloadCsv } from '../lib/csv'
 import './StudentManagement.css'
 
-type LifecycleStatus = 'Pending' | 'Enrolled' | 'Not Enrolled' | 'Irregular' | 'Inactive' | 'Graduated' | 'Leave of Absence'
+type LifecycleStatus = 'Pending' | 'Enrolled' | 'Not Enrolled' | 'Irregular' | 'Inactive' | 'Graduated' | 'Leave of Absence' | 'Dropped'
 type StudentRegistrySort = 'name-asc' | 'name-desc' | 'id-asc' | 'course-asc' | 'year-asc' | 'updated-desc'
 type ProfileTab = 'profile' | 'enrollment' | 'subjects' | 'documents'
 type StudentManagementMode = 'management' | 'assign-block'
@@ -80,6 +81,28 @@ type ManagedStudent = StudentData & {
   gradeProfessor?: string
   gradeDate?: string
   registrationNumber?: string
+  lifecycleStatusReason?: string | null
+  lifecycleStatusEffectiveDate?: string | null
+  lifecycleStatusTerm?: { schoolYear?: string; semester?: string } | null
+  lifecycleStatusFailedSubjects?: Array<{
+    code?: string
+    title?: string
+    units?: number | null
+    grade?: number | null
+    gradeMark?: string | null
+    schoolYear?: string
+    semester?: string
+  }>
+  lifecycleStatusHistory?: Array<{
+    eventId?: string
+    status?: string
+    reason?: string | null
+    effectiveDate?: string | null
+    schoolYear?: string
+    semester?: string
+    decision?: string | null
+    remarks?: string | null
+  }>
   emergencyContact?: {
     name?: string
     relationship?: string
@@ -133,6 +156,12 @@ type EnrollmentRecord = {
   updatedAt?: string
 }
 
+export type CorTermOptions = {
+  schoolYear?: string
+  semester?: string
+  enrollmentId?: string
+}
+
 type SubjectCatalogItem = {
   _id: string
   code: string
@@ -173,7 +202,7 @@ type StudentFormState = {
 }
 
 const YEAR_LEVEL_OPTIONS = [1, 2, 3, 4, 5]
-const LIFECYCLE_OPTIONS: LifecycleStatus[] = ['Pending', 'Enrolled', 'Not Enrolled', 'Irregular', 'Inactive', 'Graduated', 'Leave of Absence']
+const LIFECYCLE_OPTIONS: LifecycleStatus[] = ['Pending', 'Enrolled', 'Not Enrolled', 'Irregular', 'Inactive', 'Graduated', 'Leave of Absence', 'Dropped']
 const SEMESTER_OPTIONS: Semester[] = ['1st', '2nd', 'Summer']
 // Statuses that mean the student is already carrying a record for the active
 // term. Matches the server-side convention used by enrollmentGuard,
@@ -236,6 +265,7 @@ function lifecycleTone(status: LifecycleStatus): 'neutral' | 'info' | 'success' 
   if (status === 'Graduated') return 'info'
   if (status === 'Irregular') return 'accent'
   if (status === 'Leave of Absence') return 'accent'
+  if (status === 'Dropped') return 'danger'
   return 'neutral'
 }
 
@@ -247,7 +277,7 @@ function lifecycleTone(status: LifecycleStatus): 'neutral' | 'info' | 'success' 
 function LifecycleStatusText({ status }: { status: LifecycleStatus }) {
   return (
     <span className={`student-workspace__lifecycle-text student-workspace__lifecycle-text--${lifecycleTone(status)}`}>
-      {status}
+      {status === 'Dropped' ? 'DROPPED' : status}
     </span>
   )
 }
@@ -273,7 +303,6 @@ function normalizeLifecycleStatus(student: Partial<ManagedStudent>): LifecycleSt
   if (LIFECYCLE_OPTIONS.includes(explicit as LifecycleStatus)) {
     return explicit as LifecycleStatus
   }
-  if (explicit === 'Dropped') return 'Irregular'
 
   if (student.isActive === false) return 'Inactive'
   if (String(student.studentStatus || '').trim().toLowerCase() === 'dropped') return 'Irregular'
@@ -461,6 +490,8 @@ function StudentProfileDrawer({
   onGenerateReportCard,
   onGenerateTranscript,
   onSetLifecycleStatus,
+  onReadmit,
+  onReactivate,
   onDelete,
   onViewHistory,
   onShiftStudent,
@@ -471,10 +502,12 @@ function StudentProfileDrawer({
   onEdit: (student: ManagedStudent) => void
   onEnroll: (student: ManagedStudent) => void
   onAssignBlock: (student: ManagedStudent) => void
-  onGenerateCor: (student: ManagedStudent) => void
+  onGenerateCor: (student: ManagedStudent, termOptions?: CorTermOptions) => void
   onGenerateReportCard?: (student: ManagedStudent) => void
   onGenerateTranscript?: (student: ManagedStudent) => void
   onSetLifecycleStatus: (student: ManagedStudent, lifecycleStatus: 'Inactive' | 'Leave of Absence') => void
+  onReadmit: (student: ManagedStudent) => void
+  onReactivate: (student: ManagedStudent) => void
   onDelete: (student: ManagedStudent) => void
   onViewHistory?: (studentId: string) => void
   onShiftStudent?: (studentId: string) => void
@@ -488,6 +521,7 @@ function StudentProfileDrawer({
   const [error, setError] = useState('')
   const [moreOpen, setMoreOpen] = useState(false)
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'warning'; title: string; message: string } | null>(null)
+  const [corPickerOpen, setCorPickerOpen] = useState(false)
   const moreMenuRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -676,7 +710,29 @@ function StudentProfileDrawer({
   const corToneValue = corTone(corStatusLabel)
   const fullName = studentDisplayName(activeStudent)
   const studentId = studentNumberDisplay(activeStudent)
+
+  const handleCorClick = () => {
+    if (history && history.length > 1) {
+      setCorPickerOpen(true)
+      return
+    }
+    const targetRecord = history[0] || currentEnrollment
+    onGenerateCor(
+      activeStudent,
+      targetRecord
+        ? {
+            enrollmentId: targetRecord._id,
+            schoolYear: targetRecord.schoolYear,
+            semester: targetRecord.semester
+          }
+        : undefined
+    )
+  }
   const termLabel = [activeStudent.semester, activeStudent.schoolYear].filter(Boolean).join(' · ') || 'No active term'
+  const dismissalTerm = [activeStudent.lifecycleStatusTerm?.semester, activeStudent.lifecycleStatusTerm?.schoolYear].filter(Boolean).join(' ') || 'N/A'
+  const dismissalSubjects = (activeStudent.lifecycleStatusFailedSubjects || [])
+    .map((subject) => `${subject.code || 'Subject'}${subject.gradeMark ? ` (${subject.gradeMark})` : subject.grade !== null && subject.grade !== undefined ? ` (${subject.grade})` : ''}`)
+    .join(', ') || 'N/A'
   const subjectCount = currentEnrollment?.subjects?.length || 0
 
   const tabs = [
@@ -765,7 +821,7 @@ function StudentProfileDrawer({
                   Enroll
                 </button>
               )}
-              <button type="button" className="sd-btn" onClick={() => onGenerateCor(activeStudent)} title="Generate Certificate of Registration">
+              <button type="button" className="sd-btn" onClick={handleCorClick} title="Generate Certificate of Registration">
                 <FileText size={15} />
                 COR
               </button>
@@ -793,6 +849,10 @@ function StudentProfileDrawer({
                 {moreOpen ? (
                   <div className="sd-menu" role="menu">
                     <p className="sd-menu-label">Records</p>
+                    <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); handleCorClick() }}>
+                      <FileText size={15} />
+                      Certificate of Registration (COR)
+                    </button>
                     {onViewHistory ? (
                       <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onViewHistory(String(activeStudent._id)) }}>
                         <History size={15} />
@@ -823,13 +883,25 @@ function StudentProfileDrawer({
                         Shift course/block
                       </button>
                     ) : null}
-                    {lifecycleStatus !== 'Leave of Absence' ? (
+                    {lifecycleStatus === 'Dropped' ? (
+                      <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onReadmit(activeStudent) }}>
+                        <UserCheck size={15} />
+                        Readmit student
+                      </button>
+                    ) : null}
+                    {lifecycleStatus === 'Leave of Absence' || lifecycleStatus === 'Inactive' ? (
+                      <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onReactivate(activeStudent) }}>
+                        <UserCheck size={15} />
+                        {lifecycleStatus === 'Leave of Absence' ? 'Return from leave' : 'Reactivate student'}
+                      </button>
+                    ) : null}
+                    {lifecycleStatus !== 'Dropped' && lifecycleStatus !== 'Leave of Absence' ? (
                       <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onSetLifecycleStatus(activeStudent, 'Leave of Absence') }}>
                         <CalendarDays size={15} />
                         Place on leave of absence
                       </button>
                     ) : null}
-                    {lifecycleStatus !== 'Inactive' ? (
+                    {lifecycleStatus !== 'Dropped' && lifecycleStatus !== 'Inactive' ? (
                       <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onSetLifecycleStatus(activeStudent, 'Inactive') }}>
                         <Archive size={15} />
                         Set inactive
@@ -920,6 +992,21 @@ function StudentProfileDrawer({
                       </dd>
                     </div>
                   </dl>
+                  {lifecycleStatus === 'Dropped' ? (
+                    <>
+                      <div className="sd-subhead">Academic dismissal</div>
+                      <dl className="sd-dl sd-dl--3">
+                        <div><dt>Reason</dt><dd>{String(activeStudent.lifecycleStatusReason || 'ACADEMIC_DEFICIENCY').replace(/_/g, ' ')}</dd></div>
+                        <div><dt>Effective</dt><dd>{formatDate(activeStudent.lifecycleStatusEffectiveDate)}</dd></div>
+                        <div><dt>Term</dt><dd>{dismissalTerm}</dd></div>
+                        <div className="sd-card--wide"><dt>Qualifying failures</dt><dd>{dismissalSubjects}</dd></div>
+                      </dl>
+                      <p className="sd-muted">The student retains login access, grades, and academic history. New enrollment and re-enrollment remain blocked until an authorized readmission is recorded.</p>
+                    </>
+                  ) : null}
+                  {lifecycleStatus === 'Leave of Absence' ? (
+                    <p className="sd-muted">On leave of absence: the account cannot sign in and cannot be enrolled. Use “Return from leave” in the Manage menu to restore an active record.</p>
+                  ) : null}
                 </section>
               </div>
             ) : null}
@@ -948,14 +1035,31 @@ function StudentProfileDrawer({
                   ) : null}
                 </header>
                 {currentEnrollment ? (
-                  <dl className="sd-dl sd-dl--3">
-                    <div><dt>Term</dt><dd>{currentEnrollment.semester} · {currentEnrollment.schoolYear}</dd></div>
-                    <div><dt>Year level</dt><dd>{currentEnrollment.yearLevel ? formatYearLevel(currentEnrollment.yearLevel) : formatYearLevel(activeStudent.yearLevel)}</dd></div>
-                    <div><dt>Block</dt><dd>{formatBlockDisplay(activeStudent.section) || 'Unassigned'}</dd></div>
-                    <div><dt>Subject load</dt><dd>{subjectCount} subjects · {totalUnits} units</dd></div>
-                    <div><dt>Remarks</dt><dd>{currentEnrollment.remarks || 'No remarks'}</dd></div>
-                    <div><dt>Last updated</dt><dd>{formatDate(currentEnrollment.updatedAt)}</dd></div>
-                  </dl>
+                  <>
+                    <dl className="sd-dl sd-dl--3">
+                      <div><dt>Term</dt><dd>{currentEnrollment.semester} · {currentEnrollment.schoolYear}</dd></div>
+                      <div><dt>Year level</dt><dd>{currentEnrollment.yearLevel ? formatYearLevel(currentEnrollment.yearLevel) : formatYearLevel(activeStudent.yearLevel)}</dd></div>
+                      <div><dt>Block</dt><dd>{formatBlockDisplay(activeStudent.section) || 'Unassigned'}</dd></div>
+                      <div><dt>Subject load</dt><dd>{subjectCount} subjects · {totalUnits} units</dd></div>
+                      <div><dt>Remarks</dt><dd>{currentEnrollment.remarks || 'No remarks'}</dd></div>
+                      <div><dt>Last updated</dt><dd>{formatDate(currentEnrollment.updatedAt)}</dd></div>
+                    </dl>
+                    <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem' }}>
+                      <button
+                        type="button"
+                        className="sd-btn"
+                        onClick={() => onGenerateCor(activeStudent, {
+                          enrollmentId: currentEnrollment._id,
+                          schoolYear: currentEnrollment.schoolYear,
+                          semester: currentEnrollment.semester
+                        })}
+                        title={`Generate Certificate of Registration for ${currentEnrollment.semester} ${currentEnrollment.schoolYear}`}
+                      >
+                        <FileText size={14} />
+                        Generate {currentEnrollment.semester} COR
+                      </button>
+                    </div>
+                  </>
                 ) : (
                   <div className="sd-state sd-state--inline">No active enrollment record for the current term. Enroll the student, then assign a block to finalize.</div>
                 )}
@@ -1034,6 +1138,93 @@ function StudentProfileDrawer({
           </div>
         </div>
       </div>
+      {corPickerOpen && (
+        <div
+          className="student-workspace__modal-shell"
+          role="dialog"
+          aria-modal="true"
+          style={{ zIndex: 6000 }}
+          onPointerDown={(event) => {
+            if (isStudentWorkspaceBackdropTarget(event)) setCorPickerOpen(false)
+          }}
+        >
+          <div className="student-workspace__modal-overlay" style={{ zIndex: 6000 }} />
+          <div
+            className="student-workspace__modal-card"
+            style={{
+              maxWidth: '460px',
+              width: '100%',
+              margin: 'auto',
+              padding: '1.5rem',
+              background: '#fff',
+              borderRadius: '12px',
+              zIndex: 6001,
+              position: 'relative',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.25), 0 10px 10px -5px rgba(0, 0, 0, 0.1)'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600 }}>Select Semester for COR</h3>
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: '#64748b' }}>
+                  Choose which semester&apos;s Certificate of Registration to view:
+                </p>
+              </div>
+              <button
+                type="button"
+                className="sd-close"
+                onClick={() => setCorPickerOpen(false)}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '320px', overflowY: 'auto' }}>
+              {history.map((record) => {
+                const isCurrent = record.isCurrent || (record.schoolYear === activeStudent.schoolYear && record.semester === activeStudent.semester)
+                const recSubjectCount = record.subjects?.length || 0
+                return (
+                  <button
+                    key={record._id}
+                    type="button"
+                    onClick={() => {
+                      setCorPickerOpen(false)
+                      onGenerateCor(activeStudent, {
+                        enrollmentId: record._id,
+                        schoolYear: record.schoolYear,
+                        semester: record.semester
+                      })
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '0.75rem 1rem',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      background: isCurrent ? '#f0fdf4' : '#fff',
+                      cursor: 'pointer',
+                      textAlign: 'left'
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <FileText size={15} color="#0284c7" />
+                        <span>{record.semester} Semester · {record.schoolYear}</span>
+                        {isCurrent && <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: '#dcfce7', color: '#166534', borderRadius: '4px', fontWeight: 500 }}>Active</span>}
+                      </div>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.25rem' }}>
+                        {record.yearLevel ? formatYearLevel(record.yearLevel) : formatYearLevel(activeStudent.yearLevel)} · {recSubjectCount} {recSubjectCount === 1 ? 'subject' : 'subjects'} · {record.status}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: '0.85rem', color: '#0284c7', fontWeight: 500 }}>Open COR →</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
       {notification && (
         <NotificationToast
           type={notification.type}
@@ -1704,7 +1895,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
       const token = await getStoredToken()
       if (!token) throw new Error('No authentication token found')
 
-      const response = await StudentService.getStudents(token)
+      const response = await StudentService.getStudents(token, { includeDropped: 'true' })
       const records = (extractResponseData<ManagedStudent[]>(response) || []).map((student) => ({
         ...student,
         lifecycleStatus: normalizeLifecycleStatus(student)
@@ -1730,6 +1921,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
 
   const filteredStudents = useMemo(() => {
     const query = deferredSearch.trim().toLowerCase()
+    const showDismissed = lifecycleFilter === 'Dropped' || query.length > 0
 
     return students
       .filter((student) => {
@@ -1737,6 +1929,10 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
         if (courseFilter !== 'all' && String(student.course) !== courseFilter) return false
         if (yearFilter !== 'all' && String(student.yearLevel) !== yearFilter) return false
         if (lifecycleFilter !== 'all' && lifecycleStatus !== lifecycleFilter) return false
+        // Dismissed students are archived from the active roster, but remain
+        // searchable and explicitly filterable so the registrar can review or
+        // readmit them.
+        if (lifecycleStatus === 'Dropped' && !showDismissed) return false
         const blockLabel = String(student.section || '').trim()
         if (blockFilter === 'assigned' && !blockLabel) return false
         if (blockFilter === 'unassigned' && blockLabel) return false
@@ -1753,7 +1949,9 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
           student.email,
           student.contactNumber,
           student.section,
-          lifecycleStatus
+          lifecycleStatus,
+          student.lifecycleStatusReason,
+          ...(student.lifecycleStatusFailedSubjects || []).map((subject) => subject.code)
         ]
           .join(' ')
           .toLowerCase()
@@ -1794,12 +1992,14 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
   )
 
   const stats = useMemo(() => {
-    const totalStudents = students.length
-    const pendingEnrollment = students.filter((student) => normalizeLifecycleStatus(student) === 'Pending').length
-    const activeStudents = students.filter((student) => student.isActive !== false && !['Inactive', 'Graduated'].includes(normalizeLifecycleStatus(student))).length
-    const inactiveStudents = students.filter((student) => normalizeLifecycleStatus(student) === 'Inactive' || student.isActive === false).length
-    const graduatingStudents = students.filter((student) => Number(student.yearLevel) >= 4 && normalizeLifecycleStatus(student) !== 'Graduated').length
-    return { totalStudents, pendingEnrollment, activeStudents, inactiveStudents, graduatingStudents }
+    const activeRoster = students.filter((student) => normalizeLifecycleStatus(student) !== 'Dropped')
+    const droppedStudents = students.length - activeRoster.length
+    const totalStudents = activeRoster.length
+    const pendingEnrollment = activeRoster.filter((student) => normalizeLifecycleStatus(student) === 'Pending').length
+    const activeStudents = activeRoster.filter((student) => student.isActive !== false && !['Inactive', 'Graduated'].includes(normalizeLifecycleStatus(student))).length
+    const inactiveStudents = activeRoster.filter((student) => normalizeLifecycleStatus(student) === 'Inactive' || student.isActive === false).length
+    const graduatingStudents = activeRoster.filter((student) => Number(student.yearLevel) >= 4 && normalizeLifecycleStatus(student) !== 'Graduated').length
+    return { totalStudents, pendingEnrollment, activeStudents, inactiveStudents, graduatingStudents, droppedStudents }
   }, [students])
 
   const courseOptions = useMemo(() => {
@@ -1934,13 +2134,100 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
     })
   }
 
-  const handleGenerateCor = async (student: ManagedStudent) => {
+  const handleReadmitStudent = async (student: ManagedStudent) => {
+    const reason = window.prompt(
+      `Authorize readmission for ${studentDisplayName(student)}?\n\nEnter the readmission reason for the audit record:`,
+      'Authorized readmission after academic deficiency review'
+    )
+    if (reason === null) return
+    if (!reason.trim()) {
+      setNotification({ type: 'warning', title: 'Reason Required', message: 'A readmission reason is required for the audit record.' })
+      return
+    }
+
+    await withBusyStudent(student._id, async () => {
+      try {
+        const token = await getStoredToken()
+        if (!token) throw new Error('No authentication token found')
+        await StudentService.readmitStudent(token, student._id, {
+          lifecycleStatus: 'Pending',
+          reason: reason.trim()
+        })
+        await loadStudents('refresh')
+        setProfileState(null)
+        setNotification({
+          type: 'success',
+          title: 'Readmission Approved',
+          message: `${studentNumberDisplay(student)} is now Pending and can be enrolled again. The dismissal remains in status history.`
+        })
+      } catch (readmitError) {
+        setNotification({
+          type: 'error',
+          title: 'Readmission Failed',
+          message: readmitError instanceof Error ? readmitError.message : 'Failed to readmit student'
+        })
+      }
+    })
+  }
+
+  const handleReactivateStudent = async (student: ManagedStudent) => {
+    const onLeave = normalizeLifecycleStatus(student) === 'Leave of Absence'
+    const reason = window.prompt(
+      `Reactivate ${studentDisplayName(student)}?\n\nEnter the reason for the audit record:`,
+      onLeave ? 'Returned from leave of absence' : 'Reactivated by the Registrar'
+    )
+    if (reason === null) return
+    if (!reason.trim()) {
+      setNotification({ type: 'warning', title: 'Reason Required', message: 'A reactivation reason is required for the audit record.' })
+      return
+    }
+
+    await withBusyStudent(student._id, async () => {
+      try {
+        const token = await getStoredToken()
+        if (!token) throw new Error('No authentication token found')
+        await StudentService.reactivateStudent(token, student._id, {
+          lifecycleStatus: 'Pending',
+          reason: reason.trim()
+        })
+        await loadStudents('refresh')
+        setProfileState(null)
+        setNotification({
+          type: 'success',
+          title: 'Student Reactivated',
+          message: `${studentNumberDisplay(student)} is now Pending and can be enrolled again.`
+        })
+      } catch (reactivateError) {
+        setNotification({
+          type: 'error',
+          title: 'Reactivation Failed',
+          message: reactivateError instanceof Error ? reactivateError.message : 'Failed to reactivate student'
+        })
+      }
+    })
+  }
+
+  const handleGenerateCor = async (student: ManagedStudent, termOptions?: CorTermOptions) => {
+    let targetWindow: Window | null = null
+    try {
+      targetWindow = window.open('about:blank', '_blank')
+      if (targetWindow) {
+        targetWindow.document.write('<html><head><title>Certificate of Registration</title></head><body style="font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f8fafc; color: #334155;"><div style="text-align: center;"><div style="font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem;">Generating Certificate of Registration...</div><div style="font-size: 0.875rem; color: #64748b;">Please wait while the official document is prepared.</div></div></body></html>')
+      }
+    } catch {}
+
     await withBusyStudent(student._id, async () => {
       try {
         const token = await getStoredToken()
         if (!token) throw new Error('No authentication token found')
 
-        const response = await fetch(`${API_URL}/api/registrar/students/${student._id}/cor`, {
+        const queryParams = new URLSearchParams()
+        if (termOptions?.enrollmentId) queryParams.set('enrollmentId', termOptions.enrollmentId)
+        if (termOptions?.schoolYear) queryParams.set('schoolYear', termOptions.schoolYear)
+        if (termOptions?.semester) queryParams.set('semester', termOptions.semester)
+        const queryString = queryParams.toString() ? `?${queryParams.toString()}` : ''
+
+        const response = await fetch(`${API_URL}/api/registrar/students/${student._id}/cor${queryString}`, {
           headers: {
             Authorization: `Bearer ${token}`
           }
@@ -1953,10 +2240,25 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
 
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
-        window.open(url, '_blank', 'noopener')
-        window.setTimeout(() => window.URL.revokeObjectURL(url), 30000)
-        setNotification({ type: 'success', title: 'COR Generated', message: `COR generated for ${studentNumberDisplay(student)}.` })
+        if (targetWindow && !targetWindow.closed) {
+          targetWindow.location.href = url
+        } else {
+          const a = document.createElement('a')
+          a.href = url
+          a.download = `COR-${studentNumberDisplay(student)}.pdf`
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+        }
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 60000)
+        const termLabel = [termOptions?.semester, termOptions?.schoolYear].filter(Boolean).join(' ')
+        setNotification({
+          type: 'success',
+          title: 'COR Generated',
+          message: `COR generated for ${studentNumberDisplay(student)}${termLabel ? ` (${termLabel})` : ''}.`
+        })
       } catch (viewError) {
+        if (targetWindow && !targetWindow.closed) targetWindow.close()
         setNotification({
           type: 'error',
           title: 'COR Generation Failed',
@@ -2099,27 +2401,26 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
             <article className="student-workspace__stat-card">
               <span>Total students</span>
               <strong>{stats.totalStudents}</strong>
-              <small>Registrar roster</small>
             </article>
             <article className="student-workspace__stat-card student-workspace__stat-card--pending">
               <span>Pending enrollment</span>
               <strong>{stats.pendingEnrollment}</strong>
-              <small>Needs registrar action</small>
             </article>
             <article className="student-workspace__stat-card">
               <span>Active students</span>
               <strong>{stats.activeStudents}</strong>
-              <small>Operational records</small>
             </article>
             <article className="student-workspace__stat-card">
               <span>Inactive students</span>
               <strong>{stats.inactiveStudents}</strong>
-              <small>Archived or paused</small>
             </article>
             <article className="student-workspace__stat-card">
               <span>Graduating students</span>
               <strong>{stats.graduatingStudents}</strong>
-              <small>Final year focus</small>
+            </article>
+            <article className="student-workspace__stat-card">
+              <span>Dropped (archived)</span>
+              <strong>{stats.droppedStudents}</strong>
             </article>
           </div>
         ) : null}
@@ -2373,11 +2674,26 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
                         <td>
                           <LifecycleStatusText status={lifecycleStatus} />
                         </td>
-                        <td>
-                          <ToneBadge
-                            label={corStatus}
-                            tone={corTone(corStatus)}
-                          />
+                        <td onClick={(event) => event.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => handleGenerateCor(student)}
+                            title={`Generate Certificate of Registration for ${studentDisplayName(student)}`}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              padding: 0,
+                              cursor: 'pointer',
+                              font: 'inherit',
+                              display: 'inline-flex',
+                              alignItems: 'center'
+                            }}
+                          >
+                            <ToneBadge
+                              label={corStatus}
+                              tone={corTone(corStatus)}
+                            />
+                          </button>
                         </td>
                         <td>
                           <div className="student-workspace__contact-cell">
@@ -2462,6 +2778,8 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
         onGenerateReportCard={handleGenerateReportCard}
         onGenerateTranscript={handleGenerateTranscript}
         onSetLifecycleStatus={handleSetLifecycleStatus}
+        onReadmit={handleReadmitStudent}
+        onReactivate={handleReactivateStudent}
         onDelete={handleDeleteStudent}
         onViewHistory={onViewHistory}
         onShiftStudent={onShiftStudent}

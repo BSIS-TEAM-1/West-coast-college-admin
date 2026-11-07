@@ -16,7 +16,10 @@ jest.mock('./models/SystemSetting', () => ({
 }));
 
 const {
+  CHED_FAILING_GRADE,
   DEFAULT_GRADE_SCALE,
+  failingEquivalentForMark,
+  normalizeGradeMark,
   roundGrade,
   isOnScale,
   parseGradeInput,
@@ -183,6 +186,25 @@ describe('persistence', () => {
     const saved = await saveGradeScale({ min: 1, max: 5, step: 0, passingGrade: 3 }, 'admin-1');
     expect(saved.error).toBeTruthy();
     expect(SystemSetting.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('special grade marks', () => {
+  test('FA always carries the CHED failing equivalent of 5.0', () => {
+    expect(CHED_FAILING_GRADE).toBe(5);
+    expect(failingEquivalentForMark('FA')).toBe(5);
+    expect(failingEquivalentForMark(' fa ')).toBe(5);
+  });
+
+  test('other marks have no numeric equivalent', () => {
+    for (const mark of ['INC', 'DRP', 'W', 'NG', '', null, undefined]) {
+      expect(failingEquivalentForMark(mark)).toBeNull();
+    }
+  });
+
+  test('marks are normalised for comparison', () => {
+    expect(normalizeGradeMark(' fa ')).toBe('FA');
+    expect(normalizeGradeMark(null)).toBe('');
   });
 });
 

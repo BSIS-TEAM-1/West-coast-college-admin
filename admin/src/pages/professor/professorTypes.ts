@@ -50,6 +50,8 @@ export interface ProfessorAssignedBlock {
   semester: string
   schoolYear: string
   yearLevel: number | null
+  isCurrent?: boolean
+  status?: string
   needsBlockAssignment?: boolean
   subjects: ProfessorAssignedSubject[]
 }
@@ -93,6 +95,7 @@ export interface ProfessorRosterClassOption {
   semester: string
   schoolYear: string
   yearLevel: number | null
+  isCurrent?: boolean
   subjectId: string
   subjectCode: string
   subjectTitle: string
@@ -110,6 +113,7 @@ export interface ProfessorRosterSectionOption {
   semester: string
   schoolYear: string
   yearLevel: number | null
+  isCurrent?: boolean
   subjectCount: number
   subjects: Array<{
     subjectId: string

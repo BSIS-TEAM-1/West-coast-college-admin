@@ -244,4 +244,59 @@ describe('reEnrollmentVerificationService', () => {
     });
     expect(sendResult.verification.status).toBe('sent');
   });
+
+  test('BUG-01 & BUG-07: rejects sending verification code for a Dropped or restricted student', async () => {
+    await expect(service.sendCode({
+      student: { ...student, lifecycleStatus: 'Dropped' },
+      schoolYear: '2026-2027',
+      semester: '2nd',
+      actorId: 'registrar-1',
+    })).rejects.toMatchObject({
+      statusCode: 403,
+    });
+  });
+
+  test('BUG-08: consumeVerification throws 409 VERIFICATION_ALREADY_CONSUMED when modifiedCount is 0', async () => {
+    ReEnrollmentVerification.updateOne.mockResolvedValue({ modifiedCount: 0 });
+    await expect(service.consumeVerification({
+      id: '64b000000000000000000099',
+    })).rejects.toMatchObject({
+      statusCode: 409,
+      reasonCode: 'VERIFICATION_ALREADY_CONSUMED',
+    });
+
+    ReEnrollmentVerification.updateOne.mockResolvedValue({ modifiedCount: 1 });
+    await expect(service.consumeVerification({
+      id: '64b000000000000000000099',
+    })).resolves.toEqual({ modifiedCount: 1 });
+  });
+
+  test('BUG-10: verifyCode rejects verification by a different registrar unless allowRegistrarHandoff is true', async () => {
+    await service.sendCode({
+      student: { ...student, course: 101, yearLevel: 1 },
+      schoolYear: '2026-2027',
+      semester: '2nd',
+      actorId: 'registrar-1',
+    });
+    const [, update] = ReEnrollmentVerification.findOneAndUpdate.mock.calls[0];
+    const record = recordFromSend(update, {
+      requestedBy: 'registrar-1',
+      course: 101,
+      yearLevel: 1,
+    });
+    ReEnrollmentVerification.findOne.mockResolvedValue(record);
+
+    const code = mockSendVerificationCode.mock.calls[0][0].code;
+    await expect(service.verifyCode({
+      studentId: student._id,
+      schoolYear: '2026-2027',
+      semester: '2nd',
+      code,
+      studentEmail: student.email,
+      actorId: 'registrar-2',
+    })).rejects.toMatchObject({
+      statusCode: 403,
+      reasonCode: 'REGISTRAR_MISMATCH',
+    });
+  });
 });

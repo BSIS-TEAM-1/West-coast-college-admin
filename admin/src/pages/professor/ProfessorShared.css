@@ -805,3 +805,127 @@
   background: rgba(255, 255, 255, 0.07);
   border-color: rgba(255, 255, 255, 0.08);
 }
+
+/* ─── Shared Semester & Active Term Badges ─── */
+.professor-sem-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.18rem 0.52rem;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.professor-sem-badge-1st {
+  background: color-mix(in srgb, #2563eb 12%, transparent);
+  color: #2563eb;
+  border: 1px solid color-mix(in srgb, #2563eb 30%, transparent);
+}
+
+.professor-sem-badge-2nd {
+  background: color-mix(in srgb, #7c3aed 12%, transparent);
+  color: #7c3aed;
+  border: 1px solid color-mix(in srgb, #7c3aed 30%, transparent);
+}
+
+.professor-sem-badge-summer {
+  background: color-mix(in srgb, #d97706 12%, transparent);
+  color: #d97706;
+  border: 1px solid color-mix(in srgb, #d97706 30%, transparent);
+}
+
+[data-theme='dark'] .professor-sem-badge-1st {
+  background: color-mix(in srgb, #60a5fa 16%, transparent);
+  color: #93c5fd;
+  border-color: color-mix(in srgb, #60a5fa 32%, transparent);
+}
+
+[data-theme='dark'] .professor-sem-badge-2nd {
+  background: color-mix(in srgb, #a78bfa 16%, transparent);
+  color: #c4b5fd;
+  border-color: color-mix(in srgb, #a78bfa 32%, transparent);
+}
+
+[data-theme='dark'] .professor-sem-badge-summer {
+  background: color-mix(in srgb, #fbbf24 16%, transparent);
+  color: #fde68a;
+  border-color: color-mix(in srgb, #fbbf24 32%, transparent);
+}
+
+.professor-active-term-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, #16a34a 12%, var(--color-surface));
+  color: var(--color-text);
+  border: 1px solid color-mix(in srgb, #16a34a 32%, var(--color-border));
+  font-size: 0.78rem;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.professor-active-term-banner strong {
+  color: #16a34a;
+  font-weight: 700;
+}
+
+[data-theme='dark'] .professor-active-term-banner {
+  background: color-mix(in srgb, #22c55e 14%, var(--color-surface));
+  border-color: color-mix(in srgb, #22c55e 30%, var(--color-border));
+}
+
+[data-theme='dark'] .professor-active-term-banner strong {
+  color: #4ade80;
+}
+
+/* Term selector in toolbars */
+.gm-term-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  width: 100%;
+  min-width: 220px;
+}
+
+@media (min-width: 768px) {
+  .gm-term-select {
+    width: 16rem;
+  }
+}
+
+.gm-term-select label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.gm-term-select select {
+  width: 100%;
+  appearance: none;
+  border: 1px solid var(--color-border);
+  border-radius: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.875rem;
+  height: 2.25rem;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23757687' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  padding-right: 2rem;
+}
+
+.gm-term-select select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}

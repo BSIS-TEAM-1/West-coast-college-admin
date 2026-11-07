@@ -275,6 +275,7 @@ export type SchoolYearState = {
     semester?: string
   } | null
   rolloverBatchId?: string | null
+  rolloverMode?: 'year' | 'semester' | null
   rolloverToSchoolYear?: string | null
   rolloverSemester?: string | null
   rolloverCounts?: Record<string, number> | null
