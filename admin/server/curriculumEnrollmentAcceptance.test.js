@@ -299,7 +299,7 @@ function configureModelMocks() {
   Student.updateOne = jest.fn().mockResolvedValue({ modifiedCount: 1 });
   // Kept for other enrollment paths that may update a student document.
   Student.findByIdAndUpdate = jest.fn().mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
-  Student.findById = jest.fn().mockImplementation(() => chain({ ...STUDENT }));
+  Student.findById = jest.fn().mockImplementation(() => chain(makeDoc({ ...STUDENT })));
 
   Enrollment.find = jest.fn().mockImplementation((filter = {}) => {
     const matches = history.filter((e) => {
@@ -825,7 +825,7 @@ describe('D. Dropped and retake subjects', () => {
   test('a student can retake a dropped Year 1 subject in a later term without moving year level or block', async () => {
     const original = droppedOriginal();
     history = [original];
-    const student = { ...STUDENT, yearLevel: 2 };
+    const student = makeDoc({ ...STUDENT, yearLevel: 2 });
     const yearLevelBefore = student.yearLevel;
 
     const result = await subjectEnrollmentService.retakeSubject({

@@ -36,6 +36,7 @@ type SubjectEntry = {
   dropReason?: string | null
   overrideReason?: string | null
   retakeOf?: { enrollmentId?: string; subjectEntryId?: string; schoolYear?: string; semester?: string; status?: string; grade?: number | null } | null
+  isAdditional?: boolean
 }
 
 type EnrollmentRecord = {
@@ -181,22 +182,18 @@ function nextSchoolYear(schoolYear: string) {
 }
 
 function defaultRetakeTerm(record: EnrollmentRecord): { schoolYear: string; semester: string } {
+  const origSem = record.semester || '1st'
   const cached = getCachedAcademicTerm()
-  if (cached?.schoolYear && cached?.semester) {
-    const order: Record<string, number> = { '1st': 0, '2nd': 1, Summer: 2 }
+  if (cached?.schoolYear && cached?.semester === origSem) {
     const actStart = Number(String(cached.schoolYear).slice(0, 4))
     const recStart = Number(String(record.schoolYear).slice(0, 4))
-    const isLater = (actStart !== recStart)
-      ? actStart > recStart
-      : (order[cached.semester] ?? -1) > (order[record.semester] ?? -1)
-    if (isLater) {
-      return { schoolYear: cached.schoolYear, semester: cached.semester }
+    if (actStart > recStart) {
+      return { schoolYear: cached.schoolYear, semester: origSem }
     }
   }
-  if (record.semester === '1st') {
-    return { schoolYear: record.schoolYear, semester: '2nd' }
-  }
-  return { schoolYear: nextSchoolYear(record.schoolYear), semester: '1st' }
+  // Retakes can only be taken in the same semester (1st sem subjects in 1st sem, 2nd sem in 2nd sem)
+  // in the next school year when that cohort's curriculum is offered again.
+  return { schoolYear: nextSchoolYear(record.schoolYear), semester: origSem }
 }
 
 const STATUS_ORDER = ['completed', 'inProgress', 'failed', 'dropped', 'outstanding'] as const
@@ -288,6 +285,13 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
     if (!token) return
     const historyResponse = await StudentService.getEnrollmentHistory(token, studentId)
     setHistory(extractResponseData<EnrollmentRecord[]>(historyResponse) || [])
+    try {
+      const studentResponse = await StudentService.getStudentById(token, studentId)
+      const detailStudent = extractResponseData<StudentData>(studentResponse)
+      if (detailStudent) setStudent(detailStudent)
+    } catch {
+      // Leave current student in place
+    }
     try {
       const progressResponse = await StudentService.getAcademicProgress(token, studentId)
       setProgress(extractResponseData<AcademicProgressData>(progressResponse))
@@ -560,6 +564,7 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
               <span>Course: <strong>{courseShortLabel(student.course)}</strong></span>
               <span>Year: <strong>{formatYearLevel(student.yearLevel)}</strong></span>
               <span>Block: <strong>{formatBlockDisplay(student.section)}</strong></span>
+              <span>Status: <strong>{student.studentStatus || student.classification || 'Regular'}</strong></span>
             </div>
           ) : null}
         </div>
@@ -871,6 +876,7 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                                         && entry.retakeOf.schoolYear && entry.retakeOf.semester
                                         ? `Retake of ${entry.retakeOf.schoolYear} ${entry.retakeOf.semester}`
                                         : null
+                                      const additionalNote = entry.isAdditional && !retakeNote ? 'Additional load' : null
                                       return (
                                         <tr key={`${entry.subjectId || entry.code}-${subIndex}`}>
                                           <td><strong>{entry.code}</strong></td>
@@ -893,9 +899,10 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                                           </td>
                                           <td className="student-history-page__note-cell">
                                             {retakeNote ? <span>{retakeNote}</span> : null}
+                                            {additionalNote ? <span>{additionalNote}</span> : null}
                                             {entry.dropReason ? <span>Drop: {entry.dropReason}</span> : null}
                                             {entry.overrideReason ? <span>Override: {entry.overrideReason}</span> : null}
-                                            {!retakeNote && !entry.dropReason && !entry.overrideReason ? '—' : null}
+                                            {!retakeNote && !additionalNote && !entry.dropReason && !entry.overrideReason ? '—' : null}
                                           </td>
                                           <td>
                                             <div className="student-history-page__row-actions">
@@ -1270,6 +1277,11 @@ export default function StudentHistoryPage({ studentId, onBack }: StudentHistory
                     <option value="2nd">2nd</option>
                     <option value="Summer">Summer</option>
                   </select>
+                  {retakeSemester !== retakeTarget.record.semester ? (
+                    <p style={{ color: 'var(--color-warning, #d97706)', fontSize: '0.78rem', margin: '0.25rem 0 0' }}>
+                      Notice: {retakeTarget.entry.code} is a {retakeTarget.record.semester} semester subject. Off-semester offerings require an override note.
+                    </p>
+                  ) : null}
                 </div>
               </div>
               <div className="student-history-page__field">

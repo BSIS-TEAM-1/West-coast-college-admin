@@ -114,6 +114,14 @@
   margin: 0.25rem 0;
 }
 
+.teaching-hours-warning-detail-row--missing {
+  background: #fef3c7;
+  padding: 0.75rem 0.5rem;
+  border-radius: 6px;
+  border-bottom: none;
+  margin: 0.25rem 0;
+}
+
 .teaching-hours-warning-detail-label {
   font-size: 0.875rem;
   font-weight: 500;
@@ -139,6 +147,11 @@
 .teaching-hours-warning-detail-value--discrepancy {
   font-weight: 700;
   color: #dc2626;
+}
+
+.teaching-hours-warning-detail-value--missing {
+  font-weight: 700;
+  color: #d97706;
 }
 
 .teaching-hours-override-form {

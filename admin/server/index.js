@@ -51,6 +51,7 @@ const BlockGroup = require('./models/BlockGroup')
 const Curriculum = require('./models/Curriculum')
 const BlockActionLog = require('./models/BlockActionLog')
 const GradeAuditLog = require('./models/GradeAuditLog')
+const BlockSubjectAssignment = require('./models/BlockSubjectAssignment')
 const BackupSystem = require('./backup')
 const { getAnnouncementAudienceQueryValues, normalizeAnnouncementAudience, validateAnnouncementAudience } = require('./announcementAudience')
 const SemaphoreSmsService = require('./services/semaphoreSmsService')
@@ -936,20 +937,46 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
       list.sort((a, b) => new Date(b.assignedAt).getTime() - new Date(a.assignedAt).getTime())
     })
 
-    const sectionIds = Array.from(
-      new Set(
-        assignments
-          .map((assignment) => normalizeText(assignment.sectionId))
-          .filter((value) => mongoose.Types.ObjectId.isValid(value))
-      )
-    )
-    const sectionObjectIds = sectionIds.map((id) => new mongoose.Types.ObjectId(id))
-    const sections = sectionObjectIds.length > 0
-      ? await BlockSection.find({ _id: { $in: sectionObjectIds } }).select('_id sectionCode').lean()
-      : []
+    // Load all sections and block-subject assignments so subjects taken by irregular students
+    // (such as retakes or cross-enrolled subjects) are accurately resolved to their respective block section.
+    let allSections = []
+    if (typeof BlockSection?.find === 'function') {
+      try {
+        const queryRes = BlockSection.find({})
+        if (queryRes && typeof queryRes.select === 'function') {
+          allSections = (await queryRes.select('_id sectionCode blockGroupId').lean()) || []
+        }
+      } catch (_err) {
+        allSections = []
+      }
+    }
+    const sectionById = new Map(allSections.map((s) => [String(s._id), s]))
     const sectionCodeById = new Map(
-      sections.map((section) => [String(section._id), normalizeText(section.sectionCode) || 'Unknown Block'])
+      allSections.map((section) => [String(section._id), normalizeText(section.sectionCode) || 'Unknown Block'])
     )
+    const sectionByCode = new Map(
+      allSections.map((s) => [normalizeText(s.sectionCode).toLowerCase(), s])
+    )
+
+    let bsaDocs = []
+    if (typeof BlockSubjectAssignment?.find === 'function') {
+      try {
+        const bsaQuery = BlockSubjectAssignment.find({})
+        if (bsaQuery && typeof bsaQuery.select === 'function') {
+          bsaDocs = (await bsaQuery.select('blockSectionId subjectId semester academicYear').lean()) || []
+        }
+      } catch (_err) {
+        bsaDocs = []
+      }
+    }
+    const bsaMap = new Map()
+    bsaDocs.forEach((b) => {
+      const key = `${String(b.subjectId)}|${normalizeProfessorRouteSemester(b.semester)}|${toSchoolYear(b.academicYear)}`
+      if (!bsaMap.has(key)) {
+        bsaMap.set(key, String(b.blockSectionId))
+      }
+    })
+
     const isInvalidProfessorSectionCode = (value) => {
       const normalized = normalizeText(value).toLowerCase()
       return !normalized || normalized.includes('unassigned') || normalized.includes('unknown')
@@ -991,18 +1018,9 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
       const studentId = normalizeText(enrollment.studentId)
       if (!studentId) return
 
-      const assignment = findAssignmentForEnrollment(studentId, enrollment.semester, enrollment.schoolYear)
-      const sectionId = assignment ? normalizeText(assignment.sectionId) : ''
-      const sectionCode = sectionCodeById.get(sectionId)
-
-      // If the student has a valid block assignment, use it.
-      // If not, group the student's subjects under an "Unassigned" block so the
-      // professor can still see and grade them — but flag it so the UI can warn
-      // that the student needs a block assignment.
-      const hasValidBlock = sectionId && sectionCode && !isInvalidProfessorSectionCode(sectionCode)
-      const effectiveSectionId = hasValidBlock ? sectionId : ''
-      const effectiveSectionCode = hasValidBlock ? sectionCode : 'Unassigned'
-      const needsBlockAssignment = !hasValidBlock
+      const defaultAssignment = findAssignmentForEnrollment(studentId, enrollment.semester, enrollment.schoolYear)
+      const defaultSectionId = defaultAssignment ? normalizeText(defaultAssignment.sectionId) : ''
+      const defaultSectionCode = sectionCodeById.get(defaultSectionId) || ''
 
       const courseCode = studentCourseCodeById.get(studentId) || normalizeText(enrollment.course) || 'Unspecified'
       const semester = normalizeText(enrollment.semester) || 'N/A'
@@ -1021,30 +1039,84 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
       const isCurrentEnrollment = Boolean(enrollment.isCurrent) ||
         (enrollment.status === 'Enrolled' && normalizeText(enrollment.semester) === activeSemester && toSchoolYear(enrollment.schoolYear) === toSchoolYear(activeSchoolYear));
 
-      const blockKey = `${effectiveSectionId || effectiveSectionCode}::${semester}::${schoolYear}`
-      let blockEntry = courseEntry.blocks.get(blockKey)
-      if (!blockEntry) {
-        blockEntry = {
-          sectionId: effectiveSectionId || null,
-          sectionCode: effectiveSectionCode,
-          semester,
-          schoolYear,
-          yearLevel,
-          isCurrent: isCurrentEnrollment,
-          status: enrollment.status,
-          needsBlockAssignment,
-          subjects: new Map()
-        }
-        courseEntry.blocks.set(blockKey, blockEntry)
-      } else if (isCurrentEnrollment) {
-        blockEntry.isCurrent = true
-      }
-
       ;(enrollment.subjects || []).forEach((subject) => {
         if (!instructorMatchesProfessor(subject?.instructor)) return
         if (String(subject?.status || '').toLowerCase() === 'dropped') return
 
         const subjectId = normalizeText(subject?.subjectId) || `${normalizeText(subject?.code)}::${normalizeText(subject?.title)}`
+
+        // Resolve which section this specific subject belongs to:
+        let resolvedSectionId = ''
+        let resolvedSectionCode = ''
+
+        // 1. If the subject has an explicit sectionCode (e.g. irregular/retake student attending a block)
+        const subSecCode = normalizeText(subject?.sectionCode)
+        if (subSecCode && !isInvalidProfessorSectionCode(subSecCode)) {
+          const matchedSection = sectionByCode.get(subSecCode.toLowerCase())
+          if (matchedSection) {
+            resolvedSectionId = String(matchedSection._id)
+            resolvedSectionCode = matchedSection.sectionCode
+          } else {
+            resolvedSectionCode = subSecCode
+          }
+        }
+
+        // 2. If not specified on subject, use student's assigned block (or check if subject is in a different block via BSA)
+        if (!resolvedSectionId && defaultSectionId && defaultSectionCode && !isInvalidProfessorSectionCode(defaultSectionCode)) {
+          const bsaKey = `${subjectId}|${normalizeProfessorRouteSemester(semester)}|${toSchoolYear(schoolYear)}`
+          const bsaSecId = bsaMap.get(bsaKey)
+          if (!bsaSecId || bsaSecId === defaultSectionId) {
+            resolvedSectionId = defaultSectionId
+            resolvedSectionCode = defaultSectionCode
+          } else {
+            const bsaSection = sectionById.get(bsaSecId)
+            if (bsaSection) {
+              resolvedSectionId = String(bsaSection._id)
+              resolvedSectionCode = bsaSection.sectionCode
+            } else {
+              resolvedSectionId = defaultSectionId
+              resolvedSectionCode = defaultSectionCode
+            }
+          }
+        }
+
+        // 3. If student has no valid block assignment, resolve block via BlockSubjectAssignment
+        if (!resolvedSectionId) {
+          const bsaKey = `${subjectId}|${normalizeProfessorRouteSemester(semester)}|${toSchoolYear(schoolYear)}`
+          const bsaSecId = bsaMap.get(bsaKey)
+          if (bsaSecId) {
+            const bsaSection = sectionById.get(bsaSecId)
+            if (bsaSection) {
+              resolvedSectionId = String(bsaSection._id)
+              resolvedSectionCode = bsaSection.sectionCode
+            }
+          }
+        }
+
+        const hasValidBlock = Boolean(resolvedSectionId && resolvedSectionCode && !isInvalidProfessorSectionCode(resolvedSectionCode))
+        const effectiveSectionId = hasValidBlock ? resolvedSectionId : ''
+        const effectiveSectionCode = hasValidBlock ? resolvedSectionCode : (resolvedSectionCode || 'Unassigned')
+        const needsBlockAssignment = !hasValidBlock
+
+        const blockKey = `${effectiveSectionId || effectiveSectionCode}::${semester}::${schoolYear}`
+        let blockEntry = courseEntry.blocks.get(blockKey)
+        if (!blockEntry) {
+          blockEntry = {
+            sectionId: effectiveSectionId || null,
+            sectionCode: effectiveSectionCode,
+            semester,
+            schoolYear,
+            yearLevel,
+            isCurrent: isCurrentEnrollment,
+            status: enrollment.status,
+            needsBlockAssignment,
+            subjects: new Map()
+          }
+          courseEntry.blocks.set(blockKey, blockEntry)
+        } else if (isCurrentEnrollment) {
+          blockEntry.isCurrent = true
+        }
+
         let subjectEntry = blockEntry.subjects.get(subjectId)
         if (!subjectEntry) {
           subjectEntry = {
@@ -1222,6 +1294,7 @@ async function getProfessorRouteAccess(adminId) {
 
 // GET /api/professor/sections/:sectionId/subjects/:subjectId/students
 // Returns the class roster for a specific assigned subject, including grades stored on enrollment subjects.
+// Correctly includes both regular students assigned to the block and irregular students taking the subject.
 app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authMiddleware, cacheMiddleware({ ttlMs: 15 * 1000 }), async (req, res) => {
   if (!dbReady) {
     return res.status(503).json({ error: 'Database unavailable.' })
@@ -1235,106 +1308,34 @@ app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authM
   const semester = normalizeProfessorRouteText(req.query.semester)
   const schoolYear = normalizeProfessorRouteText(req.query.schoolYear)
 
-  if (!mongoose.Types.ObjectId.isValid(sectionId) || !mongoose.Types.ObjectId.isValid(subjectId)) {
+  const isUnassignedSection = !mongoose.Types.ObjectId.isValid(sectionId) || String(sectionId).toLowerCase().includes('unassigned')
+
+  if ((!isUnassignedSection && !mongoose.Types.ObjectId.isValid(sectionId)) || !mongoose.Types.ObjectId.isValid(subjectId)) {
     return res.status(400).json({ error: 'Invalid section id or subject id.' })
   }
 
   try {
     const access = await getProfessorRouteAccess(req.adminId)
-    const section = await BlockSection.findById(sectionId)
-      .select('_id sectionCode')
-      .lean()
+    let section = null
+    if (!isUnassignedSection) {
+      section = await BlockSection.findById(sectionId)
+        .select('_id sectionCode blockGroupId')
+        .lean()
 
-    if (!section) {
-      return res.status(404).json({ error: 'Section not found.' })
+      if (!section) {
+        return res.status(404).json({ error: 'Section not found.' })
+      }
+    } else {
+      section = {
+        _id: sectionId,
+        sectionCode: 'Unassigned'
+      }
     }
 
     const normSem = normalizeProfessorRouteSemester(semester)
     const canonicalSY = normalizeProfessorRouteSchoolYear(schoolYear)
-    const yearStart = parseProfessorRouteSchoolYearStart(canonicalSY || schoolYear)
-    const assignmentQuery = {
-      sectionId: new mongoose.Types.ObjectId(sectionId),
-      status: 'ASSIGNED'
-    }
-    if (normSem) {
-      assignmentQuery.semester = { $in: Array.from(new Set([semester, normSem].filter(Boolean))) }
-    } else if (semester) {
-      assignmentQuery.semester = semester
-    }
-    const yearValues = Array.from(new Set([
-      schoolYear,
-      canonicalSY,
-      yearStart,
-      Number.isFinite(yearStart) ? String(yearStart) : null,
-      Number.isFinite(yearStart) ? `${yearStart}-${yearStart + 1}` : null
-    ].filter(Boolean)))
-    if (yearValues.length > 0) {
-      assignmentQuery.$or = [
-        { year: { $in: yearValues } },
-        { schoolYear: { $in: yearValues } }
-      ]
-    }
-
-    let assignments = await StudentBlockAssignment.find(assignmentQuery)
-      .select('studentId assignedAt semester year')
-      .sort({ assignedAt: 1 })
-      .lean()
-
-    if (assignments.length === 0 && (normSem || yearValues.length > 0)) {
-      const fallbackQuery = {
-        sectionId: new mongoose.Types.ObjectId(sectionId),
-        status: 'ASSIGNED'
-      }
-      if (normSem) {
-        fallbackQuery.semester = { $in: Array.from(new Set([semester, normSem].filter(Boolean))) }
-      } else if (semester) {
-        fallbackQuery.semester = semester
-      }
-      assignments = await StudentBlockAssignment.find(fallbackQuery)
-        .select('studentId assignedAt semester year')
-        .sort({ assignedAt: 1 })
-        .lean()
-    }
-
-    const studentIds = Array.from(
-      new Set(
-        assignments
-          .map((assignment) => normalizeProfessorRouteText(assignment.studentId))
-          .filter((value) => mongoose.Types.ObjectId.isValid(value))
-      )
-    )
-
-    if (studentIds.length === 0) {
-      return res.json({
-        success: true,
-        data: {
-          section: {
-            sectionId: String(section._id),
-            sectionCode: normalizeProfessorRouteText(section.sectionCode)
-          },
-          subject: {
-            subjectId: String(subjectId)
-          },
-          totals: {
-            assignedStudents: 0,
-            matchedStudents: 0
-          },
-          students: []
-        }
-      })
-    }
-
-    const studentObjectIds = studentIds.map((value) => new mongoose.Types.ObjectId(value))
-    const students = await Student.find({ _id: { $in: studentObjectIds } })
-      .select('_id studentNumber firstName middleName lastName suffix yearLevel studentStatus course email contactNumber corStatus')
-      .lean()
-
-    const studentsById = new Map(
-      students.map((student) => [String(student._id), student])
-    )
 
     const enrollmentQuery = {
-      studentId: { $in: studentObjectIds },
       status: { $nin: ['Dropped', 'Cancelled'] },
       subjects: {
         $elemMatch: {
@@ -1363,16 +1364,45 @@ app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authM
       .sort({ isCurrent: -1, createdAt: -1 })
       .lean()
 
-    const seenStudentIds = new Set()
-    const subjectRows = []
+    const candidateStudentIds = Array.from(
+      new Set(enrollments.map((e) => normalizeProfessorRouteText(e.studentId)).filter(Boolean))
+    )
+    const candidateAssignments = candidateStudentIds.length > 0
+      ? await StudentBlockAssignment.find({
+          studentId: { $in: candidateStudentIds },
+          status: 'ASSIGNED'
+        }).select('studentId sectionId semester year').lean()
+      : []
 
+    const assignmentByStudentId = new Map()
+    candidateAssignments.forEach((a) => {
+      const sid = normalizeProfessorRouteText(a.studentId)
+      const list = assignmentByStudentId.get(sid) || []
+      list.push(a)
+      assignmentByStudentId.set(sid, list)
+    })
+
+    let bsaDocs = []
+    if (typeof BlockSubjectAssignment?.find === 'function') {
+      try {
+        const bsaQuery = BlockSubjectAssignment.find({
+          subjectId: new mongoose.Types.ObjectId(subjectId),
+          semester: { $in: Array.from(new Set([semester, normSem].filter(Boolean))) }
+        })
+        if (bsaQuery && typeof bsaQuery.select === 'function') {
+          bsaDocs = (await bsaQuery.select('blockSectionId').lean()) || []
+        }
+      } catch (_bsaErr) {
+        bsaDocs = []
+      }
+    }
+    const offeringSectionIds = new Set(bsaDocs.map((b) => String(b.blockSectionId)))
+
+    const targetSectionCode = normalizeProfessorRouteText(section.sectionCode).toLowerCase()
+    const targetSectionIdStr = String(section._id)
+
+    const matchedEnrollments = []
     for (const enrollment of enrollments) {
-      const studentId = String(enrollment.studentId || '')
-      if (!studentId || seenStudentIds.has(studentId)) continue
-
-      const student = studentsById.get(studentId)
-      if (!student) continue
-
       const matchedEntry = (Array.isArray(enrollment.subjects) ? enrollment.subjects : []).find((entry) => {
         if (String(entry?.subjectId || '') !== String(subjectId)) return false
         const isOfficialDrop = String(entry?.status || '').toLowerCase() === 'dropped'
@@ -1383,6 +1413,87 @@ app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authM
       })
 
       if (!matchedEntry) continue
+
+      const subSecCode = normalizeProfessorRouteText(matchedEntry?.sectionCode)
+      let inSection = false
+      if (isUnassignedSection) {
+        if (!subSecCode || isInvalidProfessorSectionCode(subSecCode)) {
+          const sAssignments = assignmentByStudentId.get(String(enrollment.studentId)) || []
+          const hasBlockInOffering = sAssignments.some((a) => offeringSectionIds.has(String(a.sectionId)))
+          inSection = !hasBlockInOffering
+        }
+      } else if (subSecCode) {
+        inSection = subSecCode.toLowerCase() === targetSectionCode
+      } else {
+        const sAssignments = assignmentByStudentId.get(String(enrollment.studentId)) || []
+        const matchingAssignment = sAssignments.find((a) =>
+          (!normSem || normalizeProfessorRouteSemester(a.semester) === normSem) &&
+          (!canonicalSY || normalizeProfessorRouteSchoolYear(a.year) === canonicalSY)
+        ) || sAssignments[0]
+
+        if (matchingAssignment) {
+          const assignedSecId = String(matchingAssignment.sectionId)
+          if (assignedSecId === targetSectionIdStr) {
+            inSection = true
+          } else if (!offeringSectionIds.has(assignedSecId) && (offeringSectionIds.has(targetSectionIdStr) || offeringSectionIds.size === 0)) {
+            inSection = true
+          }
+        } else {
+          if (offeringSectionIds.has(targetSectionIdStr) || offeringSectionIds.size === 0) {
+            inSection = true
+          }
+        }
+      }
+
+      if (inSection) {
+        matchedEnrollments.push({ enrollment, matchedEntry })
+      }
+    }
+
+    if (matchedEnrollments.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          section: {
+            sectionId: String(section._id),
+            sectionCode: normalizeProfessorRouteText(section.sectionCode)
+          },
+          subject: {
+            subjectId: String(subjectId)
+          },
+          totals: {
+            assignedStudents: 0,
+            matchedStudents: 0
+          },
+          students: []
+        }
+      })
+    }
+
+    const studentIds = Array.from(new Set(matchedEnrollments.map(({ enrollment }) => normalizeProfessorRouteText(enrollment.studentId)).filter(Boolean)))
+    const studentObjectIds = studentIds
+      .filter((value) => mongoose.Types.ObjectId.isValid(value))
+      .map((value) => new mongoose.Types.ObjectId(value))
+
+    const students = studentObjectIds.length > 0
+      ? await Student.find({ _id: { $in: studentObjectIds } })
+          .select('_id studentNumber firstName middleName lastName suffix yearLevel studentStatus classification course email contactNumber corStatus')
+          .lean()
+      : []
+
+    const studentsById = new Map(
+      students.map((student) => [String(student._id), student])
+    )
+
+    const seenStudentIds = new Set()
+    const subjectRows = []
+
+    for (const { enrollment, matchedEntry } of matchedEnrollments) {
+      const studentId = String(enrollment.studentId || '')
+      if (!studentId || seenStudentIds.has(studentId)) continue
+
+      const student = studentsById.get(studentId)
+      if (!student) continue
 
       seenStudentIds.add(studentId)
 
@@ -1398,6 +1509,8 @@ app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authM
         ? 'Enrolled'
         : (normalizeProfessorRouteText(matchedEntry.status) || 'Enrolled')
 
+      const isIrregular = String(student.classification || '').toLowerCase() === 'irregular' || String(student.studentStatus || '').toLowerCase() === 'irregular'
+
       subjectRows.push({
         _id: String(student._id),
         enrollmentId: String(enrollment._id),
@@ -1408,7 +1521,8 @@ app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authM
         lastName: normalizeProfessorRouteText(student.lastName),
         suffix: normalizeProfessorRouteText(student.suffix),
         yearLevel: Number(student.yearLevel || 0) || null,
-        studentStatus: normalizeProfessorRouteText(student.studentStatus) || 'Active',
+        studentStatus: isIrregular ? 'Irregular' : (normalizeProfessorRouteText(student.studentStatus) || 'Active'),
+        classification: normalizeProfessorRouteText(student.classification) || (isIrregular ? 'Irregular' : 'Regular'),
         course: student.course,
         email: normalizeProfessorRouteText(student.email),
         contactNumber: normalizeProfessorRouteText(student.contactNumber),
@@ -1451,7 +1565,7 @@ app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authM
         },
         subject: subjectMeta,
         totals: {
-          assignedStudents: studentIds.length,
+          assignedStudents: subjectRows.length,
           matchedStudents: subjectRows.length
         },
         students: subjectRows
@@ -1493,8 +1607,9 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
     ? null
     : Number(rawGrade)
 
+  const isUnassignedSection = !mongoose.Types.ObjectId.isValid(sectionId) || String(sectionId).toLowerCase().includes('unassigned')
   if (
-    !mongoose.Types.ObjectId.isValid(sectionId)
+    (!isUnassignedSection && !mongoose.Types.ObjectId.isValid(sectionId))
     || !mongoose.Types.ObjectId.isValid(subjectId)
     || !mongoose.Types.ObjectId.isValid(studentId)
   ) {
@@ -2095,6 +2210,19 @@ mongoose.connect(uri)
     void runOnceStartupMigrations().catch((error) => {
       console.error('Startup migrations error:', error)
     })
+
+    // Reconcile students with active additional subject load (e.g. retakes or added courses) to Irregular
+    void (async () => {
+      try {
+        const { reconcileStudentIrregularity } = require('./services/subjectEnrollmentService')
+        const students = await Student.find({}).select('_id studentStatus classification').lean()
+        for (const s of students) {
+          await reconcileStudentIrregularity({ studentId: s._id })
+        }
+      } catch (err) {
+        console.error('Active additional subject load irregular status sync error:', err?.message || err)
+      }
+    })()
 
 
 async function runOnceStartupMigrations() {
@@ -3409,13 +3537,17 @@ app.post('/api/student/login', authLimiter, async (req, res) => {
 
   try {
     const { studentNumber, password } = req.body
-    const normalizedStudentNumber = String(studentNumber || '').trim()
+    const rawStudentNumber = String(studentNumber || '').trim()
+    const digitsOnly = rawStudentNumber.replace(/\D/g, '')
+    const formattedWithDashes = digitsOnly.length === 12
+      ? `${digitsOnly.slice(0, 4)}-${digitsOnly.slice(4, 7)}-${digitsOnly.slice(7)}`
+      : null
     const clientIpCandidates = getClientIpCandidates(req)
     const clientIp = getClientIpAddress(req)
     const userAgent = req.get('User-Agent')
     const deviceId = String(req.get('x-device-id') || '').trim()
 
-    if (!normalizedStudentNumber || !password) {
+    if (!rawStudentNumber || !password) {
       return res.status(400).json({ error: 'Student number and password are required.' })
     }
 
@@ -3434,8 +3566,14 @@ app.post('/api/student/login', authLimiter, async (req, res) => {
       })
     }
 
+    const studentNumberCandidates = Array.from(new Set([
+      rawStudentNumber,
+      digitsOnly,
+      formattedWithDashes
+    ].filter(Boolean)))
+
     const student = await Student.findOne({ 
-      studentNumber: normalizedStudentNumber,
+      studentNumber: { $in: studentNumberCandidates },
       isActive: true 
     }).select('+password')
 
@@ -3447,14 +3585,41 @@ app.post('/api/student/login', authLimiter, async (req, res) => {
     // If not, fall back to the generated default password (first initial +
     // full last name + last 5 digits of the student number) so newly-enrolled
     // students can log in before a registrar sets a custom password.
+    // Also accept default password variations (e.g. mobile auto-capitalization or student number fallback).
     let isPasswordValid = false
+    const trimmedPassword = String(password || '').trim()
+
     if (student.password) {
-      isPasswordValid = await student.comparePassword(password)
-      console.log(`[login] ${normalizedStudentNumber}: bcrypt compare -> ${isPasswordValid}`)
+      isPasswordValid = await student.comparePassword(password) || await student.comparePassword(trimmedPassword)
+      if (!isPasswordValid && typeof student.generateDefaultPassword === 'function') {
+        const defaultPassword = student.generateDefaultPassword()
+        const defaultCandidates = [
+          defaultPassword,
+          defaultPassword.toLowerCase(),
+          student.studentNumber,
+          digitsOnly,
+          rawStudentNumber,
+          formattedWithDashes
+        ].filter(Boolean)
+
+        if (defaultCandidates.some(c => c === password || c === trimmedPassword || c.toLowerCase() === trimmedPassword.toLowerCase())) {
+          isPasswordValid = true
+        }
+      }
+      console.log(`[login] ${student.studentNumber}: bcrypt compare -> ${isPasswordValid}`)
     } else {
       const defaultPassword = student.generateDefaultPassword()
-      isPasswordValid = password === defaultPassword
-      console.log(`[login] ${normalizedStudentNumber}: default pw check -> got="${password}" expected="${defaultPassword}" -> ${isPasswordValid}`)
+      const defaultCandidates = [
+        defaultPassword,
+        defaultPassword.toLowerCase(),
+        student.studentNumber,
+        digitsOnly,
+        rawStudentNumber,
+        formattedWithDashes
+      ].filter(Boolean)
+
+      isPasswordValid = defaultCandidates.some(c => c === password || c === trimmedPassword || c.toLowerCase() === trimmedPassword.toLowerCase())
+      console.log(`[login] ${student.studentNumber}: default pw check -> got="${password}" expected="${defaultPassword}" -> ${isPasswordValid}`)
       // Persist the hash so future logins go through the normal bcrypt path
       // and the student can change their password later.
       if (isPasswordValid) {
@@ -4802,10 +4967,14 @@ function hashStudentResetSecret(value) {
 async function findStudentForPasswordReset(identifier) {
   const normalized = String(identifier || '').trim().toLowerCase()
   if (!normalized) return null
-  const conditions = isValidEmailAddress(normalized)
-    ? [{ email: normalized }, { googleEmail: normalized }]
-    : [{ studentNumber: String(identifier).trim() }]
-  return Student.findOne({ isActive: true, $or: conditions })
+  if (isValidEmailAddress(normalized)) {
+    return Student.findOne({ isActive: true, $or: [{ email: normalized }, { googleEmail: normalized }] })
+  }
+  const rawId = String(identifier || '').trim()
+  const digits = rawId.replace(/\D/g, '')
+  const dashed = digits.length === 12 ? `${digits.slice(0, 4)}-${digits.slice(4, 7)}-${digits.slice(7)}` : null
+  const candidates = Array.from(new Set([rawId, digits, dashed].filter(Boolean)))
+  return Student.findOne({ isActive: true, studentNumber: { $in: candidates } })
 }
 
 // POST /api/student/forgot-password  { identifier }  (student number or email)

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { authorizedFetch } from '../lib/blockAssignmentShared'
 import { formatScheduleDisplay } from '../lib/scheduleFormatter'
+import { getCachedAcademicTerm } from '../lib/settingsApi'
 import './ProfessorLoad.css'
 
 // ─── Types ───
@@ -132,10 +133,11 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
   const [unassignedSubjects, setUnassignedSubjects] = useState<UnassignedSubject[]>([])
   const [filterOptions, setFilterOptions] = useState<{ semesters: string[]; years: number[]; courses: FilterOption[] }>({ semesters: [], years: [], courses: [] })
 
+  const cachedTerm = getCachedAcademicTerm()
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortOption>('subjects-desc')
-  const [semesterFilter, setSemesterFilter] = useState('')
-  const [yearFilter, setYearFilter] = useState('')
+  const [semesterFilter, setSemesterFilter] = useState(() => cachedTerm?.semester || '')
+  const [yearFilter, setYearFilter] = useState(() => cachedTerm?.schoolYear || '')
   const [courseFilter, setCourseFilter] = useState('')
   const [showUnassignedOnly, setShowUnassignedOnly] = useState(false)
   const [showAttentionPanel, setShowAttentionPanel] = useState(true)
@@ -354,7 +356,7 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
           <label>
             <span>Semester</span>
             <select value={semesterFilter} onChange={(e) => setSemesterFilter(e.target.value)}>
-              <option value="">All</option>
+              <option value="all">All Semesters</option>
               {filterOptions.semesters.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </label>
@@ -364,7 +366,7 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
           <label>
             <span>Year</span>
             <select value={yearFilter} onChange={(e) => setYearFilter(e.target.value)}>
-              <option value="">All</option>
+              <option value="all">All Years</option>
               {filterOptions.years.map((y) => <option key={y} value={y}>{y}-{y + 1}</option>)}
             </select>
           </label>

@@ -442,4 +442,35 @@ describe('Semester-Specific Certificate of Registration (COR)', () => {
       })
     );
   });
+
+  test('11. Formats subject class block labels properly (not in raw code format)', () => {
+    const helpers = CorPdfService.helpers;
+
+    // Test formatClassBlockLabel
+    expect(helpers.formatClassBlockLabel('101-1-A')).toBe('BEED-1A');
+    expect(helpers.formatClassBlockLabel('101-1-A', 'BEED')).toBe('BEED-1A');
+    expect(helpers.formatClassBlockLabel('102-1-A')).toBe('BSEd-English-1A');
+    expect(helpers.formatClassBlockLabel('103-1-A')).toBe('BSEd-Math-1A');
+    expect(helpers.formatClassBlockLabel('201-1-A')).toBe('BSBA-HRM-1A');
+    expect(helpers.formatClassBlockLabel('BEED-2A')).toBe('BEED-2A');
+
+    // Test buildSubjectRow formats raw code format '101-1-A' into 'BEED-1A'
+    const subjectRow1 = helpers.buildSubjectRow(
+      { code: 'ENG101', title: 'English Communication', units: 3, sectionCode: '101-1-A' },
+      'BEED-1A'
+    );
+    expect(subjectRow1.block).toBe('BEED-1A');
+
+    const subjectRow2 = helpers.buildSubjectRow(
+      { code: 'MATH101', title: 'College Algebra', units: 3, sectionCode: '101-1-A' },
+      'BEED-1A'
+    );
+    expect(subjectRow2.block).toBe('BEED-1A');
+
+    const subjectRow3 = helpers.buildSubjectRow(
+      { code: 'BEED201', title: 'Foundations of Early Childhood Education', units: 3, sectionCode: 'BEED-2A' },
+      'BEED-2A'
+    );
+    expect(subjectRow3.block).toBe('BEED-2A');
+  });
 });

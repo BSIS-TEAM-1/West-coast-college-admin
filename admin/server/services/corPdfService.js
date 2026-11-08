@@ -153,21 +153,48 @@ function formatStudentNumber(rawStudentNumber, courseCode) {
   return `${yearPart}${courseCode}${seqPart}`;
 }
 
+const COURSE_CODE_MAP = {
+  101: 'BEED',
+  102: 'BSEd-English',
+  103: 'BSEd-Math',
+  201: 'BSBA-HRM'
+};
+
 function formatClassBlockLabel(rawSectionCode, courseAbbreviation) {
   const sectionCode = cleanText(rawSectionCode).toUpperCase();
-  const course = cleanText(courseAbbreviation).toUpperCase();
-  if (!sectionCode) return '';
-  if (!course) return sectionCode;
+  if (!sectionCode || sectionCode === 'N/A' || sectionCode === '-') return sectionCode || '';
 
   const blockSlotMatch = sectionCode.match(/(?:^|[-\s])(\d+)-?([A-Z])$/);
-  if (blockSlotMatch) return `${course}-${blockSlotMatch[1]}${blockSlotMatch[2]}`;
+  const slot = blockSlotMatch ? `${blockSlotMatch[1]}${blockSlotMatch[2]}` : '';
 
   const parts = sectionCode.split('-').filter(Boolean);
-  const firstPart = parts[0] || '';
-  if (/^\d/.test(firstPart) || parts.length <= 1) {
-    const suffix = parts.length > 1 ? parts.slice(1).join('-') : sectionCode;
-    return suffix ? `${course}-${suffix}` : sectionCode;
+  let course = cleanText(courseAbbreviation).toUpperCase();
+
+  // If section starts with a numeric code (e.g. "101" in "101-1-A")
+  if (parts.length > 0 && COURSE_CODE_MAP[parts[0]]) {
+    course = COURSE_CODE_MAP[parts[0]];
+  } else if (!course && parts.length > 1 && !/^\d+$/.test(parts[0])) {
+    course = parts[0];
   }
+
+  if (course && slot) {
+    return `${course}-${slot}`;
+  }
+
+  if (course && parts.length > 1) {
+    const suffix = parts.slice(1).join('-');
+    return `${course}-${suffix}`;
+  }
+
+  if (course && parts.length === 1 && !sectionCode.includes(course)) {
+    return `${course}-${parts[0]}`;
+  }
+
+  if (blockSlotMatch && parts.length >= 2) {
+    const prefix = parts.slice(0, -2).join('-');
+    return prefix ? `${prefix}-${slot}` : slot;
+  }
+
   return sectionCode;
 }
 
@@ -204,7 +231,7 @@ function parseScheduleMeetings(rawSchedule) {
  * Turns an enrollment subject entry into printable table cells.
  * Multiple meetings are stacked on separate lines so Days / Time / Room line up.
  */
-function buildSubjectRow(subject, classBlockLabel) {
+function buildSubjectRow(subject, classBlockLabel, courseAbbreviation) {
   const meetings = parseScheduleMeetings(subject?.schedule);
 
   const days = meetings.length ? meetings.map((m) => m.days || 'TBA').join('\n') : 'TBA';
@@ -220,11 +247,18 @@ function buildSubjectRow(subject, classBlockLabel) {
 
   const units = Number(subject?.units);
 
+  const rawSectionCode = cleanText(subject?.sectionCode);
+  const rawBlock = rawSectionCode || classBlockLabel || 'N/A';
+  const formattedBlock =
+    rawBlock !== 'N/A' && rawBlock !== '-'
+      ? formatClassBlockLabel(rawBlock, courseAbbreviation)
+      : rawBlock;
+
   return {
     code: cleanText(subject?.code, '-'),
     title: cleanText(subject?.title, '-'),
     units: Number.isFinite(units) && units > 0 ? units.toFixed(1) : '-',
-    block: cleanText(subject?.sectionCode) || classBlockLabel || 'N/A',
+    block: formattedBlock || rawBlock,
     days,
     time,
     room,

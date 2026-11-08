@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { PencilLine } from 'lucide-react'
+import { AlertTriangle, PencilLine, Plus, Trash2 } from 'lucide-react'
 import { API_URL, getStoredToken } from '../lib/authApi'
 import { formatBlockLabel, schoolYearFromStartYear } from '../lib/blockAssignmentShared'
 import { getAcademicTerm, type AcademicTerm } from '../lib/settingsApi'
@@ -166,7 +166,7 @@ type ProfessorLoadDraft = {
   selectedSubjectId: string
   editingAssignmentId: string
   subjectDaySelections: string[]
-  subjectDaySchedules: Record<string, DayScheduleFields>
+  subjectDaySchedules: Record<string, DayScheduleFields[] | DayScheduleFields>
   subjectDayTouched: Record<string, boolean>
   savedAt: number
 }
@@ -216,12 +216,11 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
   const [subjects, setSubjects] = useState<SubjectItem[]>([])
   const [selectedSubjectId, setSelectedSubjectId] = useState('')
   const [subjectDaySelections, setSubjectDaySelections] = useState<string[]>([])
-  const [subjectDaySchedules, setSubjectDaySchedules] = useState<Record<string, DayScheduleFields>>({})
+  const [subjectDaySchedules, setSubjectDaySchedules] = useState<Record<string, DayScheduleFields[]>>({})
   const [professorLoads, setProfessorLoads] = useState<ProfessorCourseLoad[]>([])
   const [selectedProfessorId, setSelectedProfessorId] = useState('')
   const [assigning, setAssigning] = useState(false)
   const [editingAssignmentId, setEditingAssignmentId] = useState('')
-  const [autoPickedAssignmentKey, setAutoPickedAssignmentKey] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [viewingSubjectsProfessorId, setViewingSubjectsProfessorId] = useState('')
@@ -237,13 +236,23 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
 
   const restoreDraft = (draft: ProfessorLoadDraft) => {
     isRestoringDraftRef.current = true
-    setAutoPickedAssignmentKey('draft-restored')
     if (draft.selectedGroupId) setSelectedGroupId(draft.selectedGroupId)
     if (draft.selectedSectionId) setSelectedSectionId(draft.selectedSectionId)
     if (draft.selectedSubjectId) setSelectedSubjectId(draft.selectedSubjectId)
     setEditingAssignmentId(draft.editingAssignmentId || '')
     setSubjectDaySelections(draft.subjectDaySelections || [])
-    setSubjectDaySchedules(draft.subjectDaySchedules || {})
+
+    const normalizedSchedules: Record<string, DayScheduleFields[]> = {}
+    if (draft.subjectDaySchedules) {
+      Object.entries(draft.subjectDaySchedules).forEach(([day, val]) => {
+        if (Array.isArray(val)) {
+          normalizedSchedules[day] = val
+        } else if (val && typeof val === 'object') {
+          normalizedSchedules[day] = [val as DayScheduleFields]
+        }
+      })
+    }
+    setSubjectDaySchedules(normalizedSchedules)
     setSubjectDayTouched(draft.subjectDayTouched || {})
     window.setTimeout(() => {
       isRestoringDraftRef.current = false
@@ -297,7 +306,13 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
       setPendingAssignmentPayload(payload)
       return true
     }
-    if (apiError?.warning === 'teaching_hours_exceeded' && apiError.data) {
+    if (
+      (apiError?.warning === 'teaching_hours_exceeded' ||
+        apiError?.warning === 'teaching_hours_insufficient' ||
+        apiError?.warning === 'teaching_hours_discrepancy' ||
+        Boolean(apiError?.warning?.startsWith('teaching_hours_'))) &&
+      apiError.data
+    ) {
       setInstructorOverrideWarning(null)
       setTeachingHoursWarning(apiError.data)
       setPendingAssignmentPayload(payload)
@@ -317,22 +332,25 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
 
   const updateDayTimePart = (
     dayCode: string,
+    slotIndex: number,
     field: 'startTime' | 'endTime',
     part: 'hour' | 'minute',
     rawValue: string,
     sourceInput?: HTMLInputElement
   ) => {
     const digits = rawValue.replace(/\D/g, '').slice(0, 2)
-    setSubjectDayTouched((curr) => ({ ...curr, [dayCode]: true }))
+    setSubjectDayTouched((curr) => ({ ...curr, [`${dayCode}_${slotIndex}`]: true, [dayCode]: true }))
     setSubjectDaySchedules((curr) => {
-      const current = curr[dayCode] || DEFAULT_DAY_SCHEDULE
+      const daySlots = curr[dayCode] ? [...curr[dayCode]] : [{ ...DEFAULT_DAY_SCHEDULE }]
+      const current = daySlots[slotIndex] || { ...DEFAULT_DAY_SCHEDULE }
       const parts = splitTimeParts(current[field])
+      daySlots[slotIndex] = {
+        ...current,
+        [field]: `${part === 'hour' ? digits : parts.hour}:${part === 'minute' ? digits : parts.minute}`
+      }
       return {
         ...curr,
-        [dayCode]: {
-          ...current,
-          [field]: `${part === 'hour' ? digits : parts.hour}:${part === 'minute' ? digits : parts.minute}`
-        }
+        [dayCode]: daySlots
       }
     })
 
@@ -352,18 +370,72 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
     }
   }
 
-  const normalizeDayTime = (dayCode: string, field: 'startTime' | 'endTime') => {
+  const normalizeDayTime = (dayCode: string, slotIndex: number, field: 'startTime' | 'endTime') => {
     setSubjectDaySchedules((curr) => {
-      const current = curr[dayCode]
+      const daySlots = curr[dayCode] ? [...curr[dayCode]] : []
+      const current = daySlots[slotIndex]
       if (!current) return curr
       const parts = splitTimeParts(current[field])
       if (!parts.hour && !parts.minute) {
-        return { ...curr, [dayCode]: { ...current, [field]: ':' } }
+        daySlots[slotIndex] = { ...current, [field]: ':' }
+        return { ...curr, [dayCode]: daySlots }
       }
       const normalized = normalizeTimeText(`${parts.hour}:${parts.minute || '00'}`)
-      return normalized
-        ? { ...curr, [dayCode]: { ...current, [field]: normalized } }
-        : curr
+      if (normalized) {
+        daySlots[slotIndex] = { ...current, [field]: normalized }
+        return { ...curr, [dayCode]: daySlots }
+      }
+      return curr
+    })
+  }
+
+  const updateDayAmPm = (dayCode: string, slotIndex: number, field: 'startAmPm' | 'endAmPm', value: 'AM' | 'PM') => {
+    setSubjectDayTouched((curr) => ({ ...curr, [`${dayCode}_${slotIndex}`]: true, [dayCode]: true }))
+    setSubjectDaySchedules((curr) => {
+      const daySlots = curr[dayCode] ? [...curr[dayCode]] : [{ ...DEFAULT_DAY_SCHEDULE }]
+      const current = daySlots[slotIndex] || { ...DEFAULT_DAY_SCHEDULE }
+      daySlots[slotIndex] = { ...current, [field]: value }
+      return { ...curr, [dayCode]: daySlots }
+    })
+  }
+
+  const updateDayRoom = (dayCode: string, slotIndex: number, room: string) => {
+    setSubjectDayTouched((curr) => ({ ...curr, [`${dayCode}_${slotIndex}`]: true, [dayCode]: true }))
+    setSubjectDaySchedules((curr) => {
+      const daySlots = curr[dayCode] ? [...curr[dayCode]] : [{ ...DEFAULT_DAY_SCHEDULE }]
+      const current = daySlots[slotIndex] || { ...DEFAULT_DAY_SCHEDULE }
+      daySlots[slotIndex] = { ...current, room }
+      return { ...curr, [dayCode]: daySlots }
+    })
+  }
+
+  const addDaySlot = (dayCode: string) => {
+    setSubjectDaySchedules((curr) => {
+      const daySlots = curr[dayCode] ? [...curr[dayCode]] : [{ ...DEFAULT_DAY_SCHEDULE }]
+      const lastSlot = daySlots[daySlots.length - 1]
+      const newSlot: DayScheduleFields = {
+        ...DEFAULT_DAY_SCHEDULE,
+        room: lastSlot ? lastSlot.room : ''
+      }
+      return { ...curr, [dayCode]: [...daySlots, newSlot] }
+    })
+    setSubjectDayTouched((curr) => {
+      const currentSlots = subjectDaySchedules[dayCode] || []
+      return { ...curr, [`${dayCode}_${currentSlots.length}`]: true, [dayCode]: true }
+    })
+  }
+
+  const removeDaySlot = (dayCode: string, slotIndex: number) => {
+    setSubjectDaySchedules((curr) => {
+      const daySlots = curr[dayCode] ? [...curr[dayCode]] : []
+      if (daySlots.length <= 1) return curr
+      const updated = daySlots.filter((_, idx) => idx !== slotIndex)
+      return { ...curr, [dayCode]: updated }
+    })
+    setSubjectDayTouched((curr) => {
+      const next = { ...curr }
+      delete next[`${dayCode}_${slotIndex}`]
+      return next
     })
   }
 
@@ -371,7 +443,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
     const trimmed = String(schedule || '').trim()
     const fallbackRoom = String(room || '').trim() === 'TBA' ? '' : String(room || '').trim()
     if (!trimmed || /^TBA$/i.test(trimmed)) {
-      return { days: [] as string[], daySchedules: {} as Record<string, DayScheduleFields> }
+      return { days: [] as string[], daySchedules: {} as Record<string, DayScheduleFields[]> }
     }
 
     const tokenOrder = ['TH', 'SU', 'M', 'T', 'W', 'F', 'S']
@@ -422,7 +494,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
     // Per-day format: "M 07:30-09:00 @ Room 205 / W 13:00-14:30 @ Lab 3"
     if (trimmed.includes('/')) {
       const segments = trimmed.split('/').map(s => s.trim()).filter(Boolean)
-      const daySchedules: Record<string, DayScheduleFields> = {}
+      const daySchedules: Record<string, DayScheduleFields[]> = {}
       const days: string[] = []
 
       for (const segment of segments) {
@@ -441,8 +513,13 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
         while (cursor.length > 0) {
           const token = tokenOrder.find((value) => cursor.startsWith(value))
           if (!token) break
-          days.push(token)
-          daySchedules[token] = buildFields(start, end, segmentRoom)
+          if (!days.includes(token)) {
+            days.push(token)
+          }
+          if (!daySchedules[token]) {
+            daySchedules[token] = []
+          }
+          daySchedules[token].push(buildFields(start, end, segmentRoom))
           cursor = cursor.slice(token.length)
         }
       }
@@ -450,13 +527,17 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
       return { days: dayOptions.filter((day) => days.includes(day)), daySchedules }
     }
 
-    // Classic format: "MW 07:30-09:00"
-    const separatorIndex = trimmed.indexOf(' ')
+    // Classic format: "MW 07:30-09:00" or single segment "M 07:30-09:00 @ Room 205"
+    const roomMatch = trimmed.match(/^(.+?)\s*@\s*(.+)$/)
+    const body = roomMatch ? roomMatch[1].trim() : trimmed
+    const singleRoom = roomMatch ? roomMatch[2].trim() : fallbackRoom
+
+    const separatorIndex = body.indexOf(' ')
     if (separatorIndex < 0) {
-      return { days: [] as string[], daySchedules: {} as Record<string, DayScheduleFields> }
+      return { days: [] as string[], daySchedules: {} as Record<string, DayScheduleFields[]> }
     }
-    const daysRaw = trimmed.slice(0, separatorIndex).toUpperCase()
-    const timeRaw = trimmed.slice(separatorIndex + 1).trim()
+    const daysRaw = body.slice(0, separatorIndex).toUpperCase()
+    const timeRaw = body.slice(separatorIndex + 1).trim()
     const timeMatch = timeRaw.match(/^(.+?)\s*-\s*(.+)$/)
     const days: string[] = []
     let cursor = daysRaw
@@ -470,8 +551,8 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
 
     const start = timeMatch ? parse24To12(timeTo24h(timeMatch[1].trim())) : { time: '6:00', ampm: 'AM' as const }
     const end = timeMatch ? parse24To12(timeTo24h(timeMatch[2].trim())) : { time: '10:00', ampm: 'AM' as const }
-    const daySchedules: Record<string, DayScheduleFields> = {}
-    days.forEach((day) => { daySchedules[day] = buildFields(start, end, fallbackRoom) })
+    const daySchedules: Record<string, DayScheduleFields[]> = {}
+    days.forEach((day) => { daySchedules[day] = [buildFields(start, end, singleRoom)] })
 
     return { days: dayOptions.filter((day) => days.includes(day)), daySchedules }
   }
@@ -494,9 +575,16 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
     }
   }
 
-  const fetchProfessorCourseLoads = async () => {
+  const fetchProfessorCourseLoads = async (term?: AcademicTerm | null) => {
     try {
-      const data = await authorizedFetch('/api/registrar/professor-course-loads')
+      const targetTerm = term !== undefined ? term : activeTerm
+      const schoolYear = String(targetTerm?.schoolYear || '').trim()
+      const semester = String(targetTerm?.semester || '').trim()
+      const params = new URLSearchParams()
+      if (schoolYear) params.set('year', schoolYear)
+      if (semester) params.set('semester', semester)
+      const qs = params.toString()
+      const data = await authorizedFetch(`/api/registrar/professor-course-loads${qs ? `?${qs}` : ''}`)
       const payload = (data?.data || {}) as LoadsPayload
       setProfessorLoads(Array.isArray(payload.professors) ? payload.professors : [])
       setError('')
@@ -615,7 +703,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
       setSections([])
       setSubjects([])
       clearAssignmentForm(false)
-      setAutoPickedAssignmentKey('')
     }
   }
 
@@ -630,7 +717,10 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
     let cancelled = false
     getAcademicTerm()
       .then((term) => {
-        if (!cancelled) setActiveTerm(term)
+        if (!cancelled && term) {
+          setActiveTerm(term)
+          void fetchProfessorCourseLoads(term)
+        }
       })
       .catch(() => {})
     return () => {
@@ -670,13 +760,74 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
   const dayTimeProblems = useMemo(() => {
     const problems: Record<string, string> = {}
     for (const day of subjectDaySelections) {
-      const s = subjectDaySchedules[day]
-      if (!s) continue
-      const problem = describeDayTimeProblem(s.startTime, s.startAmPm, s.endTime, s.endAmPm)
-      if (problem) problems[day] = problem
+      const slots = subjectDaySchedules[day] || []
+      const timeRanges: { start: number; end: number; index: number }[] = []
+
+      slots.forEach((s, idx) => {
+        const slotKey = `${day}_${idx}`
+        const problem = describeDayTimeProblem(s.startTime, s.startAmPm, s.endTime, s.endAmPm)
+        if (problem) {
+          problems[slotKey] = problem
+        }
+
+        const startMins = parseClockMinutesFlexible(`${normalizeTimeText(s.startTime)} ${s.startAmPm}`)
+        const endMins = parseClockMinutesFlexible(`${normalizeTimeText(s.endTime)} ${s.endAmPm}`)
+        if (startMins !== null && endMins !== null && endMins > startMins) {
+          timeRanges.push({ start: startMins, end: endMins, index: idx })
+        }
+      })
+
+      // Check for overlapping slots on the same day
+      if (timeRanges.length > 1) {
+        for (let i = 0; i < timeRanges.length; i++) {
+          for (let j = i + 1; j < timeRanges.length; j++) {
+            const a = timeRanges[i]
+            const b = timeRanges[j]
+            if (a.start < b.end && b.start < a.end) {
+              problems[`${day}_${b.index}`] = `Overlaps with Slot ${a.index + 1}`
+            }
+          }
+        }
+      }
     }
     return problems
   }, [subjectDaySchedules, subjectDaySelections])
+
+  // Live weekly scheduled contact hours vs expected contact hours
+  const liveTeachingHoursSummary = useMemo(() => {
+    if (!selectedSubject) return null
+    const expectedHours = (selectedSubject.lecturePeriods || 0) > 0 || (selectedSubject.labPeriods || 0) > 0
+      ? ((selectedSubject.lecturePeriods || 0) + (selectedSubject.labPeriods || 0))
+      : (selectedSubject.units || 0)
+    if (expectedHours <= 0) return null
+
+    let totalScheduledHours = 0
+    for (const day of subjectDaySelections) {
+      const slots = subjectDaySchedules[day] || []
+      for (const s of slots) {
+        if (s) {
+          const startMins = parseClockMinutesFlexible(`${normalizeTimeText(s.startTime)} ${s.startAmPm}`)
+          const endMins = parseClockMinutesFlexible(`${normalizeTimeText(s.endTime)} ${s.endAmPm}`)
+          if (startMins !== null && endMins !== null && endMins > startMins) {
+            totalScheduledHours += (endMins - startMins) / 60
+          }
+        }
+      }
+    }
+    totalScheduledHours = Math.round(totalScheduledHours * 10) / 10
+    const discrepancy = Math.round((totalScheduledHours - expectedHours) * 10) / 10
+
+    return {
+      expectedHours,
+      totalScheduledHours,
+      discrepancy,
+      hasSchedule: totalScheduledHours > 0,
+      isUnderScheduled: totalScheduledHours > 0 && totalScheduledHours < expectedHours,
+      isExceeded: totalScheduledHours > expectedHours,
+      isMatching: totalScheduledHours > 0 && totalScheduledHours === expectedHours,
+      missingHours: Math.max(0, Math.round((expectedHours - totalScheduledHours) * 10) / 10)
+    }
+  }, [selectedSubject, subjectDaySelections, subjectDaySchedules])
 
   const canAssign = !assigning
     && Boolean(selectedProfessor)
@@ -685,10 +836,10 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
     && Boolean(selectedSubjectId)
     && subjectDaySelections.length > 0
     && subjectDaySelections.every((day) => {
-      const s = subjectDaySchedules[day]
-      return Boolean(s && normalizeTimeText(s.startTime) && normalizeTimeText(s.endTime) && s.room.trim())
+      const slots = subjectDaySchedules[day] || []
+      return slots.length > 0 && slots.every((s) => Boolean(s && normalizeTimeText(s.startTime) && normalizeTimeText(s.endTime) && s.room.trim()))
     })
-    && subjectDaySelections.every((day) => !dayTimeProblems[day])
+    && Object.keys(dayTimeProblems).length === 0
 
   const populateAssignmentEditor = (assignment: Pick<SectionSubjectAssignment, 'subjectId' | 'schedule' | 'room'>) => {
     const parsedSchedule = parseScheduleIntoFields(assignment.schedule, assignment.room)
@@ -698,7 +849,15 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
     setSubjectDaySchedules(parsedSchedule.daySchedules)
     // Loaded schedules carry real stored times, not the example defaults, so
     // they should not be rendered dimmed.
-    setSubjectDayTouched(Object.fromEntries(parsedSchedule.days.map((day) => [day, true])))
+    const touched: Record<string, boolean> = {}
+    parsedSchedule.days.forEach((day) => {
+      touched[day] = true
+      const slots = parsedSchedule.daySchedules[day] || []
+      slots.forEach((_, idx) => {
+        touched[`${day}_${idx}`] = true
+      })
+    })
+    setSubjectDayTouched(touched)
   }
 
   // Auto-save draft whenever user enters or changes inputs
@@ -743,45 +902,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
     subjectDayTouched
   ])
 
-  useEffect(() => {
-    if (
-      editingAssignmentId ||
-      selectedSubjectId ||
-      selectedGroupId ||
-      selectedSectionId ||
-      subjectDaySelections.length > 0 ||
-      (selectedProfessorId && loadDraftFromStorage(selectedProfessorId))
-    ) {
-      return
-    }
-    const assignment = selectedProfessor?.assignments[0]
-    if (!assignment) return
-
-    const assignmentKey = `${selectedProfessor?.professorId || ''}|${assignment.sectionId}|${assignment.subjectId}`
-    if (autoPickedAssignmentKey === assignmentKey) return
-
-    setAutoPickedAssignmentKey(assignmentKey)
-    if (assignment.blockGroupId) {
-      setSelectedGroupId(assignment.blockGroupId)
-    }
-    if (assignment.sectionId) {
-      setSelectedSectionId(assignment.sectionId)
-    }
-    populateAssignmentEditor({
-      subjectId: assignment.subjectId,
-      schedule: assignment.schedule,
-      room: assignment.room
-    })
-  }, [
-    autoPickedAssignmentKey,
-    editingAssignmentId,
-    selectedGroupId,
-    selectedSectionId,
-    selectedProfessor?.professorId,
-    selectedProfessor?.assignments,
-    selectedSubjectId
-  ])
-
   const handleAssignSubjectInstructor = async () => {
     const assignmentTargetId = selectedSubjectId || editingAssignmentId
     if (!selectedProfessor) return setError('Please choose a professor workspace first.')
@@ -790,64 +910,71 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
     const orderedDays = dayOptions.filter((day) => subjectDaySelections.includes(day))
     if (orderedDays.length === 0) return setError('Please select at least one class day.')
 
-    // Validate each selected day has a valid time range and room
+    // Validate each selected day and its slots have valid time ranges and rooms
     for (const day of orderedDays) {
-      const s = subjectDaySchedules[day]
-      if (!s || !normalizeTimeText(s.startTime) || !normalizeTimeText(s.endTime)) {
-        return setError(`Please enter a valid start and end time for ${day} (for example 1:30).`)
+      const slots = subjectDaySchedules[day] || []
+      if (slots.length === 0) {
+        return setError(`Please enter a schedule for ${day}.`)
       }
-      if (!s.room.trim()) {
-        return setError(`Please enter a room for ${day}.`)
-      }
-      // Keep class times inside the allowed 6:00 AM - 10:00 PM window.
-      // NOTE: the AM/PM must be included in the parsed string. Passing a bare
-      // 24h value ("01:00") makes parseClockMinutesFlexible guess via its
-      // school-hours heuristic, which misreads 1:00 AM as 1:00 PM.
-      const startMins = parseClockMinutesFlexible(`${normalizeTimeText(s.startTime)} ${s.startAmPm}`)
-      const endMins = parseClockMinutesFlexible(`${normalizeTimeText(s.endTime)} ${s.endAmPm}`)
-      if (startMins !== null && startMins < CLASS_WINDOW_START_MINUTES) {
-        return setError(`Classes cannot start before 6:00 AM. Please adjust the ${day} start time.`)
-      }
-      if (endMins !== null && endMins > CLASS_WINDOW_END_MINUTES) {
-        return setError(`Classes cannot end after 10:00 PM. Please adjust the ${day} end time.`)
-      }
-      // The end time must come after the start time on the same day.
-      if (startMins !== null && endMins !== null && endMins <= startMins) {
-        return setError(`The ${day} end time must be later than the start time.`)
+      for (let idx = 0; idx < slots.length; idx++) {
+        const s = slots[idx]
+        const slotLabel = slots.length > 1 ? `${day} (Slot ${idx + 1})` : day
+        if (!s || !normalizeTimeText(s.startTime) || !normalizeTimeText(s.endTime)) {
+          return setError(`Please enter a valid start and end time for ${slotLabel} (for example 1:30).`)
+        }
+        if (!s.room.trim()) {
+          return setError(`Please enter a room for ${slotLabel}.`)
+        }
+        // Keep class times inside the allowed 6:00 AM - 10:00 PM window.
+        // NOTE: the AM/PM must be included in the parsed string. Passing a bare
+        // 24h value ("01:00") makes parseClockMinutesFlexible guess via its
+        // school-hours heuristic, which misreads 1:00 AM as 1:00 PM.
+        const startMins = parseClockMinutesFlexible(`${normalizeTimeText(s.startTime)} ${s.startAmPm}`)
+        const endMins = parseClockMinutesFlexible(`${normalizeTimeText(s.endTime)} ${s.endAmPm}`)
+        if (startMins !== null && startMins < CLASS_WINDOW_START_MINUTES) {
+          return setError(`Classes cannot start before 6:00 AM. Please adjust the ${slotLabel} start time.`)
+        }
+        if (endMins !== null && endMins > CLASS_WINDOW_END_MINUTES) {
+          return setError(`Classes cannot end after 10:00 PM. Please adjust the ${slotLabel} end time.`)
+        }
+        // The end time must come after the start time on the same day.
+        if (startMins !== null && endMins !== null && endMins <= startMins) {
+          return setError(`The ${slotLabel} end time must be later than the start time.`)
+        }
       }
     }
 
-    const timeKey = (s: DayScheduleFields) =>
-      `${normalizeTimeText(s.startTime)} ${s.startAmPm}|${normalizeTimeText(s.endTime)} ${s.endAmPm}`
     const formatClock = (timeText: string, ampm: string) => `${normalizeTimeText(timeText)} ${ampm}`
 
-    // Check if all days share the same time AND room
-    const ref = subjectDaySchedules[orderedDays[0]]
-    const allSame = orderedDays.every((day) => {
-      const s = subjectDaySchedules[day]
-      return s && timeKey(s) === timeKey(ref) && s.room.trim() === ref.room.trim()
-    })
+    type FlattenedSlot = { day: string; slot: DayScheduleFields; formattedStart: string; formattedEnd: string }
+    const allSlots: FlattenedSlot[] = []
 
-    let normalizedSchedule: string
-    let normalizedRoom: string
-    if (orderedDays.length === 1) {
-      // Single day: "M 7:30 AM - 9:00 AM" with room in the separate field
-      const formattedStart = formatClock(ref.startTime, ref.startAmPm)
-      const formattedEnd = formatClock(ref.endTime, ref.endAmPm)
-      normalizedSchedule = `${orderedDays.join('')} ${formattedStart} - ${formattedEnd}`.trim()
-      normalizedRoom = ref.room.trim()
-    } else {
-      // Multiple days: emit one explicit segment per day. A compact day token
-      // like "MTH" is easy to misread (and rendered as a single entry in some
-      // screens), so every selected day is spelled out here.
-      normalizedSchedule = orderedDays.map((day) => {
-        const s = subjectDaySchedules[day]
+    for (const day of orderedDays) {
+      const slots = subjectDaySchedules[day] || []
+      for (const s of slots) {
         const formattedStart = formatClock(s.startTime, s.startAmPm)
         const formattedEnd = formatClock(s.endTime, s.endAmPm)
-        return `${day} ${formattedStart} - ${formattedEnd} @ ${s.room.trim()}`
+        allSlots.push({ day, slot: s, formattedStart, formattedEnd })
+      }
+    }
+
+    if (allSlots.length === 0) return
+
+    const allSame = allSlots.length === 1
+    let normalizedSchedule: string
+    let normalizedRoom: string
+    if (allSlots.length === 1) {
+      // Single slot: "M 7:30 AM - 9:00 AM" with room in the separate field
+      const single = allSlots[0]
+      normalizedSchedule = `${single.day} ${single.formattedStart} - ${single.formattedEnd}`.trim()
+      normalizedRoom = single.slot.room.trim()
+    } else {
+      // Multiple slots: emit one explicit segment per slot.
+      normalizedSchedule = allSlots.map(({ day, slot, formattedStart, formattedEnd }) => {
+        return `${day} ${formattedStart} - ${formattedEnd} @ ${slot.room.trim()}`
       }).join(' / ')
-      // Use first day's room as the primary room field for backward compat
-      normalizedRoom = ref.room.trim()
+      // Use first slot's room as the primary room field for backward compat
+      normalizedRoom = allSlots[0].slot.room.trim()
     }
 
     const payload: Record<string, string> = {
@@ -877,14 +1004,11 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
     // Pre-validate teaching hours before submitting
     if (selectedSubject) {
       let totalScheduledHours = 0
-      for (const day of orderedDays) {
-        const s = subjectDaySchedules[day]
-        if (s) {
-          const startMins = parseClockMinutesFlexible(`${normalizeTimeText(s.startTime)} ${s.startAmPm}`)
-          const endMins = parseClockMinutesFlexible(`${normalizeTimeText(s.endTime)} ${s.endAmPm}`)
-          if (startMins !== null && endMins !== null && endMins > startMins) {
-            totalScheduledHours += (endMins - startMins) / 60
-          }
+      for (const { slot } of allSlots) {
+        const startMins = parseClockMinutesFlexible(`${normalizeTimeText(slot.startTime)} ${slot.startAmPm}`)
+        const endMins = parseClockMinutesFlexible(`${normalizeTimeText(slot.endTime)} ${slot.endAmPm}`)
+        if (startMins !== null && endMins !== null && endMins > startMins) {
+          totalScheduledHours += (endMins - startMins) / 60
         }
       }
       totalScheduledHours = Math.round(totalScheduledHours * 10) / 10
@@ -893,7 +1017,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
         ? ((selectedSubject.lecturePeriods || 0) + (selectedSubject.labPeriods || 0))
         : (selectedSubject.units || 0)
 
-      if (totalScheduledHours > expectedHours && expectedHours > 0) {
+      if (totalScheduledHours > 0 && totalScheduledHours !== expectedHours && expectedHours > 0) {
         setTeachingHoursWarning({
           subjectId: selectedSubjectId,
           subjectCode: selectedSubject.code,
@@ -1192,21 +1316,26 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
                           setSubjectDayTouched((curr) => {
                             const copy = { ...curr }
                             delete copy[dayCode]
+                            Object.keys(copy).forEach((k) => {
+                              if (k.startsWith(`${dayCode}_`)) delete copy[k]
+                            })
                             return copy
                           })
                           return next
                         }
-                        // When adding a new day, default its time+room from the first existing day
+                        // When adding a new day, default its time+room from the first existing day's first slot
                         const existingDays = prev.length > 0 ? prev : []
-                        const refSchedule = existingDays.length > 0 ? subjectDaySchedules[existingDays[0]] : null
+                        const refSchedule = existingDays.length > 0 && subjectDaySchedules[existingDays[0]]?.[0]
+                          ? subjectDaySchedules[existingDays[0]][0]
+                          : null
                         setSubjectDaySchedules((curr) => ({
                           ...curr,
-                          [dayCode]: refSchedule ? { ...refSchedule } : { ...DEFAULT_DAY_SCHEDULE }
+                          [dayCode]: [refSchedule ? { ...refSchedule } : { ...DEFAULT_DAY_SCHEDULE }]
                         }))
                         // A copied day holds real times; a fresh default day keeps
                         // its dimmed "example" look until the user edits it.
                         setSubjectDayTouched((curr) => (
-                          refSchedule ? { ...curr, [dayCode]: true } : curr
+                          refSchedule ? { ...curr, [`${dayCode}_0`]: true, [dayCode]: true } : curr
                         ))
                         return [...prev, dayCode]
                       })}
@@ -1222,140 +1351,192 @@ export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }:
               <div className="registrar-course-per-day-times">
                 <span>Time & Room per Day <small style={{ fontWeight: 400, opacity: 0.7 }}>(allowed 6:00 AM – 10:00 PM)</small></span>
                 {dayOptions.filter((day) => subjectDaySelections.includes(day)).map((dayCode) => {
-              const daySchedule = subjectDaySchedules[dayCode] || DEFAULT_DAY_SCHEDULE
-              const startParts = splitTimeParts(daySchedule.startTime)
-              const endParts = splitTimeParts(daySchedule.endTime)
-              // Untouched rows still show the defaults (6:00 AM - 10:00 AM);
-              // dim them so users read them as editable example values.
-              const dimmed = !subjectDayTouched[dayCode]
-              return (
-                <div key={dayCode} className="per-day-time-row">
-                  <span className="per-day-time-label">{dayCode}</span>
-                  <div className="per-day-fields">
-                    <div className="time-box-group">
-                      <div
-                        className={`time-box-input-group${dimmed ? ' time-box-dimmed' : ''}`}
-                        onBlur={(e) => {
-                          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-                            normalizeDayTime(dayCode, 'startTime')
-                          }
-                        }}
-                      >
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          className="time-box-input time-box-hour"
-                          value={startParts.hour}
-                          onChange={(e) => updateDayTimePart(dayCode, 'startTime', 'hour', e.target.value, e.currentTarget)}
-                          onFocus={(e) => e.currentTarget.select()}
-                          placeholder="8"
-                          maxLength={2}
-                          aria-label={`${dayCode} start hour`}
+                  const daySlots = subjectDaySchedules[dayCode] || [DEFAULT_DAY_SCHEDULE]
+                  return (
+                    <div key={dayCode} className="per-day-time-row">
+                      <div className="per-day-header">
+                        <span className="per-day-time-label">{dayCode}</span>
+                        <button
+                          type="button"
+                          className="btn-add-day-slot"
+                          onClick={() => addDaySlot(dayCode)}
+                          title={`Add another time slot for ${dayCode}`}
                           disabled={!selectedSectionId || !selectedSubjectId}
-                        />
-                        <span className="time-box-colon" aria-hidden="true">:</span>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          className="time-box-input time-box-minute"
-                          value={startParts.minute}
-                          onChange={(e) => updateDayTimePart(dayCode, 'startTime', 'minute', e.target.value)}
-                          onFocus={(e) => e.currentTarget.select()}
-                          placeholder="00"
-                          maxLength={2}
-                          aria-label={`${dayCode} start minute`}
-                          disabled={!selectedSectionId || !selectedSubjectId}
-                        />
+                        >
+                          <Plus size={13} />
+                          <span>Add Slot</span>
+                        </button>
                       </div>
-                      <select
-                        className={`time-box-select${dimmed ? ' time-box-dimmed' : ''}`}
-                        value={daySchedule.startAmPm}
-                        onChange={(e) => {
-                          setSubjectDayTouched((curr) => ({ ...curr, [dayCode]: true }))
-                          setSubjectDaySchedules((curr) => ({
-                            ...curr,
-                            [dayCode]: { ...curr[dayCode], startAmPm: e.target.value as 'AM' | 'PM' }
-                          }))
-                        }}
-                        aria-label={`${dayCode} start AM or PM`}
-                        disabled={!selectedSectionId || !selectedSubjectId}
-                      >
-                        <option value="AM">AM</option>
-                        <option value="PM">PM</option>
-                      </select>
-                      <span className="time-box-separator">to</span>
-                      <div
-                        className={`time-box-input-group${dimmed ? ' time-box-dimmed' : ''}`}
-                        onBlur={(e) => {
-                          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-                            normalizeDayTime(dayCode, 'endTime')
-                          }
-                        }}
-                      >
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          className="time-box-input time-box-hour"
-                          value={endParts.hour}
-                          onChange={(e) => updateDayTimePart(dayCode, 'endTime', 'hour', e.target.value, e.currentTarget)}
-                          onFocus={(e) => e.currentTarget.select()}
-                          placeholder="9"
-                          maxLength={2}
-                          aria-label={`${dayCode} end hour`}
-                          disabled={!selectedSectionId || !selectedSubjectId}
-                        />
-                        <span className="time-box-colon" aria-hidden="true">:</span>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          className="time-box-input time-box-minute"
-                          value={endParts.minute}
-                          onChange={(e) => updateDayTimePart(dayCode, 'endTime', 'minute', e.target.value)}
-                          onFocus={(e) => e.currentTarget.select()}
-                          placeholder="00"
-                          maxLength={2}
-                          aria-label={`${dayCode} end minute`}
-                          disabled={!selectedSectionId || !selectedSubjectId}
-                        />
+
+                      <div className="per-day-slots-list">
+                        {daySlots.map((daySchedule, slotIndex) => {
+                          const slotKey = `${dayCode}_${slotIndex}`
+                          const startParts = splitTimeParts(daySchedule.startTime)
+                          const endParts = splitTimeParts(daySchedule.endTime)
+                          // Untouched rows still show the defaults (6:00 AM - 10:00 AM);
+                          // dim them so users read them as editable example values.
+                          const dimmed = !subjectDayTouched[slotKey] && !subjectDayTouched[dayCode]
+
+                          return (
+                            <div key={slotKey} className="per-day-slot-item">
+                              {daySlots.length > 1 && (
+                                <div className="per-day-slot-header">
+                                  <span className="per-day-slot-number">Slot {slotIndex + 1}</span>
+                                  <button
+                                    type="button"
+                                    className="btn-remove-day-slot"
+                                    onClick={() => removeDaySlot(dayCode, slotIndex)}
+                                    title="Remove this time slot"
+                                    aria-label={`Remove ${dayCode} slot ${slotIndex + 1}`}
+                                    disabled={!selectedSectionId || !selectedSubjectId}
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
+                              )}
+                              <div className="per-day-fields">
+                                <div className="time-box-group">
+                                  <div
+                                    className={`time-box-input-group${dimmed ? ' time-box-dimmed' : ''}`}
+                                    onBlur={(e) => {
+                                      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                                        normalizeDayTime(dayCode, slotIndex, 'startTime')
+                                      }
+                                    }}
+                                  >
+                                    <input
+                                      type="text"
+                                      inputMode="numeric"
+                                      className="time-box-input time-box-hour"
+                                      value={startParts.hour}
+                                      onChange={(e) => updateDayTimePart(dayCode, slotIndex, 'startTime', 'hour', e.target.value, e.currentTarget)}
+                                      onFocus={(e) => e.currentTarget.select()}
+                                      placeholder="8"
+                                      maxLength={2}
+                                      aria-label={`${dayCode} slot ${slotIndex + 1} start hour`}
+                                      disabled={!selectedSectionId || !selectedSubjectId}
+                                    />
+                                    <span className="time-box-colon" aria-hidden="true">:</span>
+                                    <input
+                                      type="text"
+                                      inputMode="numeric"
+                                      className="time-box-input time-box-minute"
+                                      value={startParts.minute}
+                                      onChange={(e) => updateDayTimePart(dayCode, slotIndex, 'startTime', 'minute', e.target.value)}
+                                      onFocus={(e) => e.currentTarget.select()}
+                                      placeholder="00"
+                                      maxLength={2}
+                                      aria-label={`${dayCode} slot ${slotIndex + 1} start minute`}
+                                      disabled={!selectedSectionId || !selectedSubjectId}
+                                    />
+                                  </div>
+                                  <select
+                                    className={`time-box-select${dimmed ? ' time-box-dimmed' : ''}`}
+                                    value={daySchedule.startAmPm}
+                                    onChange={(e) => updateDayAmPm(dayCode, slotIndex, 'startAmPm', e.target.value as 'AM' | 'PM')}
+                                    aria-label={`${dayCode} slot ${slotIndex + 1} start AM or PM`}
+                                    disabled={!selectedSectionId || !selectedSubjectId}
+                                  >
+                                    <option value="AM">AM</option>
+                                    <option value="PM">PM</option>
+                                  </select>
+                                  <span className="time-box-separator">to</span>
+                                  <div
+                                    className={`time-box-input-group${dimmed ? ' time-box-dimmed' : ''}`}
+                                    onBlur={(e) => {
+                                      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                                        normalizeDayTime(dayCode, slotIndex, 'endTime')
+                                      }
+                                    }}
+                                  >
+                                    <input
+                                      type="text"
+                                      inputMode="numeric"
+                                      className="time-box-input time-box-hour"
+                                      value={endParts.hour}
+                                      onChange={(e) => updateDayTimePart(dayCode, slotIndex, 'endTime', 'hour', e.target.value, e.currentTarget)}
+                                      onFocus={(e) => e.currentTarget.select()}
+                                      placeholder="9"
+                                      maxLength={2}
+                                      aria-label={`${dayCode} slot ${slotIndex + 1} end hour`}
+                                      disabled={!selectedSectionId || !selectedSubjectId}
+                                    />
+                                    <span className="time-box-colon" aria-hidden="true">:</span>
+                                    <input
+                                      type="text"
+                                      inputMode="numeric"
+                                      className="time-box-input time-box-minute"
+                                      value={endParts.minute}
+                                      onChange={(e) => updateDayTimePart(dayCode, slotIndex, 'endTime', 'minute', e.target.value)}
+                                      onFocus={(e) => e.currentTarget.select()}
+                                      placeholder="00"
+                                      maxLength={2}
+                                      aria-label={`${dayCode} slot ${slotIndex + 1} end minute`}
+                                      disabled={!selectedSectionId || !selectedSubjectId}
+                                    />
+                                  </div>
+                                  <select
+                                    className={`time-box-select${dimmed ? ' time-box-dimmed' : ''}`}
+                                    value={daySchedule.endAmPm}
+                                    onChange={(e) => updateDayAmPm(dayCode, slotIndex, 'endAmPm', e.target.value as 'AM' | 'PM')}
+                                    aria-label={`${dayCode} slot ${slotIndex + 1} end AM or PM`}
+                                    disabled={!selectedSectionId || !selectedSubjectId}
+                                  >
+                                    <option value="AM">AM</option>
+                                    <option value="PM">PM</option>
+                                  </select>
+                                </div>
+                                <input
+                                  type="text"
+                                  className="per-day-room-input"
+                                  value={daySchedule.room}
+                                  onChange={(e) => updateDayRoom(dayCode, slotIndex, e.target.value)}
+                                  placeholder="Room"
+                                  disabled={!selectedSectionId || !selectedSubjectId}
+                                />
+                                {dayTimeProblems[slotKey] && (
+                                  <span className="per-day-time-error" role="alert">{dayTimeProblems[slotKey]}</span>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
                       </div>
-                      <select
-                        className={`time-box-select${dimmed ? ' time-box-dimmed' : ''}`}
-                        value={daySchedule.endAmPm}
-                        onChange={(e) => {
-                          setSubjectDayTouched((curr) => ({ ...curr, [dayCode]: true }))
-                          setSubjectDaySchedules((curr) => ({
-                            ...curr,
-                            [dayCode]: { ...curr[dayCode], endAmPm: e.target.value as 'AM' | 'PM' }
-                          }))
-                        }}
-                        aria-label={`${dayCode} end AM or PM`}
-                        disabled={!selectedSectionId || !selectedSubjectId}
-                      >
-                        <option value="AM">AM</option>
-                        <option value="PM">PM</option>
-                      </select>
                     </div>
-                    <input
-                      type="text"
-                      className="per-day-room-input"
-                      value={daySchedule.room}
-                      onChange={(e) => {
-                        setSubjectDayTouched((curr) => ({ ...curr, [dayCode]: true }))
-                        setSubjectDaySchedules((curr) => ({
-                          ...curr,
-                          [dayCode]: { ...curr[dayCode], room: e.target.value }
-                        }))
-                      }}
-                      placeholder="Room"
-                      disabled={!selectedSectionId || !selectedSubjectId}
-                    />
-                    {dayTimeProblems[dayCode] && (
-                      <span className="per-day-time-error" role="alert">{dayTimeProblems[dayCode]}</span>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
+                  )
+                })}
+              </div>
+            )}
+
+            {liveTeachingHoursSummary?.hasSchedule && (
+              <div
+                className={`teaching-hours-live-notice ${
+                  liveTeachingHoursSummary.isUnderScheduled
+                    ? 'teaching-hours-live-notice--warn'
+                    : liveTeachingHoursSummary.isExceeded
+                    ? 'teaching-hours-live-notice--danger'
+                    : 'teaching-hours-live-notice--ok'
+                }`}
+                role="status"
+              >
+                <AlertTriangle size={15} />
+                <span>
+                  {liveTeachingHoursSummary.isUnderScheduled && (
+                    <>
+                      <strong>Missing {liveTeachingHoursSummary.missingHours.toFixed(1)} hour(s):</strong> Scheduled {liveTeachingHoursSummary.totalScheduledHours.toFixed(1)} of {liveTeachingHoursSummary.expectedHours.toFixed(1)} expected weekly hours ({selectedSubject?.units || 0} unit{selectedSubject?.units === 1 ? '' : 's'}). The professor still needs to occupy {liveTeachingHoursSummary.missingHours.toFixed(1)} more hour(s).
+                    </>
+                  )}
+                  {liveTeachingHoursSummary.isExceeded && (
+                    <>
+                      <strong>Exceeds by {liveTeachingHoursSummary.discrepancy.toFixed(1)} hour(s):</strong> Scheduled {liveTeachingHoursSummary.totalScheduledHours.toFixed(1)} of {liveTeachingHoursSummary.expectedHours.toFixed(1)} expected weekly hours.
+                    </>
+                  )}
+                  {liveTeachingHoursSummary.isMatching && (
+                    <>
+                      <strong>Hours matched:</strong> Exactly {liveTeachingHoursSummary.totalScheduledHours.toFixed(1)} of {liveTeachingHoursSummary.expectedHours.toFixed(1)} weekly contact hours scheduled.
+                    </>
+                  )}
+                </span>
               </div>
             )}
           </div>

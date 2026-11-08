@@ -102,7 +102,7 @@ describe('Teaching Hours Validation Acceptance Criteria', () => {
 
     expect(under.isValid).toBe(true);
     expect(under.discrepancy).toBe(-1);
-    expect(shouldTriggerWarning(under)).toBe(false);
+    expect(shouldTriggerWarning(under)).toBe(true);
   });
 
   // Criterion 4: An unauthorized user cannot override a restricted warning.

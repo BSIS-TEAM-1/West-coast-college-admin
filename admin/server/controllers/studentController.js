@@ -6,6 +6,7 @@ const StudentBlockAssignment = require('../models/StudentBlockAssignment');
 const SectionWaitlist = require('../models/SectionWaitlist');
 const BlockGroup = require('../models/BlockGroup');
 const BlockSection = require('../models/BlockSection');
+const BlockSubjectAssignment = require('../models/BlockSubjectAssignment');
 const Admin = require('../models/Admin');
 const PDFDocument = require('pdfkit');
 const path = require('path');
@@ -18,13 +19,13 @@ const Curriculum = require('../models/Curriculum');
 const CurriculumSubject = require('../models/CurriculumSubject');
 const CorPdfService = require('../services/corPdfService');
 const { convertToSchoolYear, extractStartYear } = require('../services/dateUtils');
-const { DEFAULT_SCHOOL_YEAR } = require('../lib/academicTerm');
+const { DEFAULT_SCHOOL_YEAR, DEFAULT_SEMESTER } = require('../lib/academicTerm');
 const SystemSetting = require('../models/SystemSetting');
 const enrollmentGuard = require('../services/enrollmentGuard');
 const studentLifecycleService = require('../services/studentLifecycleService');
 const reEnrollmentVerificationService = require('../services/reEnrollmentVerificationService');
 const { getLifecycleRestriction } = require('../services/lifecycleRestrictions');
-const { autoAssignCurriculumSubjects, verifyRetakeReferences } = require('../services/subjectEnrollmentService');
+const { autoAssignCurriculumSubjects, verifyRetakeReferences, applySectionScheduleDefaults, isSchedulePlaceholder } = require('../services/subjectEnrollmentService');
 const { calculateWeeklyContactHours, validateTeachingHours, shouldTriggerWarning } = require('../services/teachingHoursValidationService');
 const TeachingHoursOverride = require('../models/TeachingHoursOverride');
 const { hasAnyRole } = require('../authorization');
@@ -364,37 +365,50 @@ class StudentController {
         }
       });
 
+      // Scope block groups to the school year and semester the registrar is actually in.
+      // Teaching load is defined per term; without semester scoping, assignments and
+      // units from past/future terms stack together, causing false overloads.
+      let activeSchoolYear = DEFAULT_SCHOOL_YEAR;
+      let activeSemester = DEFAULT_SEMESTER;
+      try {
+        const termSetting = await SystemSetting.findOne({ key: 'academicTerm' }).lean();
+        const configuredSchoolYear = String(termSetting?.value?.schoolYear || '').trim();
+        if (/^\d{4}-\d{4}$/.test(configuredSchoolYear)) activeSchoolYear = configuredSchoolYear;
+        const configuredSemester = String(termSetting?.value?.semester || '').trim();
+        if (configuredSemester) activeSemester = configuredSemester;
+      } catch {
+        // Fall back to the bundled defaults when settings cannot be read.
+      }
+
+      const isAllYears = String(yearFilter || '').trim().toLowerCase() === 'all';
+      const currentSchoolYear = isAllYears ? null : (yearFilter || activeSchoolYear);
+
+      const isAllSemesters = String(semesterFilter || '').trim().toLowerCase() === 'all';
+      const currentSemester = isAllSemesters ? null : (semesterFilter || activeSemester);
+
       const blockGroupQuery = {};
-      if (semesterFilter) blockGroupQuery.semester = semesterFilter;
-      if (yearFilter) blockGroupQuery.$or = [{ schoolYear: yearFilter }, { year: yearFilter }];
+      if (currentSchoolYear) {
+        blockGroupQuery.$or = [{ schoolYear: currentSchoolYear }, { year: currentSchoolYear }];
+      }
 
       const rawGroups = await BlockGroup.find(blockGroupQuery)
         .select('_id name semester schoolYear year curriculumId yearLevel')
         .sort({ schoolYear: -1, year: -1, semester: 1, name: 1 })
         .lean();
 
-      // Scope block groups to the school year the registrar is actually in.
-      // The active term lives in settings and moves on every rollover, so the
-      // bundled default is only a fallback — using it directly kept the
-      // professor load page pinned to the term that had already been closed.
-      let activeSchoolYear = DEFAULT_SCHOOL_YEAR;
-      try {
-        const termSetting = await SystemSetting.findOne({ key: 'academicTerm' }).lean();
-        const configuredSchoolYear = String(termSetting?.value?.schoolYear || '').trim();
-        if (/^\d{4}-\d{4}$/.test(configuredSchoolYear)) activeSchoolYear = configuredSchoolYear;
-      } catch {
-        // Fall back to the bundled default when settings cannot be read.
-      }
-      const currentSchoolYear = yearFilter || activeSchoolYear;
+      // Groups in the target school year (used for filterOptions so all semesters/programs are discoverable in the UI)
+      const yearGroups = currentSchoolYear
+        ? rawGroups.filter((g) => StudentController.toSchoolYearSafe(g.schoolYear || g.year) === currentSchoolYear)
+        : rawGroups;
 
-      // Filter to show only block groups from the current academic year
-      const filteredGroups = rawGroups.filter(g =>
-        StudentController.toSchoolYearSafe(g.schoolYear || g.year) === currentSchoolYear
+      // Filter to show only block groups from the target academic term
+      const filteredGroups = yearGroups.filter((g) =>
+        !currentSemester || String(g.semester || '').trim().toLowerCase() === currentSemester.toLowerCase()
       );
 
-      // Fetch curriculum details for all block groups
+      // Fetch curriculum details for block groups to build filter options and metadata
       const curriculumIds = Array.from(new Set(
-        filteredGroups.map((group) => String(group.curriculumId || '').trim()).filter(Boolean)
+        yearGroups.map((group) => String(group.curriculumId || '').trim()).filter(Boolean)
       ));
       const curriculumMap = new Map();
       if (curriculumIds.length > 0) {
@@ -407,11 +421,15 @@ class StudentController {
       }
 
       const filterOptions = {
-        semesters: Array.from(new Set(filteredGroups.map((group) => String(group.semester || '').trim()).filter(Boolean))),
-        years: Array.from(new Set(filteredGroups.map((group) => String(group.schoolYear || group.year || '').trim()).filter(Boolean))).sort((a, b) => b.localeCompare(a)),
+        activeSemester,
+        activeSchoolYear,
+        selectedSemester: currentSemester || 'all',
+        selectedSchoolYear: currentSchoolYear || 'all',
+        semesters: Array.from(new Set(yearGroups.map((group) => String(group.semester || '').trim()).filter(Boolean))),
+        years: Array.from(new Set(rawGroups.map((group) => String(group.schoolYear || group.year || '').trim()).filter(Boolean))).sort((a, b) => b.localeCompare(a)),
         courses: Array.from(
           new Map(
-            filteredGroups
+            yearGroups
               .map((group) => {
                 // Use curriculum programCode if available, otherwise fall back to legacy parsing
                 if (group.curriculumId && curriculumMap.has(String(group.curriculumId))) {
@@ -1649,7 +1667,7 @@ class StudentController {
             effectiveTerm: effectiveTerm || 'Immediate',
             blockAssigned: Boolean(blockResult?.data?.sectionCode),
           },
-        }], { session });
+        }], { session, ordered: true });
       }
 
       await session.commitTransaction();
@@ -1912,7 +1930,20 @@ class StudentController {
   }
 
   static async getStudentByIdRecord(id) {
-    return Student.findById(id);
+    const student = await Student.findById(id);
+    if (student) {
+      try {
+        const { reconcileStudentIrregularity } = require('../services/subjectEnrollmentService');
+        const nextStatus = await reconcileStudentIrregularity({ studentId: student._id });
+        if (nextStatus) {
+          student.studentStatus = nextStatus;
+          if (nextStatus === 'Irregular') student.classification = 'Irregular';
+        }
+      } catch (_err) {
+        // ignore
+      }
+    }
+    return student;
   }
 
   /**
@@ -1973,7 +2004,20 @@ class StudentController {
   }
 
   static async getStudentByNumberRecord(studentNumber) {
-    return Student.findOne({ studentNumber });
+    const student = await Student.findOne({ studentNumber });
+    if (student) {
+      try {
+        const { reconcileStudentIrregularity } = require('../services/subjectEnrollmentService');
+        const nextStatus = await reconcileStudentIrregularity({ studentId: student._id });
+        if (nextStatus) {
+          student.studentStatus = nextStatus;
+          if (nextStatus === 'Irregular') student.classification = 'Irregular';
+        }
+      } catch (_err) {
+        // ignore
+      }
+    }
+    return student;
   }
 
   static async updateStudentRecord(id, updateData, options = {}) {
@@ -2169,8 +2213,24 @@ class StudentController {
       status: { $ne: 'Dropped' },
       isCurrent: true
     });
-    if (!enrollment || enrollment.lockedAt || (enrollment.subjects || []).length > 0) {
-      return enrollment ? enrollment.populate('subjects.subjectId') : null;
+    if (!enrollment) return null;
+
+    if (enrollment.lockedAt) {
+      return enrollment.populate('subjects.subjectId');
+    }
+
+    if ((enrollment.subjects || []).length > 0) {
+      const hasTbaSubjects = (enrollment.subjects || []).some((entry) => {
+        const status = String(entry?.status || '').toLowerCase();
+        if (status === 'dropped' || status === 'removed') return false;
+        return isSchedulePlaceholder(entry?.schedule) || isSchedulePlaceholder(entry?.room) || isSchedulePlaceholder(entry?.instructor);
+      });
+
+      if (hasTbaSubjects) {
+        await applySectionScheduleDefaults({ enrollment });
+      }
+
+      return enrollment.populate('subjects.subjectId');
     }
 
     // Repair pre-existing empty enrollments the first time they are opened.
@@ -2194,7 +2254,12 @@ class StudentController {
       curriculumId: group?.curriculumId || enrollment.curriculumId,
     });
 
-    return Enrollment.findById(enrollment._id).populate('subjects.subjectId');
+    const repaired = await Enrollment.findById(enrollment._id);
+    if (repaired) {
+      await applySectionScheduleDefaults({ enrollment: repaired, sectionId: assignment?.sectionId ? String(assignment.sectionId) : null });
+      return repaired.populate('subjects.subjectId');
+    }
+    return null;
   }
 
   static async mapSubjectIdsToEnrollmentSubjects(subjectIds = []) {
@@ -3267,10 +3332,13 @@ class StudentController {
 
       // If there's a discrepancy and no override justification is provided, return a warning
       if (shouldTriggerWarning(validation) && !overrideJustification) {
+        const isUnderScheduled = validation.discrepancy < 0;
         return res.status(409).json({
           success: false,
-          warning: 'teaching_hours_exceeded',
-          message: 'The assigned schedule exceeds the expected weekly contact hours for this subject.',
+          warning: isUnderScheduled ? 'teaching_hours_insufficient' : 'teaching_hours_exceeded',
+          message: isUnderScheduled
+            ? `The assigned schedule has missing hours (${Math.abs(validation.discrepancy).toFixed(1)} hr(s) remaining) to occupy the expected weekly contact hours.`
+            : 'The assigned schedule exceeds the expected weekly contact hours for this subject.',
           data: {
             subjectId: String(subject._id),
             subjectCode: validationSubject.code,
@@ -3404,6 +3472,55 @@ class StudentController {
         }
       }
 
+      // Also update irregular/cross-section students taking this subject in this term
+      const canQueryEnrollment = mongoose.connection.readyState === 1 || (typeof jest !== 'undefined' && jest.isMockFunction && jest.isMockFunction(Enrollment.find));
+      const sectionCode = section.sectionCode;
+      const contextEnrollmentIds = new Set(context.enrollments.map((e) => String(e._id)));
+      const resolvedSY = context.resolvedSchoolYear || StudentController.toSchoolYearSafe(schoolYear);
+      const resolvedSem = context.resolvedSemester || semester;
+
+      const irregularEnrollments = canQueryEnrollment
+        ? await Enrollment.find({
+            _id: { $nin: Array.from(contextEnrollmentIds).filter((id) => mongoose.Types.ObjectId.isValid(id)).map((id) => new mongoose.Types.ObjectId(id)) },
+            status: { $ne: 'Dropped' },
+            ...(resolvedSY ? { schoolYear: resolvedSY } : {}),
+            ...(resolvedSem ? { semester: resolvedSem } : {}),
+            $or: [
+              { 'subjects.sectionCode': sectionCode, 'subjects.subjectId': normalizedSubjectId },
+              { 'subjects.sectionCode': sectionCode, 'subjects.code': subject.code },
+              { 'subjects.subjectId': normalizedSubjectId, 'subjects.sectionCode': { $in: [null, ''] } },
+              { 'subjects.code': subject.code, 'subjects.sectionCode': { $in: [null, ''] } }
+            ]
+          })
+        : [];
+
+      for (const irEnrollment of irregularEnrollments) {
+        let enrollmentChanged = false;
+        (irEnrollment.subjects || []).forEach((entry) => {
+          const sidMatch = String(entry?.subjectId || '') === normalizedSubjectId;
+          const codeMatch = String(entry?.code || '').trim().toUpperCase() === String(subject.code || '').trim().toUpperCase();
+          if (sidMatch || codeMatch) {
+            // If entry is explicitly for a different section, don't overwrite it
+            if (entry.sectionCode && entry.sectionCode !== sectionCode) {
+              return;
+            }
+            entry.instructor = normalizedInstructor;
+            if (normalizedSchedule) entry.schedule = normalizedSchedule;
+            if (normalizedRoom) entry.room = normalizedRoom;
+            if (!entry.sectionCode) entry.sectionCode = sectionCode;
+            entry.dateModified = new Date();
+            enrollmentChanged = true;
+            matchedSubjects += 1;
+          }
+        });
+
+        if (enrollmentChanged) {
+          irEnrollment.markModified('subjects');
+          await irEnrollment.save();
+          updatedEnrollmentIds.push(String(irEnrollment._id));
+        }
+      }
+
       if (updatedEnrollmentIds.length === 0) {
         return res.status(404).json({
           success: false,
@@ -3476,6 +3593,48 @@ class StudentController {
         if (changed) {
           enrollment.markModified('subjects');
           await enrollment.save();
+          updatedEnrollments += 1;
+        }
+      }
+
+      // Also clear irregular/cross-section students tied to this section
+      const canQueryEnrollment = mongoose.connection.readyState === 1 || (typeof jest !== 'undefined' && jest.isMockFunction && jest.isMockFunction(Enrollment.find));
+      const sectionCode = context.section.sectionCode;
+      const contextEnrollmentIds = new Set(context.enrollments.map((e) => String(e._id)));
+      const irregularEnrollments = canQueryEnrollment
+        ? await Enrollment.find({
+            _id: { $nin: Array.from(contextEnrollmentIds).filter((id) => mongoose.Types.ObjectId.isValid(id)).map((id) => new mongoose.Types.ObjectId(id)) },
+            status: { $ne: 'Dropped' },
+            ...(context.resolvedSchoolYear ? { schoolYear: context.resolvedSchoolYear } : {}),
+            ...(context.resolvedSemester ? { semester: context.resolvedSemester } : {}),
+            $or: [
+              { 'subjects.sectionCode': sectionCode, 'subjects.subjectId': normalizedSubjectId },
+              { 'subjects.sectionCode': sectionCode, 'subjects.code': subject.code }
+            ]
+          })
+        : [];
+
+      for (const irEnrollment of irregularEnrollments) {
+        let changed = false;
+        (irEnrollment.subjects || []).forEach((entry) => {
+          const sidMatch = String(entry?.subjectId || '') === normalizedSubjectId;
+          const codeMatch = String(entry?.code || '').trim().toUpperCase() === String(subject.code || '').trim().toUpperCase();
+          if (sidMatch || codeMatch) {
+            if (entry.sectionCode && entry.sectionCode !== sectionCode) {
+              return;
+            }
+            entry.instructor = 'TBA';
+            entry.schedule = 'TBA';
+            entry.room = 'TBA';
+            entry.dateModified = new Date();
+            changed = true;
+            matchedSubjects += 1;
+          }
+        });
+
+        if (changed) {
+          irEnrollment.markModified('subjects');
+          await irEnrollment.save();
           updatedEnrollments += 1;
         }
       }
@@ -3729,6 +3888,7 @@ class StudentController {
     }
 
     await StudentController.clearStaleInstructors(enrollment);
+    await applySectionScheduleDefaults({ enrollment });
 
     // Filter only eligible registered subjects for THIS semester
     const activeSubjects = [];
@@ -3758,6 +3918,24 @@ class StudentController {
     const corSemester = String(enrollment.semester || student.semester || 'N/A').trim();
     const corSchoolYear = String(enrollment.schoolYear || student.schoolYear || 'N/A').trim();
     const corYearLevel = String(enrollment.yearLevel || student.yearLevel || 'N/A').trim();
+
+    // For irregular / retake subjects without an assigned sectionCode, look up offering section
+    for (const sub of activeSubjects) {
+      if (!sub.sectionCode && (sub.retakeOf || sub.isAdditional || sub.offeredOutsideBlock)) {
+        try {
+          const assignment = await BlockSubjectAssignment.findOne({
+            subjectId: sub.subjectId,
+            semester: corSemester,
+            academicYear: corSchoolYear
+          }).populate('blockSectionId').lean();
+          if (assignment?.blockSectionId?.sectionCode) {
+            sub.sectionCode = assignment.blockSectionId.sectionCode;
+          }
+        } catch {
+          // ignore lookup failure
+        }
+      }
+    }
 
     // --- registrar ---
     const registrar = adminId ? await Admin.findById(adminId).select('displayName') : null;
@@ -3801,7 +3979,7 @@ class StudentController {
       subjects:
         activeSubjects.length === 0
           ? [{ code: '-', title: 'No enrolled subjects found', units: '-', block: '-', days: '-', time: '-', room: '-', faculty: '-' }]
-          : activeSubjects.map((subject) => h.buildSubjectRow(subject, classBlockLabel)),
+          : activeSubjects.map((subject) => h.buildSubjectRow(subject, classBlockLabel, courseAbbreviation)),
       totals: {
         subjects: activeSubjects.length,
         units: totalUnits,

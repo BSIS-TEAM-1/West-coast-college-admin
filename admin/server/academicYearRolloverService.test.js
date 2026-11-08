@@ -44,10 +44,22 @@ const MockObjectId = class {
   toString() { return String(this.valueOf()); }
 };
 
+const MockSchema = function () {
+  this.pre = jest.fn();
+  this.post = jest.fn();
+  this.index = jest.fn();
+  this.plugin = jest.fn();
+  this.methods = {};
+  this.statics = {};
+};
+MockSchema.Types = { ObjectId: MockObjectId };
+
 jest.mock('mongoose', () => {
   return {
     Types: { ObjectId: MockObjectId },
+    Schema: MockSchema,
     startSession: jest.fn(),
+    model: jest.fn(),
   };
 });
 
@@ -62,6 +74,7 @@ jest.mock('./models/RolloverBatch', () => ({ findOne: jest.fn(), find: jest.fn()
 jest.mock('./models/AuditLog', () => ({ create: jest.fn() }));
 jest.mock('./models/SystemSetting', () => ({ findOne: jest.fn(), findOneAndUpdate: jest.fn() }));
 jest.mock('./models/Curriculum', () => ({ find: jest.fn() }));
+jest.mock('./models/CurriculumSubject', () => ({ find: jest.fn() }));
 jest.mock('./services/AcademicArchiveService', () => ({
   createSnapshotsForRollover: jest.fn(() => []),
 }));
@@ -80,6 +93,7 @@ const RolloverBatch = require('./models/RolloverBatch');
 const AuditLog = require('./models/AuditLog');
 const SystemSetting = require('./models/SystemSetting');
 const Curriculum = require('./models/Curriculum');
+const CurriculumSubject = require('./models/CurriculumSubject');
 const AcademicArchiveService = require('./services/AcademicArchiveService');
 
 const RolloverService = require('./services/academicYearRolloverService');
@@ -153,6 +167,7 @@ describe('executeRollover', () => {
     expectBulkWriteOk(Enrollment);
     Enrollment.insertMany = jest.fn(async (docs) => docs);
     Enrollment.deleteMany = jest.fn();
+    CurriculumSubject.find = jest.fn(() => mockChain([]));
     BlockGroup.find.mockImplementation(() => mockChain([]));
     BlockGroup.create = jest.fn(async (docs) => docs.map((d, i) => ({
       _id: `bg_${i}_${d.yearLevel}`,
@@ -230,18 +245,8 @@ describe('executeRollover', () => {
     expect(closingOp.updateOne.update.$set.lockedAt).toBeTruthy();
     expect(closingOp.updateOne.update.$set.rolloverBatchId).toBe(results.rolloverBatchId);
 
-    // New enrollment for the target year.
-    expect(Enrollment.insertMany).toHaveBeenCalledTimes(1);
-    const newEnrollment = Enrollment.insertMany.mock.calls[0][0][0];
-    expect(newEnrollment.studentId).toBe('stu1');
-    expect(newEnrollment.schoolYear).toBe(TO_SY);
-    expect(newEnrollment.semester).toBe('1st');
-    expect(newEnrollment.yearLevel).toBe(2);
-    expect(newEnrollment.status).toBe('Enrolled');
-    expect(newEnrollment.isCurrent).toBe(true);
-    expect(newEnrollment.subjects).toEqual([]);
-    expect(newEnrollment.previousEnrollmentId).toBe('enr_stu1');
-    expect(newEnrollment.rolloverBatchId).toBe(results.rolloverBatchId);
+    // Rollover does not insert active enrollments: student is pending re-enrollment
+    expect(Enrollment.insertMany).not.toHaveBeenCalled();
 
     // The student record is advanced WITHOUT touching grade data.
     const studentOps = Student.bulkWrite.mock.calls[0][0];
@@ -249,14 +254,14 @@ describe('executeRollover', () => {
     expect(studentOps[0].updateOne.filter).toEqual({ _id: 'stu1' });
     expect(studentOps[0].updateOne.update.$set.yearLevel).toBe(2);
     expect(studentOps[0].updateOne.update.$set.schoolYear).toBe(TO_SY);
+    expect(studentOps[0].updateOne.update.$set.section).toBeNull();
+    expect(studentOps[0].updateOne.update.$set.lifecycleStatus).toBe('Pending');
+    expect(studentOps[0].updateOne.update.$set.enrollmentStatus).toBe('Pending');
     expect(studentOps[0].updateOne.update.$set).not.toHaveProperty('latestGrade');
 
-    // Block assignment for the target year + section population increment.
-    const assignmentOps = StudentBlockAssignment.bulkWrite.mock.calls[0][0];
-    expect(assignmentOps[0].updateOne.update.$set.year).toBe(TO_SY);
-    expect(assignmentOps[0].updateOne.update.$set.status).toBe('ASSIGNED');
-    const sectionOps = BlockSection.bulkWrite.mock.calls[0][0];
-    expect(sectionOps[0].updateOne.update.$inc).toEqual({ currentPopulation: 1 });
+    // Students are not auto-assigned into blocks on rollover; they re-enroll instead.
+    expect(StudentBlockAssignment.bulkWrite).not.toHaveBeenCalled();
+    expect(BlockSection.bulkWrite).not.toHaveBeenCalled();
 
     // Manifest + audit + term advance.
     expect(RolloverBatch.create).toHaveBeenCalledTimes(1);
@@ -361,9 +366,8 @@ describe('executeRollover', () => {
     expect(results.blocksCreated.some((entry) => entry.name === '101-1-A')).toBe(true);
     expect(results.blocksCreated.some((entry) => entry.sectionCode === '101-1-B')).toBe(true);
 
-    // Nothing was assigned into the copies: the promoted student moved to Year 2.
-    const assignmentOps = StudentBlockAssignment.bulkWrite.mock.calls[0][0];
-    expect(assignmentOps).toHaveLength(1);
+    // Nothing was assigned into the copies: students re-enroll into blocks.
+    expect(StudentBlockAssignment.bulkWrite).not.toHaveBeenCalled();
   });
 
 
@@ -537,28 +541,22 @@ describe('executeRollover', () => {
     expect(closingOp.updateOne.filter).toEqual({ _id: 'enr_stu1', lockedAt: null });
     expect(closingOp.updateOne.update.$set.status).toBe('Completed');
 
-    // New enrollment for the SAME school year, opening semester, same year level.
+    // In a semester rollover, regular promoted students remain in their block cohort
+    // and advance directly into the opening semester (enrolled and assigned to block).
     expect(Enrollment.insertMany).toHaveBeenCalledTimes(1);
-    const newEnrollment = Enrollment.insertMany.mock.calls[0][0][0];
-    expect(newEnrollment.studentId).toBe('stu1');
-    expect(newEnrollment.schoolYear).toBe(FROM_SY);
-    expect(newEnrollment.semester).toBe('2nd');
-    expect(newEnrollment.yearLevel).toBe(1);
-    expect(newEnrollment.status).toBe('Enrolled');
-    expect(newEnrollment.isCurrent).toBe(true);
 
-    // The student record advances the term, not the year level.
+    // The student record advances the term, remaining in their section and Enrolled.
     const studentOps = Student.bulkWrite.mock.calls[0][0];
     expect(studentOps[0].updateOne.filter).toEqual({ _id: 'stu1' });
     expect(studentOps[0].updateOne.update.$set.yearLevel).toBe(1);
     expect(studentOps[0].updateOne.update.$set.schoolYear).toBe(FROM_SY);
     expect(studentOps[0].updateOne.update.$set.semester).toBe('2nd');
+    expect(studentOps[0].updateOne.update.$set.section).toBeTruthy();
+    expect(studentOps[0].updateOne.update.$set.lifecycleStatus).toBe('Enrolled');
+    expect(studentOps[0].updateOne.update.$set.enrollmentStatus).toBe('Enrolled');
 
-    // Block assignment is written for the new term in the same school year.
-    const assignmentOps = StudentBlockAssignment.bulkWrite.mock.calls[0][0];
-    expect(assignmentOps[0].updateOne.update.$set.semester).toBe('2nd');
-    expect(assignmentOps[0].updateOne.update.$set.year).toBe(FROM_SY);
-    expect(assignmentOps[0].updateOne.update.$set.schoolYear).toBe(FROM_SY);
+    // Students are auto-assigned into blocks on semester rollover:
+    expect(StudentBlockAssignment.bulkWrite).toHaveBeenCalledTimes(1);
 
     // Manifest records the semester mode and the term-only change.
     expect(RolloverBatch.create).toHaveBeenCalledTimes(1);
@@ -570,6 +568,8 @@ describe('executeRollover', () => {
     expect(manifest.studentChanges[0].studentAfter.yearLevel).toBe(1);
     expect(manifest.studentChanges[0].studentBefore.semester).toBe('1st');
     expect(manifest.studentChanges[0].studentAfter.semester).toBe('2nd');
+    expect(manifest.studentChanges[0].studentAfter.section).toBeTruthy();
+    expect(manifest.studentChanges[0].studentAfter.lifecycleStatus).toBe('Enrolled');
 
     // The global academic term advances within the same school year.
     const termUpdate = SystemSetting.findOneAndUpdate.mock.calls[0][1];
@@ -666,7 +666,7 @@ describe('executeRollover', () => {
 
   test('a database failure aborts without manifest, audit or term writes', async () => {
     arrangeHappyPath();
-    Enrollment.insertMany.mockRejectedValueOnce(new Error('ECONNRESET'));
+    Student.bulkWrite.mockRejectedValueOnce(new Error('ECONNRESET'));
 
     await expect(
       RolloverService.executeRollover({

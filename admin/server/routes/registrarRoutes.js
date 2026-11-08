@@ -79,9 +79,9 @@ router.get('/curriculum-suggestions', cacheMiddleware({ ttlMs: 30 * 1000 }), Enr
 router.post('/enrollments/:enrollmentId/subjects/validate', EnrollmentManagementController.validateEnrollmentSubjects);
 router.post('/enrollments/:enrollmentId/subjects', invalidateCacheOnSuccess(...enrollmentCachePrefixes, ...courseLoadCachePrefixes), EnrollmentManagementController.addEnrollmentSubjects);
 router.post('/enrollments/:enrollmentId/subjects/:subjectId/drop', invalidateCacheOnSuccess(...enrollmentCachePrefixes, ...courseLoadCachePrefixes), EnrollmentManagementController.dropEnrollmentSubject);
-router.post('/sections/:sectionId/subject-assignment', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.assignSubjectInstructor), invalidateCacheOnSuccess(...courseLoadCachePrefixes), StudentController.assignSubjectInstructorToSection);
-router.put('/sections/:sectionId/subject-assignment', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.assignSubjectInstructor), invalidateCacheOnSuccess(...courseLoadCachePrefixes), StudentController.assignSubjectInstructorToSection);
-router.delete('/sections/:sectionId/subject-assignment/:subjectId', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.sectionAssignmentTarget), invalidateCacheOnSuccess(...courseLoadCachePrefixes), StudentController.clearSubjectInstructorForSection);
+router.post('/sections/:sectionId/subject-assignment', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.assignSubjectInstructor), invalidateCacheOnSuccess(...courseLoadCachePrefixes, ...studentCachePrefixes), StudentController.assignSubjectInstructorToSection);
+router.put('/sections/:sectionId/subject-assignment', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.assignSubjectInstructor), invalidateCacheOnSuccess(...courseLoadCachePrefixes, ...studentCachePrefixes), StudentController.assignSubjectInstructorToSection);
+router.delete('/sections/:sectionId/subject-assignment/:subjectId', securityMiddleware.inputValidationMiddleware(securityMiddleware.schemas.student.sectionAssignmentTarget), invalidateCacheOnSuccess(...courseLoadCachePrefixes, ...studentCachePrefixes), StudentController.clearSubjectInstructorForSection);
 
 // Teaching Hours Override Routes (admin-only for override authorization)
 router.post('/teaching-hours-override', requireTeachingHoursOverrideAuth, TeachingHoursOverrideController.recordOverride);

@@ -62,6 +62,8 @@ export default function TeachingHoursWarningModal({
     await onProceedWithOverride(justification.trim())
   }
 
+  const isUnderScheduled = warningData.discrepancy < 0
+  const missingHours = Math.abs(warningData.discrepancy).toFixed(1)
   const expectedLabel = `${warningData.expectedContactHours.toFixed(1)} hours/week`
   const assignedLabel = `${warningData.assignedContactHours.toFixed(1)} hours/week`
 
@@ -82,7 +84,11 @@ export default function TeachingHoursWarningModal({
         <div className="teaching-hours-warning-modal">
           <header className="teaching-hours-warning-modal-header">
             <div>
-              <h2 id="teaching-hours-warning-title">Schedule Exceeds Expected Lecture Hours</h2>
+              <h2 id="teaching-hours-warning-title">
+                {isUnderScheduled
+                  ? 'Schedule Has Missing Teaching Hours'
+                  : 'Schedule Exceeds Expected Lecture Hours'}
+              </h2>
             </div>
             <button
               type="button"
@@ -143,15 +149,17 @@ export default function TeachingHoursWarningModal({
 
               <div className="teaching-hours-warning-detail-row teaching-hours-warning-detail-row--highlight">
                 <span className="teaching-hours-warning-detail-label">Scheduled Weekly Contact Hours</span>
-                <span className="teaching-hours-warning-detail-value teaching-hours-warning-detail-value--assigned">
+                <span className={`teaching-hours-warning-detail-value ${isUnderScheduled ? 'teaching-hours-warning-detail-value--missing' : 'teaching-hours-warning-detail-value--assigned'}`}>
                   {assignedLabel}
                 </span>
               </div>
 
-              <div className="teaching-hours-warning-detail-row teaching-hours-warning-detail-row--discrepancy">
-                <span className="teaching-hours-warning-detail-label">Difference</span>
-                <span className="teaching-hours-warning-detail-value teaching-hours-warning-detail-value--discrepancy">
-                  +{warningData.discrepancy.toFixed(1)} hours
+              <div className={`teaching-hours-warning-detail-row ${isUnderScheduled ? 'teaching-hours-warning-detail-row--missing' : 'teaching-hours-warning-detail-row--discrepancy'}`}>
+                <span className="teaching-hours-warning-detail-label">
+                  {isUnderScheduled ? 'Missing Hours to Occupy' : 'Difference'}
+                </span>
+                <span className={`teaching-hours-warning-detail-value ${isUnderScheduled ? 'teaching-hours-warning-detail-value--missing' : 'teaching-hours-warning-detail-value--discrepancy'}`}>
+                  {isUnderScheduled ? `-${missingHours} hours (missing)` : `+${warningData.discrepancy.toFixed(1)} hours`}
                 </span>
               </div>
 
@@ -169,8 +177,9 @@ export default function TeachingHoursWarningModal({
             </div>
 
             <p className="teaching-hours-warning-message">
-              The scheduled weekly contact hours exceed the expected hours configured for this
-              lecture subject. Review the schedule or verify whether an approved exception applies.
+              {isUnderScheduled
+                ? `The assigned schedule only covers ${warningData.assignedContactHours.toFixed(1)} of ${warningData.expectedContactHours.toFixed(1)} expected weekly contact hours for this subject (${warningData.units} unit${warningData.units === 1 ? '' : 's'}). There are still ${missingHours} missing hour(s) that need to be occupied by the professor. Review the schedule to add the missing hours or provide an authorized justification to proceed.`
+                : 'The scheduled weekly contact hours exceed the expected hours configured for this lecture subject. Review the schedule or verify whether an approved exception applies.'}
             </p>
 
             {showOverrideForm && (
@@ -182,7 +191,11 @@ export default function TeachingHoursWarningModal({
                 <textarea
                   id="override-justification"
                   className="teaching-hours-override-textarea"
-                  placeholder="Explain why this teaching hours exception is necessary (e.g., laboratory constraints, split section requirements, special circumstances)"
+                  placeholder={
+                    isUnderScheduled
+                      ? 'Explain why this subject has fewer scheduled hours than expected (e.g., modular/blended arrangement, asynchronous hours, practicum/fieldwork distribution)'
+                      : 'Explain why this teaching hours exception is necessary (e.g., laboratory constraints, split section requirements, special circumstances)'
+                  }
                   value={justification}
                   onChange={(e) => setJustification(e.target.value)}
                   minLength={10}

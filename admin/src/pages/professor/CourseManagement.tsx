@@ -161,8 +161,9 @@ function CourseManagement({
   }
 
   const getRosterClassKey = (courseCode: string, block: ProfessorAssignedBlock, subject: ProfessorAssignedSubject) => {
-    if (!block.sectionId) return ''
-    return `${courseCode}|${block.sectionId}|${block.semester || ''}|${block.schoolYear || ''}|${subject.subjectId}`
+    const secId = block.sectionId || (block.needsBlockAssignment ? (block.sectionCode || 'Unassigned') : '')
+    if (!secId) return ''
+    return `${courseCode}|${secId}|${block.semester || ''}|${block.schoolYear || ''}|${subject.subjectId}`
   }
 
   const getBlockRosterCount = (block: ProfessorAssignedBlock) => {

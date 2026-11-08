@@ -27,6 +27,32 @@ export const formatChedGrade = (val: string | number | null | undefined): string
 
 export const isInvalidGrade = (val: string | number | null | undefined): boolean => isInvalidGradeInput(val)
 
+export const getGradeSignal = (
+  rawGrade: string | number | null | undefined,
+  gradeMark?: string | null | undefined
+): 'pass' | 'conditional' | 'fail' | 'inc' | 'drp' | 'neutral' | 'none' => {
+  const mark = String(gradeMark || '').trim().toUpperCase()
+  if (mark === 'FA') return 'fail'
+  if (mark === 'INC') return 'inc'
+  if (mark === 'DRP') return 'drp'
+  if (mark === 'W' || mark === 'NG') return 'neutral'
+
+  if (rawGrade === null || rawGrade === undefined || String(rawGrade).trim() === '') {
+    return 'none'
+  }
+  const num = Number(rawGrade)
+  if (!Number.isFinite(num)) {
+    return 'fail'
+  }
+  if (isPassingGrade(num)) {
+    return 'pass'
+  }
+  if (num === 4.0) {
+    return 'conditional'
+  }
+  return 'fail'
+}
+
 const isEditableSubmissionStatus = (status?: string) => status === 'Draft' || status === 'Returned'
 
 // Derive the status shown for the class from each student's per-subject
@@ -525,6 +551,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
             classSemester: selectedClass.semester,
             classSchoolYear: selectedClass.schoolYear,
             subjectStatus: raw?.subjectStatus ? String(raw.subjectStatus) : 'Enrolled',
+            classification: raw?.classification || (raw?.isIrregular ? 'Irregular' : undefined),
             gradeUpdatedAt: raw?.gradeUpdatedAt ? String(raw.gradeUpdatedAt) : undefined,
             gradeSubmissionStatus: raw?.gradeSubmissionStatus ? String(raw.gradeSubmissionStatus) : 'Draft'
           } as ProfessorRosterStudent
@@ -1263,7 +1290,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
       return { label: 'Invalid', variant: 'danger' }
     }
     if (isPassingGrade(num)) {
-      return { label: 'Passed', variant: 'success' }
+      return { label: '', variant: 'success' }
     }
     if (num === 4.0) {
       return { label: 'Conditional', variant: 'warning' }
@@ -2233,7 +2260,16 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                           <td className="gm-muted">{student.yearLevel ?? 'N/A'}</td>
                           <td>
                             <div className="gm-row-status-stack">
-                              <span className="gm-pill">{student.subjectStatus || student.studentStatus || 'Enrolled'}</span>
+                              <span className="gm-pill">
+                                {String(student.subjectStatus || student.studentStatus || 'Enrolled').toLowerCase() === 'passed'
+                                  ? 'Enrolled'
+                                  : (student.subjectStatus || student.studentStatus || 'Enrolled')}
+                              </span>
+                              {student.classification === 'Irregular' && (
+                                <span className="gm-pill" style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
+                                  Irregular
+                                </span>
+                              )}
                               {studentSubmitted && (
                                 <span className="gm-row-submission-status" title="This student's grade has been submitted to the registrar">
                                   {getStudentSubmissionStatus(student)}
@@ -2242,50 +2278,83 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                             </div>
                           </td>
                           <td>
-                            <div className="gm-grade-cell">
-                              <input
-                                ref={(element) => {
-                                  gradeInputRefs.current[student._id] = element
-                                }}
-                                type="text"
-                                inputMode="decimal"
-                                className={`gm-grade-input ${isInvalidGrade(gradeDrafts[student._id]) ? 'gm-grade-input--invalid' : ''}`}
-                                style={isInvalidGrade(gradeDrafts[student._id]) ? { color: '#dc2626' } : undefined}
-                                value={gradeDrafts[student._id] ?? ''}
-                                onChange={(event) => handleGradeChange(student._id, event.target.value)}
-                                onBlur={() => handleGradeBlur(student)}
-                                onKeyDown={(event) => handleGradeKeyDown(event, student)}
-                                placeholder={formatGrade(gradeScale.min)}
-                                title={isInvalidGrade(gradeDrafts[student._id]) ? `Invalid grade: must be between ${formatGrade(gradeScale.min)} and ${formatGrade(gradeScale.max)}` : allowedGradeHint ? `Allowed grades: ${allowedGradeHint}` : undefined}
-                                disabled={!studentCanEdit || !!gradeMarkDrafts[student._id]}
-                              />
-                              <select
-                                className="gm-grade-mark-select"
-                                value={gradeMarkDrafts[student._id] ?? ''}
-                                onChange={(event) => handleGradeMarkChange(student, event.target.value)}
-                                disabled={!studentCanEdit || (!!gradeDrafts[student._id] && !gradeMarkDrafts[student._id])}
-                              >
-                                <option value="">—</option>
-                                <option value="INC">INC</option>
-                                <option value="DRP">DRP</option>
-                                <option value="W">W</option>
-                                <option value="FA">FA</option>
-                                <option value="NG">NG</option>
-                              </select>
-                              {isSaving ? (
-                                <span className="gm-row-saving" title="Saving grade...">
-                                  <Loader2 size={15} className="gm-spin" />
-                                </span>
-                              ) : saveStatusByStudent[student._id] === 'error' ? (
-                                <span className="gm-row-error" title="Failed to auto-save">
-                                  <AlertCircle size={15} />
-                                </span>
-                              ) : isSaved ? (
-                                <span className="gm-row-saved" title="Grade saved">
-                                  <Check size={16} strokeWidth={2.5} />
-                                </span>
-                              ) : null}
-                            </div>
+                            {(() => {
+                              const activeGradeVal = gradeDrafts[student._id] !== undefined && gradeDrafts[student._id] !== ''
+                                ? gradeDrafts[student._id]
+                                : student.currentGrade
+                              const activeMarkVal = gradeMarkDrafts[student._id] !== undefined
+                                ? gradeMarkDrafts[student._id]
+                                : student.currentGradeMark
+                              const studentSignal = getGradeSignal(activeGradeVal, activeMarkVal)
+                              const gradeInputClass = isInvalidGrade(gradeDrafts[student._id])
+                                ? 'gm-grade-input--invalid'
+                                : studentSignal === 'pass'
+                                  ? 'gm-grade-input--pass'
+                                  : studentSignal === 'conditional'
+                                    ? 'gm-grade-input--conditional'
+                                    : studentSignal === 'fail'
+                                      ? 'gm-grade-input--fail'
+                                      : ''
+                              const gradeMarkClass = activeMarkVal === 'INC'
+                                ? 'gm-grade-mark-select--inc'
+                                : activeMarkVal === 'DRP'
+                                  ? 'gm-grade-mark-select--drp'
+                                  : activeMarkVal === 'FA'
+                                    ? 'gm-grade-mark-select--fa'
+                                    : activeMarkVal ? 'gm-grade-mark-select--neutral' : ''
+
+                              return (
+                                <div className="gm-grade-cell">
+                                  <input
+                                    ref={(element) => {
+                                      gradeInputRefs.current[student._id] = element
+                                    }}
+                                    type="text"
+                                    inputMode="decimal"
+                                    className={`gm-grade-input ${gradeInputClass}`}
+                                    value={gradeDrafts[student._id] ?? ''}
+                                    onChange={(event) => handleGradeChange(student._id, event.target.value)}
+                                    onBlur={() => handleGradeBlur(student)}
+                                    onKeyDown={(event) => handleGradeKeyDown(event, student)}
+                                    placeholder={formatGrade(gradeScale.min)}
+                                    title={isInvalidGrade(gradeDrafts[student._id]) ? `Invalid grade: must be between ${formatGrade(gradeScale.min)} and ${formatGrade(gradeScale.max)}` : allowedGradeHint ? `Allowed grades: ${allowedGradeHint}` : undefined}
+                                    disabled={!studentCanEdit || !!gradeMarkDrafts[student._id]}
+                                  />
+                                  <select
+                                    className={`gm-grade-mark-select ${gradeMarkClass}`}
+                                    value={gradeMarkDrafts[student._id] ?? ''}
+                                    onChange={(event) => handleGradeMarkChange(student, event.target.value)}
+                                    disabled={!studentCanEdit || (!!gradeDrafts[student._id] && !gradeMarkDrafts[student._id])}
+                                  >
+                                    <option value="">—</option>
+                                    <option value="INC">INC</option>
+                                    <option value="DRP">DRP</option>
+                                    <option value="W">W</option>
+                                    <option value="FA">FA</option>
+                                    <option value="NG">NG</option>
+                                  </select>
+                                  {studentSignal !== 'none' && !gradeMarkDrafts[student._id] && (
+                                    <span
+                                      className={`gm-grade-signal-dot gm-grade-signal-dot--${studentSignal}`}
+                                      title={`Grade signal: ${studentSignal === 'pass' ? 'Passing' : studentSignal === 'conditional' ? 'Conditional' : 'Failing'}`}
+                                    />
+                                  )}
+                                  {isSaving ? (
+                                    <span className="gm-row-saving" title="Saving grade...">
+                                      <Loader2 size={15} className="gm-spin" />
+                                    </span>
+                                  ) : saveStatusByStudent[student._id] === 'error' ? (
+                                    <span className="gm-row-error" title="Failed to auto-save">
+                                      <AlertCircle size={15} />
+                                    </span>
+                                  ) : isSaved ? (
+                                    <span className="gm-row-saved" title="Grade saved">
+                                      <Check size={16} strokeWidth={2.5} />
+                                    </span>
+                                  ) : null}
+                                </div>
+                              )
+                            })()}
                           </td>
                           <td>
                             <input
@@ -2412,6 +2481,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                 <div><strong>Block / Section:</strong> {selectedStudent.classBlockCode || selectedClass?.blockCode || 'N/A'}</div>
                 <div><strong>Subject:</strong> {selectedStudent.classSubjectCode ? `${selectedStudent.classSubjectCode} - ${selectedStudent.classSubjectTitle || 'Untitled subject'}` : (selectedClass ? `${selectedClass.subjectCode} - ${selectedClass.subjectTitle}` : 'N/A')}</div>
                 <div><strong>Enrollment Status:</strong> {selectedStudent.studentStatus || selectedStudent.status || 'Active'}</div>
+                <div><strong>Classification:</strong> {selectedStudent.classification || 'Regular'}</div>
               </div>
             </div>
           </div>
@@ -2448,7 +2518,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                   <span className="gm-preview-stat-val">{previewStats.total}</span>
                 </div>
                 <div className="gm-preview-stat-card">
-                  <span className="gm-preview-stat-label">Passed ({formatGrade(gradeScale.min)}–{formatGrade(gradeScale.passingGrade)})</span>
+                  <span className="gm-preview-stat-label">Passing ({formatGrade(gradeScale.min)}–{formatGrade(gradeScale.passingGrade)})</span>
                   <span className="gm-preview-stat-val gm-text-success">{previewStats.passed}</span>
                 </div>
                 <div className="gm-preview-stat-card">
@@ -2506,6 +2576,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                         : student.currentGrade
                       const gradeDisplay = mark || (rawGrade ? formatGrade(rawGrade) : null)
                       const status = getGradePreviewStatus(rawGrade, mark)
+                      const gradeSignal = getGradeSignal(rawGrade, mark)
                       const remarks = remarkDrafts[student._id] !== undefined ? remarkDrafts[student._id] : (student.remarks || '')
 
                       return (
@@ -2515,12 +2586,19 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                           <td className="gm-student-name">{getName(student)}</td>
                           <td className="gm-muted">{getStudentCourseDisplay(student)} - Y{student.yearLevel ?? 1}</td>
                           <td className="gm-preview-grade-cell">
-                            <strong>{gradeDisplay || '—'}</strong>
+                            <span className={`gm-preview-grade-badge gm-preview-grade-badge--${gradeSignal}`}>
+                              {gradeSignal !== 'none' && (
+                                <span className={`gm-grade-signal-dot gm-grade-signal-dot--${gradeSignal}`} />
+                              )}
+                              <strong>{gradeDisplay || '—'}</strong>
+                            </span>
                           </td>
                           <td>
-                            <span className={`gm-badge gm-badge--${status.variant}`}>
-                              {status.label}
-                            </span>
+                            {status.label && status.label !== 'Passed' ? (
+                              <span className={`gm-badge gm-badge--${status.variant}`}>
+                                {status.label}
+                              </span>
+                            ) : null}
                           </td>
                           <td className="gm-muted gm-text-xs">{remarks || '—'}</td>
                         </tr>
@@ -2766,12 +2844,20 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                                     {course.students.map((student, idx) => {
                                       const isSubmitted = student.isSubmitted
                                       const gradeVal = student.gradeMark || (student.grade !== null && student.grade !== undefined ? formatGrade(student.grade) : '—')
+                                      const courseStudentSignal = getGradeSignal(student.grade, student.gradeMark)
                                       return (
                                         <tr key={student.studentId} className={!student.isGraded ? 'gm-preview-row--missing' : ''}>
                                           <td className="gm-muted">{idx + 1}</td>
                                           <td className="gm-student-id">{student.studentNumber}</td>
                                           <td className="gm-student-name">{student.name}</td>
-                                          <td style={{ fontWeight: 600 }}>{gradeVal}</td>
+                                          <td className="gm-preview-grade-cell">
+                                            <span className={`gm-preview-grade-badge gm-preview-grade-badge--${courseStudentSignal}`}>
+                                              {courseStudentSignal !== 'none' && (
+                                                <span className={`gm-grade-signal-dot gm-grade-signal-dot--${courseStudentSignal}`} />
+                                              )}
+                                              <strong>{gradeVal}</strong>
+                                            </span>
+                                          </td>
                                           <td>
                                             {isSubmitted ? (
                                               <span className="gm-badge gm-badge--neutral">{student.submissionStatus}</span>

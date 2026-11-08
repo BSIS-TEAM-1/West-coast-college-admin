@@ -239,10 +239,20 @@ describe('Teaching Hours Validation Service', () => {
       expect(shouldTriggerWarning(validation)).toBe(false);
     });
 
-    test('should not trigger warning when under-scheduled', () => {
+    test('should trigger warning when under-scheduled with missing hours', () => {
       const validation = {
         discrepancy: -1,
-        expectedHours: 3
+        expectedHours: 3,
+        scheduledHours: 2
+      };
+      expect(shouldTriggerWarning(validation)).toBe(true);
+    });
+
+    test('should not trigger warning when unscheduled / TBA (scheduledHours 0)', () => {
+      const validation = {
+        discrepancy: -3,
+        expectedHours: 3,
+        scheduledHours: 0
       };
       expect(shouldTriggerWarning(validation)).toBe(false);
     });

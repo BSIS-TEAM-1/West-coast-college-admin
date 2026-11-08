@@ -81,6 +81,7 @@ export interface ProfessorAssignedStudent {
   suffix?: string
   yearLevel?: number
   studentStatus?: string
+  classification?: string
   course?: string | number
   corStatus?: string
   assignedAt?: string | null

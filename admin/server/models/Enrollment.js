@@ -133,6 +133,11 @@ const enrollmentSchema = new Schema({
       ref: 'TransmutationTable',
       default: null
     },
+    // Indicates whether this subject is an additional subject load (e.g. retake or extra subject beyond regular block curriculum).
+    isAdditional: {
+      type: Boolean,
+      default: false
+    },
     // ── Registrar lifecycle metadata (additive; see below) ──────────────
     // Who added this subject entry and under what override, if any.
     addedBy: {
@@ -195,14 +200,16 @@ const enrollmentSchema = new Schema({
   
   // Assessment Information
   assessment: {
-    tuitionFee: { 
-      type: Number, 
+    tuitionFee: {
+      type: Number,
       required: true,
+      default: 0,
       min: 0
     },
-    miscFee: { 
-      type: Number, 
+    miscFee: {
+      type: Number,
       required: true,
+      default: 0,
       min: 0
     },
     otherFees: { 
@@ -210,9 +217,10 @@ const enrollmentSchema = new Schema({
       default: 0,
       min: 0
     },
-    totalAmount: { 
-      type: Number, 
+    totalAmount: {
+      type: Number,
       required: true,
+      default: 0,
       min: 0
     },
     discount: {
@@ -258,6 +266,17 @@ const enrollmentSchema = new Schema({
   isCurrent: {
     type: Boolean,
     default: true,
+    index: true
+  },
+  // Retake reservation
+  // A retake recorded into a term that is NOT the student's current term
+  // (e.g. a failed subject reserved for next school year). The enrollment
+  // stays dormant (Pending, isCurrent: false) until the year rollover
+  // activates it as the student's real enrollment for that term — which is
+  // when the retake subject actually takes effect.
+  isRetakeReservation: {
+    type: Boolean,
+    default: false,
     index: true
   },
 
@@ -443,11 +462,14 @@ enrollmentSchema.pre('deleteMany', excludeLockedRecords);
 
 // Pre-save hook to update total amount and balance
 enrollmentSchema.pre('save', function(next) {
-  // Calculate total amount if not set
-  if (this.isNew || this.isModified('assessment')) {
-    this.assessment.totalAmount = this.assessment.tuitionFee + 
-                                this.assessment.miscFee + 
-                                this.assessment.otherFees;
+  // Calculate total amount if not set or if assessment is missing totalAmount
+  if (this.assessment) {
+    const isMissingTotal = this.assessment.totalAmount === undefined || this.assessment.totalAmount === null || Number.isNaN(this.assessment.totalAmount);
+    if (this.isNew || this.isModified('assessment') || isMissingTotal) {
+      const tuition = Number(this.assessment.tuitionFee) || 0;
+      const misc = Number(this.assessment.miscFee) || 0;
+      const other = Number(this.assessment.otherFees) || 0;
+      this.assessment.totalAmount = tuition + misc + other;
     
     // Calculate balance (total amount - payments)
     const totalPaid = this.assessment.paymentHistory.reduce((sum, payment) => {
@@ -463,6 +485,7 @@ enrollmentSchema.pre('save', function(next) {
       this.assessment.paymentStatus = 'Partially Paid';
     } else {
       this.assessment.paymentStatus = 'Unpaid';
+    }
     }
   }
   

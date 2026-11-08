@@ -124,7 +124,11 @@ export default function Navbar({
         </button>
       )}
       <div className="navbar-center">
-        <div className="navbar-center-top">{pageTitle || 'My Teaching Load'}</div>
+        {pageTitle ? (
+          <div className="navbar-center-top">{pageTitle}</div>
+        ) : pageTitle === '' ? null : (
+          <div className="navbar-center-top">My Teaching Load</div>
+        )}
       </div>
       <div className="navbar-spacer" />
       <div className="navbar-user">

@@ -226,13 +226,18 @@ function validateTeachingHours({ schedule, subject, tolerance = 0 }) {
 
 /**
  * Check if a teaching hours discrepancy should trigger a warning
- * Triggers when scheduled hours exceed expected hours
+ * Triggers when scheduled hours differ from expected hours (either exceeding
+ * expected hours or having missing/under-scheduled hours to occupy).
  * 
  * @param {Object} validation - Result from validateTeachingHours
  * @returns {boolean} - Whether to show a warning
  */
 function shouldTriggerWarning(validation) {
-  return validation.discrepancy > 0 && validation.expectedHours > 0;
+  if (!validation || !validation.expectedHours) return false;
+  // If scheduled hours are 0 (e.g. TBA / unscheduled), do not trigger missing hours warning yet
+  const scheduled = validation.scheduledHours ?? (validation.discrepancy + validation.expectedHours);
+  if (scheduled <= 0) return false;
+  return validation.discrepancy !== 0;
 }
 
 module.exports = {

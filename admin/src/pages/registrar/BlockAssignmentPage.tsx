@@ -712,7 +712,15 @@ export default function BlockAssignmentPage({ mode = 'assignment' }: BlockAssign
                               <strong>{studentDisplayName(student)}</strong>
                               <span className="student-workspace__student-id">{studentNumberDisplay(student)}</span>
                               {isReEnrollment ? (
-                                student.reEnrollment?.needsRetake ? (
+                                student.reEnrollment?.allRetakesScheduled ? (
+                                  <span
+                                    className="student-workspace__retake-flag"
+                                    style={{ background: '#ecfdf5', color: '#047857', borderColor: '#a7f3d0' }}
+                                    title={student.reEnrollment.retakeSubjects.map((s) => s.code).join(', ')}
+                                  >
+                                    {student.reEnrollment.retakeSubjects.length} retake scheduled
+                                  </span>
+                                ) : student.reEnrollment?.needsRetake ? (
                                   <span
                                     className="student-workspace__retake-flag"
                                     title={student.reEnrollment.retakeSubjects.map((subject) => subject.code).join(', ')}
@@ -774,7 +782,9 @@ export default function BlockAssignmentPage({ mode = 'assignment' }: BlockAssign
                                   {student.lifecycleStatus || 'Not Enrolled'}
                                 </span>
                                 <span>{student.studentStatus || student.classification || 'Regular'}</span>
-                                {details?.needsRetake ? (
+                                {details?.allRetakesScheduled ? (
+                                  <span className="student-workspace__status-retake" style={{ color: '#059669' }}>Retake scheduled</span>
+                                ) : details?.needsRetake ? (
                                   <span className="student-workspace__status-retake">Retake required</span>
                                 ) : null}
                               </div>

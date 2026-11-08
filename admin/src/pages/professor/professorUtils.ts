@@ -64,9 +64,10 @@ export const isBlockInActiveTerm = (
   block: { semester?: string; schoolYear?: string; isCurrent?: boolean },
   activeTerm?: { semester?: string; schoolYear?: string } | null
 ): boolean => {
-  if (block.isCurrent) return true
-  if (!activeTerm) return true
-  const semMatch = normalizeSemester(block.semester) === normalizeSemester(activeTerm.semester)
+  if (!activeTerm || (!activeTerm.semester && !activeTerm.schoolYear)) {
+    return Boolean(block.isCurrent)
+  }
+  const semMatch = !activeTerm.semester || normalizeSemester(block.semester) === normalizeSemester(activeTerm.semester)
   const syMatch = !block.schoolYear || !activeTerm.schoolYear || toSchoolYear(block.schoolYear) === toSchoolYear(activeTerm.schoolYear)
   return semMatch && syMatch
 }

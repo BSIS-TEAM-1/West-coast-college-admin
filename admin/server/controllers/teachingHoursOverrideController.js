@@ -90,7 +90,7 @@ class TeachingHoursOverrideController {
       });
 
       // Only allow override if there's actually a discrepancy
-      if (validation.discrepancy <= 0) {
+      if (validation.discrepancy === 0) {
         return res.status(400).json({
           success: false,
           message: 'No teaching hours discrepancy detected. Override not required.'

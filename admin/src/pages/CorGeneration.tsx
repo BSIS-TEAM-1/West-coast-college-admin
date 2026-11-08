@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Archive, Check, CheckCheck, Eye, Filter, Layers, RefreshCw, Users } from 'lucide-react'
 import { API_URL, getStoredToken } from '../lib/authApi'
-import { formatStudentNumber as formatStudentNumberShared, schoolYearStartYear } from '../lib/blockAssignmentShared'
+import { formatBlockDisplay, formatStudentNumber as formatStudentNumberShared, schoolYearStartYear } from '../lib/blockAssignmentShared'
 import './CorGeneration.css'
 
 type CourseCode = '101' | '102' | '103' | '201'
@@ -457,7 +457,7 @@ export default function CorGeneration() {
       onClick={() => void loadStudentsForSection(section._id)}
     >
       <div className="cor-block-card-head">
-        <span className="block-code">{section.sectionCode}</span>
+        <span className="block-code">{formatBlockDisplay(section.sectionCode)}</span>
         <div className="block-status-cluster">
           {section.isArchived && (
             <span className="block-status archived" title="Archived / Historical Block">
@@ -633,7 +633,7 @@ export default function CorGeneration() {
           <div className="cor-panel-title cor-panel-title--with-actions">
             <div className="cor-panel-title-left">
               <Users size={16} />
-              <h3>Students {selectedSection ? `- ${selectedSection.sectionCode}` : ''}</h3>
+              <h3>Students {selectedSection ? `- ${formatBlockDisplay(selectedSection.sectionCode)}` : ''}</h3>
               {students.length > 0 && (
                 <div className="cor-status-breakdown">
                   <span className="cor-status-tag total">{students.length} Total</span>

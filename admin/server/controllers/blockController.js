@@ -1212,7 +1212,7 @@ class BlockController {
       enrollmentData.createdBy = String(createdBy);
     }
 
-    const [enrollment] = await Enrollment.create([enrollmentData], { session });
+    const [enrollment] = await Enrollment.create([enrollmentData], { session, ordered: true });
 
     // The student was just assigned to `section` — if that section already
     // carries schedules (stamped into its other students' enrollments),
@@ -1658,7 +1658,7 @@ class BlockController {
           year: assignmentYear,
           schoolYear: assignmentSchoolYear,
           assignedAt: new Date()
-        }], { session });
+        }], { session, ordered: true });
       }
 
       const studentName = `${student.firstName || ''} ${student.lastName || ''}`.trim() || 'Unknown';
@@ -1679,7 +1679,7 @@ class BlockController {
           blockSectionId: String(sectionId),
           ...(previousArchivedAssignment ? { previousArchivedAssignment } : {}),
         }
-      }], { session });
+      }], { session, ordered: true });
 
       // Finalize enrollment atomically (same transaction): the block
       // assignment above was verified, so the Enrollment record and the
@@ -1869,7 +1869,7 @@ class BlockController {
             blockGroupId: section.blockGroupId ? String(section.blockGroupId) : undefined,
             blockSectionId: String(sectionId),
           }
-        }], { session });
+        }], { session, ordered: true });
       }
       await session.commitTransaction();
       res.json({ status: 'SUCCESS', ...result });
@@ -1941,7 +1941,7 @@ class BlockController {
 
       // In a real implementation, you'd apply the changes here
       // For now, just log and return preview
-      await BlockActionLog.create([{ actionType: 'REBALANCE', sectionId: null, studentId: null, registrarId: req.registrarId || req.adminId, reason: `Rebalance ${strategy}`, timestamp: new Date(), details: { blockGroupId, strategy, preview } }], { session });
+      await BlockActionLog.create([{ actionType: 'REBALANCE', sectionId: null, studentId: null, registrarId: req.registrarId || req.adminId, reason: `Rebalance ${strategy}`, timestamp: new Date(), details: { blockGroupId, strategy, preview } }], { session, ordered: true });
 
       await session.commitTransaction();
       res.json({ status: 'SUCCESS', preview });
@@ -1982,13 +1982,13 @@ class BlockController {
     // Legacy groups carry `year` as a number; the assignment schema requires
     // the "YYYY-YYYY" form.
     const assignmentYear = normalizeSchoolYear(year) || year;
-    const assignment = await StudentBlockAssignment.create([{ studentId, sectionId, semester, year: assignmentYear, assignedAt: new Date() }], { session });
+    const assignment = await StudentBlockAssignment.create([{ studentId, sectionId, semester, year: assignmentYear, assignedAt: new Date() }], { session, ordered: true });
     await BlockSection.findByIdAndUpdate(sectionId, { $inc: { currentPopulation: 1 } }, { session });
     return { assignmentId: assignment[0]._id };
   }
 
   async addToWaitlist(studentId, sectionId, reason, session) {
-    const waitlist = await SectionWaitlist.create([{ studentId, sectionId, reason }], { session });
+    const waitlist = await SectionWaitlist.create([{ studentId, sectionId, reason }], { session, ordered: true });
     return { waitlistId: waitlist[0]._id };
   }
 
@@ -2021,7 +2021,7 @@ class BlockController {
 
     // Add to target
     const assignmentYear = normalizeSchoolYear(year) || year;
-    const assignment = await StudentBlockAssignment.create([{ studentId, sectionId: targetSectionId, semester, year: assignmentYear, assignedAt: new Date() }], { session });
+    const assignment = await StudentBlockAssignment.create([{ studentId, sectionId: targetSectionId, semester, year: assignmentYear, assignedAt: new Date() }], { session, ordered: true });
     await BlockSection.findByIdAndUpdate(targetSectionId, { $inc: { currentPopulation: 1 } }, { session });
 
     // Create audit entries for BOTH the removal from the original section
@@ -2047,7 +2047,7 @@ class BlockController {
         transferTargetSectionId: String(targetSectionId),
         transferTargetSectionCode: targetSection?.sectionCode || undefined,
       }
-    }], { session });
+    }], { session, ordered: true });
 
     await BlockActionLog.create([{
       actionType: 'TRANSFER',
@@ -2068,7 +2068,7 @@ class BlockController {
         transferSourceSectionId: String(originalSectionId),
         transferSourceSectionCode: originalSection?.sectionCode || undefined,
       }
-    }], { session });
+    }], { session, ordered: true });
 
     return { assignmentId: assignment[0]._id };
   }
@@ -2093,7 +2093,7 @@ class BlockController {
       sectionCode: newCode,
       capacity: 30, // Default
       schedule: copySchedule ? baseCode : ''
-    }], { session });
+    }], { session, ordered: true });
 
     // Move overflow if requested (not implemented yet)
     return { newSectionId: newSection[0]._id, newCode };
@@ -2101,7 +2101,7 @@ class BlockController {
 
   async assignToNewSection(studentId, sectionId, semester, year, session) {
     const assignmentYear = normalizeSchoolYear(year) || year;
-    const assignment = await StudentBlockAssignment.create([{ studentId, sectionId, semester, year: assignmentYear, assignedAt: new Date() }], { session });
+    const assignment = await StudentBlockAssignment.create([{ studentId, sectionId, semester, year: assignmentYear, assignedAt: new Date() }], { session, ordered: true });
     await BlockSection.findByIdAndUpdate(sectionId, { $inc: { currentPopulation: 1 } }, { session });
     return { assignmentId: assignment[0]._id };
   }
@@ -2557,7 +2557,7 @@ class BlockController {
           blockGroupId: section.blockGroupId ? String(section.blockGroupId) : undefined,
           blockSectionId: String(section._id),
         }
-      }], { session });
+      }], { session, ordered: true });
 
       await session.commitTransaction();
       res.json({

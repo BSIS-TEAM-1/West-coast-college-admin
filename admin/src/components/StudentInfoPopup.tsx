@@ -197,13 +197,18 @@ export default function StudentInfoPopup({
             ) : null}
 
             {retakeSubjects.length ? (
-              <section className="student-workspace__popup-section student-workspace__popup-section--warning">
+              <section className={`student-workspace__popup-section ${reEnrollment?.allRetakesScheduled ? 'student-workspace__popup-section--success' : 'student-workspace__popup-section--warning'}`}>
                 <div className="student-workspace__popup-section-head">
                   <div>
                     <span className="student-workspace__eyebrow">
-                      <AlertTriangle size={14} aria-hidden="true" /> Retake required
+                      <AlertTriangle size={14} aria-hidden="true" />
+                      {reEnrollment?.allRetakesScheduled ? 'Retake scheduled' : 'Retake required'}
                     </span>
-                    <h3>{retakeSubjects.length} subject{retakeSubjects.length === 1 ? '' : 's'} need another attempt</h3>
+                    <h3>
+                      {reEnrollment?.allRetakesScheduled
+                        ? `${retakeSubjects.length} retake subject${retakeSubjects.length === 1 ? '' : 's'} scheduled for this term`
+                        : `${retakeSubjects.filter((s) => !s.isScheduled).length || retakeSubjects.length} subject${retakeSubjects.filter((s) => !s.isScheduled).length === 1 ? '' : 's'} need another attempt`}
+                    </h3>
                   </div>
                 </div>
                 <ul className="student-workspace__retake-list">
@@ -211,7 +216,13 @@ export default function StudentInfoPopup({
                     <li key={`${subject.subjectId || subject.code || 'retake'}-${index}`}>
                       <strong>{subject.code || '—'}</strong>
                       <span>{subject.title || ''}</span>
-                      <em>{subject.outcome}{subject.gradeMark ? ` · ${subject.gradeMark}` : ''}</em>
+                      <em>
+                        {subject.isScheduled ? (
+                          <span style={{ color: '#059669', fontWeight: 600 }}>Scheduled Retake</span>
+                        ) : (
+                          `${subject.outcome}${subject.gradeMark ? ` · ${subject.gradeMark}` : ''}`
+                        )}
+                      </em>
                     </li>
                   ))}
                 </ul>

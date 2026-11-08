@@ -43,7 +43,10 @@ class BaseRepository {
 
   async create(data, options = {}) {
     if (Array.isArray(data)) {
-      return this.model.create(data, options);
+      const opts = options?.session && options.ordered === undefined
+        ? { ...options, ordered: true }
+        : options;
+      return this.model.create(data, opts);
     }
     const doc = new this.model(data);
     await doc.save(options.session ? { session: options.session } : undefined);
@@ -51,7 +54,10 @@ class BaseRepository {
   }
 
   async createMany(docs, options = {}) {
-    return this.model.create(docs, options);
+    const opts = options?.session && options.ordered === undefined
+      ? { ...options, ordered: true }
+      : options;
+    return this.model.create(docs, opts);
   }
 
   async updateById(id, update, options = {}) {

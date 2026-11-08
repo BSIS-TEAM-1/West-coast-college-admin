@@ -4,7 +4,7 @@ import {
   ChevronDown, ChevronRight, Download, GraduationCap, History, RefreshCw, Lock, LockOpen, Search,
   Users, AlertTriangle, Filter, ShieldCheck, X,
 } from 'lucide-react'
-import { getAcademicTerm, notifyAcademicTermChanged, type AcademicSemester, type AcademicTerm } from '../../lib/settingsApi'
+import { getAcademicTerm, getCachedAcademicTerm, notifyAcademicTermChanged, type AcademicSemester, type AcademicTerm } from '../../lib/settingsApi'
 import { formatGrade } from '../../lib/gradingScale'
 import {
   executeRollover,
@@ -81,8 +81,6 @@ const ROLLOVER_EXPORT_HEADERS = [
   'Course Semester',
 ]
 
-const SEMESTERS: AcademicSemester[] = ['1st', '2nd', 'Summer']
-
 function nextSchoolYear(schoolYear: string) {
   const start = Number(String(schoolYear || '').split('-')[0])
   if (!Number.isFinite(start)) return ''
@@ -133,10 +131,15 @@ type SnapshotDetail = ArchiveSnapshotSummary & {
 }
 
 export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) {
+  const cachedTerm = getCachedAcademicTerm()
   const [step, setStep] = useState<WizardStep>(1)
-  const [fromSchoolYear, setFromSchoolYear] = useState('')
-  const [toSchoolYear, setToSchoolYear] = useState('')
-  const [semester, setSemester] = useState<AcademicSemester>('1st')
+  const [fromSchoolYear, setFromSchoolYear] = useState(cachedTerm?.schoolYear || '')
+  const [toSchoolYear, setToSchoolYear] = useState(
+    cachedTerm ? (cachedTerm.semester === '1st' ? cachedTerm.schoolYear : nextSchoolYear(cachedTerm.schoolYear)) : ''
+  )
+  const [semester, setSemester] = useState<AcademicSemester>(
+    cachedTerm ? (cachedTerm.semester === '1st' ? '2nd' : '1st') : '1st'
+  )
   const [activeTerm, setActiveTerm] = useState<AcademicTerm | null>(null)
   const [summaryPreview, setSummaryPreview] = useState<RolloverSummaryPreview | null>(null)
   const [approvedGroups, setApprovedGroups] = useState<Set<string>>(new Set())
@@ -1137,50 +1140,21 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
       {step === 1 ? (
         <section className="rollover-page__panel">
           <h3>Rollover setup</h3>
-          <div className="rollover-page__form-grid">
-            <label>
-              <span>Closing school year</span>
-              <input
-                value={fromSchoolYear}
-                onChange={(event) => {
-                  const closing = event.target.value
-                  setFromSchoolYear(closing)
-                  // Derive the correct close type from the active term when
-                  // the typed closing year is the one we're actually in.
-                  if (activeTerm && activeTerm.schoolYear === closing) {
-                    if (activeTerm.semester === '1st') {
-                      setToSchoolYear(closing) // close the semester, not the year
-                      setSemester('2nd')
-                    } else {
-                      setToSchoolYear(nextSchoolYear(closing)) // close the year
-                      setSemester('1st')
-                    }
-                  } else {
-                    setToSchoolYear(nextSchoolYear(closing))
-                    setSemester('1st')
-                  }
-                }}
-                placeholder="2025-2026"
-                pattern="\d{4}-\d{4}"
-              />
-            </label>
-            <label>
-              <span>{isSemesterRollover ? 'Opening school year (same as closing)' : 'New school year'}</span>
-              <input
-                value={toSchoolYear}
-                onChange={(event) => setToSchoolYear(event.target.value)}
-                placeholder="2026-2027"
-                pattern="\d{4}-\d{4}"
-              />
-            </label>
-            <label>
-              <span>Opening semester</span>
-              <select value={semester} onChange={(event) => setSemester(event.target.value as AcademicSemester)}>
-                {SEMESTERS.map((option) => (
-                  <option key={option} value={option}>{option}</option>
-                ))}
-              </select>
-            </label>
+          <div className="rollover-page__setup-grid">
+            <div className="rollover-page__setup-card">
+              <span className="rollover-page__setup-label">Closing school year</span>
+              <strong className="rollover-page__setup-value">{fromSchoolYear || '—'}</strong>
+            </div>
+            <div className="rollover-page__setup-card">
+              <span className="rollover-page__setup-label">
+                {isSemesterRollover ? 'Opening school year (same as closing)' : 'New school year'}
+              </span>
+              <strong className="rollover-page__setup-value">{toSchoolYear || '—'}</strong>
+            </div>
+            <div className="rollover-page__setup-card">
+              <span className="rollover-page__setup-label">Opening semester</span>
+              <strong className="rollover-page__setup-value">{semester || '—'}</strong>
+            </div>
           </div>
           {isSemesterRollover ? (
             semester === '1st' ? (
@@ -1578,7 +1552,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
                 <ShieldCheck size={14} /> Validation outcome:{' '}
                 {yearState?.status === 'rollover_ready' ? (
                   <strong className="rollover-page__status-badge rollover-page__status-badge--ok">
-                    Passed ({yearState.validationSummary?.warnings ?? 0} authorized warning(s))
+                    Passed
                   </strong>
                 ) : (
                   <strong style={{ color: 'var(--danger, #b91c1c)' }}>{executeDisabledReason || 'Pre-rollover validation has not passed yet.'}</strong>

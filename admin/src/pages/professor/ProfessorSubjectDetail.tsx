@@ -24,7 +24,8 @@ function ProfessorSubjectDetail({ detail, onBack, onOpenRosterClass, onOpenGrade
     const controller = new AbortController()
 
     const fetchSubjectStudents = async () => {
-      if (!detail?.sectionId) {
+      const effectiveSection = detail?.sectionId || detail?.sectionCode
+      if (!effectiveSection) {
         setStudents([])
         setStudentsError('No section is linked to this subject assignment yet.')
         return
@@ -46,7 +47,7 @@ function ProfessorSubjectDetail({ detail, onBack, onOpenRosterClass, onOpenGrade
           schoolYear: detail.schoolYear
         })
 
-        const response = await fetchWithAutoReconnect(`${API_URL}/api/professor/sections/${detail.sectionId}/subjects/${detail.subject.subjectId}/students?${query.toString()}`, {
+        const response = await fetchWithAutoReconnect(`${API_URL}/api/professor/sections/${effectiveSection}/subjects/${detail.subject.subjectId}/students?${query.toString()}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
@@ -91,7 +92,7 @@ function ProfessorSubjectDetail({ detail, onBack, onOpenRosterClass, onOpenGrade
       cancelled = true
       controller.abort()
     }
-  }, [detail?.sectionId, detail?.subject?.subjectId, detail?.semester, detail?.schoolYear])
+  }, [detail?.sectionId, detail?.sectionCode, detail?.subject?.subjectId, detail?.semester, detail?.schoolYear])
 
   const formatStudentName = (student: ProfessorAssignedStudent) => {
     return [student.lastName, student.firstName, student.middleName, student.suffix]

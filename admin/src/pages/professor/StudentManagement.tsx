@@ -86,16 +86,17 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
   const classOptions = useMemo<ProfessorRosterClassOption[]>(() => {
     return courses.flatMap((course) => {
       return course.blocks
-        .filter((block) => Boolean(block.sectionId))
+        .filter((block) => Boolean(block.sectionId) || block.needsBlockAssignment)
         .filter((block) => isMatchTerm(block))
         .flatMap((block) => {
+          const sectionId = (block.sectionId || block.sectionCode || 'Unassigned') as string
           return block.subjects.map((subject) => {
             const blockCode = formatBlockCode(course.courseCode, block.sectionCode)
             return {
-              key: `${course.courseCode}|${block.sectionId}|${block.semester || ''}|${block.schoolYear || ''}|${subject.subjectId}`,
+              key: `${course.courseCode}|${sectionId}|${block.semester || ''}|${block.schoolYear || ''}|${subject.subjectId}`,
               courseCode: course.courseCode,
               blockCode,
-              sectionId: block.sectionId as string,
+              sectionId,
               sectionCode: block.sectionCode,
               semester: block.semester,
               schoolYear: block.schoolYear,
@@ -105,7 +106,8 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
               subjectCode: subject.code,
               subjectTitle: subject.title,
               schedule: subject.schedule || 'TBA',
-              room: subject.room || 'TBA'
+              room: subject.room || 'TBA',
+              needsBlockAssignment: block.needsBlockAssignment || false
             }
           })
         })
@@ -115,27 +117,30 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
   const sectionOptions = useMemo<ProfessorRosterSectionOption[]>(() => {
     return courses.flatMap((course) => {
       return course.blocks
-        .filter((block) => Boolean(block.sectionId))
+        .filter((block) => Boolean(block.sectionId) || block.needsBlockAssignment)
         .filter((block) => isMatchTerm(block))
-        .map((block) => ({
-          key: `${course.courseCode}|${block.sectionId}|${block.semester || ''}|${block.schoolYear || ''}`,
-          courseCode: course.courseCode,
-          blockCode: formatBlockCode(course.courseCode, block.sectionCode),
-          sectionId: block.sectionId as string,
-          sectionCode: block.sectionCode,
-          semester: block.semester,
-          schoolYear: block.schoolYear,
-          yearLevel: block.yearLevel,
-          isCurrent: Boolean(block.isCurrent),
-          subjectCount: block.subjects.length,
-          subjects: block.subjects.map((subject) => ({
-            subjectId: subject.subjectId,
-            subjectCode: subject.code,
-            subjectTitle: subject.title,
-            schedule: subject.schedule || 'TBA',
-            room: subject.room || 'TBA'
-          }))
-        }))
+        .map((block) => {
+          const sectionId = (block.sectionId || block.sectionCode || 'Unassigned') as string
+          return {
+            key: `${course.courseCode}|${sectionId}|${block.semester || ''}|${block.schoolYear || ''}`,
+            courseCode: course.courseCode,
+            blockCode: formatBlockCode(course.courseCode, block.sectionCode),
+            sectionId,
+            sectionCode: block.sectionCode,
+            semester: block.semester,
+            schoolYear: block.schoolYear,
+            yearLevel: block.yearLevel,
+            isCurrent: Boolean(block.isCurrent),
+            subjectCount: block.subjects.length,
+            subjects: block.subjects.map((subject) => ({
+              subjectId: subject.subjectId,
+              subjectCode: subject.code,
+              subjectTitle: subject.title,
+              schedule: subject.schedule || 'TBA',
+              room: subject.room || 'TBA'
+            }))
+          }
+        })
     })
   }, [courses, termFilter, activeTerm])
 
@@ -340,7 +345,8 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
               lastName: String(raw?.lastName || ''),
               suffix: raw?.suffix ? String(raw.suffix) : '',
               yearLevel: Number.isFinite(yearLevel) ? yearLevel : undefined,
-              studentStatus: raw?.studentStatus || raw?.status || 'Active',
+              studentStatus: raw?.classification === 'Irregular' ? 'Irregular' : (raw?.studentStatus || raw?.status || 'Active'),
+              classification: raw?.classification || (raw?.studentStatus === 'Irregular' ? 'Irregular' : 'Regular'),
               course: target.courseCode || raw?.course || '',
               assignedAt: raw?.assignedAt,
               attendancePercentage: raw?.attendancePercentage,
@@ -795,7 +801,15 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
                     <td>{student.classBlockCode || selectedSection?.blockCode || selectedClass?.blockCode || 'N/A'}</td>
                     <td>{student.yearLevel ?? 'N/A'}</td>
                     <td>{formatStudentGrade(student.currentGrade, student.latestGrade)}</td>
-                    <td>{student.studentStatus || student.status || 'Active'}</td>
+                    <td>
+                      {String(student.studentStatus || student.classification || '').toLowerCase() === 'irregular' ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', padding: '0.15rem 0.5rem', borderRadius: '4px', background: 'rgba(234, 179, 8, 0.15)', color: '#ca8a04', fontWeight: 600, fontSize: '0.75rem' }}>
+                          Irregular
+                        </span>
+                      ) : (
+                        student.studentStatus || student.status || 'Regular'
+                      )}
+                    </td>
                     <td className="professor-table-actions">
                       <button type="button" className="professor-btn-xs" onClick={() => setSelectedStudent(student)}>
                         View Profile
@@ -839,7 +853,7 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
                 <div><strong>Block / Section:</strong> {selectedStudent.classBlockCode || selectedSection?.blockCode || selectedClass?.blockCode || 'N/A'}</div>
                 <div><strong>Subject:</strong> {selectedStudent.classSubjectCode ? `${selectedStudent.classSubjectCode} - ${selectedStudent.classSubjectTitle || 'Untitled subject'}` : 'Multiple subjects in view'}</div>
                 <div><strong>Current Grade:</strong> {formatStudentGrade(selectedStudent.currentGrade, selectedStudent.latestGrade)}</div>
-                <div><strong>Enrollment Status:</strong> {selectedStudent.studentStatus || selectedStudent.status || 'Active'}</div>
+                <div><strong>Enrollment Status:</strong> {selectedStudent.studentStatus || selectedStudent.status || 'Active'}{selectedStudent.classification && selectedStudent.classification !== selectedStudent.studentStatus ? ` (${selectedStudent.classification})` : ''}</div>
               </div>
             </div>
           </div>

@@ -61,15 +61,6 @@ const MOCK_ANNOUNCEMENTS = [
     expiresAt: daysFromNow(5),
   },
   {
-    title: 'Faculty meeting: Curriculum alignment',
-    message:
-      'There will be a faculty meeting to discuss curriculum alignment, subject offerings, and assessment plans for SY 2026-2027. Attendance is required for all full-time professors.',
-    type: 'info',
-    targetAudience: ['professor'],
-    isPinned: false,
-    expiresAt: daysFromNow(10),
-  },
-  {
     title: 'Registrar office schedule update',
     message:
       'Starting this week, the Registrar\'s Office will be open from 8:00 AM to 5:00 PM, Monday to Friday. Processing of late enrollment and document requests will stop at 4:30 PM.',
@@ -86,24 +77,6 @@ const MOCK_ANNOUNCEMENTS = [
     targetAudience: ['all'],
     isPinned: false,
     expiresAt: daysFromNow(3),
-  },
-  {
-    title: 'Scholarship applications now open',
-    message:
-      'Applications for academic and financial scholarships are now open. Interested students may submit their requirements to the Student Affairs Office until the end of the month.',
-    type: 'info',
-    targetAudience: ['students'],
-    isPinned: false,
-    expiresAt: daysFromNow(45),
-  },
-  {
-    title: 'Welcome to the new academic year',
-    message:
-      'Welcome back, West Coast College community! We are excited to begin SY 2026-2027. Please check the portal regularly for updates on enrollment, schedules, and student activities.',
-    type: 'info',
-    targetAudience: ['all'],
-    isPinned: false,
-    expiresAt: null,
   },
 ];
 

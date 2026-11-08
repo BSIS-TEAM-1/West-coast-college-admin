@@ -545,6 +545,95 @@
   background: var(--color-surface);
 }
 
+.per-day-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.btn-add-day-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px dashed var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+  color: var(--color-primary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-add-day-slot:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary) 15%, transparent);
+  border-style: solid;
+}
+
+.btn-add-day-slot:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.per-day-slots-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.per-day-slot-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.45rem;
+  border-radius: 6px;
+  background: var(--color-bg-soft);
+  border: 1px solid var(--color-border);
+}
+
+.per-day-slot-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px dashed var(--color-border);
+}
+
+.per-day-slot-number {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.btn-remove-day-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.2rem;
+  border: none;
+  background: transparent;
+  color: #ef4444;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.15s ease;
+}
+
+.btn-remove-day-slot:hover:not(:disabled) {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.btn-remove-day-slot:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .per-day-time-label {
   font-size: 0.75rem;
   font-weight: 700;
@@ -738,5 +827,35 @@
   .registrar-course-workspace-page .day-checkbox-group {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+}
+
+.teaching-hours-live-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.84rem;
+  margin-top: 0.75rem;
+  grid-column: 1 / -1;
+  line-height: 1.4;
+}
+
+.teaching-hours-live-notice--warn {
+  background: color-mix(in srgb, var(--color-warning, #f59e0b) 12%, var(--color-surface, #ffffff));
+  border: 1px solid color-mix(in srgb, var(--color-warning, #f59e0b) 35%, transparent);
+  color: #b45309;
+}
+
+.teaching-hours-live-notice--danger {
+  background: color-mix(in srgb, var(--color-danger, #ef4444) 10%, var(--color-surface, #ffffff));
+  border: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 30%, transparent);
+  color: #dc2626;
+}
+
+.teaching-hours-live-notice--ok {
+  background: color-mix(in srgb, var(--color-success, #10b981) 10%, var(--color-surface, #ffffff));
+  border: 1px solid color-mix(in srgb, var(--color-success, #10b981) 30%, transparent);
+  color: #059669;
 }
 

@@ -438,7 +438,23 @@ async function finalizeEnrollment({ studentId, schoolYear, semester, actorId, se
     session,
   });
 
-  student.lifecycleStatus = hasUnresolvedFailures ? 'Irregular' : 'Enrolled';
+  let hasActiveAdditional = false;
+  try {
+    const subjects = enrollment?.subjects || [];
+    hasActiveAdditional = subjects.some(
+      (entry) => (entry.isAdditional || (entry.retakeOf && (entry.retakeOf.enrollmentId || entry.retakeOf.subjectEntryId))) &&
+                 !entry.droppedAt && !['dropped', 'removed'].includes(String(entry.status || '').toLowerCase())
+    );
+  } catch (_e) {
+    // ignore
+  }
+  const isIrregular = hasUnresolvedFailures || hasActiveAdditional;
+
+  student.lifecycleStatus = isIrregular ? 'Irregular' : 'Enrolled';
+  if (isIrregular) {
+    student.studentStatus = 'Irregular';
+    student.classification = 'Irregular';
+  }
   student.enrollmentStatus = 'Enrolled';
   student.schoolYear = effectiveSchoolYear;
   student.semester = effectiveSemester;

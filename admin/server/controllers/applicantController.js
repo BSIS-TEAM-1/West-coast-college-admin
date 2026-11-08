@@ -497,7 +497,7 @@ class ApplicantController {
                 corStatus: 'Pending',
                 createdBy: req.adminId,
                 updatedBy: req.adminId
-              }], { session });
+              }], { session, ordered: true });
               studentRecord = newStudents[0];
               studentNotification = {
                 upserted: true,

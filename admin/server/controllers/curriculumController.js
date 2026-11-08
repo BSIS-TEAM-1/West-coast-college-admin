@@ -333,7 +333,7 @@ class CurriculumController {
             description: description ? String(description).trim() : undefined,
             status: 'Draft',
             createdBy: req.adminId,
-          }], { session });
+          }], { session, ordered: true });
           curriculum = curriculum[0];
 
           let docs = [];

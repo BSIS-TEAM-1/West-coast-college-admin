@@ -229,7 +229,7 @@ async function createOrReactivateEnrollment({
     subjects: [],
     assessment: assessmentSnapshot,
     createdBy,
-  }], { session });
+  }], { session, ordered: true });
 
   return { enrollment: enrollmentDocs[0], created: true, reactivated: false, curriculumSource: source };
 }

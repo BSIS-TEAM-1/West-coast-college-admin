@@ -16,6 +16,7 @@ export type RetakeSubject = {
   grade: number | null
   gradeMark: string | null
   outcome: 'Failed' | 'Dropped'
+  isScheduled?: boolean
 }
 
 export type ReEnrollmentSubjectGrade = {
@@ -55,6 +56,8 @@ export type ReEnrollmentInfo = {
   targetSchoolYear: string
   targetSemester: ReEnrollmentSemester
   needsRetake: boolean
+  hasUnscheduledRetake?: boolean
+  allRetakesScheduled?: boolean
   retakeSubjects: RetakeSubject[]
   gradeSummary: ReEnrollmentGradeSummary
   verification: ReEnrollmentVerification

@@ -5,6 +5,7 @@ const GradeChangeRequest = require('../models/GradeChangeRequest');
 const TransmutationTable = require('../models/TransmutationTable');
 const StudentBlockAssignment = require('../models/StudentBlockAssignment');
 const BlockSection = require('../models/BlockSection');
+const BlockSubjectAssignment = require('../models/BlockSubjectAssignment');
 const Student = require('../models/Student');
 const StudentNotification = require('../models/StudentNotification');
 const SystemSetting = require('../models/SystemSetting');
@@ -677,12 +678,58 @@ async function getAllCoursesSummary(req, res) {
     const sectionIds = Array.from(
       new Set(assignments.map((a) => a.sectionId).filter((id) => mongoose.Types.ObjectId.isValid(id)))
     );
-    const sections = sectionIds.length > 0
-      ? await BlockSection.find({ _id: { $in: sectionIds.map((id) => new mongoose.Types.ObjectId(id)) } })
-          .select('_id sectionCode')
-          .lean()
-      : [];
-    const sectionMap = new Map(sections.map((s) => [String(s._id), s.sectionCode]));
+    const subSecCodes = new Set();
+    enrollments.forEach((e) => {
+      (e.subjects || []).forEach((s) => {
+        const c = String(s?.sectionCode || '').trim();
+        if (c && !c.toLowerCase().includes('unassigned') && !c.toLowerCase().includes('unknown')) {
+          subSecCodes.add(c);
+        }
+      });
+    });
+
+    const sectionQuery = [];
+    if (sectionIds.length > 0) sectionQuery.push({ _id: { $in: sectionIds.map((id) => new mongoose.Types.ObjectId(id)) } });
+    if (subSecCodes.size > 0) sectionQuery.push({ sectionCode: { $in: Array.from(subSecCodes) } });
+
+    let sections = [];
+    if (sectionQuery.length > 0 && typeof BlockSection?.find === 'function' && (mongoose.connection?.readyState === 1 || BlockSection.find._isMockFunction)) {
+      try {
+        const q = sectionQuery.length === 1 ? sectionQuery[0] : { $or: sectionQuery };
+        const queryRes = BlockSection.find(q);
+        if (queryRes && typeof queryRes.select === 'function') {
+          sections = (await queryRes.select('_id sectionCode').lean()) || [];
+        }
+      } catch (_secErr) {
+        sections = [];
+      }
+    }
+
+    const sectionMap = new Map((sections || []).map((s) => [String(s._id), s.sectionCode]));
+    const sectionMapByCode = new Map((sections || []).map((s) => [String(s.sectionCode || '').trim().toLowerCase(), s]));
+
+    let bsaDocs = [];
+    if (typeof BlockSubjectAssignment?.find === 'function' && (mongoose.connection?.readyState === 1 || BlockSubjectAssignment.find._isMockFunction)) {
+      try {
+        const bsaQuery = BlockSubjectAssignment.find({});
+        if (bsaQuery && typeof bsaQuery.select === 'function') {
+          bsaDocs = (await bsaQuery.select('blockSectionId subjectId semester academicYear').lean()) || [];
+        }
+      } catch (_bsaErr) {
+        bsaDocs = [];
+      }
+    }
+
+    const bsaMap = new Map();
+    (bsaDocs || []).forEach((b) => {
+      const sem = String(b.semester || '').toLowerCase().replace(/\s+/g, '');
+      const normSem = sem.includes('1') ? '1st' : (sem.includes('2') ? '2nd' : 'Summer');
+      const sy = String(b.academicYear || '').trim();
+      const key = `${String(b.subjectId)}|${normSem}|${sy}`;
+      if (!bsaMap.has(key)) {
+        bsaMap.set(key, String(b.blockSectionId));
+      }
+    });
 
     // Group subjects by unique class: courseCode + subjectId + sectionCode
     const courseGroups = new Map();
@@ -703,8 +750,8 @@ async function getAllCoursesSummary(req, res) {
         (!a.year || String(a.year).includes(enrollment.schoolYear.split('-')[0]))
       ) || studentAssignments[0];
 
-      const sectionId = matchingAssignment ? String(matchingAssignment.sectionId) : '';
-      const sectionCode = (matchingAssignment && sectionMap.get(sectionId)) || 'Unassigned';
+      const defaultSectionId = matchingAssignment ? String(matchingAssignment.sectionId) : '';
+      const defaultSectionCode = (matchingAssignment && sectionMap.get(defaultSectionId)) || 'Unassigned';
 
       const profSubjects = (Array.isArray(enrollment.subjects) ? enrollment.subjects : []).filter((s) =>
         s.status !== 'Dropped' &&
@@ -713,15 +760,60 @@ async function getAllCoursesSummary(req, res) {
       );
 
       for (const subj of profSubjects) {
-        const groupKey = `${enrollment.course}|${subj.code}|${subj.subjectId}|${sectionCode}|${enrollment.semester}|${enrollment.schoolYear}`;
+        let effSectionId = '';
+        let effSectionCode = '';
+
+        const subSec = String(subj.sectionCode || '').trim();
+        if (subSec && !subSec.toLowerCase().includes('unassigned') && !subSec.toLowerCase().includes('unknown')) {
+          const matched = sectionMapByCode.get(subSec.toLowerCase());
+          if (matched) {
+            effSectionId = String(matched._id);
+            effSectionCode = matched.sectionCode;
+          } else {
+            effSectionCode = subSec;
+          }
+        }
+
+        if (!effSectionId && defaultSectionId && defaultSectionCode && !defaultSectionCode.toLowerCase().includes('unassigned')) {
+          const sem = String(enrollment.semester || '').toLowerCase().replace(/\s+/g, '');
+          const normSem = sem.includes('1') ? '1st' : (sem.includes('2') ? '2nd' : 'Summer');
+          const bsaSecId = bsaMap.get(`${String(subj.subjectId)}|${normSem}|${String(enrollment.schoolYear || '').trim()}`);
+          if (!bsaSecId || bsaSecId === defaultSectionId) {
+            effSectionId = defaultSectionId;
+            effSectionCode = defaultSectionCode;
+          } else {
+            const bsaSec = sectionMap.get(bsaSecId);
+            if (bsaSec) {
+              effSectionId = bsaSecId;
+              effSectionCode = bsaSec;
+            } else {
+              effSectionId = defaultSectionId;
+              effSectionCode = defaultSectionCode;
+            }
+          }
+        }
+
+        if (!effSectionId) {
+          const sem = String(enrollment.semester || '').toLowerCase().replace(/\s+/g, '');
+          const normSem = sem.includes('1') ? '1st' : (sem.includes('2') ? '2nd' : 'Summer');
+          const bsaSecId = bsaMap.get(`${String(subj.subjectId)}|${normSem}|${String(enrollment.schoolYear || '').trim()}`);
+          if (bsaSecId) {
+            effSectionId = bsaSecId;
+            effSectionCode = sectionMap.get(bsaSecId) || 'Unassigned';
+          }
+        }
+
+        if (!effSectionCode) effSectionCode = 'Unassigned';
+
+        const groupKey = `${enrollment.course}|${subj.code}|${subj.subjectId}|${effSectionCode}|${enrollment.semester}|${enrollment.schoolYear}`;
 
         if (!courseGroups.has(groupKey)) {
           courseGroups.set(groupKey, {
             key: groupKey,
             courseCode: enrollment.course,
-            sectionId,
-            sectionCode,
-            blockCode: `${enrollment.course} ${sectionCode}`.trim(),
+            sectionId: effSectionId,
+            sectionCode: effSectionCode,
+            blockCode: `${enrollment.course} ${effSectionCode}`.trim(),
             subjectId: String(subj.subjectId),
             subjectCode: subj.code,
             subjectTitle: subj.title,

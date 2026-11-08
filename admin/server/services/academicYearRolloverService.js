@@ -11,6 +11,9 @@ const AcademicArchiveService = require('./AcademicArchiveService');
 const AuditLog = require('../models/AuditLog');
 const SystemSetting = require('../models/SystemSetting');
 const Curriculum = require('../models/Curriculum');
+const CurriculumSubject = require('../models/CurriculumSubject');
+const { hasUnresolvedFailedOrDroppedAttempts } = require('./enrollmentGuard');
+const subjectEnrollmentService = require('./subjectEnrollmentService');
 const AcademicPeriod = require('../models/AcademicPeriod');
 const curriculumProgressService = require('./curriculumProgressService');
 const rolloverGradeService = require('./rolloverGradeService');
@@ -244,7 +247,7 @@ class AcademicYearRolloverService {
 
     const students = await Student.find({
       schoolYear: fromSchoolYear,
-      lifecycleStatus: { $in: ['Enrolled', 'Pending', 'Not Enrolled'] }
+      lifecycleStatus: { $in: ['Enrolled', 'Pending', 'Not Enrolled', 'Irregular'] }
     })
       .select('studentNumber firstName middleName lastName suffix course yearLevel section semester schoolYear latestGrade lifecycleStatus studentStatus')
       .sort({ course: 1, yearLevel: 1, lastName: 1 })
@@ -340,7 +343,7 @@ class AcademicYearRolloverService {
 
     const baseMatch = {
       schoolYear: fromSchoolYear,
-      lifecycleStatus: { $in: ['Enrolled', 'Pending', 'Not Enrolled'] },
+      lifecycleStatus: { $in: ['Enrolled', 'Pending', 'Not Enrolled', 'Irregular'] },
     };
 
     // Single aggregation pipeline: group by course, yearLevel, section
@@ -566,7 +569,7 @@ class AcademicYearRolloverService {
 
     const query = {
       schoolYear: fromSchoolYear,
-      lifecycleStatus: { $in: ['Enrolled', 'Pending', 'Not Enrolled'] },
+      lifecycleStatus: { $in: ['Enrolled', 'Pending', 'Not Enrolled', 'Irregular'] },
     };
 
     if (course !== undefined && course !== null && course !== '') {
@@ -689,7 +692,7 @@ class AcademicYearRolloverService {
     });
     const query = {
       schoolYear: fromSchoolYear,
-      lifecycleStatus: { $in: ['Enrolled', 'Pending', 'Not Enrolled'] },
+      lifecycleStatus: { $in: ['Enrolled', 'Pending', 'Not Enrolled', 'Irregular'] },
       $and: [
         { _id: { $nin: gradedStudentIds } },
         { latestGrade: { $not: { $type: 'number' } } },
@@ -827,7 +830,7 @@ class AcademicYearRolloverService {
 
         const groupQuery = {
           schoolYear: fromSchoolYear,
-          lifecycleStatus: { $in: ['Enrolled', 'Pending', 'Not Enrolled'] },
+          lifecycleStatus: { $in: ['Enrolled', 'Pending', 'Not Enrolled', 'Irregular'] },
           course: Number(gd.course),
           yearLevel: Number(gd.yearLevel),
         };
@@ -1117,7 +1120,7 @@ class AcademicYearRolloverService {
             archivedAt: null,
             archivedBy: null,
             policies: template.policies,
-          })), { session });
+          })), { session, ordered: true });
 
           const clonedSections = await BlockSection.create(
             clonedGroups.flatMap((group, index) => {
@@ -1131,7 +1134,7 @@ class AcademicYearRolloverService {
                 status: 'OPEN',
               }));
             }),
-            { session }
+            { session, ordered: true }
           );
 
           clonedGroups.forEach((group) => {
@@ -1160,15 +1163,28 @@ class AcademicYearRolloverService {
             const templateGroup = closingGroups.find(
               (g) => Number(g.courseId) === Number(course) && Number(g.yearLevel) === Number(yearLevel)
             );
+            const sameCourseTemplate = closingGroups.find(
+              (g) => Number(g.courseId) === Number(course) && g.curriculumId
+            );
+            let resolvedCurriculumId = templateGroup?.curriculumId || sameCourseTemplate?.curriculumId || null;
+            if (!resolvedCurriculumId && typeof Curriculum.find === 'function') {
+              const activeCurricula = await Curriculum.find({
+                programCode: { $in: [Number(course), String(course)] },
+                status: 'Active'
+              }).session(session).select('_id').lean();
+              if (activeCurricula && activeCurricula.length > 0) {
+                resolvedCurriculumId = activeCurricula[0]._id;
+              }
+            }
             const name = `${course}-${yearLevel}-A`;
             const created = await BlockGroup.create([{
               name,
               courseId: Number(course),
-              courseCode: templateGroup?.courseCode || String(ENROLLMENT_COURSE_BY_CODE[course] || course),
+              courseCode: templateGroup?.courseCode || sameCourseTemplate?.courseCode || String(ENROLLMENT_COURSE_BY_CODE[course] || course),
               // Keep the cohort's curriculum: a rolled-over block without a
               // curriculumId shows "no curriculum" and cannot auto-assign its
               // subjects.
-              curriculumId: templateGroup?.curriculumId || null,
+              curriculumId: resolvedCurriculumId,
               yearLevel: Number(yearLevel),
               semester: targetSemester,
               schoolYear: toSchoolYear,
@@ -1179,7 +1195,7 @@ class AcademicYearRolloverService {
               archivedAt: null,
               archivedBy: null,
               policies: templateGroup?.policies || undefined
-            }], { session });
+            }], { session, ordered: true });
             group = created[0];
             targetGroupByCohort.set(cacheKey, group);
             sectionsByGroup.set(String(group._id), []);
@@ -1204,7 +1220,7 @@ class AcademicYearRolloverService {
               capacity: templateSection?.capacity || DEFAULT_SECTION_CAPACITY,
               currentPopulation: 0,
               status: 'OPEN'
-            }], { session });
+            }], { session, ordered: true });
             section = createdSections[0];
             sections.push(section);
             sectionsByGroup.set(String(group._id), sections);
@@ -1214,6 +1230,19 @@ class AcademicYearRolloverService {
           const cohort = { group, section };
           newSectionCache.set(cacheKey, cohort);
           return cohort;
+        };
+
+        const resolveSectionForStudent = async (course, yearLevel, existingSectionCode) => {
+          const { group } = await ensureBlockForCohort(course, yearLevel);
+          const sections = sectionsByGroup.get(String(group._id)) || [];
+          if (existingSectionCode) {
+            const match = sections.find((s) => s.sectionCode === existingSectionCode);
+            if (match) return { group, section: match };
+          }
+          let section = sections
+            .slice()
+            .sort((a, b) => Number(a.currentPopulation || 0) - Number(b.currentPopulation || 0))[0];
+          return { group, section };
         };
 
         // ---- Step 2: Evaluate students and apply decisions ----
@@ -1244,18 +1273,27 @@ class AcademicYearRolloverService {
         // isCurrent ones: a pre-registered Pending enrollment for the new year
         // is usually not marked current yet, but creating another one would
         // still duplicate the student's term.
+        // Retake reservations (isRetakeReservation: true) are exempt: they are
+        // dormant retake-only enrollments recorded for a future term, and the
+        // rollover ADOPTS one as the student's real enrollment (see Step 2)
+        // instead of duplicating it — that is when the retake becomes active.
         const targetEnrollmentDocs = studentIds.length > 0
           ? await Enrollment.find({
             studentId: { $in: studentIds },
             schoolYear: toSchoolYear,
             semester: targetSemester,
             status: { $nin: ['Dropped', 'Cancelled'] },
-          }).session(session).select('_id studentId schoolYear semester status isCurrent').lean()
+          }).session(session).select('_id studentId schoolYear semester status isCurrent isRetakeReservation yearLevel course curriculumId assessment createdBy').lean()
           : [];
         const targetEnrollmentByStudent = new Map();
+        const retakeReservationByStudent = new Map();
         for (const enrollment of targetEnrollmentDocs) {
           const key = String(enrollment.studentId);
-          if (!targetEnrollmentByStudent.has(key)) targetEnrollmentByStudent.set(key, enrollment);
+          if (enrollment.isRetakeReservation) {
+            if (!retakeReservationByStudent.has(key)) retakeReservationByStudent.set(key, enrollment);
+          } else if (!targetEnrollmentByStudent.has(key)) {
+            targetEnrollmentByStudent.set(key, enrollment);
+          }
         }
 
         // Load target-year assignments once so they can be upserted in one bulk write.
@@ -1291,11 +1329,32 @@ class AcademicYearRolloverService {
           const key = Number(curriculum.programCode);
           if (!curriculumByProgram.has(key)) curriculumByProgram.set(key, curriculum._id);
         }
+        const activeCurriculumIds = [...curriculumByProgram.values()].filter(Boolean);
+        const csPlacements = (semesterRollover && activeCurriculumIds.length > 0)
+          ? await CurriculumSubject.find({
+              curriculumId: { $in: activeCurriculumIds },
+              semester: targetSemester,
+            })
+              .session(session)
+              .populate('subjectId')
+              .lean()
+          : [];
+
+        const placementsByCurriculumAndYear = new Map();
+        for (const p of csPlacements) {
+          if (!p.subjectId || p.subjectId.isActive === false || p.subjectId.status === 'Inactive') continue;
+          const key = `${String(p.curriculumId)}_${Number(p.yearLevel)}`;
+          if (!placementsByCurriculumAndYear.has(key)) {
+            placementsByCurriculumAndYear.set(key, []);
+          }
+          placementsByCurriculumAndYear.get(key).push(p);
+        }
 
         const newEnrollmentDocs = [];
         const oldEnrollmentOps = [];
         const studentOps = [];
         const assignmentOps = [];
+        const adoptionOps = [];
         const sectionIncrements = new Map();
         const promoteRetainStudentIds = [];
 
@@ -1315,6 +1374,8 @@ class AcademicYearRolloverService {
             semester: student.semester,
             section: student.section ?? null,
             lifecycleStatus: student.lifecycleStatus,
+            studentStatus: student.studentStatus || null,
+            classification: student.classification || null,
             enrollmentStatus: student.enrollmentStatus,
             isActive: student.isActive,
             latestGrade: student.latestGrade,
@@ -1362,7 +1423,7 @@ class AcademicYearRolloverService {
           // Acting on a stale decision would promote a withdrawn student or
           // double-apply the rollover, so the whole batch is aborted with a
           // clear failure list and a fresh preview is required.
-          const rolloverEligibleLifecycle = ['Enrolled', 'Pending', 'Not Enrolled'];
+          const rolloverEligibleLifecycle = ['Enrolled', 'Pending', 'Not Enrolled', 'Irregular'];
           if (
             !sameValue(student.schoolYear, fromSchoolYear) ||
             !rolloverEligibleLifecycle.includes(student.lifecycleStatus)
@@ -1377,9 +1438,12 @@ class AcademicYearRolloverService {
           }
 
           // ---- Duplicate enrollment prevention ----
-          // If the student already has an enrollment for the target term
-          // (e.g. pre-registered for the new year), creating a second one
+          // If the student already has a regular enrollment for the target
+          // term (e.g. pre-registered for the new year), creating a second one
           // would duplicate the record, so the batch is aborted.
+          // A retake reservation is NOT a conflict: it is adopted below and
+          // becomes the student's real enrollment for the term.
+          const retakeReservation = retakeReservationByStudent.get(String(student._id)) || null;
           if (decision.action !== 'graduate') {
             const conflictingEnrollment = targetEnrollmentByStudent.get(String(student._id));
             if (conflictingEnrollment) {
@@ -1464,6 +1528,24 @@ class AcademicYearRolloverService {
               },
             });
 
+            // A graduating student's retake reservation can never activate,
+            // so retire it instead of leaving it pending forever.
+            if (retakeReservation) {
+              adoptionOps.push({
+                updateOne: {
+                  filter: { _id: retakeReservation._id, lockedAt: null, isRetakeReservation: true },
+                  update: {
+                    $set: {
+                      status: 'Cancelled',
+                      isCurrent: false,
+                      updatedBy: adminId,
+                      updatedAt: now,
+                    },
+                  },
+                },
+              });
+            }
+
             studentChanges.push({
               studentId: String(student._id),
               studentNumber: student.studentNumber,
@@ -1486,6 +1568,19 @@ class AcademicYearRolloverService {
               newSectionCode: null,
               previousBlockAssignment: null,
               newBlockAssignmentId: null,
+              retakeReservationBefore: retakeReservation
+                ? {
+                  _id: retakeReservation._id,
+                  status: retakeReservation.status,
+                  isCurrent: retakeReservation.isCurrent,
+                  yearLevel: retakeReservation.yearLevel,
+                  course: retakeReservation.course,
+                  curriculumId: retakeReservation.curriculumId || null,
+                  assessment: retakeReservation.assessment || null,
+                  createdBy: retakeReservation.createdBy || null,
+                }
+                : null,
+              retakeReservationCancelled: Boolean(retakeReservation),
             });
 
             results.graduated.push({ ...entry, toYearLevel: student.yearLevel });
@@ -1501,41 +1596,40 @@ class AcademicYearRolloverService {
               : Math.min(Number(student.yearLevel) + 1, 5))
             : Number(student.yearLevel);
 
-          const { section } = await ensureBlockForCohort(student.course, newYearLevel);
+          // Ensure the block group and opening section exist for this cohort (empty and ready for re-enrollment)
+          await ensureBlockForCohort(student.course, newYearLevel);
 
-          const newCurriculumId = (currentEnrollment && currentEnrollment.curriculumId)
-            ? currentEnrollment.curriculumId
-            : (curriculumByProgram.get(Number(student.course)) || null);
-
-          const newEnrollmentId = new mongoose.Types.ObjectId();
-          newEnrollmentDocs.push({
-            _id: newEnrollmentId,
-            studentId: student._id,
-            studentNumber: student.studentNumber,
-            schoolYear: toSchoolYear,
-            semester: targetSemester,
-            yearLevel: newYearLevel,
-            course: ENROLLMENT_COURSE_BY_CODE[student.course] || 'BEED',
-            curriculumId: newCurriculumId,
-            subjects: [],
-            assessment: {
-              tuitionFee: 0,
-              miscFee: 0,
-              otherFees: 0,
-              totalAmount: 0,
-              discount: 0,
-              balance: 0,
-              paymentStatus: 'Fully Paid',
-              paymentHistory: [],
-            },
-            status: 'Enrolled',
-            isCurrent: true,
-            rolloverBatchId,
-            previousEnrollmentId: currentEnrollment ? currentEnrollment._id : null,
-            createdBy: adminId,
-            createdAt: now,
-            updatedAt: now,
-          });
+          // If the student has a dormant retake reservation, keep it dormant (Pending, isCurrent: false)
+          // and align its year level so it can be adopted when the student re-enrolls.
+          let retakeReservationBefore = null;
+          if (retakeReservation) {
+            retakeReservationBefore = {
+              _id: retakeReservation._id,
+              status: retakeReservation.status,
+              isCurrent: retakeReservation.isCurrent,
+              yearLevel: retakeReservation.yearLevel,
+              course: retakeReservation.course,
+              curriculumId: retakeReservation.curriculumId || null,
+              assessment: retakeReservation.assessment || null,
+              createdBy: retakeReservation.createdBy || null,
+            };
+            adoptionOps.push({
+              updateOne: {
+                filter: {
+                  _id: retakeReservation._id,
+                  status: 'Pending',
+                  isRetakeReservation: true,
+                },
+                update: {
+                  $set: {
+                    yearLevel: newYearLevel,
+                    updatedBy: adminId,
+                    updatedAt: now,
+                  },
+                },
+              },
+            });
+          }
 
           const previousBlockAssignment = targetAssignmentByStudent.get(String(student._id)) || null;
           const previousBlockAssignmentBefore = previousBlockAssignment ? {
@@ -1550,87 +1644,290 @@ class AcademicYearRolloverService {
             waitlistPriority: previousBlockAssignment.waitlistPriority ?? null,
           } : null;
 
-          const assignmentId = previousBlockAssignment?._id || new mongoose.Types.ObjectId();
-          assignmentOps.push({
-            updateOne: {
-              filter: { _id: assignmentId },
-              update: {
-                $set: {
-                  studentId: String(student._id),
-                  sectionId: section._id,
-                  semester: targetSemester,
-                  year: toSchoolYear,
-                  schoolYear: toSchoolYear,
-                  status: 'ASSIGNED',
-                  assignedAt: now,
-                  updatedAt: now,
-                },
-                $setOnInsert: { createdAt: now },
-              },
-              upsert: true,
-            },
-          });
-
-          const sectionKey = String(section._id);
-          sectionIncrements.set(sectionKey, (sectionIncrements.get(sectionKey) || 0) + 1);
           promoteRetainStudentIds.push(student._id);
 
-          // Move the student forward in memory; the actual write is batched below.
-          student.yearLevel = newYearLevel;
-          student.schoolYear = toSchoolYear;
-          student.semester = targetSemester;
-          student.section = section.sectionCode;
-          student.lifecycleStatus = 'Enrolled';
-          student.enrollmentStatus = 'Enrolled';
-          student.updatedBy = adminId;
+          if (semesterRollover) {
+            // In a mid-year semester rollover, students remain in their cohort and block.
+            // They advance directly to the opening semester and stay Enrolled (or Irregular if deficient).
+            const { section } = await resolveSectionForStudent(student.course, newYearLevel, student.section);
 
-          studentOps.push({
-            updateOne: {
-              filter: { _id: student._id },
-              update: {
-                $set: {
-                  yearLevel: newYearLevel,
-                  schoolYear: toSchoolYear,
-                  semester: targetSemester,
-                  section: section.sectionCode,
-                  lifecycleStatus: 'Enrolled',
-                  enrollmentStatus: 'Enrolled',
-                  updatedBy: adminId,
-                  updatedAt: now,
+            const newCurriculumId = (currentEnrollment && currentEnrollment.curriculumId)
+              ? currentEnrollment.curriculumId
+              : (curriculumByProgram.get(Number(student.course)) || null);
+
+            const key = `${String(newCurriculumId)}_${Number(newYearLevel)}`;
+            const cohortPlacements = placementsByCurriculumAndYear.get(key) || [];
+
+            // Track completed subjects to avoid re-assigning passed subjects to irregular students
+            const completedSubjectIds = new Set();
+            const studentEnrollments = currentEnrollmentsByStudent.get(String(student._id)) || [];
+            for (const enr of studentEnrollments) {
+              for (const sub of (enr.subjects || [])) {
+                if (sub.status === 'Completed' || (typeof sub.grade === 'number' && sub.grade <= PASSING_GRADE)) {
+                  completedSubjectIds.add(String(sub.subjectId));
+                  if (sub.code) completedSubjectIds.add(String(sub.code).trim().toUpperCase());
+                }
+              }
+            }
+
+            const assignedSubjects = [];
+            for (const placement of cohortPlacements) {
+              const subId = String(placement.subjectId?._id || placement.subjectId);
+              const code = String(placement.subjectId?.code || placement.courseNo || '').trim().toUpperCase();
+              if (completedSubjectIds.has(subId) || completedSubjectIds.has(code)) {
+                continue;
+              }
+
+              assignedSubjects.push({
+                subjectId: placement.subjectId?._id || placement.subjectId,
+                code: placement.subjectId?.code || placement.courseNo,
+                title: placement.subjectId?.title || placement.descriptiveTitle,
+                units: Number(placement.units ?? placement.subjectId?.units) || 3,
+                schedule: 'TBA',
+                room: 'TBA',
+                instructor: 'TBA',
+                sectionCode: section.sectionCode,
+                status: 'Enrolled',
+                dateEnrolled: now,
+                dateModified: now,
+                addedBy: adminId,
+              });
+            }
+
+            // Adopt retake reservation subjects if present
+            let adoptedFromReservation = false;
+            if (retakeReservation && Array.isArray(retakeReservation.subjects)) {
+              for (const retakeSub of retakeReservation.subjects) {
+                if (retakeSub.status === 'Dropped' || retakeSub.status === 'Cancelled') continue;
+                assignedSubjects.push({
+                  subjectId: retakeSub.subjectId,
+                  code: retakeSub.code,
+                  title: retakeSub.title,
+                  units: Number(retakeSub.units) || 3,
+                  schedule: retakeSub.schedule || 'TBA',
+                  room: retakeSub.room || 'TBA',
+                  instructor: retakeSub.instructor || 'TBA',
+                  sectionCode: retakeSub.sectionCode || section.sectionCode,
+                  status: 'Enrolled',
+                  isAdditional: true,
+                  retakeOf: retakeSub.retakeOf || null,
+                  dateEnrolled: now,
+                  dateModified: now,
+                  addedBy: adminId,
+                });
+              }
+              adoptedFromReservation = true;
+              adoptionOps.push({
+                updateOne: {
+                  filter: { _id: retakeReservation._id, isRetakeReservation: true },
+                  update: {
+                    $set: {
+                      status: 'Completed',
+                      isCurrent: false,
+                      isRetakeReservation: false,
+                      updatedBy: adminId,
+                      updatedAt: now,
+                    },
+                  },
+                },
+              });
+            }
+
+            const totalUnits = assignedSubjects.reduce((sum, s) => sum + (Number(s.units) || 0), 0);
+
+            const newEnrollmentId = new mongoose.Types.ObjectId();
+            newEnrollmentDocs.push({
+              _id: newEnrollmentId,
+              studentId: student._id,
+              studentNumber: student.studentNumber,
+              schoolYear: toSchoolYear,
+              semester: targetSemester,
+              yearLevel: newYearLevel,
+              course: ENROLLMENT_COURSE_BY_CODE[student.course] || 'BEED',
+              curriculumId: newCurriculumId,
+              subjects: assignedSubjects,
+              assessment: {
+                tuitionFee: totalUnits * 300,
+                miscFee: 0,
+                otherFees: 0,
+                totalAmount: totalUnits * 300,
+                discount: 0,
+                balance: 0,
+                paymentStatus: 'Fully Paid',
+                paymentHistory: [],
+              },
+              status: 'Enrolled',
+              isCurrent: true,
+              rolloverBatchId,
+              previousEnrollmentId: currentEnrollment ? currentEnrollment._id : null,
+              createdBy: adminId,
+              createdAt: now,
+              updatedAt: now,
+            });
+
+            const assignmentId = previousBlockAssignment?._id || new mongoose.Types.ObjectId();
+            assignmentOps.push({
+              updateOne: {
+                filter: { _id: assignmentId },
+                update: {
+                  $set: {
+                    studentId: String(student._id),
+                    enrollmentId: newEnrollmentId,
+                    sectionId: section._id,
+                    semester: targetSemester,
+                    year: toSchoolYear,
+                    schoolYear: toSchoolYear,
+                    status: 'ASSIGNED',
+                    assignedAt: now,
+                    updatedAt: now,
+                  },
+                  $setOnInsert: { createdAt: now },
+                },
+                upsert: true,
+              },
+            });
+
+            const sectionKey = String(section._id);
+            sectionIncrements.set(sectionKey, (sectionIncrements.get(sectionKey) || 0) + 1);
+
+            const hasUnresolvedFailures = await hasUnresolvedFailedOrDroppedAttempts({
+              studentId: student._id,
+              schoolYear: toSchoolYear,
+              semester: targetSemester,
+              session,
+            });
+            const hasAdditionalLoad = assignedSubjects.some((s) => s.isAdditional || s.retakeOf);
+            const isStillIrregular = (student.studentStatus === 'Irregular' || student.classification === 'Irregular' || student.lifecycleStatus === 'Irregular')
+              && (hasUnresolvedFailures || hasAdditionalLoad);
+            const targetLifecycle = isStillIrregular ? 'Irregular' : 'Enrolled';
+            const targetStudentStatus = isStillIrregular ? 'Irregular' : (student.studentStatus === 'Irregular' ? 'Regular' : student.studentStatus);
+            const targetClassification = isStillIrregular ? 'Irregular' : (student.classification === 'Irregular' ? 'Regular' : student.classification);
+
+            student.yearLevel = newYearLevel;
+            student.schoolYear = toSchoolYear;
+            student.semester = targetSemester;
+            student.section = section.sectionCode;
+            student.lifecycleStatus = targetLifecycle;
+            student.studentStatus = targetStudentStatus;
+            student.classification = targetClassification;
+            student.enrollmentStatus = 'Enrolled';
+            student.updatedBy = adminId;
+
+            studentOps.push({
+              updateOne: {
+                filter: { _id: student._id },
+                update: {
+                  $set: {
+                    yearLevel: newYearLevel,
+                    schoolYear: toSchoolYear,
+                    semester: targetSemester,
+                    section: section.sectionCode,
+                    lifecycleStatus: targetLifecycle,
+                    studentStatus: targetStudentStatus,
+                    classification: targetClassification,
+                    enrollmentStatus: 'Enrolled',
+                    updatedBy: adminId,
+                    updatedAt: now,
+                  },
                 },
               },
-            },
-          });
+            });
 
-          studentChanges.push({
-            studentId: String(student._id),
-            studentNumber: student.studentNumber,
-            action: decision.action,
-            studentBefore,
-            studentAfter: {
-              yearLevel: student.yearLevel,
-              schoolYear: student.schoolYear,
-              semester: student.semester,
-              section: student.section,
-              lifecycleStatus: student.lifecycleStatus,
-              enrollmentStatus: student.enrollmentStatus,
-              isActive: student.isActive,
-            },
-            previousEnrollment: previousEnrollmentBefore,
-            otherCurrentEnrollmentIds,
-            newEnrollmentId: String(newEnrollmentId),
-            newYearLevel,
-            newSectionId: String(section._id),
-            newSectionCode: section.sectionCode,
-            previousBlockAssignment: previousBlockAssignmentBefore,
-            newBlockAssignmentId: String(assignmentId),
-          });
+            studentChanges.push({
+              studentId: String(student._id),
+              studentNumber: student.studentNumber,
+              action: decision.action,
+              studentBefore,
+              studentAfter: {
+                yearLevel: student.yearLevel,
+                schoolYear: student.schoolYear,
+                semester: student.semester,
+                section: section.sectionCode,
+                lifecycleStatus: targetLifecycle,
+                studentStatus: targetStudentStatus,
+                classification: targetClassification,
+                enrollmentStatus: 'Enrolled',
+                isActive: student.isActive,
+              },
+              previousEnrollment: previousEnrollmentBefore,
+              otherCurrentEnrollmentIds,
+              newEnrollmentId: String(newEnrollmentId),
+              retakeAdoption: adoptedFromReservation,
+              retakeReservationBefore,
+              newYearLevel,
+              newSectionId: String(section._id),
+              newSectionCode: section.sectionCode,
+              previousBlockAssignment: previousBlockAssignmentBefore,
+              newBlockAssignmentId: String(assignmentId),
+            });
 
-          const resultEntry = { ...entry, toYearLevel: newYearLevel, newEnrollmentId: String(newEnrollmentId), newSection: section.sectionCode };
-          if (decision.action === 'promote') {
-            results.promoted.push(resultEntry);
+            results.promoted.push({
+              ...entry,
+              toYearLevel: newYearLevel,
+              newEnrollmentId: String(newEnrollmentId),
+              newSection: section.sectionCode,
+            });
           } else {
-            results.retained.push(resultEntry);
+            // School-Year (annual/term basis) rollover: students advance to new year level
+            // and await re-enrollment in the Re-enrollment tab.
+            student.yearLevel = newYearLevel;
+            student.schoolYear = toSchoolYear;
+            student.semester = targetSemester;
+            student.section = null;
+            student.lifecycleStatus = 'Pending';
+            student.enrollmentStatus = 'Pending';
+            student.updatedBy = adminId;
+
+            studentOps.push({
+              updateOne: {
+                filter: { _id: student._id },
+                update: {
+                  $set: {
+                    yearLevel: newYearLevel,
+                    schoolYear: toSchoolYear,
+                    semester: targetSemester,
+                    section: null,
+                    lifecycleStatus: 'Pending',
+                    enrollmentStatus: 'Pending',
+                    updatedBy: adminId,
+                    updatedAt: now,
+                  },
+                },
+              },
+            });
+
+            studentChanges.push({
+              studentId: String(student._id),
+              studentNumber: student.studentNumber,
+              action: decision.action,
+              studentBefore,
+              studentAfter: {
+                yearLevel: student.yearLevel,
+                schoolYear: student.schoolYear,
+                semester: student.semester,
+                section: null,
+                lifecycleStatus: 'Pending',
+                enrollmentStatus: 'Pending',
+                isActive: student.isActive,
+              },
+              previousEnrollment: previousEnrollmentBefore,
+              otherCurrentEnrollmentIds,
+              newEnrollmentId: null,
+              retakeAdoption: false,
+              retakeReservationBefore,
+              newYearLevel,
+              newSectionId: null,
+              newSectionCode: null,
+              previousBlockAssignment: previousBlockAssignmentBefore,
+              newBlockAssignmentId: null,
+            });
+
+            const resultEntry = { ...entry, toYearLevel: newYearLevel, newEnrollmentId: null, newSection: null };
+            if (decision.action === 'promote') {
+              results.promoted.push(resultEntry);
+            } else {
+              results.retained.push(resultEntry);
+            }
           }
         }
 
@@ -1663,8 +1960,25 @@ class AcademicYearRolloverService {
           }
         }
 
+        if (adoptionOps.length > 0) {
+          const adoptionResult = await Enrollment.bulkWrite(adoptionOps, { session });
+          if (adoptionResult.matchedCount !== adoptionOps.length) {
+            throw Object.assign(
+              new Error('A retake reservation changed during the rollover. No changes were applied.'),
+              { statusCode: 409 }
+            );
+          }
+        }
+
         if (newEnrollmentDocs.length > 0) {
           await Enrollment.insertMany(newEnrollmentDocs, { session, ordered: true });
+          for (const newDoc of newEnrollmentDocs) {
+            try {
+              await subjectEnrollmentService.applySectionScheduleDefaults({ enrollment: newDoc, session });
+            } catch (_err) {
+              // Non-blocking schedule defaults stamp
+            }
+          }
         }
 
         if (studentOps.length > 0) {
@@ -1775,7 +2089,7 @@ class AcademicYearRolloverService {
           studentChanges,
           counts,
           snapshotIds: results.snapshotIds,
-        }], { session });
+        }], { session, ordered: true });
 
         // ---- Step 4: Advance the global academic term (final write) ----
         await SystemSetting.findOneAndUpdate(
@@ -1820,7 +2134,7 @@ class AcademicYearRolloverService {
           performedByRole: ['admin', 'registrar'].includes(String(adminRole || '').toLowerCase()) ? String(adminRole).toLowerCase() : 'registrar',
           status: 'SUCCESS',
           severity: 'HIGH'
-        }], { session });
+        }], { session, ordered: true });
       });
     } finally {
       await session.endSession();
@@ -1984,7 +2298,21 @@ class AcademicYearRolloverService {
         }
 
         const studentIds = uniqueIdStrings(changes.map((change) => change.studentId));
-        const newEnrollmentIds = uniqueIdStrings(changes.map((change) => change.newEnrollmentId));
+        // Enrollments the batch CREATED (delete on revert) versus enrollments
+        // it ADOPTED from a dormant retake reservation (restore on revert) —
+        // deleting an adopted reservation would destroy the retake history.
+        const createdEnrollmentIds = uniqueIdStrings(
+          changes.filter((change) => change.newEnrollmentId && !change.retakeReservationBefore)
+            .map((change) => change.newEnrollmentId)
+        );
+        const adoptedReservationIds = uniqueIdStrings(
+          changes.filter((change) => change.retakeReservationBefore)
+            .map((change) => change.retakeReservationBefore._id)
+        );
+        const newEnrollmentIds = uniqueIdStrings([
+          ...createdEnrollmentIds,
+          ...adoptedReservationIds,
+        ]);
         const previousEnrollmentIds = uniqueIdStrings(changes.map((change) => change.previousEnrollment?._id));
         const newAssignmentIds = uniqueIdStrings(changes.map((change) => change.newBlockAssignmentId));
         const previousAssignmentIds = uniqueIdStrings(changes.map((change) => change.previousBlockAssignment?._id));
@@ -2083,6 +2411,33 @@ class AcademicYearRolloverService {
             }
           }
 
+          if (change.retakeReservationBefore) {
+            const reservation = newEnrollmentMap.get(String(change.retakeReservationBefore._id));
+            if (!reservation) {
+              throw Object.assign(new Error(`Retake reservation for ${label} was not found. Revert is blocked.`), { statusCode: 409 });
+            }
+            if (change.retakeAdoption) {
+              // Adopted: the reservation is now the student's active enrollment;
+              // the generic new-enrollment checks above already verified it.
+              if (reservation.rolloverBatchId !== batch.batchId) {
+                throw Object.assign(new Error(`Retake reservation for ${label} does not belong to this rollover. Revert is blocked.`), { statusCode: 409 });
+              }
+              if (!reservation.isCurrent || reservation.lockedAt) {
+                throw Object.assign(new Error(`Retake reservation for ${label} is no longer active. Revert is blocked.`), { statusCode: 409 });
+              }
+            } else if (!change.newEnrollmentId) {
+              // Graduate-cancelled reservation: it must still be the cancelled
+              // state this batch left it in, otherwise reverting would destroy
+              // whoever activated it since then.
+              if (reservation.status !== 'Cancelled') {
+                throw Object.assign(new Error(`Retake reservation for ${label} is no longer cancelled. Revert is blocked.`), { statusCode: 409 });
+              }
+              if (reservation.lockedAt) {
+                throw Object.assign(new Error(`Retake reservation for ${label} is locked. Revert is blocked.`), { statusCode: 409 });
+              }
+            }
+          }
+
           if (change.previousEnrollment?._id) {
             const previousEnrollment = previousEnrollmentMap.get(String(change.previousEnrollment._id));
             if (!previousEnrollment) {
@@ -2168,11 +2523,38 @@ class AcademicYearRolloverService {
         }
 
         // ---- Apply the revert ----
-        if (newEnrollmentIds.length > 0) {
+        if (createdEnrollmentIds.length > 0) {
           await Enrollment.deleteMany({
-            _id: { $in: newEnrollmentIds },
+            _id: { $in: createdEnrollmentIds },
             lockedAt: null,
           }).session(session);
+        }
+
+        // Adopted retake reservations are restored to their dormant
+        // reservation state instead of being deleted.
+        const adoptedReservationOps = changes
+          .filter((change) => change.retakeReservationBefore)
+          .map((change) => ({
+            updateOne: {
+              filter: { _id: change.retakeReservationBefore._id, lockedAt: null },
+              update: {
+                $set: {
+                  status: change.retakeReservationBefore.status,
+                  isCurrent: change.retakeReservationBefore.isCurrent,
+                  yearLevel: change.retakeReservationBefore.yearLevel,
+                  course: change.retakeReservationBefore.course,
+                  curriculumId: change.retakeReservationBefore.curriculumId ?? null,
+                  assessment: change.retakeReservationBefore.assessment ?? null,
+                  rolloverBatchId: null,
+                  previousEnrollmentId: null,
+                  isRetakeReservation: true,
+                  updatedBy: change.retakeReservationBefore.createdBy ?? null,
+                },
+              },
+            },
+          }));
+        if (adoptedReservationOps.length > 0) {
+          await Enrollment.bulkWrite(adoptedReservationOps, { session });
         }
 
         const previousEnrollmentOps = changes
@@ -2224,6 +2606,8 @@ class AcademicYearRolloverService {
                   semester: change.studentBefore.semester,
                   section: change.studentBefore.section ?? null,
                   lifecycleStatus: change.studentBefore.lifecycleStatus,
+                  studentStatus: change.studentBefore.studentStatus || 'Regular',
+                  classification: change.studentBefore.classification || 'Regular',
                   enrollmentStatus: change.studentBefore.enrollmentStatus,
                   isActive: change.studentBefore.isActive,
                   updatedBy: change.studentBefore.updatedBy ?? null,
@@ -2407,7 +2791,7 @@ class AcademicYearRolloverService {
           performedByRole: auditRole,
           status: 'SUCCESS',
           severity: 'HIGH',
-        }], { session });
+        }], { session, ordered: true });
         batch.revertAuditLogId = auditLog._id;
         await batch.save({ session });
 
@@ -2427,7 +2811,7 @@ class AcademicYearRolloverService {
           },
           counts: batch.counts || {},
           generatedBy: adminId,
-        }], { session });
+        }], { session, ordered: true });
         batch.revertSnapshotId = revertSnapshot._id;
         await batch.save({ session });
 

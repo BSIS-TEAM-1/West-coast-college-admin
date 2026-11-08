@@ -312,7 +312,7 @@ class EnrollmentManagementController {
         studentId: { $in: studentIds },
         schoolYear: { $lte: schoolYear },
       })
-        .select('studentId schoolYear semester status isCurrent lockedAt createdAt updatedAt subjects.subjectId subjects.code subjects.title subjects.units subjects.grade subjects.gradeMark subjects.status')
+        .select('studentId schoolYear semester status isCurrent isRetakeReservation lockedAt createdAt updatedAt subjects.subjectId subjects.code subjects.title subjects.units subjects.grade subjects.gradeMark subjects.status subjects.retakeOf subjects.isAdditional')
         .lean();
 
       const enrollmentsByStudent = new Map();
@@ -361,6 +361,7 @@ class EnrollmentManagementController {
 
         const alreadyEnrolled = history.some(
           (enrollment) => !isSupersededByDismissal(enrollment, student)
+            && !enrollment.isRetakeReservation
             && String(enrollment.schoolYear || '').trim() === schoolYear
             && String(enrollment.semester || '').trim() === semester
             && (currentTermOnly
@@ -449,16 +450,48 @@ class EnrollmentManagementController {
           }
         }
 
+        // Find if student has any target-term enrollment with scheduled retakes
+        const targetTermEnrollment = history.find(
+          (e) => String(e.schoolYear || '').trim() === schoolYear
+            && String(e.semester || '').trim() === semester
+            && !['Dropped', 'Cancelled'].includes(String(e.status || ''))
+        );
+        const scheduledRetakeSubjectIds = new Set();
+        const scheduledRetakeCodes = new Set();
+        if (targetTermEnrollment) {
+          for (const entry of targetTermEnrollment.subjects || []) {
+            const isRetake = Boolean(
+              (entry.retakeOf && (entry.retakeOf.enrollmentId || entry.retakeOf.subjectEntryId))
+              || entry.isAdditional === true
+            );
+            if (isRetake && entry.status !== 'Dropped' && entry.status !== 'Removed') {
+              if (entry.subjectId) scheduledRetakeSubjectIds.add(String(entry.subjectId));
+              if (entry.code) scheduledRetakeCodes.add(String(entry.code).trim().toUpperCase());
+            }
+          }
+        }
+
         const retakeSubjects = [];
+        let hasUnscheduledRetake = false;
         for (const { enrollment, entry } of latestBySubject.values()) {
           if (!subjectEnrollmentService.isRetakeableAttempt(entry)) continue;
+          // Retakes can only be taken in the same semester when the subject is offered
+          if (String(enrollment.semester || '').trim() !== String(semester).trim()) continue;
           const status = String(entry.status || '').trim();
           const mark = String(entry.gradeMark || '').trim().toUpperCase();
           const outcome = status === 'Dropped' || status === 'Removed' || mark === 'DRP'
             ? 'Dropped'
             : 'Failed';
+
+          const subjectIdStr = String(entry.subjectId || '');
+          const codeStr = String(entry.code || '').trim().toUpperCase();
+          const isScheduled = scheduledRetakeSubjectIds.has(subjectIdStr) || scheduledRetakeCodes.has(codeStr);
+          if (!isScheduled) {
+            hasUnscheduledRetake = true;
+          }
+
           retakeSubjects.push({
-            subjectId: String(entry.subjectId || ''),
+            subjectId: subjectIdStr,
             code: entry.code || '',
             title: entry.title || '',
             units: entry.units ?? null,
@@ -468,16 +501,20 @@ class EnrollmentManagementController {
             grade: entry.grade ?? null,
             gradeMark: entry.gradeMark || null,
             outcome,
+            isScheduled,
           });
         }
 
+        const allRetakesScheduled = retakeSubjects.length > 0 && !hasUnscheduledRetake;
         const { lifecycleStatusHistory: _omittedHistory, ...candidateStudent } = student;
         candidates.push({
           ...candidateStudent,
           reEnrollment: {
             targetSchoolYear: schoolYear,
             targetSemester: semester,
-            needsRetake: retakeSubjects.length > 0,
+            needsRetake: hasUnscheduledRetake,
+            hasUnscheduledRetake,
+            allRetakesScheduled,
             retakeSubjects,
             gradeSummary: buildGradeSummary(history, schoolYear, semester),
             verification: reEnrollmentVerificationService.serializeVerification(

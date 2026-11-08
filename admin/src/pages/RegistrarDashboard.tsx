@@ -119,8 +119,8 @@ const PAGE_TITLES: Record<RegistrarView, string> = {
   reports: 'Reports',
   profile: 'Profile',
   settings: 'Settings',
-  announcements: 'Announcements',
-  'announcement-detail': 'Announcements',
+  announcements: '',
+  'announcement-detail': '',
   'personal-details': 'Personal Details',
   'cor-docs': 'COR Generation',
 }

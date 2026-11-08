@@ -106,6 +106,37 @@
   font-size: 0.82rem;
 }
 
+.rollover-page__setup-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.rollover-page__setup-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem 1.15rem;
+  border: 1px solid var(--color-border, rgba(148, 163, 184, 0.24));
+  border-radius: 10px;
+  background: var(--color-bg-soft, #f8fafc);
+}
+
+.rollover-page__setup-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted, #64748b);
+}
+
+.rollover-page__setup-value {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--color-text);
+  letter-spacing: -0.01em;
+}
+
 .rollover-page__form-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -530,6 +561,7 @@
 @media (max-width: 900px) {
   .rollover-page__steps,
   .rollover-page__summary-cards,
+  .rollover-page__setup-grid,
   .rollover-page__form-grid {
     grid-template-columns: 1fr;
   }
