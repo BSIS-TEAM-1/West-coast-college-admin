@@ -763,43 +763,44 @@ async function getAllCoursesSummary(req, res) {
         let effSectionId = '';
         let effSectionCode = '';
 
-        const subSec = String(subj.sectionCode || '').trim();
-        if (subSec && !subSec.toLowerCase().includes('unassigned') && !subSec.toLowerCase().includes('unknown')) {
-          const matched = sectionMapByCode.get(subSec.toLowerCase());
-          if (matched) {
-            effSectionId = String(matched._id);
-            effSectionCode = matched.sectionCode;
-          } else {
-            effSectionCode = subSec;
-          }
-        }
+        const sem = String(enrollment.semester || '').toLowerCase().replace(/\s+/g, '');
+        const normSem = sem.includes('1') ? '1st' : (sem.includes('2') ? '2nd' : 'Summer');
+        const bsaSecId = bsaMap.get(`${String(subj.subjectId)}|${normSem}|${String(enrollment.schoolYear || '').trim()}`);
+        const bsaSecCode = bsaSecId ? sectionMap.get(bsaSecId) : null;
 
-        if (!effSectionId && defaultSectionId && defaultSectionCode && !defaultSectionCode.toLowerCase().includes('unassigned')) {
-          const sem = String(enrollment.semester || '').toLowerCase().replace(/\s+/g, '');
-          const normSem = sem.includes('1') ? '1st' : (sem.includes('2') ? '2nd' : 'Summer');
-          const bsaSecId = bsaMap.get(`${String(subj.subjectId)}|${normSem}|${String(enrollment.schoolYear || '').trim()}`);
-          if (!bsaSecId || bsaSecId === defaultSectionId) {
-            effSectionId = defaultSectionId;
-            effSectionCode = defaultSectionCode;
-          } else {
-            const bsaSec = sectionMap.get(bsaSecId);
-            if (bsaSec) {
+        // If BSA specifies which block offers this subject (e.g. ENG101 is offered by 101-1-A),
+        // and this is a retake/additional subject or the subject has no section, prefer BSA offering section
+        if (bsaSecId && bsaSecCode && (subj.retakeOf || subj.isAdditional || !subj.sectionCode)) {
+          effSectionId = bsaSecId;
+          effSectionCode = bsaSecCode;
+        } else {
+          const subSec = String(subj.sectionCode || '').trim();
+          if (subSec && !subSec.toLowerCase().includes('unassigned') && !subSec.toLowerCase().includes('unknown')) {
+            const matched = sectionMapByCode.get(subSec.toLowerCase());
+            if (matched) {
+              effSectionId = String(matched._id);
+              effSectionCode = matched.sectionCode;
+            } else {
+              effSectionCode = subSec;
+            }
+          }
+
+          if (!effSectionId && defaultSectionId && defaultSectionCode && !defaultSectionCode.toLowerCase().includes('unassigned')) {
+            if (!bsaSecId || bsaSecId === defaultSectionId) {
+              effSectionId = defaultSectionId;
+              effSectionCode = defaultSectionCode;
+            } else if (bsaSecCode) {
               effSectionId = bsaSecId;
-              effSectionCode = bsaSec;
+              effSectionCode = bsaSecCode;
             } else {
               effSectionId = defaultSectionId;
               effSectionCode = defaultSectionCode;
             }
           }
-        }
 
-        if (!effSectionId) {
-          const sem = String(enrollment.semester || '').toLowerCase().replace(/\s+/g, '');
-          const normSem = sem.includes('1') ? '1st' : (sem.includes('2') ? '2nd' : 'Summer');
-          const bsaSecId = bsaMap.get(`${String(subj.subjectId)}|${normSem}|${String(enrollment.schoolYear || '').trim()}`);
-          if (bsaSecId) {
+          if (!effSectionId && bsaSecId && bsaSecCode) {
             effSectionId = bsaSecId;
-            effSectionCode = sectionMap.get(bsaSecId) || 'Unassigned';
+            effSectionCode = bsaSecCode;
           }
         }
 
@@ -873,6 +874,14 @@ async function getAllCoursesSummary(req, res) {
           globalReadyToSubmit++;
         }
 
+        if (subj.submissionStatus === 'Returned') {
+          group.hasReturned = true;
+          if (enrollment.gradeSubmission?.reviewRemarks) {
+            group.reviewRemarks = enrollment.gradeSubmission.reviewRemarks;
+            group.reviewedAt = enrollment.gradeSubmission.reviewedAt || null;
+          }
+        }
+
         const studentName = studentInfo
           ? [studentInfo.lastName, studentInfo.firstName, studentInfo.middleName, studentInfo.suffix]
               .filter(Boolean)
@@ -888,6 +897,8 @@ async function getAllCoursesSummary(req, res) {
           gradeMark: subj.gradeMark,
           remarks: subj.remarks || '',
           submissionStatus: subj.submissionStatus || 'Draft',
+          reviewRemarks: enrollment.gradeSubmission?.reviewRemarks || '',
+          reviewedAt: enrollment.gradeSubmission?.reviewedAt || null,
           isGraded,
           isSubmitted,
           isSubmittable

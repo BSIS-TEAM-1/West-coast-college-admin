@@ -4,6 +4,7 @@ const Student = require('../models/Student');
 const Enrollment = require('../models/Enrollment');
 const BlockGroup = require('../models/BlockGroup');
 const BlockSection = require('../models/BlockSection');
+const BlockSubjectAssignment = require('../models/BlockSubjectAssignment');
 const StudentBlockAssignment = require('../models/StudentBlockAssignment');
 const ArchiveSnapshot = require('../models/ArchiveSnapshot');
 const RolloverBatch = require('../models/RolloverBatch');
@@ -1699,6 +1700,21 @@ class AcademicYearRolloverService {
             if (retakeReservation && Array.isArray(retakeReservation.subjects)) {
               for (const retakeSub of retakeReservation.subjects) {
                 if (retakeSub.status === 'Dropped' || retakeSub.status === 'Cancelled') continue;
+                let resolvedSecCode = retakeSub.sectionCode || null;
+                if (!resolvedSecCode && retakeSub.subjectId) {
+                  try {
+                    const bsa = await BlockSubjectAssignment.findOne({
+                      subjectId: retakeSub.subjectId,
+                      semester: targetSemester,
+                      $or: [{ academicYear: toSchoolYear }, { academicYear: String(toSchoolYear).split('-')[0] }]
+                    }).populate('blockSectionId').session(session).lean();
+                    if (bsa?.blockSectionId?.sectionCode) {
+                      resolvedSecCode = bsa.blockSectionId.sectionCode;
+                    }
+                  } catch (_bsaErr) {
+                    resolvedSecCode = null;
+                  }
+                }
                 assignedSubjects.push({
                   subjectId: retakeSub.subjectId,
                   code: retakeSub.code,
@@ -1707,7 +1723,7 @@ class AcademicYearRolloverService {
                   schedule: retakeSub.schedule || 'TBA',
                   room: retakeSub.room || 'TBA',
                   instructor: retakeSub.instructor || 'TBA',
-                  sectionCode: retakeSub.sectionCode || section.sectionCode,
+                  sectionCode: resolvedSecCode,
                   status: 'Enrolled',
                   isAdditional: true,
                   retakeOf: retakeSub.retakeOf || null,

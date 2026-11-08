@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Download, Search, Edit3, Send, FileText, ChevronLeft, ChevronRight, X, Info, AlertCircle, MoreVertical, AlertTriangle, Eye, Loader2, Check, Layers, ChevronDown, ChevronUp, CheckCircle2 } from 'lucide-react'
+import { Download, Search, Edit3, Send, FileText, ChevronLeft, ChevronRight, X, Info, AlertCircle, MoreVertical, AlertTriangle, Eye, Loader2, Check, Layers, ChevronDown, ChevronUp, CheckCircle2, MessageSquare, RotateCcw } from 'lucide-react'
 import { API_URL, getStoredToken } from '../../lib/authApi'
 import { fetchWithAutoReconnect, isAbortRequestError, isNetworkRequestError } from '../../lib/network'
 import type { ProfessorAssignedCourse, ProfessorRosterClassOption, ProfessorRosterStudent } from './professorTypes'
@@ -77,6 +77,8 @@ interface AllCoursesSummaryStudent {
   gradeMark: string | null
   remarks: string
   submissionStatus: string
+  reviewRemarks?: string
+  reviewedAt?: string
   isGraded: boolean
   isSubmitted: boolean
   isSubmittable: boolean
@@ -101,6 +103,9 @@ interface AllCoursesSummaryCourse {
   totalReadyToSubmit: number
   passedCount: number
   failedCount: number
+  reviewRemarks?: string
+  reviewedAt?: string
+  hasReturned?: boolean
   students: AllCoursesSummaryStudent[]
 }
 
@@ -188,6 +193,9 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
   const [confirmAllCoursesReview, setConfirmAllCoursesReview] = useState(false)
   const [allCoursesSearchQuery, setAllCoursesSearchQuery] = useState('')
   const [gradeSubmissionStatus, setGradeSubmissionStatus] = useState<string>('Draft')
+  const [classReviewRemarks, setClassReviewRemarks] = useState<string>('')
+  const [classReviewedAt, setClassReviewedAt] = useState<string>('')
+  const [viewingReturnNoteStudent, setViewingReturnNoteStudent] = useState<ProfessorRosterStudent | null>(null)
   const [changeRequestStudent, setChangeRequestStudent] = useState<ProfessorRosterStudent | null>(null)
   const [openActionMenu, setOpenActionMenu] = useState<string | null>(null)
   const gradeInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
@@ -475,6 +483,9 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
     setSaveStatusByStudent({})
     setSubmittingStudentIds([])
     setGradeSubmissionStatus('Draft')
+    setClassReviewRemarks('')
+    setClassReviewedAt('')
+    setViewingReturnNoteStudent(null)
     setSelectedStudent(null)
     setOpenActionMenu(null)
     setMessage('')
@@ -553,12 +564,16 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
             subjectStatus: raw?.subjectStatus ? String(raw.subjectStatus) : 'Enrolled',
             classification: raw?.classification || (raw?.isIrregular ? 'Irregular' : undefined),
             gradeUpdatedAt: raw?.gradeUpdatedAt ? String(raw.gradeUpdatedAt) : undefined,
-            gradeSubmissionStatus: raw?.gradeSubmissionStatus ? String(raw.gradeSubmissionStatus) : 'Draft'
+            gradeSubmissionStatus: raw?.gradeSubmissionStatus ? String(raw.gradeSubmissionStatus) : 'Draft',
+            reviewRemarks: raw?.reviewRemarks ? String(raw.reviewRemarks) : undefined,
+            reviewedAt: raw?.reviewedAt ? String(raw.reviewedAt) : undefined
           } as ProfessorRosterStudent
         })
 
         if (!cancelled) {
           setStudents(normalized)
+          setClassReviewRemarks(payload?.data?.reviewRemarks || normalized.find((s: ProfessorRosterStudent) => s.gradeSubmissionStatus === 'Returned' && s.reviewRemarks)?.reviewRemarks || '')
+          setClassReviewedAt(payload?.data?.reviewedAt || normalized.find((s: ProfessorRosterStudent) => s.gradeSubmissionStatus === 'Returned' && s.reviewedAt)?.reviewedAt || '')
           setCurrentPage(1)
         }
       } catch (loadError) {
@@ -1740,7 +1755,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
     return `gm-status-badge ${map[status] || 'gm-status-badge--draft'}`
   }
 
-  const alertConfig = (status: string): { cls: string; icon: typeof Info; msg: string } | null => {
+  const alertConfig = (status: string): { cls: string; icon: typeof Info; msg: string; note?: string; date?: string } | null => {
     const gradedInfo = students.length > 0
       ? `${gradedCount} of ${students.length} students graded${gradeValues.length > 0 ? ` (avg ${averageGrade})` : ''}.`
       : ''
@@ -1751,8 +1766,20 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
         return { cls: 'gm-alert--info', icon: Info, msg: `Grades verified by registrar — awaiting publication. ${gradedInfo} Editing is locked.` }
       case 'Published':
         return { cls: 'gm-alert--success', icon: Info, msg: `Grades published and visible to students. ${gradedInfo} Use "Request Change" to submit corrections.` }
-      case 'Returned':
-        return { cls: 'gm-alert--error', icon: AlertCircle, msg: 'Grades were returned by the registrar. Please review and resubmit.' }
+      case 'Returned': {
+        const returnedCount = students.filter((s) => s.gradeSubmissionStatus === 'Returned').length
+        const note = classReviewRemarks || students.find((s) => s.gradeSubmissionStatus === 'Returned' && s.reviewRemarks)?.reviewRemarks || ''
+        const returnDate = classReviewedAt || students.find((s) => s.gradeSubmissionStatus === 'Returned' && s.reviewedAt)?.reviewedAt || ''
+        return {
+          cls: 'gm-alert--error',
+          icon: RotateCcw,
+          msg: note
+            ? `Grades returned by the registrar${returnedCount > 0 ? ` (${returnedCount} student${returnedCount > 1 ? 's' : ''})` : ''}. Please review registrar notes, correct grades, and resubmit.`
+            : 'Grades were returned by the registrar. Please review, correct grades, and resubmit.',
+          note,
+          date: returnDate
+        }
+      }
       default:
         return null
     }
@@ -1939,12 +1966,49 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
       )}
 
       {/* Status alert */}
-      {statusAlert && (
+      {statusAlert && gradeSubmissionStatus === 'Returned' ? (
+        <div className="gm-alert--returned-sharp">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flex: 1, minWidth: '240px' }}>
+              <span className="gm-sharp-card-tag">
+                <RotateCcw size={12} /> Action Required
+              </span>
+              <strong style={{ fontSize: '0.9375rem', color: 'var(--color-text)' }}>
+                Grades Returned by Registrar for Revision
+              </strong>
+            </div>
+            <button
+              type="button"
+              className="gm-sharp-btn gm-sharp-btn--primary"
+              onClick={() => void openSubmitPreview()}
+              title="Review returned student grades and submit back to registrar"
+            >
+              <Eye size={15} /> Review &amp; Resubmit Grades
+            </button>
+          </div>
+
+          {statusAlert.note && (
+            <div className="gm-sharp-message-box">
+              <div className="gm-sharp-message-label">
+                <span>Registrar Return Remarks</span>
+                {statusAlert.date && (
+                  <span style={{ fontWeight: 500, textTransform: 'none' }}>
+                    {new Date(statusAlert.date).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}
+                  </span>
+                )}
+              </div>
+              <div className="gm-sharp-message-text">
+                &ldquo;{statusAlert.note}&rdquo;
+              </div>
+            </div>
+          )}
+        </div>
+      ) : statusAlert ? (
         <div className={`gm-alert ${statusAlert.cls}`}>
           <statusAlert.icon size={18} />
           {statusAlert.msg}
         </div>
-      )}
+      ) : null}
 
       {/* Block assignment warning */}
       {needsBlockWarning && (
@@ -2104,12 +2168,17 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                   <button
                     type="button"
                     className="gm-submit-btn"
+                    style={gradeSubmissionStatus === 'Returned' ? { background: '#b91c1c', borderColor: '#991b1b' } : undefined}
                     onClick={() => void openSubmitPreview()}
                     disabled={submittingGrades || savingStudentIds.length > 0 || submittingStudentIds.length > 0}
-                    title="Review and submit all remaining student grades to the registrar"
+                    title={gradeSubmissionStatus === 'Returned' ? 'Review returned student grades and resubmit to the registrar' : 'Review and submit all remaining student grades to the registrar'}
                   >
-                    <Eye size={18} />
-                    {submittingGrades ? 'Submitting...' : 'Review & Submit Grades'}
+                    {gradeSubmissionStatus === 'Returned' ? <RotateCcw size={18} /> : <Eye size={18} />}
+                    {submittingGrades
+                      ? 'Submitting...'
+                      : gradeSubmissionStatus === 'Returned'
+                        ? 'Review & Resubmit Grades'
+                        : 'Review & Submit Grades'}
                   </button>
                   {selectedForSubmitIds.size === 0 && allSubmittableInClass.length > 0 && (
                     <button
@@ -2270,7 +2339,15 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                                   Irregular
                                 </span>
                               )}
-                              {studentSubmitted && (
+                              {getStudentSubmissionStatus(student) === 'Returned' && (
+                                <span
+                                  className="gm-pill--returned-sharp"
+                                  title={student.reviewRemarks ? `Returned by Registrar: "${student.reviewRemarks}"` : 'Returned by Registrar'}
+                                >
+                                  <RotateCcw size={11} /> Returned
+                                </span>
+                              )}
+                              {studentSubmitted && getStudentSubmissionStatus(student) !== 'Returned' && (
                                 <span className="gm-row-submission-status" title="This student's grade has been submitted to the registrar">
                                   {getStudentSubmissionStatus(student)}
                                 </span>
@@ -2373,25 +2450,39 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                                   <span>{getStudentSubmissionStatus(student)}</span>
                                 </span>
                               ) : studentCanEdit ? (
-                                <button
-                                  type="button"
-                                  className="gm-row-submit-btn"
-                                  onClick={() => void submitStudentGrade(student)}
-                                  disabled={submittingGrades || isSubmitting || isSaving || !hasGradeToSubmit}
-                                  aria-label={`Submit ${getName(student)}'s grade to the registrar`}
-                                  title={
-                                    !hasGradeToSubmit
-                                      ? 'Enter a grade or grade mark before submitting'
-                                      : isSubmitting
-                                        ? 'Submitting grade...'
-                                        : `Submit ${getName(student)}'s grade to the registrar`
-                                  }
-                                >
-                                  {isSubmitting
-                                    ? <Loader2 size={14} className="gm-spin" />
-                                    : <Send size={14} />}
-                                  <span>{isSubmitting ? 'Submitting...' : 'Submit'}</span>
-                                </button>
+                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                                  {getStudentSubmissionStatus(student) === 'Returned' && student.reviewRemarks && (
+                                    <button
+                                      type="button"
+                                      className="gm-sharp-btn-note"
+                                      onClick={() => setViewingReturnNoteStudent(student)}
+                                      title="View registrar return note and feedback"
+                                    >
+                                      <MessageSquare size={12} /> Note
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    className="gm-row-submit-btn"
+                                    onClick={() => void submitStudentGrade(student)}
+                                    disabled={submittingGrades || isSubmitting || isSaving || !hasGradeToSubmit}
+                                    aria-label={`Submit ${getName(student)}'s grade to the registrar`}
+                                    title={
+                                      !hasGradeToSubmit
+                                        ? 'Enter a grade or grade mark before submitting'
+                                        : isSubmitting
+                                          ? 'Submitting grade...'
+                                          : getStudentSubmissionStatus(student) === 'Returned'
+                                            ? `Resubmit ${getName(student)}'s grade to the registrar`
+                                            : `Submit ${getName(student)}'s grade to the registrar`
+                                    }
+                                  >
+                                    {isSubmitting
+                                      ? <Loader2 size={14} className="gm-spin" />
+                                      : <Send size={14} />}
+                                    <span>{isSubmitting ? 'Submitting...' : getStudentSubmissionStatus(student) === 'Returned' ? 'Resubmit' : 'Submit'}</span>
+                                  </button>
+                                </div>
                               ) : null}
                               <div className="gm-action-dropdown-container">
                                 <button
@@ -2403,6 +2494,18 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                                 </button>
                                 {openActionMenu === student._id && (
                                   <div className="gm-action-dropdown-menu">
+                                    {student.reviewRemarks && (
+                                      <button
+                                        type="button"
+                                        className="gm-action-dropdown-item"
+                                        onClick={() => {
+                                          setViewingReturnNoteStudent(student)
+                                          setOpenActionMenu(null)
+                                        }}
+                                      >
+                                        <MessageSquare size={14} /> View Return Note
+                                      </button>
+                                    )}
                                     {(studentSubmitted && hasSavedGrade) ? (
                                       <button
                                         type="button"
@@ -2482,6 +2585,93 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
         </div>
       )}
 
+      {/* Return Note Modal - Sharp Professional Card */}
+      {viewingReturnNoteStudent && (
+        <div className="gm-modal-backdrop" onClick={() => setViewingReturnNoteStudent(null)}>
+          <div className="gm-sharp-card gm-sharp-card--modal" onClick={(event) => event.stopPropagation()}>
+            <div className="gm-sharp-card-header">
+              <div className="gm-sharp-card-title-group">
+                <span className="gm-sharp-card-tag">
+                  <RotateCcw size={12} /> Returned by Registrar
+                </span>
+                <h3 className="gm-sharp-card-title">Grade Revision Notice</h3>
+                <p className="gm-sharp-card-subtitle">
+                  {selectedClass ? `${selectedClass.subjectCode} · ${selectedClass.subjectTitle}` : 'Course Subject'}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="gm-modal-close"
+                onClick={() => setViewingReturnNoteStudent(null)}
+                title="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="gm-sharp-card-body">
+              <div className="gm-sharp-data-grid">
+                <div className="gm-sharp-data-item">
+                  <span className="gm-sharp-data-label">Student Name</span>
+                  <span className="gm-sharp-data-value">{getName(viewingReturnNoteStudent)}</span>
+                </div>
+                <div className="gm-sharp-data-item">
+                  <span className="gm-sharp-data-label">Student ID</span>
+                  <span className="gm-sharp-data-value">{viewingReturnNoteStudent.studentNumber}</span>
+                </div>
+                <div className="gm-sharp-data-item">
+                  <span className="gm-sharp-data-label">Current Grade</span>
+                  <span className="gm-sharp-data-value" style={{ color: '#b91c1c' }}>
+                    {viewingReturnNoteStudent.currentGradeMark || (viewingReturnNoteStudent.currentGrade !== '' ? formatGrade(viewingReturnNoteStudent.currentGrade) : 'No Grade')}
+                  </span>
+                </div>
+                <div className="gm-sharp-data-item">
+                  <span className="gm-sharp-data-label">Date Returned</span>
+                  <span className="gm-sharp-data-value" style={{ fontSize: '0.8125rem' }}>
+                    {viewingReturnNoteStudent.reviewedAt
+                      ? new Date(viewingReturnNoteStudent.reviewedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
+                      : 'Recently'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="gm-sharp-message-box">
+                <div className="gm-sharp-message-label">
+                  <span>Registrar Remarks / Reason</span>
+                </div>
+                <div className="gm-sharp-message-text">
+                  &ldquo;{viewingReturnNoteStudent.reviewRemarks || 'No additional note provided by registrar.'}&rdquo;
+                </div>
+              </div>
+            </div>
+
+            <div className="gm-sharp-card-footer">
+              <button
+                type="button"
+                className="gm-sharp-btn gm-sharp-btn--secondary"
+                onClick={() => setViewingReturnNoteStudent(null)}
+              >
+                Dismiss
+              </button>
+              <button
+                type="button"
+                className="gm-sharp-btn gm-sharp-btn--primary"
+                onClick={() => {
+                  const studentId = viewingReturnNoteStudent._id
+                  setViewingReturnNoteStudent(null)
+                  setTimeout(() => {
+                    const el = gradeInputRefs.current[studentId]
+                    if (el) el.focus()
+                  }, 50)
+                }}
+              >
+                <Edit3 size={14} /> Correct Grade
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Grade Submission Preview Modal */}
       {showSubmitPreview && selectedClass && (
         <div className="gm-modal-backdrop" onClick={() => !submittingGrades && setShowSubmitPreview(false)}>
@@ -2505,6 +2695,16 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
             </div>
 
             <div className="gm-modal-body gm-preview-modal-body">
+              {students.some((s) => s.gradeSubmissionStatus === 'Returned') && (
+                <div className="gm-alert gm-alert--error" style={{ marginBottom: '1rem', display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                  <RotateCcw size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
+                  <div>
+                    <strong>Returned Grades Notice:</strong>
+                    {classReviewRemarks ? ` The registrar returned grades with note: "${classReviewRemarks}".` : ' These grades were returned by the Registrar.'}
+                    {' '}Please verify your corrections below before resubmitting.
+                  </div>
+                </div>
+              )}
               {/* Summary stat cards */}
               <div className="gm-preview-stats">
                 <div className="gm-preview-stat-card">
@@ -2631,9 +2831,11 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                 <Send size={16} />
                 {submittingGrades
                   ? 'Submitting to Registrar...'
-                  : pendingEditableCount > 0
-                    ? `Submit All Graded (${allSubmittableInClass.length}) to Registrar`
-                    : 'Confirm & Submit All to Registrar'}
+                  : gradeSubmissionStatus === 'Returned'
+                    ? 'Confirm & Resubmit to Registrar'
+                    : pendingEditableCount > 0
+                      ? `Submit All Graded (${allSubmittableInClass.length}) to Registrar`
+                      : 'Confirm & Submit All to Registrar'}
               </button>
             </div>
           </div>
@@ -2785,6 +2987,11 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                                 </span>
                               </div>
                               <div className="gm-course-card-badges">
+                                {course.hasReturned && (
+                                  <span className="gm-course-badge" style={{ background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5' }} title={course.reviewRemarks ? `Returned: ${course.reviewRemarks}` : 'Returned'}>
+                                    <RotateCcw size={12} /> Returned
+                                  </span>
+                                )}
                                 {isAllSubmitted ? (
                                   <span className="gm-course-badge gm-course-badge--info">
                                     <Check size={13} /> Submitted ({course.totalSubmitted}/{course.totalEnrolled})
@@ -2849,6 +3056,8 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                                           <td>
                                             {isSubmitted ? (
                                               <span className="gm-badge gm-badge--neutral">{student.submissionStatus}</span>
+                                            ) : student.submissionStatus === 'Returned' ? (
+                                              <span className="gm-badge gm-badge--danger" style={{ background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5' }} title={student.reviewRemarks ? `Returned: ${student.reviewRemarks}` : 'Returned'}>Returned</span>
                                             ) : student.isSubmittable ? (
                                               <span className="gm-badge gm-badge--success">Ready to Submit</span>
                                             ) : (

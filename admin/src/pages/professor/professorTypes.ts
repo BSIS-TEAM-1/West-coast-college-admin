@@ -151,6 +151,8 @@ export interface ProfessorRosterStudent extends Omit<ProfessorAssignedStudent, '
   gradeUpdatedAt?: string
   gradeSubmissionStatus?: string
   currentGradeMark?: string | null
+  reviewRemarks?: string
+  reviewedAt?: string
 }
 
 export type RosterSortBy = 'name-asc' | 'name-desc' | 'id-asc' | 'id-desc'

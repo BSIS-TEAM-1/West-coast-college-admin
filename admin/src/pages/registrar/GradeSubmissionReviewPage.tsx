@@ -429,20 +429,16 @@ export default function GradeSubmissionReviewPage({ onBack: _onBack }: GradeSubm
     return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
-  // Each row is one subject submission, so label every row with the block the
-  // student actually sits in for that subject.
-  const blockLabelFor = (submission: GradeSubmissionSummary) => {
-    const course = courseLabel(submission.studentId?.course || submission.course)
-    const sectionCode = String(submission.subjects?.[0]?.sectionCode || '').trim()
-    return sectionCode ? `${course} ${sectionCode}`.trim() : course
+  // Group the rows by academic program so all submissions for the same program are kept together
+  const programLabelFor = (submission: GradeSubmissionSummary) => {
+    return courseLabel(submission.studentId?.course || submission.course)
   }
 
-  // Group the rows by block so the registrar reviews one block at a time
-  // instead of a flat mix of students from different blocks.
+  // Group the rows by program so the registrar reviews one program at a time
   const submissionGroups = (() => {
     const groups = new Map<string, { label: string; rows: GradeSubmissionSummary[] }>()
     submissions.forEach((submission) => {
-      const label = blockLabelFor(submission)
+      const label = programLabelFor(submission)
       const existing = groups.get(label)
       if (existing) {
         existing.rows.push(submission)
@@ -455,12 +451,7 @@ export default function GradeSubmissionReviewPage({ onBack: _onBack }: GradeSubm
       `${submission.studentId?.lastName || ''}, ${submission.studentId?.firstName || ''}`
 
     return [...groups.values()]
-      .sort((a, b) => {
-        const aNoBlock = a.label.endsWith('No block')
-        const bNoBlock = b.label.endsWith('No block')
-        if (aNoBlock !== bNoBlock) return aNoBlock ? 1 : -1
-        return a.label.localeCompare(b.label)
-      })
+      .sort((a, b) => a.label.localeCompare(b.label))
       .map((group) => ({
         ...group,
         rows: [...group.rows].sort(

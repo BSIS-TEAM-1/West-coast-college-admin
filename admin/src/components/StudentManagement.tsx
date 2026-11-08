@@ -1095,7 +1095,7 @@ function StudentProfileDrawer({
                         <div className="sd-row-main">
                           <strong>{subject.code} <span className="sd-units">· {subject.units} units</span></strong>
                           <p>{subject.title}</p>
-                          <small>{subject.schedule || 'TBA'} · {subject.room || 'TBA'} · {subject.instructor || 'TBA'}{subject.sectionCode && activeStudent?.section && subject.sectionCode !== activeStudent.section ? ` · Sec: ${formatBlockDisplay(subject.sectionCode)}` : ''}</small>
+                          <small>{subject.schedule || 'TBA'} · {subject.room || 'TBA'} · {subject.instructor || 'TBA'}{subject.sectionCode && activeStudent?.section && subject.sectionCode !== activeStudent.section ? ` · Program: ${formatBlockDisplay(subject.sectionCode)}` : ''}</small>
                         </div>
                         <ToneBadge label={subject.status || 'Enrolled'} tone="info" />
                       </li>

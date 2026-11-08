@@ -765,6 +765,19 @@ async function applySectionScheduleDefaults({ enrollment, sectionId = null, sess
     // 1. If assigned to a section, first inherit from peers in that section
     let peerStudentIds = [];
     if (resolvedSectionId) {
+      if (typeof BlockSection?.findById === 'function') {
+        const secDoc = await BlockSection.findById(resolvedSectionId).select('sectionCode').lean();
+        const primarySectionCode = secDoc?.sectionCode || null;
+        if (primarySectionCode) {
+          for (const entry of enrollment.subjects) {
+            if (!entry.sectionCode && !entry.isAdditional && !entry.retakeOf && !entry.offeredOutsideBlock) {
+              entry.sectionCode = primarySectionCode;
+              changed = true;
+            }
+          }
+        }
+      }
+
       const peerAssignmentQuery = StudentBlockAssignment.find({
         sectionId: resolvedSectionId,
         semester: enrollment.semester,
@@ -860,6 +873,25 @@ async function applySectionScheduleDefaults({ enrollment, sectionId = null, sess
     }
 
     if (stillFillable.length > 0) {
+      // First resolve offering section via BlockSubjectAssignment for any subjects lacking a sectionCode
+      for (const entry of stillFillable) {
+        if (!entry.sectionCode && entry.subjectId && typeof BlockSubjectAssignment?.findOne === 'function') {
+          try {
+            const bsa = await BlockSubjectAssignment.findOne({
+              subjectId: entry.subjectId,
+              semester: enrollment.semester,
+              $or: [{ academicYear: termSchoolYear }, { academicYear: String(termSchoolYear).split('-')[0] }]
+            }).populate('blockSectionId').lean();
+            if (bsa?.blockSectionId?.sectionCode) {
+              entry.sectionCode = bsa.blockSectionId.sectionCode;
+              changed = true;
+            }
+          } catch (_bsaErr) {
+            // ignore lookup failure
+          }
+        }
+      }
+
       const targetCodes = stillFillable.map((e) => String(e.code || '').trim().toUpperCase()).filter(Boolean);
       const targetSubjectIds = stillFillable.map((e) => String(e.subjectId || '').trim()).filter(Boolean);
 
@@ -1578,6 +1610,20 @@ async function retakeSubject({ student, subjectId, schoolYear, semester, actorId
   // read only — this snapshot is copied from it, never written to it.
   const newEntry = enrollment.subjects[enrollment.subjects.length - 1];
   newEntry.isAdditional = true;
+  if (!newEntry.sectionCode && subjectId && typeof BlockSubjectAssignment?.findOne === 'function') {
+    try {
+      const bsa = await BlockSubjectAssignment.findOne({
+        subjectId,
+        semester: enrollment.semester,
+        $or: [{ academicYear: schoolYear }, { academicYear: String(schoolYear).split('-')[0] }]
+      }).populate('blockSectionId').session(session).lean();
+      if (bsa?.blockSectionId?.sectionCode) {
+        newEntry.sectionCode = bsa.blockSectionId.sectionCode;
+      }
+    } catch (_bsaErr) {
+      // ignore lookup failure
+    }
+  }
   newEntry.retakeOf = {
     enrollmentId: latest.enrollment._id,
     subjectEntryId: latest.entry._id,

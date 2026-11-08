@@ -1049,9 +1049,17 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
         let resolvedSectionId = ''
         let resolvedSectionCode = ''
 
-        // 1. If the subject has an explicit sectionCode (e.g. irregular/retake student attending a block)
+        const bsaKey = `${subjectId}|${normalizeProfessorRouteSemester(semester)}|${toSchoolYear(schoolYear)}`
+        const bsaSecId = bsaMap.get(bsaKey)
+        const bsaSection = bsaSecId ? sectionById.get(bsaSecId) : null
+
         const subSecCode = normalizeText(subject?.sectionCode)
-        if (subSecCode && !isInvalidProfessorSectionCode(subSecCode)) {
+
+        // 1. For retakes or irregular subjects, or subjects with a definitive BSA offering, prefer BSA section
+        if (bsaSection && (subject?.isAdditional || subject?.retakeOf || !subSecCode)) {
+          resolvedSectionId = String(bsaSection._id)
+          resolvedSectionCode = bsaSection.sectionCode
+        } else if (subSecCode && !isInvalidProfessorSectionCode(subSecCode)) {
           const matchedSection = sectionByCode.get(subSecCode.toLowerCase())
           if (matchedSection) {
             resolvedSectionId = String(matchedSection._id)
@@ -1063,34 +1071,22 @@ app.get('/api/professor/assigned-blocks', authMiddleware, cacheMiddleware({ ttlM
 
         // 2. If not specified on subject, use student's assigned block (or check if subject is in a different block via BSA)
         if (!resolvedSectionId && defaultSectionId && defaultSectionCode && !isInvalidProfessorSectionCode(defaultSectionCode)) {
-          const bsaKey = `${subjectId}|${normalizeProfessorRouteSemester(semester)}|${toSchoolYear(schoolYear)}`
-          const bsaSecId = bsaMap.get(bsaKey)
           if (!bsaSecId || bsaSecId === defaultSectionId) {
             resolvedSectionId = defaultSectionId
             resolvedSectionCode = defaultSectionCode
+          } else if (bsaSection) {
+            resolvedSectionId = String(bsaSection._id)
+            resolvedSectionCode = bsaSection.sectionCode
           } else {
-            const bsaSection = sectionById.get(bsaSecId)
-            if (bsaSection) {
-              resolvedSectionId = String(bsaSection._id)
-              resolvedSectionCode = bsaSection.sectionCode
-            } else {
-              resolvedSectionId = defaultSectionId
-              resolvedSectionCode = defaultSectionCode
-            }
+            resolvedSectionId = defaultSectionId
+            resolvedSectionCode = defaultSectionCode
           }
         }
 
         // 3. If student has no valid block assignment, resolve block via BlockSubjectAssignment
-        if (!resolvedSectionId) {
-          const bsaKey = `${subjectId}|${normalizeProfessorRouteSemester(semester)}|${toSchoolYear(schoolYear)}`
-          const bsaSecId = bsaMap.get(bsaKey)
-          if (bsaSecId) {
-            const bsaSection = sectionById.get(bsaSecId)
-            if (bsaSection) {
-              resolvedSectionId = String(bsaSection._id)
-              resolvedSectionCode = bsaSection.sectionCode
-            }
-          }
+        if (!resolvedSectionId && bsaSection) {
+          resolvedSectionId = String(bsaSection._id)
+          resolvedSectionCode = bsaSection.sectionCode
         }
 
         const hasValidBlock = Boolean(resolvedSectionId && resolvedSectionCode && !isInvalidProfessorSectionCode(resolvedSectionCode))
@@ -1360,7 +1356,7 @@ app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authM
     }
 
     const enrollments = await Enrollment.find(enrollmentQuery)
-      .select('_id studentId studentNumber schoolYear semester subjects isCurrent createdAt updatedAt')
+      .select('_id studentId studentNumber schoolYear semester subjects gradeSubmission isCurrent createdAt updatedAt')
       .sort({ isCurrent: -1, createdAt: -1 })
       .lean()
 
@@ -1534,7 +1530,9 @@ app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authM
         classSubjectCode: normalizeProfessorRouteText(matchedEntry.code),
         classSubjectTitle: normalizeProfessorRouteText(matchedEntry.title),
         gradeUpdatedAt: matchedEntry.dateModified || enrollment.updatedAt || enrollment.createdAt || null,
-        gradeSubmissionStatus: matchedEntry.submissionStatus || 'Draft'
+        gradeSubmissionStatus: matchedEntry.submissionStatus || 'Draft',
+        reviewRemarks: enrollment.gradeSubmission?.reviewRemarks || null,
+        reviewedAt: enrollment.gradeSubmission?.reviewedAt || null
       })
     }
 
@@ -1556,6 +1554,8 @@ app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authM
           title: ''
         }
 
+    const returnedWithRemarks = subjectRows.find(s => s.gradeSubmissionStatus === 'Returned' && s.reviewRemarks)
+
     return res.json({
       success: true,
       data: {
@@ -1568,7 +1568,9 @@ app.get('/api/professor/sections/:sectionId/subjects/:subjectId/students', authM
           assignedStudents: subjectRows.length,
           matchedStudents: subjectRows.length
         },
-        students: subjectRows
+        students: subjectRows,
+        reviewRemarks: returnedWithRemarks ? returnedWithRemarks.reviewRemarks : null,
+        reviewedAt: returnedWithRemarks ? returnedWithRemarks.reviewedAt : null
       }
     })
   } catch (error) {
@@ -1737,7 +1739,47 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
     }
 
     if (!assignment) {
-      return res.status(404).json({ error: 'Student is not assigned to this class section.' })
+      // Check if student is an irregular/retake student enrolled in this subject in this section
+      let isIrregularTakingSectionSubject = false
+      if (typeof BlockSubjectAssignment?.findOne === 'function' && typeof BlockSection?.findById === 'function') {
+        const targetSec = await BlockSection.findById(sectionId).select('sectionCode').lean()
+        const targetSecCode = targetSec ? normalizeProfessorRouteText(targetSec.sectionCode).toLowerCase() : ''
+
+        const bsaOffering = await BlockSubjectAssignment.findOne({
+          blockSectionId: new mongoose.Types.ObjectId(sectionId),
+          subjectId: new mongoose.Types.ObjectId(subjectId),
+          semester: { $in: Array.from(new Set([semester, normSem].filter(Boolean))) }
+        }).lean()
+
+        const studentEnrollment = await Enrollment.findOne({
+          studentId: new mongoose.Types.ObjectId(studentId),
+          status: { $nin: ['Dropped', 'Cancelled'] },
+          semester: { $in: Array.from(new Set([semester, normSem].filter(Boolean))) },
+          subjects: {
+            $elemMatch: {
+              subjectId: new mongoose.Types.ObjectId(subjectId),
+              status: { $ne: 'Dropped' },
+              instructor: { $in: access.exactIdentifierPatterns }
+            }
+          }
+        }).lean()
+
+        const enrolledSub = studentEnrollment?.subjects?.find(s => String(s.subjectId) === String(subjectId))
+        const subSec = enrolledSub ? normalizeProfessorRouteText(enrolledSub.sectionCode).toLowerCase() : ''
+
+        isIrregularTakingSectionSubject = Boolean(
+          studentEnrollment && (
+            bsaOffering ||
+            (subSec && subSec === targetSecCode) ||
+            enrolledSub?.retakeOf ||
+            enrolledSub?.isAdditional
+          )
+        )
+      }
+
+      if (!isIrregularTakingSectionSubject) {
+        return res.status(404).json({ error: 'Student is not assigned to this class section.' })
+      }
     }
 
     const enrollmentQuery = {
@@ -1911,7 +1953,9 @@ app.put('/api/professor/sections/:sectionId/subjects/:subjectId/students/:studen
         classSubjectCode: normalizeProfessorRouteText(matchedEntry.code),
         classSubjectTitle: normalizeProfessorRouteText(matchedEntry.title),
         gradeUpdatedAt: matchedEntry.dateModified || enrollment.updatedAt || new Date(),
-        gradeSubmissionStatus: matchedEntry.submissionStatus || 'Draft'
+        gradeSubmissionStatus: matchedEntry.submissionStatus || 'Draft',
+        reviewRemarks: enrollment.gradeSubmission?.reviewRemarks || null,
+        reviewedAt: enrollment.gradeSubmission?.reviewedAt || null
       }
     })
   } catch (error) {
