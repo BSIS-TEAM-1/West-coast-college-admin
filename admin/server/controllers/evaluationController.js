@@ -191,20 +191,13 @@ class EvaluationController {
           period: evalStatus.period,
           semester: enrollment.semester,
           schoolYear: enrollment.schoolYear,
-          summary: periodOpen ? {
+          summary: {
             requiredCount: evalStatus.requiredCount,
             completedCount: evalStatus.completedCount,
             pendingCount: evalStatus.pendingCount,
             allCompleted: evalStatus.allCompleted,
             completionPercentage: evalStatus.completionPercentage,
             gradesLocked: evalStatus.gradesLocked
-          } : {
-            requiredCount: 0,
-            completedCount: 0,
-            pendingCount: 0,
-            allCompleted: true,
-            completionPercentage: 100,
-            gradesLocked: false
           },
           evaluations: periodOpen ? evalStatus.evaluationEntries : [],
           advisers,

@@ -4169,22 +4169,22 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
       const professorLookup = await loadProfessorLookup()
       const evaluationStatus = await getStudentTermEvaluationStatus(student, enrollment, professorLookup)
       const isPeriodOpen = Boolean(evaluationStatus.period?.isOpen)
-      // No evaluation cards unless the registrar has started an open period.
-      const evaluationAdvisers = isPeriodOpen
-        ? groupEvaluationSubjectsByAdviser(evaluationStatus.subjectsList, evaluationStatus.period)
-        : []
-      const completedAdvisers = evaluationAdvisers.filter((item) => item.evaluationCompleted).length
-      const pendingAdvisers = Math.max(0, evaluationAdvisers.length - completedAdvisers)
+      const allAdvisers = groupEvaluationSubjectsByAdviser(evaluationStatus.subjectsList, evaluationStatus.period)
+      // No evaluation cards unless the registrar has started an open period,
+      // but grades stay locked until each adviser is evaluated.
+      const evaluationAdvisers = isPeriodOpen ? allAdvisers : []
+      const completedAdvisers = allAdvisers.filter((item) => item.evaluationCompleted).length
+      const pendingAdvisers = Math.max(0, allAdvisers.length - completedAdvisers)
       evaluation = {
         semester: enrollment.semester,
         schoolYear: enrollment.schoolYear,
         period: evaluationStatus.period,
         summary: {
-          requiredCount: evaluationAdvisers.length,
+          requiredCount: allAdvisers.length,
           completedCount: completedAdvisers,
           pendingCount: pendingAdvisers,
           allCompleted: pendingAdvisers === 0,
-          gradesLocked: isPeriodOpen ? pendingAdvisers > 0 : false
+          gradesLocked: pendingAdvisers > 0
         },
         advisers: evaluationAdvisers
       }
@@ -4214,7 +4214,7 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
           subjectStatus: subject.status || 'Enrolled',
           grade: canShowGrade
             ? (Number.isFinite(numericGrade) && numericGrade > 0 ? numericGrade : faEquivalent)
-            : null,
+            : (isPublished ? 0 : null), // evaluation pending: show 0.0 instead of the real grade
           gradeMark: canShowGrade ? (subject.gradeMark || null) : null,
           remarks: canShowGrade ? (subject.remarks || '') : '',
           gradePublished: isPublished,
@@ -4428,14 +4428,13 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
         )
         const completedAdvisers = evaluationAdvisers.filter((item) => item.evaluationCompleted).length
         const pendingAdvisers = Math.max(0, evaluationAdvisers.length - completedAdvisers)
-        const isPeriodOpen = Boolean(evaluationStatus.period?.isOpen)
         const evaluationSummary = {
           requiredCount: evaluationAdvisers.length,
           completedCount: completedAdvisers,
           pendingCount: pendingAdvisers,
           allCompleted: pendingAdvisers === 0,
-          // Only the active term is gated by evaluation completion when the evaluation period is open.
-          gradesLocked: isCurrent && isPeriodOpen && pendingAdvisers > 0
+          // Only the active term is gated by evaluation completion.
+          gradesLocked: isCurrent && pendingAdvisers > 0
         }
 
         const subjects = (enrollment.subjects || [])
@@ -4452,7 +4451,7 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
             const meta = evaluationStatus.subjectsByCode.get(code) || null
             const evaluationCompleted = Boolean(meta?.evaluationCompleted)
             const isPublished = (subject.submissionStatus || 'Draft') === 'Published'
-            const evaluationGatesGrade = isCurrent && isPeriodOpen && !evaluationCompleted
+            const evaluationGatesGrade = isCurrent && !evaluationCompleted
             const gradeUnlocked = !evaluationGatesGrade && isPublished
             const professorName = meta?.professorName || subject.instructor || 'Assigned Faculty'
             const numericGrade = subject.grade !== null && subject.grade !== undefined && String(subject.grade).trim() !== ''

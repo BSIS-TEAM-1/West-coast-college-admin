@@ -445,16 +445,13 @@ async function getStudentTermEvaluationStatus(student, enrollment, preloadedLook
   const allCompleted = requiredCount === 0 ? true : completedCount >= requiredCount;
   const completionPercentage = requiredCount > 0 ? Math.round((completedCount / requiredCount) * 100) : 100;
 
-  // Grades are only locked by evaluation when an evaluation period actually exists and is open
-  const isPeriodActive = Boolean(period && period.isOpen);
-
   return {
     requiredCount,
     completedCount,
     pendingCount,
     allCompleted,
     completionPercentage,
-    gradesLocked: isPeriodActive ? !allCompleted : false,
+    gradesLocked: !allCompleted,
     period,
     subjectsByCode,
     subjectsList,
