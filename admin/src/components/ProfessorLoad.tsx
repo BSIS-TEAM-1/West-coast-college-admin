@@ -7,7 +7,6 @@ import {
   Hash,
   Layers,
   MapPin,
-  RefreshCw,
   Search,
   Users,
   AlertTriangle,
@@ -252,26 +251,6 @@ export default function ProfessorLoad({ onOpenWorkspace }: Props) {
 
   return (
     <div className="registrar-section registrar-course-management-page registrar-professor-simple-page">
-      {/* Hero */}
-      <section className="registrar-course-hero registrar-professor-simple-hero">
-        <div className="registrar-course-hero-copy">
-          <span className="registrar-course-eyebrow">Professor Loads</span>
-          <h2 className="registrar-section-title">Professor Directory</h2>
-          <p className="registrar-section-desc">
-            View teaching assignments, filter by term or program, and open a professor's workspace to manage courses.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="registrar-btn registrar-btn-secondary"
-          onClick={() => void fetchProfessorLoads()}
-          disabled={loading}
-        >
-          <RefreshCw size={16} className={loading ? 'spinning' : ''} />
-          {loading ? 'Refreshing...' : 'Refresh'}
-        </button>
-      </section>
-
       {error && <p className="registrar-feedback registrar-feedback-error">{error}</p>}
 
       {/* Stats summary */}

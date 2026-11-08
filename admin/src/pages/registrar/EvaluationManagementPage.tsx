@@ -15,7 +15,6 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
-  ShieldCheck,
   SlidersHorizontal,
   Square,
   Trash2,
@@ -653,18 +652,7 @@ export default function EvaluationManagementPage() {
     <div className="reg-eval-page">
       {/* Page Header */}
       <header className="reg-eval-header">
-        <div>
-          <div className="reg-eval-eyebrow">
-            <ShieldCheck size={14} />
-            <span>Office of the Registrar • Governance &amp; Scheduling</span>
-          </div>
-          <h1 className="reg-eval-title">Professor Evaluation Management</h1>
-          <p className="reg-eval-subtitle">
-            Configure per-semester evaluation schedules and monitor professor-level evaluation status and results.
-          </p>
-        </div>
-
-        <div className="reg-eval-header-actions">
+        <div className="reg-eval-header-actions" style={{ marginLeft: 'auto' }}>
           <button
             type="button"
             className="reg-eval-btn reg-eval-btn-secondary"
@@ -687,19 +675,14 @@ export default function EvaluationManagementPage() {
           <button
             type="button"
             className="reg-eval-btn reg-eval-btn-primary"
-            onClick={() =>
-              setShowCreateForm((prev) => {
-                const next = !prev
-                if (next) {
-                  setFormSemester(selectedSemester)
-                  setFormSchoolYear(selectedSchoolYear)
-                }
-                return next
-              })
-            }
+            onClick={() => {
+              setFormSemester(selectedSemester)
+              setFormSchoolYear(selectedSchoolYear)
+              setShowCreateForm(true)
+            }}
           >
             <Plus size={15} />
-            <span>{showCreateForm ? 'Close Configuration Form' : 'Configure Evaluation Period'}</span>
+            <span>Start Evaluation</span>
           </button>
         </div>
       </header>
@@ -718,170 +701,179 @@ export default function EvaluationManagementPage() {
         </div>
       )}
 
-      {/* Evaluation Period Configuration Form */}
+      {/* Start Evaluation Modal Pop-up */}
       {showCreateForm && (
-        <section className="reg-eval-config-card" aria-label="Evaluation period configuration">
-          <div className="reg-eval-config-head">
-            <div>
-              <h2>Evaluation Period Configuration</h2>
-              <p>
-                Define the academic term, opening schedule, submission deadline, and applicable program/faculty scope. Submissions automatically close after the deadline unless extended.
-              </p>
+        <div
+          className="reg-eval-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setShowCreateForm(false)}
+        >
+          <div className="reg-eval-modal reg-eval-modal-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="reg-eval-modal-head">
+              <div>
+                <h3>Start Evaluation</h3>
+                <p className="reg-eval-subtext">
+                  Set the schedule and deadline for students to evaluate their professors.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="reg-eval-icon-close"
+                onClick={() => setShowCreateForm(false)}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
             </div>
-            <button
-              type="button"
-              className="reg-eval-icon-close"
-              onClick={() => setShowCreateForm(false)}
-              aria-label="Close configuration form"
-            >
-              <X size={18} />
-            </button>
-          </div>
 
-          <div className="reg-eval-config-grid">
-            <label className="reg-eval-field">
-              <span>Period Title</span>
-              <input
-                type="text"
-                placeholder="e.g. 1st Semester 2026-2027 Faculty Evaluation"
-                value={formTitle}
-                onChange={(e) => setFormTitle(e.target.value)}
-              />
-            </label>
+            <div className="reg-eval-modal-body">
+              <div className="reg-eval-config-grid">
+                <label className="reg-eval-field">
+                  <span>Period Title</span>
+                  <input
+                    type="text"
+                    placeholder="e.g. 1st Semester 2026-2027 Faculty Evaluation"
+                    value={formTitle}
+                    onChange={(e) => setFormTitle(e.target.value)}
+                  />
+                </label>
 
-            <label className="reg-eval-field">
-              <span>Semester</span>
-              <select
-                value={formSemester}
-                onChange={(e) => setFormSemester(e.target.value as '1st' | '2nd' | 'Summer')}
+                <label className="reg-eval-field">
+                  <span>Semester</span>
+                  <select
+                    value={formSemester}
+                    onChange={(e) => setFormSemester(e.target.value as '1st' | '2nd' | 'Summer')}
+                  >
+                    <option value="1st">1st Semester</option>
+                    <option value="2nd">2nd Semester</option>
+                    <option value="Summer">Summer</option>
+                  </select>
+                </label>
+
+                <label className="reg-eval-field">
+                  <span>School Year</span>
+                  <input
+                    type="text"
+                    placeholder="2026-2027"
+                    pattern="\d{4}-\d{4}"
+                    value={formSchoolYear}
+                    onChange={(e) => setFormSchoolYear(e.target.value)}
+                  />
+                </label>
+
+                <label className="reg-eval-field">
+                  <span>Evaluation Start Date</span>
+                  <input
+                    type="date"
+                    value={formStartDate}
+                    onChange={(e) => setFormStartDate(e.target.value)}
+                  />
+                </label>
+
+                <label className="reg-eval-field">
+                  <span>Start Time</span>
+                  <input
+                    type="time"
+                    value={formStartTime}
+                    onChange={(e) => setFormStartTime(e.target.value)}
+                  />
+                </label>
+
+                <label className="reg-eval-field">
+                  <span>Submission Deadline</span>
+                  <input
+                    type="date"
+                    value={formDeadlineDate}
+                    onChange={(e) => setFormDeadlineDate(e.target.value)}
+                  />
+                </label>
+
+                <label className="reg-eval-field">
+                  <span>Closing Time</span>
+                  <input
+                    type="time"
+                    value={formClosingTime}
+                    onChange={(e) => setFormClosingTime(e.target.value)}
+                  />
+                </label>
+
+                <label className="reg-eval-field">
+                  <span>Applicable Programs</span>
+                  <select
+                    value={formProgramScope}
+                    onChange={(e) => setFormProgramScope(e.target.value)}
+                  >
+                    {PROGRAM_OPTIONS.map((prog) => (
+                      <option key={prog} value={prog}>
+                        {prog}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="reg-eval-field">
+                  <span>Applicable Subjects</span>
+                  <input
+                    type="text"
+                    placeholder="All Evaluated Subjects or specific subject codes"
+                    value={formSubjectScope}
+                    onChange={(e) => setFormSubjectScope(e.target.value)}
+                  />
+                </label>
+
+                <label className="reg-eval-field">
+                  <span>Professor Assignments Scope</span>
+                  <input
+                    type="text"
+                    placeholder="All Assigned Faculty or department filter"
+                    value={formProfessorScope}
+                    onChange={(e) => setFormProfessorScope(e.target.value)}
+                  />
+                </label>
+
+                <label className="reg-eval-field reg-eval-field-span2">
+                  <span>Administrative Notes (Optional)</span>
+                  <input
+                    type="text"
+                    placeholder="Policy notes or instructions for faculty..."
+                    value={formDescription}
+                    onChange={(e) => setFormDescription(e.target.value)}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="reg-eval-modal-foot">
+              <button
+                type="button"
+                className="reg-eval-btn reg-eval-btn-secondary"
+                onClick={() => setShowCreateForm(false)}
+                disabled={creatingPeriod}
               >
-                <option value="1st">1st Semester</option>
-                <option value="2nd">2nd Semester</option>
-                <option value="Summer">Summer</option>
-              </select>
-            </label>
-
-            <label className="reg-eval-field">
-              <span>School Year</span>
-              <input
-                type="text"
-                placeholder="2026-2027"
-                pattern="\d{4}-\d{4}"
-                value={formSchoolYear}
-                onChange={(e) => setFormSchoolYear(e.target.value)}
-              />
-            </label>
-
-            <label className="reg-eval-field">
-              <span>Evaluation Start Date</span>
-              <input
-                type="date"
-                value={formStartDate}
-                onChange={(e) => setFormStartDate(e.target.value)}
-              />
-            </label>
-
-            <label className="reg-eval-field">
-              <span>Start Time</span>
-              <input
-                type="time"
-                value={formStartTime}
-                onChange={(e) => setFormStartTime(e.target.value)}
-              />
-            </label>
-
-            <label className="reg-eval-field">
-              <span>Submission Deadline</span>
-              <input
-                type="date"
-                value={formDeadlineDate}
-                onChange={(e) => setFormDeadlineDate(e.target.value)}
-              />
-            </label>
-
-            <label className="reg-eval-field">
-              <span>Closing Time</span>
-              <input
-                type="time"
-                value={formClosingTime}
-                onChange={(e) => setFormClosingTime(e.target.value)}
-              />
-            </label>
-
-            <label className="reg-eval-field">
-              <span>Applicable Programs</span>
-              <select
-                value={formProgramScope}
-                onChange={(e) => setFormProgramScope(e.target.value)}
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="reg-eval-btn reg-eval-btn-secondary"
+                onClick={() => void handleSavePeriod(true)}
+                disabled={creatingPeriod}
               >
-                {PROGRAM_OPTIONS.map((prog) => (
-                  <option key={prog} value={prog}>
-                    {prog}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="reg-eval-field">
-              <span>Applicable Subjects</span>
-              <input
-                type="text"
-                placeholder="All Evaluated Subjects or specific subject codes"
-                value={formSubjectScope}
-                onChange={(e) => setFormSubjectScope(e.target.value)}
-              />
-            </label>
-
-            <label className="reg-eval-field">
-              <span>Professor Assignments Scope</span>
-              <input
-                type="text"
-                placeholder="All Assigned Faculty or department filter"
-                value={formProfessorScope}
-                onChange={(e) => setFormProfessorScope(e.target.value)}
-              />
-            </label>
-
-            <label className="reg-eval-field reg-eval-field-span2">
-              <span>Administrative Notes (Optional)</span>
-              <input
-                type="text"
-                placeholder="Policy notes or instructions for faculty..."
-                value={formDescription}
-                onChange={(e) => setFormDescription(e.target.value)}
-              />
-            </label>
+                <FileEdit size={15} />
+                <span>Save Draft</span>
+              </button>
+              <button
+                type="button"
+                className="reg-eval-btn reg-eval-btn-primary"
+                onClick={() => void handleSavePeriod(false)}
+                disabled={creatingPeriod}
+              >
+                <Play size={15} />
+                <span>{creatingPeriod ? 'Starting...' : 'Start Evaluation'}</span>
+              </button>
+            </div>
           </div>
-
-          <div className="reg-eval-config-actions">
-            <button
-              type="button"
-              className="reg-eval-btn reg-eval-btn-secondary"
-              onClick={() => setShowCreateForm(false)}
-              disabled={creatingPeriod}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="reg-eval-btn reg-eval-btn-secondary"
-              onClick={() => void handleSavePeriod(true)}
-              disabled={creatingPeriod}
-            >
-              <FileEdit size={15} />
-              <span>Save Draft</span>
-            </button>
-            <button
-              type="button"
-              className="reg-eval-btn reg-eval-btn-primary"
-              onClick={() => void handleSavePeriod(false)}
-              disabled={creatingPeriod}
-            >
-              <Play size={15} />
-              <span>{creatingPeriod ? 'Saving...' : 'Publish & Start Period'}</span>
-            </button>
-          </div>
-        </section>
+        </div>
       )}
 
       {/* Term Selector & Active Period Control Strip */}
@@ -1397,7 +1389,7 @@ export default function EvaluationManagementPage() {
                                 }}
                               >
                                 {p.status === 'closed' ? <RotateCcw size={14} /> : <Play size={14} />}
-                                <span>{p.status === 'closed' ? 'Reopen Period' : 'Start Period'}</span>
+                                <span>{p.status === 'closed' ? 'Reopen Period' : 'Start Evaluation'}</span>
                               </button>
                             )}
                             <button

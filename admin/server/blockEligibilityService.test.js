@@ -500,3 +500,78 @@ describe('Atomic capacity protection', () => {
     expect(results).toEqual(['success', 'success', 'success', 'success', 'success', 'capacity_full']);
   });
 });
+
+describe('hasPriorEnrollmentHistory', () => {
+  const { hasPriorEnrollmentHistory } = require('./services/blockEligibilityService');
+  const Enrollment = require('./models/Enrollment');
+
+  function mockFind(records) {
+    const query = {
+      select: jest.fn(() => query),
+      session: jest.fn(() => query),
+      lean: jest.fn().mockResolvedValue(records),
+    };
+    return jest.spyOn(Enrollment, 'find').mockReturnValue(query);
+  }
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test('returns false when student has no enrollment records (first-time admitted student)', async () => {
+    mockFind([]);
+    const result = await hasPriorEnrollmentHistory('student-new', '2026-2027', '1st', {
+      _id: 'student-new',
+      lifecycleStatus: 'Pending',
+      enrollmentStatus: 'Not Enrolled',
+      lifecycleStatusHistory: [],
+    });
+    expect(result).toBe(false);
+  });
+
+  test('returns true when student has an enrollment from an earlier term', async () => {
+    mockFind([
+      {
+        schoolYear: '2026-2027',
+        semester: '1st',
+        status: 'Enrolled',
+      },
+    ]);
+    const result = await hasPriorEnrollmentHistory('student-1', '2026-2027', '2nd', {
+      _id: 'student-1',
+      lifecycleStatus: 'Enrolled',
+    });
+    expect(result).toBe(true);
+  });
+
+  test('returns true when student has a pre-dismissal enrollment superseded by readmission in the same term', async () => {
+    mockFind([
+      {
+        schoolYear: '2026-2027',
+        semester: '1st',
+        status: 'Enrolled',
+        createdAt: new Date('2026-08-10T00:00:00Z'),
+      },
+    ]);
+    const readmittedStudent = {
+      _id: 'student-readmitted',
+      lifecycleStatus: 'Pending',
+      enrollmentStatus: 'Not Enrolled',
+      lifecycleStatusHistory: [
+        {
+          status: 'Dropped',
+          reason: 'ACADEMIC_DEFICIENCY',
+          changedAt: new Date('2026-10-01T00:00:00Z'),
+        },
+        {
+          status: 'Pending',
+          reason: 'AUTHORIZED_READMISSION',
+          changedAt: new Date('2026-10-15T00:00:00Z'),
+        },
+      ],
+    };
+    const result = await hasPriorEnrollmentHistory('student-readmitted', '2026-2027', '1st', readmittedStudent);
+    expect(result).toBe(true);
+  });
+});
+

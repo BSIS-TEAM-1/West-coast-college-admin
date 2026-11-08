@@ -35,7 +35,6 @@ function CurriculumManagementPage({
   onArchived,
   initialStatusFilter = '',
   showCreateButton = true,
-  title,
 }: CurriculumManagementPageProps) {
   const [curriculums, setCurriculums] = useState<Curriculum[]>([])
   const [query, setQuery] = useState('')
@@ -180,13 +179,8 @@ function CurriculumManagementPage({
 
   const filteredCurriculums = useMemo(() => curriculums, [curriculums])
 
-  const pageTitle = title || (statusFilter === 'Archived' ? 'Archived Curriculums' : 'Curriculums')
-
   return (
     <div className="registrar-section curriculum-management-page">
-      <h2 className="registrar-section-title">{pageTitle}</h2>
-      <p className="registrar-section-desc">Manage academic blueprints that define which subjects a program takes per year and semester.</p>
-
       {error && <p className="registrar-alert registrar-alert-error">{error}</p>}
       {success && <p className="registrar-alert registrar-alert-success">{success}</p>}
 

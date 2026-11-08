@@ -482,24 +482,15 @@ export default function BlockAssignmentPage({ mode = 'assignment' }: BlockAssign
     <>
       <section className="student-workspace">
         <header className="student-workspace__header">
-          <div className="student-workspace__heading">
-            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.6rem' }}>
-              <span className="student-workspace__eyebrow">{isReEnrollment ? 'Re-enrollment' : 'Block assignment'}</span>
-              {isReEnrollment && activeTerm ? (
-                <span className="student-workspace__active-term-pill">
-                  Current Term: {activeTerm.schoolYear} · {activeTerm.semester} Sem
-                </span>
-              ) : null}
+          {isReEnrollment && activeTerm ? (
+            <div className="student-workspace__heading">
+              <span className="student-workspace__active-term-pill">
+                Current Term: {activeTerm.schoolYear} · {activeTerm.semester} Sem
+              </span>
             </div>
-            <h1>{isReEnrollment ? 'Re-enrollment' : 'Assign Block'}</h1>
-            <p>
-              {isReEnrollment
-                ? "Students due to enroll again for the selected term. Send each student a verification code by email and/or SMS, enter the code they read back, then assign a block. Enrollment stays disabled until the active year has been rolled over to the target school year. Students with an unresolved failed or dropped subject become Irregular."
-                : 'Select students from the list, then assign them to a compatible block section.'}
-            </p>
-          </div>
+          ) : null}
 
-          <div className="student-workspace__header-actions">
+          <div className="student-workspace__header-actions" style={{ marginLeft: 'auto' }}>
             <button type="button" className="student-workspace__secondary-button" onClick={() => loadStudents('refresh')} disabled={refreshing || (isReEnrollment && !targetTermReady)}>
               <History size={16} />
               {refreshing ? 'Refreshing...' : 'Refresh'}

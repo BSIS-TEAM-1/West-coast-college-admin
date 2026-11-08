@@ -1259,7 +1259,7 @@ class BlockController {
 
       const group = await BlockGroup.findById(section.blockGroupId).session(session);
       const student = await Student.findById(studentId)
-        .select('studentNumber yearLevel studentStatus course firstName lastName classification curriculumVersion schoolYear semester lifecycleStatus lifecycleStatusHistory')
+        .select('studentNumber yearLevel studentStatus enrollmentStatus course firstName lastName classification curriculumVersion schoolYear semester lifecycleStatus lifecycleStatusReason lifecycleStatusChangedAt lifecycleStatusEffectiveDate lifecycleStatusHistory')
         .session(session);
       if (!student) {
         return {
@@ -1315,18 +1315,27 @@ class BlockController {
 
       // Determine server-side whether re-enrollment verification is required
       // even when the caller omits `reEnrollment: true` (direct API call).
+      // A newly admitted student enrolling for the first time (no prior
+      // enrollment history, no dismissal/readmission/reactivation history, and
+      // not a returning student) must NOT be treated as re-enrolling.
+      const lifecycleReason = String(student.lifecycleStatusReason || '').trim();
       const hasDismissalOrReadmissionHistory =
         latestDismissalAt(student) !== null ||
+        ['AUTHORIZED_READMISSION', 'AUTHORIZED_REACTIVATION'].includes(lifecycleReason) ||
         (Array.isArray(student.lifecycleStatusHistory) &&
-          student.lifecycleStatusHistory.some((entry) => entry && entry.decision === 'READMITTED'));
-      const isReturneeOrIrregular =
+          student.lifecycleStatusHistory.some(
+            (entry) =>
+              entry &&
+              (['READMITTED', 'REACTIVATED'].includes(String(entry.decision || '').trim()) ||
+                ['AUTHORIZED_READMISSION', 'AUTHORIZED_REACTIVATION'].includes(String(entry.reason || '').trim()) ||
+                ['Dropped', 'Leave of Absence', 'Inactive'].includes(String(entry.status || '').trim()))
+          ));
+      const isExplicitReturnee =
         String(student.studentStatus || '').trim() === 'Returnee' ||
-        String(student.classification || '').trim() === 'Returning' ||
-        ['Not Enrolled', 'Irregular'].includes(String(student.lifecycleStatus || '').trim());
-      const isFirstSemReEnrollmentCandidate =
-        String(targetSemester || '').trim() === '1st' &&
-        (Number(student.yearLevel) > 1 ||
-          ['Pending', 'Not Enrolled', 'Irregular'].includes(String(student.lifecycleStatus || '').trim()));
+        String(student.classification || '').trim() === 'Returning';
+      const isAdvancingFromPriorTerm =
+        isLaterTerm(targetSchoolYear, targetSemester, student.schoolYear, student.semester) &&
+        ['Enrolled', 'Irregular'].includes(String(student.lifecycleStatus || '').trim());
 
       let preloadedEnrollment;
       let hasPreloadedEnrollment = false;
@@ -1349,11 +1358,28 @@ class BlockController {
           !isSupersededByDismissal(preloadedEnrollment, student) &&
           ['Pending', 'Enrolled'].includes(String(preloadedEnrollment.status || '').trim()) &&
           String(preloadedEnrollment.schoolYear || '').trim() === String(targetSchoolYear || '').trim() &&
-          String(preloadedEnrollment.semester || '').trim() === String(targetSemester || '').trim() &&
-          !hasDismissalOrReadmissionHistory &&
-          !isReturneeOrIrregular;
+          String(preloadedEnrollment.semester || '').trim() === String(targetSemester || '').trim();
+
         if (!hasActiveTargetEnrollment) {
-          isServerDetectedReEnrollment = true;
+          const hasPriorEnrollmentHistory =
+            typeof blockEligibilityService.hasPriorEnrollmentHistory === 'function'
+              ? await blockEligibilityService.hasPriorEnrollmentHistory(
+                  studentId,
+                  targetSchoolYear,
+                  targetSemester,
+                  student,
+                  session
+                )
+              : false;
+
+          if (
+            hasDismissalOrReadmissionHistory ||
+            isExplicitReturnee ||
+            isAdvancingFromPriorTerm ||
+            hasPriorEnrollmentHistory
+          ) {
+            isServerDetectedReEnrollment = true;
+          }
         }
       }
 

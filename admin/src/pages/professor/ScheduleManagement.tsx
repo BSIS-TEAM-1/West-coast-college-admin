@@ -389,12 +389,7 @@ function ScheduleTimeline({
         <div>
           <div className="professor-tl-title-row">
             <h4>Weekly class timeline</h4>
-            {isCurrentTerm ? (
-              <span className="professor-tl-active-badge">
-                <span className="professor-active-dot" aria-hidden="true" />
-                Active Term ({selectedTermLabel})
-              </span>
-            ) : (
+            {!isCurrentTerm && (
               <span className="professor-tl-term-badge">
                 {selectedTermLabel}
               </span>
@@ -474,7 +469,7 @@ function ScheduleTimeline({
                   style={{ gridColumn: '1 / -1', gridRow: 2 + index * 2 }}
                   aria-hidden="true"
                 />
-                <div className="professor-tl-hour" style={{ gridColumn: 1, gridRow: 2 + index * 2 + 1 }}>
+                <div className="professor-tl-hour" style={{ gridColumn: 1, gridRow: 2 + index * 2 }}>
                   {formatHourLabel(hour)}
                 </div>
               </Fragment>
@@ -484,16 +479,18 @@ function ScheduleTimeline({
               placed.map(({ entry, item, lane }) => {
                 const startSlot = Math.floor((entry.start - bounds.startHour * 60) / 30)
                 const endSlot = Math.ceil((entry.end - bounds.startHour * 60) / 30)
+                const slotSpan = Math.max(1, endSlot - startSlot)
+                const sizeClass = slotSpan === 1 ? ' is-tiny' : slotSpan <= 2 ? ' is-short' : ''
                 const room = entry.room || item.room
                 return (
                   <div
                     key={`${item.id}-${entry.day}-${entry.start}`}
                     className={
-                      `professor-tl-block${accentById[item.id] && ` professor-tl-color-${accentById[item.id].replace('#', '')}`}`
+                      `professor-tl-block${sizeClass}${accentById[item.id] ? ` professor-tl-color-${accentById[item.id].replace('#', '')}` : ''}`
                     }
                     style={{
                       gridColumn: dayIndex + 2,
-                      gridRow: `${2 + startSlot} / span ${Math.max(1, endSlot - startSlot)}`,
+                      gridRow: `${2 + startSlot} / span ${slotSpan}`,
                       marginLeft: `calc(${(lane * 100) / lanes}% + 0.1rem)`,
                       width: `calc(${100 / lanes}% - 0.25rem)`,
                       ['--tl-accent' as string]: accentById[item.id] || TIMELINE_ACCENTS[0]
@@ -698,11 +695,6 @@ function ScheduleCalendar({
           </div>
           <strong className="professor-cal-title">
             {month.toLocaleString(undefined, { month: 'long', year: 'numeric' })}
-            {isCurrentTerm && (
-              <span className="professor-active-pill" style={{ marginLeft: '0.5rem', fontSize: '0.68rem', padding: '0.15rem 0.5rem' }}>
-                Active Term
-              </span>
-            )}
           </strong>
           <button type="button" className="professor-cal-today-btn" onClick={goToday}>
             Today
@@ -1048,12 +1040,6 @@ function ScheduleManagement({ courses, loading, error, onRefresh, activeTerm: pr
                 <option value="all">All Semesters</option>
               </select>
             </div>
-            {isCurrentTermActive && (
-              <span className="professor-active-pill" title="Currently showing schedule for the active school term">
-                <span className="professor-active-dot" aria-hidden="true" />
-                Active Term
-              </span>
-            )}
           </div>
         </div>
 

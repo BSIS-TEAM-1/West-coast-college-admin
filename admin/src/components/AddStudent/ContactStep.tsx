@@ -11,11 +11,6 @@ interface ContactStepProps {
 export default function ContactStep({ data, onChange, errors, isEditMode = false }: ContactStepProps) {
   return (
     <div className="wizard-step">
-      <div className="wizard-step-header">
-        <h2>Contact Information</h2>
-        <p>Enter the student's contact details</p>
-      </div>
-
       <div className="wizard-form-grid">
         {/* Email */}
         <div className="form-group form-group--full">

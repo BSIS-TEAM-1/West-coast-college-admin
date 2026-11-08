@@ -493,13 +493,7 @@ export default function BlockOverviewDashboard({
   return (
     <div className="registrar-section block-overview">
       <header className="bo-header">
-        <div className="bo-heading">
-          <h2 className="registrar-section-title">Block Overview</h2>
-          <p className="bo-subtitle">
-            Monitor section capacity and placement health for <strong>{termLabel}</strong>.
-          </p>
-        </div>
-        <div className="bo-header-actions">
+        <div className="bo-header-actions" style={{ marginLeft: 'auto' }}>
           {lastUpdated && (
             <span className="bo-updated">
               Updated{' '}

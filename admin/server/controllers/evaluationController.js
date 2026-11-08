@@ -691,10 +691,12 @@ class EvaluationController {
         const emojiMeta = getEmojiForAverage(resp.averageRating);
         return {
           id: String(resp._id),
-          anonymousLabel: `Anonymous Response #${filteredResponses.length - index}`,
+          anonymousLabel: `Anonymous Student #${filteredResponses.length - index}`,
           subjectCode: resp.subjectCode,
           subjectTitle: resp.subjectTitle,
           subjectCodes: responseSubjectCodes(resp),
+          sectionCode: resp.sectionCode || '',
+          course: resp.course || '',
           semester: resp.semester,
           schoolYear: resp.schoolYear,
           averageRating: resp.averageRating,

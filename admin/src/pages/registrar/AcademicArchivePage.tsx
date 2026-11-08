@@ -146,11 +146,7 @@ export default function AcademicArchivePage() {
   return (
     <div className="academic-archive-page">
       <header className="academic-archive-header">
-        <div>
-          <span className="academic-archive-eyebrow">Academic Compliance</span>
-          <h1>Academic Archive</h1>
-        </div>
-        <div className="academic-archive-header-actions">
+        <div className="academic-archive-header-actions" style={{ marginLeft: 'auto' }}>
           <div className="academic-archive-search">
             <Search size={16} />
             <input

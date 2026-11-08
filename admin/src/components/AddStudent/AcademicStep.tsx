@@ -216,11 +216,6 @@ export default function AcademicStep({ data, onChange, errors }: AcademicStepPro
 
   return (
     <div className="wizard-step">
-      <div className="wizard-step-header">
-        <h2>Academic Information</h2>
-        <p>Enter the student's academic history and enrollment details</p>
-      </div>
-
       {/* Academic History */}
       <SchoolRecordCard
         title="Elementary Education"

@@ -481,11 +481,7 @@ export default function CorGeneration() {
   return (
     <div className="cor-generation-page">
       <div className="cor-generation-header">
-        <div>
-          <h2>Certificate of registration Authorization</h2>
-          <p>Filter by program, choose a block card, view each COR, then approve it for registrar workflow.</p>
-        </div>
-        <button className="cor-refresh-btn" onClick={() => void fetchBlocks()} disabled={loading}>
+        <button className="cor-refresh-btn" style={{ marginLeft: 'auto' }} onClick={() => void fetchBlocks()} disabled={loading}>
           <RefreshCw size={16} className={loading ? 'spin' : ''} />
           {loading ? 'Refreshing...' : 'Refresh'}
         </button>

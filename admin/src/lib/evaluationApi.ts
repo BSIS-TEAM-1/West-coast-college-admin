@@ -88,6 +88,9 @@ export interface ProfessorAnonymousFeedback {
   anonymousLabel: string
   subjectCode: string
   subjectTitle: string
+  subjectCodes?: string[]
+  sectionCode?: string
+  course?: string
   semester: string
   schoolYear: string
   averageRating: number

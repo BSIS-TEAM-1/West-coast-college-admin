@@ -196,7 +196,7 @@ async function syncPeriodEffectiveStatus(periodDoc) {
   };
 }
 
-async function ensurePeriodForTerm(semester, schoolYear, createIfMissing = false) {
+async function ensurePeriodForTerm(semester, schoolYear, _createIfMissing = false) {
   const activeTerm = (!semester || !schoolYear) ? await getActiveAcademicTerm() : null;
   const normalizedSemester = ['1st', '2nd', 'Summer'].includes(String(semester || '').trim())
     ? String(semester).trim()
@@ -205,34 +205,10 @@ async function ensurePeriodForTerm(semester, schoolYear, createIfMissing = false
     ? String(schoolYear).trim()
     : (activeTerm?.schoolYear || (await getActiveAcademicTerm()).schoolYear);
 
-  let period = await EvaluationPeriod.findOne({
+  const period = await EvaluationPeriod.findOne({
     semester: normalizedSemester,
     schoolYear: normalizedSchoolYear
   }).sort({ createdAt: -1 }).lean();
-
-  if (!period && createIfMissing) {
-    const now = new Date();
-    const startAt = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const endAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-    const toDateStr = (d) => d.toISOString().slice(0, 10);
-
-    const created = await EvaluationPeriod.create({
-      title: `${normalizedSemester} Semester ${normalizedSchoolYear} Professor Evaluation`,
-      semester: normalizedSemester,
-      schoolYear: normalizedSchoolYear,
-      startDate: toDateStr(startAt),
-      startTime: '08:00',
-      startAt,
-      deadlineDate: toDateStr(endAt),
-      closingTime: '23:59',
-      endAt,
-      status: 'open',
-      manualState: 'started',
-      questions: DEFAULT_EVALUATION_QUESTIONS,
-      description: 'Official faculty teaching effectiveness evaluation period.'
-    });
-    period = created.toObject();
-  }
 
   if (!period) return null;
   return syncPeriodEffectiveStatus(period);
@@ -469,13 +445,16 @@ async function getStudentTermEvaluationStatus(student, enrollment, preloadedLook
   const allCompleted = requiredCount === 0 ? true : completedCount >= requiredCount;
   const completionPercentage = requiredCount > 0 ? Math.round((completedCount / requiredCount) * 100) : 100;
 
+  // Grades are only locked by evaluation when an evaluation period actually exists and is open
+  const isPeriodActive = Boolean(period && period.isOpen);
+
   return {
     requiredCount,
     completedCount,
     pendingCount,
     allCompleted,
     completionPercentage,
-    gradesLocked: !allCompleted,
+    gradesLocked: isPeriodActive ? !allCompleted : false,
     period,
     subjectsByCode,
     subjectsList,

@@ -84,7 +84,9 @@ class PromotionPolicyEngine {
       const gradedSubjects = subjects.filter((s) => s.grade !== null && s.grade !== undefined);
       details.hasGrades = gradedSubjects.length === subjects.length;
 
-      const incSubjects = subjects.filter((s) => s.status === 'Incomplete' || s.grade === null);
+      const incSubjects = subjects.filter(
+        (s) => s.status === 'Incomplete' || String(s.gradeMark || '').trim().toUpperCase() === 'INC'
+      );
       details.hasInc = incSubjects.length > 0;
 
       const failingSubjects = gradedSubjects.filter((s) => s.grade > policy.passingGrade);

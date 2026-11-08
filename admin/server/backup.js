@@ -7,6 +7,7 @@ const { finished, pipeline } = require('stream/promises');
 const mongoose = require('mongoose');
 const Backup = require('./models/Backup');
 const BackupVerificationReport = require('./models/BackupVerificationReport');
+const SystemSetting = require('./models/SystemSetting');
 const { createBackupStorage } = require('./services/backupStorage');
 const { createBackupEncryptionProvider } = require('./services/backupEncryption');
 const { createBackupNotificationService } = require('./services/backupNotifications');
@@ -41,6 +42,92 @@ function stripBackupExtensions(value) {
 
 function escapeRegExp(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeScheduleTime(value = '06:00') {
+  const match = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(String(value || '').trim());
+  if (!match) return '06:00';
+  return `${String(Number(match[1])).padStart(2, '0')}:${match[2]}`;
+}
+
+function formatBackupTimestamp(date = new Date(), timeZone = process.env.BACKUP_SCHEDULE_TIMEZONE || 'Asia/Manila') {
+  const refDate = date instanceof Date ? date : new Date(date);
+  const ms = String(refDate.getMilliseconds()).padStart(3, '0');
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23'
+    });
+    const parts = Object.fromEntries(
+      formatter.formatToParts(refDate).map((part) => [part.type, part.value])
+    );
+    return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}-${parts.minute}-${parts.second}-${ms}`;
+  } catch {
+    return refDate.toISOString().replace(/[:.]/g, '-');
+  }
+}
+
+function getNextScheduledBackupDate(
+  scheduleTime = process.env.BACKUP_SCHEDULE_TIME || '06:00',
+  now = new Date(),
+  timeZone = process.env.BACKUP_SCHEDULE_TIMEZONE || 'Asia/Manila'
+) {
+  const normalized = normalizeScheduleTime(scheduleTime);
+  const [hours, minutes] = normalized.split(':').map(Number);
+  const refNow = now instanceof Date ? now : new Date(now);
+
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23'
+    });
+    const parts = Object.fromEntries(
+      formatter.formatToParts(refNow).map((part) => [part.type, part.value])
+    );
+    const tzNowAsUtcMs = Date.UTC(
+      Number(parts.year),
+      Number(parts.month) - 1,
+      Number(parts.day),
+      Number(parts.hour),
+      Number(parts.minute),
+      Number(parts.second)
+    );
+    const offsetMs = Math.round((tzNowAsUtcMs - refNow.getTime()) / 60000) * 60000;
+
+    let targetUtcMs = Date.UTC(
+      Number(parts.year),
+      Number(parts.month) - 1,
+      Number(parts.day),
+      hours,
+      minutes,
+      0,
+      0
+    ) - offsetMs;
+
+    if (targetUtcMs <= refNow.getTime()) {
+      targetUtcMs += 24 * 60 * 60 * 1000;
+    }
+    return new Date(targetUtcMs);
+  } catch {
+    const fallback = new Date(refNow);
+    fallback.setHours(hours, minutes, 0, 0);
+    if (fallback <= refNow) {
+      fallback.setDate(fallback.getDate() + 1);
+    }
+    return fallback;
+  }
 }
 
 const APP_VERSION = process.env.APP_VERSION || require('../package.json').version || 'unknown';
@@ -140,6 +227,45 @@ class BackupSystem {
 
   invalidateCaches() {
     this.statsCache = null;
+  }
+
+  normalizeScheduleTime(value = process.env.BACKUP_SCHEDULE_TIME || '06:00') {
+    return normalizeScheduleTime(value);
+  }
+
+  formatBackupTimestamp(date = new Date(), timeZone = process.env.BACKUP_SCHEDULE_TIMEZONE || 'Asia/Manila') {
+    return formatBackupTimestamp(date, timeZone);
+  }
+
+  getNextScheduledBackupDate(
+    scheduleTime = process.env.BACKUP_SCHEDULE_TIME || '06:00',
+    now = new Date(),
+    timeZone = process.env.BACKUP_SCHEDULE_TIMEZONE || 'Asia/Manila'
+  ) {
+    return getNextScheduledBackupDate(scheduleTime, now, timeZone);
+  }
+
+  async getConfiguredScheduleTime() {
+    if (mongoose.connection.readyState === 1) {
+      try {
+        const setting = await SystemSetting.findOne({ key: 'backupScheduleTime' }).lean();
+        const saved = typeof setting?.value === 'string'
+          ? setting.value
+          : typeof setting?.value?.scheduleTime === 'string'
+            ? setting.value.scheduleTime
+            : null;
+        if (saved && /^([01]?\d|2[0-3]):([0-5]\d)$/.test(saved.trim())) {
+          const normalized = normalizeScheduleTime(saved);
+          process.env.BACKUP_SCHEDULE_TIME = normalized;
+          return normalized;
+        }
+      } catch (_) {
+        // Fall back to process.env if SystemSetting lookup fails
+      }
+    }
+    const normalized = normalizeScheduleTime(process.env.BACKUP_SCHEDULE_TIME || '06:00');
+    process.env.BACKUP_SCHEDULE_TIME = normalized;
+    return normalized;
   }
 
   /**
@@ -664,7 +790,7 @@ class BackupSystem {
 
   async createBackupUnlocked(type, triggeredBy, options = {}) {
     const startedAt = Date.now();
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const timestamp = this.formatBackupTimestamp(new Date());
     const isEncrypted = this.encryption.enabled;
     const token = crypto.randomUUID();
     const tempJsonName = `.pending-${token}.json`;
@@ -1664,8 +1790,8 @@ class BackupSystem {
       );
       const unverified = records.filter(item => item.status === 'completed' && item.verificationStatus === 'pending');
       const latestBackup = completed[0] || null;
-      const scheduledMs = 6 * 60 * 60 * 1000;
-      const automatic = completed.find(item => AUTOMATIC_TYPES.has(item.backupType));
+      const scheduleTime = await this.getConfiguredScheduleTime();
+      const nextScheduledBackup = this.getNextScheduledBackupDate(scheduleTime);
       const verificationReports = await BackupVerificationReport.find().sort({ createdAt: -1 }).limit(100).lean();
       const passedReports = verificationReports.filter(item => item.status === 'passed');
       const lastRestoreVerification = verificationReports.find(item => item.type === 'scheduled_restore' && item.status === 'passed') || null;
@@ -1786,7 +1912,8 @@ class BackupSystem {
         } : null,
         lastSuccessfulBackup: latestBackup?.completedAt || latestBackup?.createdAt || null,
         lastVerifiedBackup: latestBackup?.verifiedAt || null,
-        nextScheduledBackup: automatic ? new Date(new Date(automatic.createdAt).getTime() + scheduledMs) : null,
+        nextScheduledBackup,
+        scheduleTime,
         totalSize: completed.reduce((sum, item) => sum + (item.size || 0) + (item.compressedSize || 0), 0),
         storageProvider: this.storage.provider,
         retentionLimit: this.retentionLimit,
@@ -1824,5 +1951,8 @@ class BackupSystem {
 
 BackupSystem.BackupBusyError = BackupBusyError;
 BackupSystem.stripBackupExtensions = stripBackupExtensions;
+BackupSystem.normalizeScheduleTime = normalizeScheduleTime;
+BackupSystem.formatBackupTimestamp = formatBackupTimestamp;
+BackupSystem.getNextScheduledBackupDate = getNextScheduledBackupDate;
 BackupSystem.VERIFICATION_STATE = VERIFICATION_STATE;
 module.exports = BackupSystem;

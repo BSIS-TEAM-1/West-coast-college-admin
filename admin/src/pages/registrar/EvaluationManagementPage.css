@@ -882,7 +882,7 @@
 }
 
 .reg-eval-modal-lg {
-  max-width: 680px;
+  max-width: 740px;
 }
 
 .reg-eval-modal-head {
@@ -1179,11 +1179,12 @@
 .reg-eval-faculty-summary > div {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  padding: 0.65rem 0.8rem;
+  gap: 0.35rem;
+  padding: 0.65rem 0.75rem;
   background: var(--re-bg-soft);
   border: 1px solid var(--re-border);
   border-radius: 8px;
+  min-width: 0;
 }
 
 .reg-eval-faculty-summary > div > span {
@@ -1197,6 +1198,19 @@
 .reg-eval-faculty-summary > div > strong {
   color: var(--re-text-bold);
   font-size: 0.95rem;
+}
+
+.reg-eval-faculty-summary .reg-eval-faculty-status {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  width: fit-content;
+  max-width: 100%;
+  text-align: center;
+  line-height: 1.25;
+  white-space: normal;
+  word-break: normal;
 }
 
 .reg-eval-detail-heading {
@@ -1306,7 +1320,7 @@
   color: var(--re-text-muted);
 }
 
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   .reg-eval-faculty-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

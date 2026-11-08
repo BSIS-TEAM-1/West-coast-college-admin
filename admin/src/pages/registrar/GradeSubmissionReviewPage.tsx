@@ -1,5 +1,6 @@
-import { Fragment, useState, useEffect, useCallback } from 'react'
-import { Check, X, RotateCcw, AlertCircle, FileText, Clock, ChevronDown, ChevronLeft } from 'lucide-react'
+import { Fragment, useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
+import { Check, X, RotateCcw, AlertCircle, FileText, Clock, ChevronDown, ClipboardCheck } from 'lucide-react'
 import {
   listGradeSubmissions,
   verifyGradeSubmission,
@@ -42,7 +43,7 @@ const TABS: { key: TabKey; label: string; status?: GradeSubmissionStatus }[] = [
   { key: 'change-requests', label: 'Change Requests' }
 ]
 
-export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionReviewPageProps) {
+export default function GradeSubmissionReviewPage({ onBack: _onBack }: GradeSubmissionReviewPageProps = {}) {
   const [activeTab, setActiveTab] = useState<TabKey>('pending')
   const [submissions, setSubmissions] = useState<GradeSubmissionSummary[]>([])
   const [changeRequests, setChangeRequests] = useState<GradeChangeRequest[]>([])
@@ -58,6 +59,9 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
   const [reviewRemarks, setReviewRemarks] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
   const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null)
+  const [actionMenuPosition, setActionMenuPosition] = useState<{ top: number; left: number } | null>(null)
+  const actionButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const actionMenuRef = useRef<HTMLDivElement | null>(null)
   const [confirmAction, setConfirmAction] = useState<null | 'approve'>(null)
   const [changeRequestFilter, setChangeRequestFilter] = useState<GradeChangeRequestStatus | ''>('Pending')
   const [reviewingChangeRequest, setReviewingChangeRequest] = useState<GradeChangeRequest | null>(null)
@@ -104,6 +108,78 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
   }, [activeTab, schoolYearFilter, semesterFilter, courseFilter, changeRequestFilter])
 
   useEffect(() => { load() }, [load])
+
+  const computeActionMenuPosition = (button: HTMLButtonElement) => {
+    const rect = button.getBoundingClientRect()
+    const menuWidth = 110
+    const menuHeight = 72
+    const margin = 8
+
+    let left = rect.right - menuWidth
+    if (left < margin) left = margin
+    if (left + menuWidth > window.innerWidth - margin) {
+      left = window.innerWidth - menuWidth - margin
+    }
+
+    const fitsDown = rect.bottom + menuHeight + margin <= window.innerHeight
+    const top = fitsDown ? rect.bottom + 4 : Math.max(margin, rect.top - menuHeight - 4)
+
+    return { top, left }
+  }
+
+  const toggleActionMenu = (id: string) => {
+    if (openActionMenuId === id) {
+      setOpenActionMenuId(null)
+      setActionMenuPosition(null)
+      return
+    }
+    const button = actionButtonRefs.current[id]
+    if (!button) return
+    setActionMenuPosition(computeActionMenuPosition(button))
+    setOpenActionMenuId(id)
+  }
+
+  useEffect(() => {
+    if (!openActionMenuId) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpenActionMenuId(null)
+        setActionMenuPosition(null)
+      }
+    }
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (
+        actionMenuRef.current &&
+        !actionMenuRef.current.contains(target) &&
+        !actionButtonRefs.current[openActionMenuId]?.contains(target)
+      ) {
+        setOpenActionMenuId(null)
+        setActionMenuPosition(null)
+      }
+    }
+
+    const handleReposition = () => {
+      const button = actionButtonRefs.current[openActionMenuId]
+      if (button) {
+        setActionMenuPosition(computeActionMenuPosition(button))
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('mousedown', handleClickOutside)
+    window.addEventListener('scroll', handleReposition, true)
+    window.addEventListener('resize', handleReposition)
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('mousedown', handleClickOutside)
+      window.removeEventListener('scroll', handleReposition, true)
+      window.removeEventListener('resize', handleReposition)
+    }
+  }, [openActionMenuId])
 
   const handleView = async (submission: GradeSubmissionSummary) => {
     // Rows in the main table use a compound ID (enrollment + instructor + subject). Resolve
@@ -400,11 +476,6 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
       <header className="grade-submission-header">
         <h1>Grade Verification</h1>
         <p>Verify, return, and publish grade submissions from professors.</p>
-        {onBack && (
-          <button type="button" className="grade-submission-back-btn" onClick={onBack}>
-            <ChevronLeft size={16} /> Back
-          </button>
-        )}
       </header>
 
       {error && <div className="grade-submission-error"><AlertCircle size={16} /> {error} <button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer' }}><X size={14} /></button></div>}
@@ -469,7 +540,13 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
         <div className="grade-submission-loading">Loading...</div>
       ) : activeTab === 'change-requests' ? (
         changeRequests.length === 0 ? (
-          <div className="grade-submission-empty">No grade change requests found.</div>
+          <div className="grade-submission-empty">
+            <div className="grade-submission-empty-icon">
+              <ClipboardCheck size={52} strokeWidth={1.5} />
+            </div>
+            <h3>No Change Requests</h3>
+            <p>No grade change requests found.</p>
+          </div>
         ) : (
           <div className="grade-submission-list">
             <table className="grade-submission-table">
@@ -516,7 +593,13 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
           </div>
         )
       ) : submissions.length === 0 ? (
-        <div className="grade-submission-empty">No grade submissions found matching the filters.</div>
+        <div className="grade-submission-empty">
+          <div className="grade-submission-empty-icon">
+            <ClipboardCheck size={52} strokeWidth={1.5} />
+          </div>
+          <h3>No Grade Submissions Found</h3>
+          <p>No grade submissions found matching the filters.</p>
+        </div>
       ) : (
         <>
           {/* Batch Action Bar */}
@@ -645,22 +728,30 @@ export default function GradeSubmissionReviewPage({ onBack }: GradeSubmissionRev
                           <div className="gs-action-dropdown">
                             <button
                               type="button"
+                              ref={(el) => { actionButtonRefs.current[s._id] = el }}
                               className="btn-secondary gs-action-dropdown-trigger"
-                              onClick={() => setOpenActionMenuId((current) => current === s._id ? null : s._id)}
+                              onClick={() => toggleActionMenu(s._id)}
                               disabled={actionLoading}
                               aria-expanded={openActionMenuId === s._id}
                             >
                               Actions <ChevronDown size={14} />
                             </button>
-                            {openActionMenuId === s._id && (
-                              <div className="gs-action-dropdown-menu" role="menu">
+                            {openActionMenuId === s._id && actionMenuPosition && createPortal(
+                              <div
+                                ref={actionMenuRef}
+                                className="gs-action-dropdown-menu gs-action-dropdown-menu--portal"
+                                role="menu"
+                                style={{ top: actionMenuPosition.top, left: actionMenuPosition.left }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
                                 <button type="button" role="menuitem" className="gs-action-dropdown-item gs-action-dropdown-item--approve" onClick={() => void handleTableReview(s, 'approve')}>
                                   <Check size={14} /> Approve
                                 </button>
                                 <button type="button" role="menuitem" className="gs-action-dropdown-item gs-action-dropdown-item--reject" onClick={() => void handleTableReview(s, 'reject')}>
                                   <X size={14} /> Reject
                                 </button>
-                              </div>
+                              </div>,
+                              document.body
                             )}
                           </div>
                         )}

@@ -3,7 +3,19 @@ const Student = require('../models/Student');
 const BlockGroup = require('../models/BlockGroup');
 const BlockSection = require('../models/BlockSection');
 const Enrollment = require('../models/Enrollment');
-const { getLifecycleRestriction } = require('./lifecycleRestrictions');
+const { getLifecycleRestriction, isSupersededByDismissal } = require('./lifecycleRestrictions');
+
+const TERM_ORDER = { '1st': 0, '2nd': 1, Summer: 2 };
+
+function isLaterTerm(aYear, aSem, bYear, bSem) {
+  const aStart = Number(String(aYear || '').split('-')[0]);
+  const bStart = Number(String(bYear || '').split('-')[0]);
+  if (!Number.isFinite(aStart) || !Number.isFinite(bStart)) return false;
+  if (aStart !== bStart) return aStart > bStart;
+  const aRank = Object.prototype.hasOwnProperty.call(TERM_ORDER, String(aSem)) ? TERM_ORDER[String(aSem)] : -1;
+  const bRank = Object.prototype.hasOwnProperty.call(TERM_ORDER, String(bSem)) ? TERM_ORDER[String(bSem)] : -1;
+  return aRank > bRank;
+}
 
 const COURSE_MAP = {
   101: 'BEED',
@@ -65,6 +77,54 @@ async function findActiveEnrollment(studentId, schoolYear, semester, session = n
   if (semester) query.semester = semester;
   enrollment = await scoped(Enrollment.findOne(query)).sort({ createdAt: -1 }).lean();
   return enrollment;
+}
+
+/**
+ * Determine whether a student has any previous enrollment history that
+ * qualifies them as a returning or re-enrolling student for the target term.
+ *
+ * A newly admitted student enrolling for the first time has no prior
+ * Enrollment records (or only a non-superseded record in the same target term)
+ * and must not be required to complete re-enrollment verification.
+ */
+async function hasPriorEnrollmentHistory(studentId, targetSchoolYear, targetSemester, student = null, session = null) {
+  const scoped = (query) => (session ? query.session(session) : query);
+  const enrollments = await scoped(
+    Enrollment.find({ studentId })
+      .select('schoolYear semester status isCurrent lockedAt createdAt updatedAt')
+  ).lean();
+
+  if (!Array.isArray(enrollments) || enrollments.length === 0) {
+    return false;
+  }
+
+  for (const enrollment of enrollments) {
+    if (!enrollment) continue;
+    // 1. Any enrollment from an earlier term proves prior enrollment history.
+    if (
+      targetSchoolYear &&
+      targetSemester &&
+      enrollment.schoolYear &&
+      enrollment.semester &&
+      isLaterTerm(targetSchoolYear, targetSemester, enrollment.schoolYear, enrollment.semester)
+    ) {
+      return true;
+    }
+    // 2. Any locked or completed/historical enrollment record proves prior history.
+    if (
+      enrollment.lockedAt ||
+      ['Completed', 'Retained', 'Graduated'].includes(String(enrollment.status || '').trim())
+    ) {
+      return true;
+    }
+    // 3. Any enrollment that was superseded by an academic dismissal/readmission
+    //    proves the student was previously enrolled and is returning after readmission.
+    if (student && isSupersededByDismissal(enrollment, student)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -409,6 +469,7 @@ module.exports = {
   getEligibleBlocks,
   getBulkEligibility,
   findActiveEnrollment,
+  hasPriorEnrollmentHistory,
   normalizeCourseCode,
   formatSchoolYearFromStartYear,
 };

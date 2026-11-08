@@ -135,25 +135,46 @@ let initialBackupTimeout = null
 let scheduledBackupTimeout = null
 
 // Schedule automatic backups at a specific time daily (configurable via BACKUP_SCHEDULE_TIME, default 06:00)
-function scheduleNextBackup() {
-  const scheduleTime = process.env.BACKUP_SCHEDULE_TIME || '06:00'
-  const [hours, minutes] = scheduleTime.split(':').map(Number)
+function scheduleNextBackup(referenceNow = new Date()) {
+  if (scheduledBackupTimeout) {
+    clearTimeout(scheduledBackupTimeout)
+    scheduledBackupTimeout = null
+  }
+  const scheduleTime = backupSystem.normalizeScheduleTime(process.env.BACKUP_SCHEDULE_TIME || '06:00')
+  process.env.BACKUP_SCHEDULE_TIME = scheduleTime
 
   const now = new Date()
-  const scheduledTime = new Date()
-  scheduledTime.setHours(hours, minutes, 0, 0)
+  const refNow = referenceNow instanceof Date && referenceNow > now ? referenceNow : now
+  const scheduledTime = backupSystem.getNextScheduledBackupDate(scheduleTime, refNow)
 
-  // If the scheduled time has already passed today, schedule for tomorrow
-  if (scheduledTime <= now) {
-    scheduledTime.setDate(scheduledTime.getDate() + 1)
-  }
-
-  const delayMs = scheduledTime.getTime() - now.getTime()
-  logger.info(`Next backup scheduled for ${scheduledTime.toISOString()} (in ${Math.round(delayMs / 1000 / 60)} minutes)`)
+  const delayMs = Math.max(1000, scheduledTime.getTime() - now.getTime())
+  logger.info(`Next backup scheduled for ${scheduledTime.toISOString()} (${scheduleTime} ${process.env.BACKUP_SCHEDULE_TIMEZONE || 'Asia/Manila'}, in ${Math.round(delayMs / 1000 / 60)} minutes)`)
 
   scheduledBackupTimeout = setTimeout(async () => {
-    logger.info('Running scheduled backup...')
     try {
+      // Sync schedule from DB in case another instance updated it
+      const latestScheduleTime = await backupSystem.getConfiguredScheduleTime()
+      if (latestScheduleTime !== scheduleTime) {
+        logger.info(`Backup schedule changed in DB from ${scheduleTime} to ${latestScheduleTime}; rescheduling.`)
+        scheduleNextBackup()
+        return
+      }
+
+      // Guard against duplicate scheduled backups within the same hour across instances
+      if (mongoose.connection.readyState === 1) {
+        const recentScheduled = await Backup.findOne({
+          backupType: 'scheduled',
+          status: { $in: ['in_progress', 'completed'] },
+          createdAt: { $gte: new Date(Date.now() - 45 * 60 * 1000) }
+        }).lean()
+        if (recentScheduled) {
+          logger.info(`Skipping scheduled backup: recent scheduled backup already exists (${recentScheduled.fileName})`)
+          scheduleNextBackup(new Date(Date.now() + 60 * 1000))
+          return
+        }
+      }
+
+      logger.info('Running scheduled backup...')
       const result = await backupSystem.createBackup('scheduled', 'system')
       if (result.success) {
         logger.info(`Scheduled backup completed: ${result.fileName}`)
@@ -163,8 +184,8 @@ function scheduleNextBackup() {
     } catch (error) {
       logger.error('Scheduled backup error:', error)
     }
-    // Schedule the next backup after this one completes
-    scheduleNextBackup()
+    // Schedule the next backup after this one completes (with a 60s buffer so timer jitter never re-triggers the same minute)
+    scheduleNextBackup(new Date(Date.now() + 60 * 1000))
   }, delayMs)
 }
 
@@ -2277,6 +2298,16 @@ async function runOnceStartupMigrations() {
       }
     })()
 
+    // Load persisted backup schedule time from SystemSetting on startup
+    void (async () => {
+      try {
+        await backupSystem.getConfiguredScheduleTime()
+        scheduleNextBackup()
+      } catch (scheduleInitErr) {
+        console.error('Backup schedule initialization error:', scheduleInitErr?.message || scheduleInitErr)
+      }
+    })()
+
     // Run initial backup after connection — but skip it when a recent
     // successful backup already exists, and delay it so cold-start requests
     // are not starved by a full database export + compress + encrypt cycle
@@ -4141,6 +4172,7 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
         evaluationStatus.subjectsList,
         evaluationStatus.period
       )
+      const isPeriodOpen = Boolean(evaluationStatus.period?.isOpen)
       const completedAdvisers = evaluationAdvisers.filter((item) => item.evaluationCompleted).length
       const pendingAdvisers = Math.max(0, evaluationAdvisers.length - completedAdvisers)
       evaluation = {
@@ -4152,7 +4184,7 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
           completedCount: completedAdvisers,
           pendingCount: pendingAdvisers,
           allCompleted: pendingAdvisers === 0,
-          gradesLocked: pendingAdvisers > 0
+          gradesLocked: isPeriodOpen ? pendingAdvisers > 0 : false
         },
         advisers: evaluationAdvisers
       }
@@ -4396,14 +4428,14 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
         )
         const completedAdvisers = evaluationAdvisers.filter((item) => item.evaluationCompleted).length
         const pendingAdvisers = Math.max(0, evaluationAdvisers.length - completedAdvisers)
+        const isPeriodOpen = Boolean(evaluationStatus.period?.isOpen)
         const evaluationSummary = {
           requiredCount: evaluationAdvisers.length,
           completedCount: completedAdvisers,
           pendingCount: pendingAdvisers,
           allCompleted: pendingAdvisers === 0,
-          // Only the active term is gated by evaluation completion. Completed
-          // terms remain readable as academic history.
-          gradesLocked: isCurrent && pendingAdvisers > 0
+          // Only the active term is gated by evaluation completion when the evaluation period is open.
+          gradesLocked: isCurrent && isPeriodOpen && pendingAdvisers > 0
         }
 
         const subjects = (enrollment.subjects || [])
@@ -4420,7 +4452,7 @@ app.get('/api/student/grades', studentAuthMiddleware, async (req, res) => {
             const meta = evaluationStatus.subjectsByCode.get(code) || null
             const evaluationCompleted = Boolean(meta?.evaluationCompleted)
             const isPublished = (subject.submissionStatus || 'Draft') === 'Published'
-            const evaluationGatesGrade = isCurrent && !evaluationCompleted
+            const evaluationGatesGrade = isCurrent && isPeriodOpen && !evaluationCompleted
             const gradeUnlocked = !evaluationGatesGrade && isPublished
             const professorName = meta?.professorName || subject.instructor || 'Assigned Faculty'
             const numericGrade = subject.grade !== null && subject.grade !== undefined && String(subject.grade).trim() !== ''
@@ -8124,7 +8156,16 @@ app.get('/api/admin/backup/stats', authMiddleware, requireAdminRole, async (req,
 });
 
 app.get('/api/admin/backup/health', authMiddleware, requireAdminRole, async (req, res) => {
-  try { res.json({ success: true, ...(await backupSystem.getBackupStats()), scheduleTime: process.env.BACKUP_SCHEDULE_TIME || '06:00' }); }
+  try {
+    const stats = await backupSystem.getBackupStats();
+    const scheduleTime = stats.scheduleTime || await backupSystem.getConfiguredScheduleTime();
+    res.json({
+      success: true,
+      ...stats,
+      scheduleTime,
+      nextScheduledBackup: stats.nextScheduledBackup || backupSystem.getNextScheduledBackupDate(scheduleTime)
+    });
+  }
   catch (error) { res.status(500).json({ success: false, error: error.message }); }
 });
 
@@ -8271,19 +8312,25 @@ app.get('/api/admin/backup/download/:fileName', adminActionLimiter, authMiddlewa
 
 app.patch('/api/admin/backup/schedule', adminActionLimiter, authMiddleware, requireAdminRole, async (req, res) => {
   try {
-    const scheduleTime = String(req.body?.scheduleTime || '06:00');
+    const rawScheduleTime = String(req.body?.scheduleTime || '06:00').trim();
     const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
-    if (!timeRegex.test(scheduleTime)) {
+    if (!timeRegex.test(rawScheduleTime)) {
       return res.status(400).json({ success: false, error: 'Invalid time format. Use HH:MM format (e.g., 06:00)' });
     }
+    const scheduleTime = backupSystem.normalizeScheduleTime(rawScheduleTime);
     process.env.BACKUP_SCHEDULE_TIME = scheduleTime;
-    if (scheduledBackupTimeout) {
-      clearTimeout(scheduledBackupTimeout);
-      scheduledBackupTimeout = null;
+    if (mongoose.connection.readyState === 1) {
+      await SystemSetting.updateOne(
+        { key: 'backupScheduleTime' },
+        { $set: { key: 'backupScheduleTime', value: scheduleTime } },
+        { upsert: true }
+      );
     }
+    backupSystem.invalidateCaches();
     scheduleNextBackup();
+    const nextScheduledBackup = backupSystem.getNextScheduledBackupDate(scheduleTime);
     logger.info(`Backup schedule time updated to ${scheduleTime} by admin ${req.adminId}`);
-    res.json({ success: true, scheduleTime });
+    res.json({ success: true, scheduleTime, nextScheduledBackup });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

@@ -246,7 +246,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.4rem;
 }
 
 .prof-eval-kpi-label {
@@ -258,20 +258,20 @@
 }
 
 .prof-eval-kpi-value {
-  font-size: 1.35rem;
-  font-weight: 700;
+  font-size: 2.15rem;
+  font-weight: 800;
   color: var(--pe-text-bold);
-  line-height: 1.15;
+  line-height: 1.1;
 }
 
 .prof-eval-kpi-rating-row {
   display: flex;
   align-items: baseline;
-  gap: 0.25rem;
+  gap: 0.3rem;
 }
 
 .prof-eval-kpi-scale {
-  font-size: 0.82rem;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--pe-text-muted);
 }
@@ -647,6 +647,354 @@
   font-size: 0.85rem;
   color: var(--pe-text-bold);
   line-height: 1.5;
+}
+
+/* 3-Level Drill-Down Hierarchy: Professor -> Blocks -> Anonymous Students */
+.prof-eval-hierarchy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.prof-eval-prof-card {
+  background: var(--pe-surface);
+  border: 1px solid var(--pe-border);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.prof-eval-prof-card.is-open {
+  border-color: var(--pe-accent-border);
+}
+
+.prof-eval-prof-trigger,
+.prof-eval-block-trigger,
+.prof-eval-student-trigger {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  transition: background-color 0.15s ease;
+}
+
+.prof-eval-prof-trigger {
+  padding: 1.15rem 1.35rem;
+}
+
+.prof-eval-prof-trigger:hover,
+.prof-eval-block-trigger:hover,
+.prof-eval-student-trigger:hover {
+  background: var(--pe-bg-soft);
+}
+
+.prof-eval-prof-left {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.prof-eval-prof-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: var(--pe-accent-bg);
+  border: 1px solid var(--pe-accent-border);
+  color: var(--pe-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.prof-eval-prof-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.prof-eval-step-tag {
+  display: inline-block;
+  width: fit-content;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pe-accent);
+  background: var(--pe-accent-bg);
+  border: 1px solid var(--pe-accent-border);
+  padding: 0.14rem 0.5rem;
+  border-radius: 999px;
+}
+
+.prof-eval-step-tag.is-block {
+  font-size: 0.65rem;
+}
+
+.prof-eval-prof-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--pe-text-bold);
+}
+
+.prof-eval-prof-right,
+.prof-eval-block-right,
+.prof-eval-student-right {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.prof-eval-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  background: var(--pe-bg-soft);
+  border: 1px solid var(--pe-border);
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--pe-text-secondary);
+}
+
+.prof-eval-expand-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--pe-accent);
+}
+
+/* Level 2: Blocks Container */
+.prof-eval-blocks-container {
+  border-top: 1px solid var(--pe-border);
+  padding: 1rem 1.35rem 1.25rem;
+  background: var(--pe-bg);
+}
+
+.prof-eval-blocks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.prof-eval-block-card {
+  background: var(--pe-surface);
+  border: 1px solid var(--pe-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.prof-eval-block-card.is-open {
+  border-color: var(--pe-accent-border);
+}
+
+.prof-eval-block-trigger {
+  padding: 0.95rem 1.15rem;
+}
+
+.prof-eval-block-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.prof-eval-block-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.prof-eval-block-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--pe-text-bold);
+}
+
+.prof-eval-block-term {
+  font-size: 0.76rem;
+  color: var(--pe-text-muted);
+}
+
+.prof-eval-block-subjects {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.prof-eval-subj-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  background: var(--pe-bg-soft);
+  border: 1px solid var(--pe-border);
+  font-size: 0.74rem;
+  color: var(--pe-text-secondary);
+}
+
+.prof-eval-subj-chip strong {
+  color: var(--pe-text-bold);
+}
+
+/* Level 3: Anonymous Students Container */
+.prof-eval-students-container {
+  border-top: 1px solid var(--pe-border);
+  padding: 0.85rem 1.15rem 1rem;
+  background: var(--pe-bg-soft);
+}
+
+.prof-eval-students-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.prof-eval-student-card {
+  background: var(--pe-surface);
+  border: 1px solid var(--pe-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.prof-eval-student-card.is-open {
+  border-color: var(--pe-accent-border);
+}
+
+.prof-eval-student-trigger {
+  padding: 0.75rem 1rem;
+}
+
+.prof-eval-student-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.prof-eval-anon-badge {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--pe-text-bold);
+}
+
+.prof-eval-student-subj {
+  font-size: 0.8rem;
+  color: var(--pe-text-secondary);
+}
+
+/* Revealed Student Rates & Comment */
+.prof-eval-student-details {
+  border-top: 1px solid var(--pe-border);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  background: var(--pe-bg);
+}
+
+.prof-eval-student-summary-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.prof-eval-student-overall {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.prof-eval-student-detail-label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pe-text-muted);
+}
+
+.prof-eval-student-score-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  background: var(--pe-accent-bg);
+  border: 1px solid var(--pe-accent-border);
+  font-size: 0.82rem;
+  color: var(--pe-accent);
+}
+
+.prof-eval-student-comment-box {
+  background: var(--pe-surface);
+  border: 1px solid var(--pe-border);
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.prof-eval-student-ratings-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.prof-eval-student-ratings-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.prof-eval-student-rating-item {
+  background: var(--pe-surface);
+  border: 1px solid var(--pe-border);
+  border-radius: 6px;
+  padding: 0.6rem 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.82rem;
+}
+
+.prof-eval-student-rating-q {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--pe-text);
+}
+
+.prof-eval-student-rating-val {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  color: var(--pe-text-bold);
+}
+
+.prof-eval-empty.is-compact {
+  padding: 1.25rem 1rem;
 }
 
 /* Skeletons & Empty States */

@@ -338,9 +338,6 @@ function SubjectManagementPage({ mode = 'catalog' }: SubjectManagementPageProps)
 
   return (
     <div className="registrar-section subject-management-page">
-      <h2 className="registrar-section-title">Course Catalog</h2>
-      <p className="registrar-section-desc">Maintain the master list of courses. Curriculum placement (year level, semester, sequence) is managed via <strong>Curriculums</strong>.</p>
-
       {/* Courses Needing Attention Button */}
       {attentionSubjects.length > 0 && (
         <button

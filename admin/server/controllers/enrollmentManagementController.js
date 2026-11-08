@@ -294,7 +294,7 @@ class EnrollmentManagementController {
       }
 
       const students = await Student.find(studentQuery)
-        .select('studentNumber firstName middleName lastName suffix course curriculumVersion yearLevel section semester schoolYear studentStatus classification lifecycleStatus lifecycleStatusHistory email contactNumber isActive')
+        .select('studentNumber firstName middleName lastName suffix course curriculumVersion yearLevel section semester schoolYear studentStatus classification lifecycleStatus lifecycleStatusReason lifecycleStatusHistory email contactNumber isActive')
         .sort({ studentNumber: 1 })
         .lean();
 
@@ -328,6 +328,36 @@ class EnrollmentManagementController {
       for (const student of students) {
         if (getLifecycleRestriction(student.lifecycleStatus)) continue;
         const history = enrollmentsByStudent.get(String(student._id)) || [];
+
+        const hasDismissalOrReadmissionHistory =
+          ['AUTHORIZED_READMISSION', 'AUTHORIZED_REACTIVATION'].includes(
+            String(student.lifecycleStatusReason || '').trim()
+          ) ||
+          (Array.isArray(student.lifecycleStatusHistory) &&
+            student.lifecycleStatusHistory.some(
+              (entry) =>
+                entry &&
+                (['READMITTED', 'REACTIVATED'].includes(String(entry.decision || '').trim()) ||
+                  ['AUTHORIZED_READMISSION', 'AUTHORIZED_REACTIVATION'].includes(String(entry.reason || '').trim()) ||
+                  ['Dropped', 'Leave of Absence', 'Inactive'].includes(String(entry.status || '').trim()))
+            ));
+        const isExplicitReturnee =
+          String(student.studentStatus || '').trim() === 'Returnee' ||
+          String(student.classification || '').trim() === 'Returning';
+        const isAdvancingFromPriorTerm = subjectEnrollmentService.isLaterTerm(
+          schoolYear,
+          semester,
+          student.schoolYear,
+          student.semester
+        );
+        if (
+          history.length === 0 &&
+          !hasDismissalOrReadmissionHistory &&
+          !isExplicitReturnee &&
+          !isAdvancingFromPriorTerm
+        ) {
+          continue;
+        }
 
         const alreadyEnrolled = history.some(
           (enrollment) => !isSupersededByDismissal(enrollment, student)

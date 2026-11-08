@@ -91,6 +91,41 @@ const REGISTRAR_NAV_SECTIONS: { label: string; items: RegistrarNavItem[] }[] = [
   },
 ]
 
+const PAGE_TITLES: Record<RegistrarView, string> = {
+  applicants: 'Applicants',
+  students: 'Student Management',
+  'add-student': 'Add Student',
+  're-enrollment': 'Re-enrollment',
+  courses: 'Professor Loads',
+  'course-workspace': 'Professor Load',
+  'block-overview': 'Block Overview',
+  'block-management': 'Add Block',
+  'assign-block': 'Assign Block',
+  'view-blocks': 'View Blocks',
+  'block-workspace': 'Block Workspace',
+  'school-year-rollover': 'Close School Year',
+  'student-history': 'Student History',
+  'shift-student': 'Shift Student',
+  'subject-management': 'Course Catalog',
+  'add-subject': 'Add Course',
+  'curriculum-management': 'Curriculums',
+  'curriculum-overview': 'Curriculum Overview',
+  'curriculum-create': 'Create Curriculum',
+  'curriculum-archived': 'Archived Curriculums',
+  'curriculum-details': 'Curriculum Details',
+  'grade-submissions': 'Grade Submissions',
+  evaluations: 'Evaluation Management',
+  documents: 'Documents',
+  reports: 'Reports',
+  profile: 'Profile',
+  settings: 'Settings',
+  announcements: 'Announcements',
+  'announcement-detail': 'Announcements',
+  'personal-details': 'Personal Details',
+  'cor-docs': 'COR Generation',
+}
+
+
 export default function RegistrarDashboard({ username, onLogout, onProfileUpdated, initialProfile = null }: RegistrarDashboardProps) {
   const [view, setView] = useState<RegistrarView>('applicants')
   const [expandedNavId, setExpandedNavId] = useState<RegistrarView | null>(null)
@@ -256,7 +291,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
       case 'curriculum-details':
         return curriculumDetailId ? <CurriculumDetailsPage curriculumId={curriculumDetailId} onBack={() => setView('curriculum-management')} /> : null
       case 'grade-submissions':
-        return <GradeSubmissionReviewPage onBack={() => setView('applicants')} />
+        return <GradeSubmissionReviewPage />
       case 'evaluations':
         return <EvaluationManagementPage />
       case 'documents':
@@ -519,6 +554,7 @@ export default function RegistrarDashboard({ username, onLogout, onProfileUpdate
           profileName={profileName}
           profileRole="Registrar"
           profileAvatar={profileAvatar}
+          pageTitle={PAGE_TITLES[view]}
           onProfileClick={() => setView('profile')}
           onSettingsClick={() => setView('settings')}
         />

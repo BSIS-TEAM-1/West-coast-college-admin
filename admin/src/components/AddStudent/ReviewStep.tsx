@@ -103,11 +103,6 @@ export default function ReviewStep({ data, onEditStep }: ReviewStepProps) {
 
   return (
     <div className="wizard-step">
-      <div className="wizard-step-header">
-        <h2>Review Information</h2>
-        <p>Please review all information before submitting</p>
-      </div>
-
       <div className="review-sections">
         {sections.map((section) => (
           <div key={section.id} className="review-section">

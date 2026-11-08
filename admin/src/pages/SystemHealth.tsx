@@ -329,16 +329,12 @@ export default function SystemHealth({ onNavigate }: SystemHealthProps = {}): Re
 
       setMemoryHistory(prev => {
         const newHistory = [...prev, nextMemoryUsage].slice(-20);
-        return newHistory.length === 1 ? Array(20).fill(nextMemoryUsage).map((_, i) => 
-          i === newHistory.length - 1 ? nextMemoryUsage : nextMemoryUsage * (0.8 + Math.random() * 0.4)
-        ) : newHistory;
+        return newHistory.length === 1 ? Array(20).fill(nextMemoryUsage) : newHistory;
       });
       
       setServerLoadHistory(prev => {
         const newHistory = [...prev, nextServerLoad].slice(-20);
-        return newHistory.length === 1 ? Array(20).fill(nextServerLoad).map((_, i) => 
-          i === newHistory.length - 1 ? nextServerLoad : nextServerLoad * (0.8 + Math.random() * 0.4)
-        ) : newHistory;
+        return newHistory.length === 1 ? Array(20).fill(nextServerLoad) : newHistory;
       });
       
       

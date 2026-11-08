@@ -28,13 +28,23 @@ type ProfessorDashboardProps = {
 
 const PROFESSOR_NAV_ITEMS: { id: ProfessorView; label: string; icon: any }[] = [
   { id: 'courses', label: 'My Courses', icon: BookOpen },
-  { id: 'students', label: 'Students', icon: GraduationCap },
+  { id: 'students', label: 'Student Roster', icon: GraduationCap },
   { id: 'grades', label: 'Grades', icon: Award },
   { id: 'schedule', label: 'Schedule', icon: Calendar },
   { id: 'evaluations', label: 'Evaluations', icon: MessageSquare },
   { id: 'profile', label: 'Profile', icon: User },
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
 ]
+
+const PAGE_TITLES: Record<ProfessorView, string> = {
+  courses: 'My Teaching Load',
+  students: 'Student Roster',
+  grades: 'Grade Management',
+  schedule: 'My Schedule',
+  evaluations: 'Evaluations',
+  profile: 'My Profile',
+  settings: 'Settings'
+}
 
 export default function ProfessorDashboard({ username, onLogout, onProfileUpdated, initialProfile = null }: ProfessorDashboardProps) {
   const [view, setView] = useState<ProfessorView>('courses')
@@ -127,7 +137,7 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
   }, [])
 
   useEffect(() => {
-    if (view === 'courses' || view === 'students' || view === 'grades' || view === 'schedule') {
+    if (view === 'courses' || view === 'students' || view === 'grades' || view === 'schedule' || view === 'evaluations') {
       void fetchAssignedCourses()
     }
   }, [view])
@@ -325,7 +335,12 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
           />
         )
       case 'evaluations':
-        return <ProfessorEvaluationsPage />
+        return (
+          <ProfessorEvaluationsPage
+            professorName={profile?.displayName || profile?.username || username}
+            courses={assignedCourses}
+          />
+        )
       case 'profile':
         return <Profile onProfileUpdated={handleProfileUpdated} onNavigate={(viewName) => {
           if (viewName === 'personal-details') {
@@ -439,6 +454,7 @@ export default function ProfessorDashboard({ username, onLogout, onProfileUpdate
                 : `data:image/jpeg;base64,${profile.avatar}`
               : null
           }
+          pageTitle={PAGE_TITLES[view]}
         />
         <main className="professor-dashboard-main">
           {isOffline ? (

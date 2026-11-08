@@ -215,3 +215,30 @@ test('encrypted archives verify without retaining a plaintext JSON file', async 
     delete process.env.BACKUP_STORAGE_PATH; delete process.env.BACKUP_ENCRYPTION; delete process.env.BACKUP_ENCRYPTION_KEY;
   }
 });
+
+test('getNextScheduledBackupDate computes consistent daily schedule in Asia/Manila timezone', () => {
+  const { directory, system } = createSystem();
+  try {
+    // 2026-11-08T01:24:46Z is 09:24:46 AM in Asia/Manila (past 06:00 AM today)
+    const refAfterSixAm = new Date('2026-11-08T01:24:46.000Z');
+    const nextRun = system.getNextScheduledBackupDate('06:00', refAfterSixAm, 'Asia/Manila');
+    // Next 06:00 AM Asia/Manila is 2026-11-08T22:00:00.000Z (2026-11-09 06:00:00+08:00)
+    assert.equal(nextRun.toISOString(), '2026-11-08T22:00:00.000Z');
+
+    // 2026-11-07T19:24:46Z is 03:24:46 AM on 2026-11-08 in Asia/Manila (before 06:00 AM today)
+    const refBeforeSixAm = new Date('2026-11-07T19:24:46.000Z');
+    const sameDayRun = system.getNextScheduledBackupDate('06:00', refBeforeSixAm, 'Asia/Manila');
+    // Next 06:00 AM Asia/Manila is 2026-11-07T22:00:00.000Z (2026-11-08 06:00:00+08:00)
+    assert.equal(sameDayRun.toISOString(), '2026-11-07T22:00:00.000Z');
+  } finally { cleanup(directory); }
+});
+
+test('formatBackupTimestamp formats filename timestamp in Asia/Manila timezone', () => {
+  const { directory, system } = createSystem();
+  try {
+    const sampleDate = new Date('2026-11-08T01:24:46.453Z');
+    const formatted = system.formatBackupTimestamp(sampleDate, 'Asia/Manila');
+    assert.equal(formatted, '2026-11-08T09-24-46-453');
+  } finally { cleanup(directory); }
+});
+

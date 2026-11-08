@@ -1734,12 +1734,6 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
   if (loading) {
     return (
       <div className="gm-page">
-        <div className="gm-header">
-          <div className="gm-header-text">
-            <h2>Grades</h2>
-            <p>Manage subject grades based on enrolled student subjects.</p>
-          </div>
-        </div>
         <div className="gm-loading">Loading your assigned classes...</div>
       </div>
     )
@@ -1748,12 +1742,6 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
   if (error) {
     return (
       <div className="gm-page">
-        <div className="gm-header">
-          <div className="gm-header-text">
-            <h2>Grades</h2>
-            <p>Manage subject grades based on enrolled student subjects.</p>
-          </div>
-        </div>
         <div className="gm-error">{error}</div>
         <button className="gm-retry-btn" onClick={() => void onRefresh()}>Retry</button>
       </div>
@@ -1763,12 +1751,6 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
   if (classOptions.length === 0) {
     return (
       <div className="gm-page">
-        <div className="gm-header">
-          <div className="gm-header-text">
-            <h2>Grades</h2>
-            <p>Manage subject grades based on enrolled student subjects.</p>
-          </div>
-        </div>
         <div className="gm-empty">
           <h3>No assigned class found</h3>
           <p>No classes are currently assigned to your account.</p>
@@ -1782,12 +1764,7 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
 
   return (
     <div className="gm-page">
-      {/* Header */}
       <div className="gm-header">
-        <div className="gm-header-text">
-          <h2>Grades</h2>
-          <p>Manage course grades directly from each student&apos;s enrolled course entry.</p>
-        </div>
         <div className="gm-header-controls">
           <div className="gm-term-select">
             <label htmlFor="professor-grade-term-select">Academic Term</label>
@@ -2191,10 +2168,12 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                     <th>Program</th>
                     <th>Yr Lvl</th>
                     <th>Status</th>
-                    <th className="gm-grade-header">
-                      Grade
-                      <span className="gm-grade-info-icon" title={`Grade Scale:\n${gradeScaleLegend}`}>
-                        <Info size={13} />
+                    <th>
+                      <span className="gm-grade-header">
+                        Grade
+                        <span className="gm-grade-info-icon" title={`Grade Scale:\n${gradeScaleLegend}`}>
+                          <Info size={13} />
+                        </span>
                       </span>
                     </th>
                     <th>Remarks</th>
@@ -2324,10 +2303,11 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                             <div className="gm-row-actions">
                               {studentSubmitted ? (
                                 <span
-                                  className="gm-row-submitted"
+                                  className={`gm-row-submitted gm-row-submitted--${getStudentSubmissionStatus(student).toLowerCase()}`}
                                   title={`Grade already ${getStudentSubmissionStatus(student).toLowerCase()} to the registrar`}
                                 >
-                                  <Check size={16} strokeWidth={2.5} />
+                                  <Check size={14} strokeWidth={2.5} />
+                                  <span>{getStudentSubmissionStatus(student)}</span>
                                 </span>
                               ) : studentCanEdit ? (
                                 <button
@@ -2345,8 +2325,9 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                                   }
                                 >
                                   {isSubmitting
-                                    ? <Loader2 size={16} className="gm-spin" />
-                                    : <Send size={16} />}
+                                    ? <Loader2 size={14} className="gm-spin" />
+                                    : <Send size={14} />}
+                                  <span>{isSubmitting ? 'Submitting...' : 'Submit'}</span>
                                 </button>
                               ) : null}
                               <div className="gm-action-dropdown-container">

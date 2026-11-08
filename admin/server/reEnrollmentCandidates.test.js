@@ -386,4 +386,26 @@ describe('getReEnrollmentCandidates', () => {
     expect(res.body.data).toHaveLength(1);
     expect(res.body.data[0].studentNumber).toBe('2026-101-0001');
   });
+
+  test('excludes a newly admitted student with no prior enrollment history', async () => {
+    verificationService.getActiveTerm.mockResolvedValueOnce({ schoolYear: '2026-2027', semester: '1st' });
+    Student.find.mockReturnValue(chain([
+      student({
+        studentNumber: '202610155906',
+        schoolYear: '2026-2027',
+        semester: '1st',
+        lifecycleStatus: 'Pending',
+        enrollmentStatus: 'Not Enrolled',
+        studentStatus: 'Regular',
+        classification: 'Regular',
+        lifecycleStatusHistory: [],
+      }),
+    ]));
+    Enrollment.find.mockReturnValue(chain([]));
+
+    const res = await callFeed({ schoolYear: '2026-2027', semester: '1st' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data).toHaveLength(0);
+  });
 });

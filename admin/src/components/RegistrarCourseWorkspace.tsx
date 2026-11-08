@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, PencilLine } from 'lucide-react'
+import { PencilLine } from 'lucide-react'
 import { API_URL, getStoredToken } from '../lib/authApi'
 import { formatBlockLabel, schoolYearFromStartYear } from '../lib/blockAssignmentShared'
 import { getAcademicTerm, type AcademicTerm } from '../lib/settingsApi'
@@ -159,13 +159,55 @@ const splitTimeParts = (value: string) => {
   }
 }
 
-type Props = {
-  selection: { professorId: string } | null
-  onBack: () => void
+type ProfessorLoadDraft = {
+  professorId: string
+  selectedGroupId: string
+  selectedSectionId: string
+  selectedSubjectId: string
+  editingAssignmentId: string
+  subjectDaySelections: string[]
+  subjectDaySchedules: Record<string, DayScheduleFields>
+  subjectDayTouched: Record<string, boolean>
+  savedAt: number
 }
 
-export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
-  const refreshSignalTimerRef = useRef<number | null>(null)
+const DRAFT_STORAGE_PREFIX = 'wcc_prof_load_draft_'
+
+const getDraftStorageKey = (profId: string) => `${DRAFT_STORAGE_PREFIX}${profId}`
+
+const saveDraftToStorage = (draft: ProfessorLoadDraft) => {
+  try {
+    if (typeof window === 'undefined' || !draft.professorId) return
+    localStorage.setItem(getDraftStorageKey(draft.professorId), JSON.stringify(draft))
+  } catch (e) {
+    console.error('Failed to save professor load draft', e)
+  }
+}
+
+const loadDraftFromStorage = (profId: string): ProfessorLoadDraft | null => {
+  try {
+    if (typeof window === 'undefined' || !profId) return null
+    const raw = localStorage.getItem(getDraftStorageKey(profId))
+    if (!raw) return null
+    return JSON.parse(raw) as ProfessorLoadDraft
+  } catch {
+    return null
+  }
+}
+
+const clearDraftFromStorage = (profId: string) => {
+  try {
+    if (typeof window === 'undefined' || !profId) return
+    localStorage.removeItem(getDraftStorageKey(profId))
+  } catch {}
+}
+
+type Props = {
+  selection: { professorId: string } | null
+  onBack?: () => void
+}
+
+export default function RegistrarCourseWorkspace({ selection, onBack: _onBack }: Props) {
   const [blockGroups, setBlockGroups] = useState<BlockGroup[]>([])
   const [activeTerm, setActiveTerm] = useState<AcademicTerm | null>(null)
   const [selectedGroupId, setSelectedGroupId] = useState('')
@@ -177,8 +219,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   const [subjectDaySchedules, setSubjectDaySchedules] = useState<Record<string, DayScheduleFields>>({})
   const [professorLoads, setProfessorLoads] = useState<ProfessorCourseLoad[]>([])
   const [selectedProfessorId, setSelectedProfessorId] = useState('')
-  const [courseLoadLoading, setCourseLoadLoading] = useState(false)
-  const [showRefreshSignal, setShowRefreshSignal] = useState(false)
   const [assigning, setAssigning] = useState(false)
   const [editingAssignmentId, setEditingAssignmentId] = useState('')
   const [autoPickedAssignmentKey, setAutoPickedAssignmentKey] = useState('')
@@ -191,8 +231,35 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   // Marks per-day time fields the user has edited. Untouched days keep the
   // default (example) values, which are rendered dimmed to hint "fill me in".
   const [subjectDayTouched, setSubjectDayTouched] = useState<Record<string, boolean>>({})
+  const isRestoringDraftRef = useRef(false)
 
   const dayOptions = ['M', 'T', 'W', 'TH', 'F', 'S', 'SU']
+
+  const restoreDraft = (draft: ProfessorLoadDraft) => {
+    isRestoringDraftRef.current = true
+    setAutoPickedAssignmentKey('draft-restored')
+    if (draft.selectedGroupId) setSelectedGroupId(draft.selectedGroupId)
+    if (draft.selectedSectionId) setSelectedSectionId(draft.selectedSectionId)
+    if (draft.selectedSubjectId) setSelectedSubjectId(draft.selectedSubjectId)
+    setEditingAssignmentId(draft.editingAssignmentId || '')
+    setSubjectDaySelections(draft.subjectDaySelections || [])
+    setSubjectDaySchedules(draft.subjectDaySchedules || {})
+    setSubjectDayTouched(draft.subjectDayTouched || {})
+    window.setTimeout(() => {
+      isRestoringDraftRef.current = false
+    }, 400)
+  }
+
+  const clearAssignmentForm = (clearStorage = true) => {
+    setEditingAssignmentId('')
+    setSelectedSubjectId('')
+    setSubjectDaySelections([])
+    setSubjectDaySchedules({})
+    setSubjectDayTouched({})
+    if (clearStorage && selectedProfessorId) {
+      clearDraftFromStorage(selectedProfessorId)
+    }
+  }
 
   const authorizedFetch = async (path: string, init: RequestInit = {}) => {
     const token = await getStoredToken()
@@ -239,21 +306,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     return false
   }
 
-  const triggerRefreshSignal = () => {
-    if (typeof window === 'undefined') return
-    if (refreshSignalTimerRef.current) {
-      window.clearTimeout(refreshSignalTimerRef.current)
-    }
-    setShowRefreshSignal(false)
-    window.requestAnimationFrame(() => {
-      setShowRefreshSignal(true)
-      refreshSignalTimerRef.current = window.setTimeout(() => {
-        setShowRefreshSignal(false)
-        refreshSignalTimerRef.current = null
-      }, 1450)
-    })
-  }
-
   const formatAcademicYear = (value?: number | string) => {
     const text = String(value || '').trim()
     // If it's already a school year string (e.g., "2026-2027"), return it as-is
@@ -261,14 +313,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     // If it's a numeric year, convert to school year format
     const year = Number(value)
     return Number.isFinite(year) && year > 0 ? `${year}-${year + 1}` : 'N/A'
-  }
-
-  const clearAssignmentForm = () => {
-    setEditingAssignmentId('')
-    setSelectedSubjectId('')
-    setSubjectDaySelections([])
-    setSubjectDaySchedules({})
-    setSubjectDayTouched({})
   }
 
   const updateDayTimePart = (
@@ -451,7 +495,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
   }
 
   const fetchProfessorCourseLoads = async () => {
-    setCourseLoadLoading(true)
     try {
       const data = await authorizedFetch('/api/registrar/professor-course-loads')
       const payload = (data?.data || {}) as LoadsPayload
@@ -460,8 +503,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     } catch (err) {
       setProfessorLoads([])
       setError(err instanceof Error ? err.message : 'Failed to fetch professor course loads')
-    } finally {
-      setCourseLoadLoading(false)
     }
   }
 
@@ -470,9 +511,9 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
       const data = await authorizedFetch(`/api/blocks/groups/${groupId}/sections`)
       const nextSections = Array.isArray(data) ? data as BlockSection[] : []
       setSections(nextSections)
-      // Auto-select the first section
+      // Keep the current section if it exists in the fetched list; otherwise select the first section
       if (nextSections.length > 0) {
-        setSelectedSectionId(nextSections[0]._id)
+        setSelectedSectionId((prev) => (prev && nextSections.some((section) => section._id === prev) ? prev : (nextSections[0]?._id || '')))
       } else {
         setSelectedSectionId('')
       }
@@ -562,14 +603,20 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
 
   const selectProfessorWorkspace = (professorId: string) => {
     setSelectedProfessorId(professorId)
-    setSelectedGroupId('')
-    setSelectedSectionId('')
-    setSections([])
-    setSubjects([])
-    clearAssignmentForm()
-    setAutoPickedAssignmentKey('')
     setError('')
     setSuccess('')
+
+    const existingDraft = loadDraftFromStorage(professorId)
+    if (existingDraft && (existingDraft.subjectDaySelections?.length > 0 || existingDraft.selectedSubjectId)) {
+      restoreDraft(existingDraft)
+    } else {
+      setSelectedGroupId('')
+      setSelectedSectionId('')
+      setSections([])
+      setSubjects([])
+      clearAssignmentForm(false)
+      setAutoPickedAssignmentKey('')
+    }
   }
 
   const selectedProfessor = professorLoads.find((professor) => professor.professorId === selectedProfessorId) || null
@@ -591,12 +638,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     }
   }, [])
 
-  useEffect(() => () => {
-    if (refreshSignalTimerRef.current) {
-      window.clearTimeout(refreshSignalTimerRef.current)
-    }
-  }, [])
-
   useEffect(() => {
     if (selection?.professorId) {
       selectProfessorWorkspace(selection.professorId)
@@ -608,7 +649,7 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     if (!selectedProfessorId || !professorLoads.some((professor) => professor.professorId === selectedProfessorId)) {
       const fallback = professorLoads.find((professor) => professor.totals.subjects > 0) || professorLoads[0]
       if (fallback) {
-        setSelectedProfessorId(fallback.professorId)
+        selectProfessorWorkspace(fallback.professorId)
       }
     }
   }, [professorLoads, selectedProfessorId])
@@ -660,8 +701,59 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     setSubjectDayTouched(Object.fromEntries(parsedSchedule.days.map((day) => [day, true])))
   }
 
+  // Auto-save draft whenever user enters or changes inputs
   useEffect(() => {
-    if (editingAssignmentId || selectedSubjectId || selectedGroupId || selectedSectionId) return
+    if (!selectedProfessorId) return
+    if (isRestoringDraftRef.current) return
+
+    const hasInput =
+      subjectDaySelections.length > 0 ||
+      Boolean(selectedSubjectId) ||
+      Object.keys(subjectDaySchedules).length > 0
+
+    if (!hasInput) return
+
+    const draft: ProfessorLoadDraft = {
+      professorId: selectedProfessorId,
+      selectedGroupId,
+      selectedSectionId,
+      selectedSubjectId,
+      editingAssignmentId,
+      subjectDaySelections,
+      subjectDaySchedules,
+      subjectDayTouched,
+      savedAt: Date.now()
+    }
+
+    const timer = window.setTimeout(() => {
+      saveDraftToStorage(draft)
+    }, 300)
+
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [
+    selectedProfessorId,
+    selectedGroupId,
+    selectedSectionId,
+    selectedSubjectId,
+    editingAssignmentId,
+    subjectDaySelections,
+    subjectDaySchedules,
+    subjectDayTouched
+  ])
+
+  useEffect(() => {
+    if (
+      editingAssignmentId ||
+      selectedSubjectId ||
+      selectedGroupId ||
+      selectedSectionId ||
+      subjectDaySelections.length > 0 ||
+      (selectedProfessorId && loadDraftFromStorage(selectedProfessorId))
+    ) {
+      return
+    }
     const assignment = selectedProfessor?.assignments[0]
     if (!assignment) return
 
@@ -765,6 +857,22 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
       room: normalizedRoom
     }
     if (selectedGroup?.semester) payload.semester = selectedGroup.semester
+
+    // Automatically save draft before processing assignment
+    if (selectedProfessor) {
+      const draft: ProfessorLoadDraft = {
+        professorId: selectedProfessor.professorId,
+        selectedGroupId,
+        selectedSectionId,
+        selectedSubjectId,
+        editingAssignmentId,
+        subjectDaySelections,
+        subjectDaySchedules,
+        subjectDayTouched,
+        savedAt: Date.now()
+      }
+      saveDraftToStorage(draft)
+    }
 
     // Pre-validate teaching hours before submitting
     if (selectedSubject) {
@@ -912,32 +1020,8 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
     }
   }
 
-  const handleRefreshWorkspace = async () => {
-    triggerRefreshSignal()
-    await fetchProfessorCourseLoads()
-  }
-
   return (
     <div className="registrar-section registrar-course-management-page registrar-course-workspace-page">
-      <section className="registrar-course-hero registrar-course-workspace-page-hero">
-        <div className="registrar-course-hero-copy">
-          <span className="registrar-course-eyebrow">Professor Loads / Workspace</span>
-          <h2 className="registrar-section-title">Professor Load Workspace</h2>
-          <p className="registrar-section-desc">
-            Manage the selected professor's class assignments from one focused page.
-          </p>
-        </div>
-        <div className="registrar-course-hero-actions">
-          <button className="registrar-btn registrar-btn-secondary" onClick={onBack}>
-            <ArrowLeft size={16} />
-            Back to Professor Loads
-          </button>
-          <button className="registrar-btn registrar-btn-secondary" onClick={() => void handleRefreshWorkspace()} disabled={courseLoadLoading}>
-            {courseLoadLoading ? 'Refreshing...' : 'Refresh'}
-          </button>
-        </div>
-      </section>
-
       {error && <p className="registrar-feedback registrar-feedback-error">{error}</p>}
       {success && <p className="registrar-feedback registrar-feedback-success">{success}</p>}
 
@@ -1285,7 +1369,12 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
             </div>
             <div className="registrar-course-footer-actions">
               {editingAssignmentId && (
-                <button className="registrar-btn registrar-btn-secondary" onClick={clearAssignmentForm} disabled={assigning}>
+                <button
+                  type="button"
+                  className="registrar-btn registrar-btn-secondary"
+                  onClick={() => clearAssignmentForm(true)}
+                  disabled={assigning}
+                >
                   Cancel edit
                 </button>
               )}
@@ -1299,13 +1388,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
 
       </section>
 
-      <div
-        className={`registrar-refresh-signal${showRefreshSignal ? ' is-visible' : ''}`}
-        aria-hidden={!showRefreshSignal}
-      >
-        <span className="registrar-refresh-signal-label">Refreshing workspace</span>
-      </div>
-
       <TeachingHoursWarningModal
         warningData={teachingHoursWarning}
         onClose={() => {
@@ -1315,7 +1397,6 @@ export default function RegistrarCourseWorkspace({ selection, onBack }: Props) {
         onCancel={() => {
           setTeachingHoursWarning(null)
           setPendingAssignmentPayload(null)
-          clearAssignmentForm()
         }}
         onProceedWithOverride={handleProceedWithOverride}
         isSubmitting={assigning}

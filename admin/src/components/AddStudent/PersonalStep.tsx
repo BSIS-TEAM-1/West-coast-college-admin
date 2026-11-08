@@ -38,11 +38,6 @@ const RELIGION_OPTIONS = [
 export default function PersonalStep({ data, onChange, errors }: PersonalStepProps) {
   return (
     <div className="wizard-step">
-      <div className="wizard-step-header">
-        <h2>Personal Information</h2>
-        <p>Enter the student's personal details</p>
-      </div>
-
       <div className="wizard-form-grid">
         {/* Birth Date */}
         <div className="form-group">

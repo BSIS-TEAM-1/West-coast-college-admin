@@ -490,7 +490,7 @@ class ApplicantController {
                 course: applicant.selectedCourse,
                 yearLevel: applicant.requestedYearLevel || 1,
                 semester: applicant.semester || '1st',
-                schoolYear: DEFAULT_SCHOOL_YEAR,
+                schoolYear: applicant.schoolYear || DEFAULT_SCHOOL_YEAR,
                 studentStatus,
                 lifecycleStatus,
                 enrollmentStatus,

@@ -215,8 +215,6 @@ export default function EnterpriseAuditReport() {
       {/* Header with context */}
       <div className="audit-report__header">
         <div className="audit-report__header-left">
-          <span className="audit-report__eyebrow">Academic Compliance</span>
-          <h1>Academic Audit Dashboard</h1>
           <div className="audit-report__context-bar">
             <span className="audit-report__context-item">
               <Calendar size={13} />

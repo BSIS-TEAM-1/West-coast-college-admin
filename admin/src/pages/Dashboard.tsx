@@ -32,6 +32,24 @@ type DashboardProps = {
 
 type View = 'dashboard' | 'profile' | 'add-account' | 'account-logs'| 'settings' | 'announcements' | 'audit-logs' | 'announcement-detail' | 'personal-details' | 'system-health' | 'security' | 'cor-docs' | 'calendar' | 'curriculum-management' | 'evaluations'
 
+const PAGE_TITLES: Record<View, string> = {
+  dashboard: 'Administration Dashboard',
+  profile: 'Profile',
+  'add-account': 'Add Account',
+  'account-logs': 'Account Logs',
+  settings: 'Settings',
+  announcements: 'Announcements',
+  'announcement-detail': 'Announcements',
+  'audit-logs': 'Audit Logs',
+  'personal-details': 'Personal Details',
+  'system-health': 'System Health',
+  security: 'Security',
+  'cor-docs': 'COR Generation',
+  calendar: 'Calendar',
+  'curriculum-management': 'Curriculums',
+  evaluations: 'Evaluation Management',
+}
+
 export default function Dashboard({ username, onLogout, onProfileUpdated, initialProfile = null }: DashboardProps) {
   const [view, setView] = useState<View>('dashboard')
   const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string>('')
@@ -294,6 +312,7 @@ export default function Dashboard({ username, onLogout, onProfileUpdated, initia
           profileName={profileName}
           profileRole={profileRole}
           profileAvatar={profileAvatar}
+          pageTitle={PAGE_TITLES[view]}
           onLogout={onLogout}
           isMenuOpen={isSidebarOpen}
           menuId="admin-sidebar-navigation"

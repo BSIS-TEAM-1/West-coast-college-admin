@@ -11,15 +11,34 @@ function hasGrade(value) {
 }
 
 /**
+ * Whether a subject's grade has been submitted (or is a finalized legacy record
+ * without an explicit Draft/Returned submissionStatus). Draft or Returned
+ * grades have not been submitted by the professor yet.
+ */
+function isSubmittedGrade(subject) {
+  if (!subject) return false;
+  const subStatus = String(subject.submissionStatus || '').trim();
+  if (subStatus === 'Draft' || subStatus === 'Returned') {
+    return subject.status === 'Completed';
+  }
+  return true;
+}
+
+/**
  * Numeric grade used by GWA/transcript calculations. Legacy FA entries may not
  * have a numeric grade stored, so they resolve to CHED's fixed 5.0 equivalent.
  */
 function effectiveGrade(subject) {
-  if (!subject) return null;
+  if (!subject || !isSubmittedGrade(subject)) return null;
   if (hasGrade(subject.grade)) return Number(subject.grade);
   return String(subject.gradeMark || '').trim().toUpperCase() === 'FA'
     ? gradingScaleService.CHED_FAILING_GRADE
     : null;
+}
+
+function effectiveGradeMark(subject) {
+  if (!subject || !isSubmittedGrade(subject)) return '';
+  return String(subject.gradeMark || '').trim().toUpperCase();
 }
 
 /** Subjects that count toward GWA / units. */
@@ -163,7 +182,7 @@ async function generateReportCard(req, res) {
     
     if (enrollment.subjects && enrollment.subjects.length > 0) {
       enrollment.subjects.forEach((subject, index) => {
-        doc.text(`${index + 1}. ${subject.code || 'N/A'} - ${subject.title || 'N/A'}: ${formatGrade(effectiveGrade(subject), subject.gradeMark || 'N/A')}`);
+        doc.text(`${index + 1}. ${subject.code || 'N/A'} - ${subject.title || 'N/A'}: ${formatGrade(effectiveGrade(subject), effectiveGradeMark(subject) || '—')}`);
       });
     } else {
       doc.text('No subjects found.');
@@ -240,15 +259,29 @@ async function generateTranscript(req, res) {
         if (s.status === 'Removed') continue;
         if (doc.y > doc.page.height - 60) doc.addPage();
         const rowY = doc.y;
+        const grade = effectiveGrade(s);
+        const mark = effectiveGradeMark(s);
         textLine(doc, s.code, 50, rowY, 55);
         textLine(doc, s.title, 110, rowY, 205);
         textLine(doc, s.units, 320, rowY, 55);
-        textLine(doc, formatGrade(effectiveGrade(s), s.gradeMark || 'INC'), 380, rowY, 75);
-        const remarks = s.status === 'Dropped' ? 'Dropped' : (s.remarks || (effectiveGrade(s) !== null ? '' : 'Incomplete'));
+        textLine(doc, formatGrade(grade, mark || '—'), 380, rowY, 75);
+        let remarks = '';
+        if (s.status === 'Dropped' || mark === 'DRP') {
+          remarks = 'Dropped';
+        } else if (mark === 'W') {
+          remarks = s.remarks || 'Withdrawn';
+        } else if (mark === 'INC' || s.status === 'Incomplete') {
+          remarks = s.remarks || 'Incomplete';
+        } else if (mark === 'FA') {
+          remarks = s.remarks || 'Failed';
+        } else if (mark === 'NG') {
+          remarks = s.remarks || 'No Grade';
+        } else if (grade !== null) {
+          remarks = s.remarks || '';
+        }
         textLine(doc, remarks, 460, rowY, 100);
         doc.y = rowY + 14;
 
-        const grade = effectiveGrade(s);
         if (isCounted(s) && grade !== null) {
           const units = Number(s.units) || 0;
           cumulativePoints += units * grade;

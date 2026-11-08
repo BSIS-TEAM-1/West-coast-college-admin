@@ -769,6 +769,7 @@
   text-transform: uppercase;
   color: var(--color-text-muted);
   white-space: normal;
+  vertical-align: middle;
 }
 
 .gm-table tbody tr {
@@ -838,7 +839,7 @@
 
 /* ─── Grade Input ─── */
 .gm-grade-header {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 0.25rem;
 }
@@ -985,11 +986,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
+  gap: 0.35rem;
   height: 2rem;
-  padding: 0;
+  padding: 0 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 600;
   border-radius: 0.25rem;
   flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .gm-row-submit-btn {
@@ -1013,6 +1017,19 @@
   border: 1px solid color-mix(in srgb, #16a34a 35%, transparent);
   background: color-mix(in srgb, #16a34a 8%, var(--color-surface));
   color: #16a34a;
+}
+
+.gm-row-submitted--verified,
+.gm-row-submitted--published {
+  border: 1px solid color-mix(in srgb, #2563eb 35%, transparent);
+  background: color-mix(in srgb, #2563eb 8%, var(--color-surface));
+  color: #2563eb;
+}
+
+.gm-row-submitted--submitted {
+  border: 1px solid color-mix(in srgb, #d97706 35%, transparent);
+  background: color-mix(in srgb, #d97706 8%, var(--color-surface));
+  color: #d97706;
 }
 
 .gm-action-dropdown-menu {

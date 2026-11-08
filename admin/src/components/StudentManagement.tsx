@@ -2378,17 +2378,7 @@ export default function StudentManagement({ mode = 'management', onViewHistory, 
     <>
       <section className="student-workspace">
         <header className="student-workspace__header">
-          <div className="student-workspace__heading">
-            <span className="student-workspace__eyebrow">{isAssignBlockMode ? 'Block assignment' : 'Registrar workspace'}</span>
-            <h1>{isAssignBlockMode ? 'Assign Block' : 'Student Management'}</h1>
-            <p>
-              {isAssignBlockMode
-                ? 'Select students from the list, then assign them to a compatible block section.'
-                : 'Manage lifecycle status, enrollment control, block assignment, and student records from one registrar workspace.'}
-            </p>
-          </div>
-
-          <div className="student-workspace__header-actions">
+          <div className="student-workspace__header-actions" style={{ marginLeft: 'auto' }}>
             <button type="button" className="student-workspace__secondary-button" onClick={() => loadStudents('refresh')} disabled={refreshing}>
               <History size={16} />
               {refreshing ? 'Refreshing...' : 'Refresh'}

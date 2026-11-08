@@ -837,28 +837,7 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
   return (
     <div className="rollover-page">
       <header className="rollover-page__header">
-        <div>
-          <span className="rollover-page__eyebrow">Academic Year Rollover</span>
-          {closingActiveSemester === '1st' ? (
-            <>
-              <h2>Close Semester</h2>
-              <p>
-                The school year is still in its 1st semester, so only the semester is advanced — students move to
-                the 2nd semester without changing year level. Year levels move when the school year itself is
-                closed after the 2nd semester. The entire rollover runs in a single transaction.
-              </p>
-            </>
-          ) : (
-            <>
-              <h2>Close School Year</h2>
-              <p>
-                Historical enrollments are locked as immutable records; promoted and retained students receive new
-                enrollments for the incoming school year. The entire rollover runs in a single transaction.
-              </p>
-            </>
-          )}
-        </div>
-        <div className="rollover-page__header-actions">
+        <div className="rollover-page__header-actions" style={{ marginLeft: 'auto' }}>
           {fromSchoolYear ? (
             <button
               type="button"

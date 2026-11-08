@@ -4,13 +4,18 @@
  * Resets the database for a clean school year while preserving the things a
  * registrar still needs:
  *
- *   KEEPS : admin/staff logins, reference data (regions, cities, barangays,
- *           schools), curriculum configuration (curriculums, curriculum
- *           subjects, subjects, transmutation tables) and system settings.
+ *   KEEPS : admin/registrar logins, reference data (regions, cities,
+ *           barangays, schools), curriculum configuration (curriculums,
+ *           curriculum subjects, subjects, transmutation tables) and system
+ *           settings.
  *
  *   WIPES : all student/user operational data (students, applicants,
  *           enrollments, blocks, grades, evaluations, documents, audits,
- *           archives, tokens, counters, backups of the old data).
+ *           archives, tokens, counters, backups of the old data) plus all
+ *           professor accounts (admins with accountType 'professor').
+ *           Professor references only exist in wiped collections
+ *           (teachinghoursoverrides, evaluations, enrollments), so no
+ *           dangling references are left behind.
  *
  *   SETS  : the active academic term to SY 2026-2027 / 1st semester and
  *           rebuilds AcademicPeriod for that school year.
@@ -112,7 +117,12 @@ async function main() {
     console.log(`  - ${name.padEnd(32)} ${counts[name]}`);
   }
   console.log(`\nTotal documents: ${Object.values(counts).reduce((a, b) => a + b, 0)}`);
-  console.log('\nPreserved: admins, regions/cities/barangays/provinces, schools,');
+  console.log('\nProfessors to delete:');
+  const professors = await db.collection('admins').find({ accountType: 'professor' }).toArray();
+  professors.forEach((p) => console.log(`  - ${p._id} ${JSON.stringify(p.name || p.firstName || p.username || p.email || '')}`));
+  console.log(`  Total professors: ${professors.length}`);
+
+  console.log('\nPreserved: admins (admin/registrar), regions/cities/barangays/provinces, schools,');
   console.log('           subjects, curriculums, curriculumsubjects, transmutationtables,');
   console.log('           systemsettings (academicTerm will be updated).');
 
@@ -134,6 +144,14 @@ async function main() {
     JSON.stringify({ createdAt: new Date().toISOString(), schoolYear: SCHOOL_YEAR, counts }, null, 2)
   );
   console.log('Backup complete.');
+
+  console.log('\nDeleting professors...');
+  const profFile = path.join(dir, 'professors.json');
+  fs.writeFileSync(profFile, JSON.stringify(professors, null, 2));
+  if (professors.length) {
+    const profResult = await db.collection('admins').deleteMany({ accountType: 'professor' });
+    console.log(`  - professors deleted: ${profResult.deletedCount}`);
+  }
 
   console.log('\nDeleting operational data...');
   for (const name of toWipe) {

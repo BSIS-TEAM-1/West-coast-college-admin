@@ -45,7 +45,7 @@ export default function TeachingHoursWarningModal({
   }
 
   const handleCancel = () => {
-    // Cancel discards the pending change; Review Schedule keeps it for editing.
+    // Dismisses the modal and keeps the schedule inputs intact for editing.
     onCancel()
   }
 

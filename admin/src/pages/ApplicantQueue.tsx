@@ -13,7 +13,6 @@ const MENU_HEIGHT_ESTIMATE = 180
 const MENU_MARGIN = 8
 
 export type QueueTabKey =
-  | 'all'
   | 'Submitted'
   | 'For Evaluation'
   | 'Approved'
@@ -25,7 +24,6 @@ export const QUEUE_TABS: Array<{
   label: string
   shortLabel: string
 }> = [
-  { key: 'all', label: 'All', shortLabel: 'All' },
   { key: 'Submitted', label: 'Submitted', shortLabel: 'Submitted' },
   { key: 'For Evaluation', label: 'For Evaluation', shortLabel: 'Evals' },
   { key: 'Approved', label: 'Approved', shortLabel: 'Approved' },
@@ -38,7 +36,6 @@ const reviewStatuses: ApplicantStatus[] = [
   'Incomplete Requirements',
   'For Evaluation',
   'Approved for Enrollment',
-  'Enrolled',
   'Rejected',
   'Cancelled'
 ]
@@ -84,7 +81,7 @@ const getStatusClass = (status: ApplicantStatus) => {
 export default function ApplicantQueue() {
   const [applicants, setApplicants] = useState<ApplicantRecord[]>([])
   const [selectedId, setSelectedId] = useState('')
-  const [activeTab, setActiveTab] = useState<QueueTabKey>('all')
+  const [activeTab, setActiveTab] = useState<QueueTabKey>('Submitted')
   const [justUpdatedIds, setJustUpdatedIds] = useState<Set<string>>(new Set())
   const [programFilter, setProgramFilter] = useState('all')
   const [query, setQuery] = useState('')
@@ -188,7 +185,6 @@ export default function ApplicantQueue() {
 
   const tabCounts = useMemo(() => {
     const counts: Record<QueueTabKey, number> = {
-      all: applicants.length,
       Submitted: 0,
       'For Evaluation': 0,
       Approved: 0,
@@ -209,8 +205,6 @@ export default function ApplicantQueue() {
   }, [applicants])
 
   const tabFilteredApplicants = useMemo(() => {
-    if (activeTab === 'all') return applicants
-
     return applicants.filter((applicant) => {
       // Don't remove the student from the current view if their status was just changed
       if (justUpdatedIds.has(applicant._id)) return true
@@ -395,16 +389,7 @@ export default function ApplicantQueue() {
   return (
     <section className="applicant-queue-page">
       <header className="applicant-queue-hero">
-        <div>
-          <span className="applicant-queue-kicker">Registrar Review</span>
-          <h1>Applicant Queue</h1>
-          <p>
-            Managing {visibleApplicants.length.toLocaleString()} visible applications
-            {activeTab === 'all' ? ' across all categories.' : ` under ${activeTabConfig?.label || activeTab}.`}
-          </p>
-        </div>
-
-        <div className="applicant-queue-header-actions">
+        <div className="applicant-queue-header-actions" style={{ marginLeft: 'auto' }}>
           <button type="button" className="applicant-queue-outline-btn" onClick={handleExportCsv} disabled={loading || visibleApplicants.length === 0}>
             Export CSV
           </button>
@@ -415,15 +400,9 @@ export default function ApplicantQueue() {
       </header>
 
       <section className="applicant-queue-stats" aria-label="Applicant status summary">
-        <article
-          role="button"
-          tabIndex={0}
-          className={`applicant-stat-card ${activeTab === 'all' ? 'is-active' : ''}`}
-          onClick={() => handleTabChange('all')}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleTabChange('all') }}
-        >
+        <article>
           <span>Total</span>
-          <strong>{tabCounts.all.toLocaleString()}</strong>
+          <strong>{applicants.length.toLocaleString()}</strong>
         </article>
         <article
           role="button"
@@ -673,7 +652,11 @@ export default function ApplicantQueue() {
               <h3>Registrar Action</h3>
               <label>
                 <span>Status</span>
-                <select value={nextStatus} onChange={(event) => setNextStatus(event.target.value as ApplicantStatus)}>
+                <select
+                  value={nextStatus}
+                  onChange={(event) => setNextStatus(event.target.value as ApplicantStatus)}
+                  disabled={selected.status === 'Approved for Enrollment' || selected.status === 'Enrolled'}
+                >
                   {reviewStatuses.map((status) => (
                     <option key={status} value={status}>{status}</option>
                   ))}
@@ -681,9 +664,18 @@ export default function ApplicantQueue() {
               </label>
               <label>
                 <span>Remarks</span>
-                <textarea value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="Notes for registrar processing" />
+                <textarea
+                  value={remarks}
+                  onChange={(event) => setRemarks(event.target.value)}
+                  placeholder="Notes for registrar processing"
+                  disabled={selected.status === 'Approved for Enrollment' || selected.status === 'Enrolled'}
+                />
               </label>
-              <button type="button" onClick={handleStatusUpdate} disabled={saving}>
+              <button
+                type="button"
+                onClick={handleStatusUpdate}
+                disabled={saving || selected.status === 'Approved for Enrollment' || selected.status === 'Enrolled'}
+              >
                 {saving ? 'Saving...' : 'Save Review'}
               </button>
             </div>

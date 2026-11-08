@@ -15,6 +15,7 @@ type NavbarProps = {
   profileAvatar?: string | null
   onProfileClick?: () => void
   onSettingsClick?: () => void
+  pageTitle?: string
 }
 
 export default function Navbar({
@@ -27,7 +28,8 @@ export default function Navbar({
   profileRole,
   profileAvatar,
   onProfileClick,
-  onSettingsClick
+  onSettingsClick,
+  pageTitle
 }: NavbarProps) {
   const [theme, setTheme] = useState<ThemePreference>(() => getStoredTheme())
   const [resolvedTheme, setResolvedTheme] = useState(() => resolveTheme(getStoredTheme()))
@@ -122,7 +124,7 @@ export default function Navbar({
         </button>
       )}
       <div className="navbar-center">
-        <div className="navbar-center-top">Welcome back, {displayProfileName}</div>
+        <div className="navbar-center-top">{pageTitle || 'My Teaching Load'}</div>
       </div>
       <div className="navbar-spacer" />
       <div className="navbar-user">

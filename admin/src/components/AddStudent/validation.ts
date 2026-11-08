@@ -169,5 +169,7 @@ export const hasStepErrors = (step: string, data: Partial<WizardFormData>, mode:
 }
 
 export const getFieldError = (field: string, errors: ValidationError[]): string | undefined => {
-  return errors.find(e => e.field === field)?.message
+  const message = errors.find(e => e.field === field)?.message
+  if (message && /is required\.?$/i.test(message)) return undefined
+  return message
 }

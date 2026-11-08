@@ -11,7 +11,7 @@ import {
   type ThemeAccentColor,
   type ThemePreference,
 } from '../lib/theme';
-import { getAcademicTerm, updateAcademicTerm, type AcademicSemester } from '../lib/settingsApi';
+import { getAcademicTerm, type AcademicSemester } from '../lib/settingsApi';
 import './Settings.css';
 
 type Theme = ThemePreference;
@@ -46,17 +46,13 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
     loginEmailVerificationEnabled: false,
   });
 
-  // Academic term (global current school year) state
-  const [academicTerm, setAcademicTerm] = useState<{ schoolYear: string; semester: AcademicSemester } | null>(null);
+  // Academic term (global current school year) state — read-only across all portals
   const [academicTermDraft, setAcademicTermDraft] = useState({ schoolYear: '', semester: '1st' as AcademicSemester });
-  const [academicTermLoading, setAcademicTermLoading] = useState(true);
-  const [academicTermSaving, setAcademicTermSaving] = useState(false);
   const [academicTermStatus, setAcademicTermStatus] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
 
   useEffect(() => {
     getAcademicTerm()
       .then((term) => {
-        setAcademicTerm(term);
         setAcademicTermDraft(term);
       })
       .catch((err) => {
@@ -64,43 +60,8 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
           type: 'error',
           message: err instanceof Error ? err.message : 'Failed to load academic term setting.',
         });
-      })
-      .finally(() => setAcademicTermLoading(false));
+      });
   }, []);
-
-  const academicTermDirty = Boolean(
-    academicTerm &&
-    (academicTermDraft.schoolYear !== academicTerm.schoolYear || academicTermDraft.semester !== academicTerm.semester)
-  );
-
-  const handleAcademicTermSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!academicTermDirty) return;
-
-    if (!/^\d{4}-\d{4}$/.test(academicTermDraft.schoolYear.trim())) {
-      setAcademicTermStatus({ type: 'error', message: 'School year must be in YYYY-YYYY format.' });
-      return;
-    }
-
-    setAcademicTermSaving(true);
-    setAcademicTermStatus(null);
-    try {
-      const updated = await updateAcademicTerm({
-        schoolYear: academicTermDraft.schoolYear.trim(),
-        semester: academicTermDraft.semester,
-      });
-      setAcademicTerm(updated);
-      setAcademicTermDraft(updated);
-      setAcademicTermStatus({ type: 'success', message: 'Academic term updated successfully.' });
-    } catch (err) {
-      setAcademicTermStatus({
-        type: 'error',
-        message: err instanceof Error ? err.message : 'Failed to update academic term setting.',
-      });
-    } finally {
-      setAcademicTermSaving(false);
-    }
-  };
 
   // Load theme preference from localStorage on mount
   useEffect(() => {
@@ -506,8 +467,8 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
             </div>
           </form>
 
-          {/* Academic Setup */}
-          <form className="settings-card" onSubmit={handleAcademicTermSubmit}>
+          {/* Academic Setup (Read-only across all portals) */}
+          <div className="settings-card">
             <div className="settings-card-header">
               <h4 className="settings-card-header-title">Academic Setup</h4>
             </div>
@@ -526,12 +487,9 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
                     name="schoolYear"
                     type="text"
                     className="settings-input"
-                    placeholder="YYYY-YYYY"
-                    pattern="\d{4}-\d{4}"
                     value={academicTermDraft.schoolYear}
-                    onChange={(event) => setAcademicTermDraft((prev) => ({ ...prev, schoolYear: event.target.value }))}
-                    disabled={academicTermLoading || profile?.accountType !== 'registrar'}
-                    required
+                    readOnly
+                    disabled
                   />
                 </div>
                 <div className="form-group">
@@ -539,39 +497,21 @@ export default function Settings({ onProfileUpdated, onLogout }: SettingsProps) 
                   <select
                     id="academicTermSemester"
                     name="semester"
-                      className="settings-input"
-                      value={academicTermDraft.semester}
-                      onChange={(event) => setAcademicTermDraft((prev) => ({ ...prev, semester: event.target.value as AcademicSemester }))}
-                      disabled={academicTermLoading || profile?.accountType !== 'registrar'}
-                    >
-                      <option value="1st">1st Semester</option>
-                      <option value="2nd">2nd Semester</option>
-                      <option value="Summer">Summer</option>
-                    </select>
-                  </div>
-                </div>
-                <p className="settings-card-hint">
-                  {profile?.accountType === 'registrar'
-                    ? 'Centralized school year and semester applied across Registrar, Admin, and Professor portals.'
-                    : 'Only registrars can modify academic year settings. Contact your registrar to make changes.'}
-                </p>
-              </div>
-
-              {profile?.accountType === 'registrar' && (
-                <div className="settings-card-footer">
-                  <span className="settings-card-footer-status">
-                    {academicTermDirty ? 'Review and save changes' : 'No pending changes'}
-                  </span>
-                  <button
-                    type="submit"
-                    className="settings-card-save-btn"
-                    disabled={academicTermLoading || academicTermSaving || !academicTermDirty}
+                    className="settings-input"
+                    value={academicTermDraft.semester}
+                    disabled
                   >
-                    {academicTermSaving ? 'Saving...' : 'Save'}
-                  </button>
+                    <option value="1st">1st Semester</option>
+                    <option value="2nd">2nd Semester</option>
+                    <option value="Summer">Summer</option>
+                  </select>
                 </div>
-              )}
-            </form>
+              </div>
+              <p className="settings-card-hint">
+                Centralized school year and semester applied across Registrar, Admin, and Professor portals.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>

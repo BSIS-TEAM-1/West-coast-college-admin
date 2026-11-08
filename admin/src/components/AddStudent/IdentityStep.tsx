@@ -14,11 +14,6 @@ export default function IdentityStep({
 }: IdentityStepProps) {
   return (
     <div className="wizard-step">
-      <div className="wizard-step-header">
-        <h2>Identity Information</h2>
-        <p>Enter the student's basic identity details</p>
-      </div>
-
       <div className="wizard-form-grid wizard-form-grid--identity">
         {/* First Name */}
         <div className="form-group">

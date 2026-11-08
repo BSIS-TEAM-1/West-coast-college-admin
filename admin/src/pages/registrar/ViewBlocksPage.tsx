@@ -393,11 +393,6 @@ function ViewBlocksPage({ onBack, onOpenWorkspace }: ViewBlocksPageProps) {
           </button>
         </div>
 
-        <div>
-          <h2 className="registrar-section-title">View Blocks</h2>
-          <p className="registrar-section-desc">Browse every created block group on a dedicated page, then inspect sections or open the assignment workspace.</p>
-        </div>
-
         {error && <p className="registrar-feedback registrar-feedback-error">{error}</p>}
         {success && <p className="registrar-feedback registrar-feedback-success">{success}</p>}
 

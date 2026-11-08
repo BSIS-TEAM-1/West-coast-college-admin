@@ -596,11 +596,6 @@ export default function CreateCurriculumPage({ onBack, onCreated }: CreateCurric
 
       {error && <p className="registrar-alert registrar-alert-error">{error}</p>}
 
-      <div className="curriculum-create-header">
-        <h2 className="registrar-section-title">Create Curriculum</h2>
-        <p className="registrar-section-desc">Create a new academic curriculum for a program, with optional subject placements and prerequisites.</p>
-      </div>
-
       {/* Wizard progress */}
       <div className="curriculum-wizard-steps">
         {stepLabels.map((label, idx) => {

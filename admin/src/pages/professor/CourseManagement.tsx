@@ -546,22 +546,6 @@ function CourseManagement({
 
   return (
     <div className="professor-section professor-course-management">
-      <div className="placeholder-card professor-course-hero">
-        <div className="professor-course-hero-copy">
-          <span className="professor-course-hero-eyebrow">{greeting}, {professorFirstName}</span>
-          <h2 className="professor-section-title">My Teaching Load</h2>
-          <p className="professor-section-desc">
-            Review assigned courses, block sections, class schedules, rooms, rosters, attendance, and grading tools from one workspace.
-          </p>
-        </div>
-        <div className="professor-course-hero-actions">
-          <button type="button" className="professor-course-help-trigger" onClick={() => setShowUsageTips(true)}>
-            <Info size={16} />
-            <span>Guide</span>
-          </button>
-        </div>
-      </div>
-
       <div className="placeholder-card professor-course-stats professor-course-statbar">
         {[
           { label: 'Courses', value: visibleStats.courses, total: totalStats.courses },
@@ -572,7 +556,6 @@ function CourseManagement({
           <div key={stat.label} className="professor-course-stat professor-course-statbar-item">
             <span>{stat.label}</span>
             <strong>{stat.value}</strong>
-            <small>{stat.value === stat.total ? `${stat.total} total` : `${stat.total} total assigned`}</small>
           </div>
         ))}
       </div>

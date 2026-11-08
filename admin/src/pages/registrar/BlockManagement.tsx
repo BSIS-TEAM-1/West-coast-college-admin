@@ -465,9 +465,6 @@ function BlockManagement({ onOpenBlocksPage, onGoDashboard }: BlockManagementPro
         </div>
       )}
 
-      <h2 className="registrar-section-title">Block Management</h2>
-      <p className="registrar-section-desc">Create one block group at a time with a guided review before saving.</p>
-
       <div className="block-wizard-shell">
         <div className="block-wizard-card">
           <div className="block-stepper" role="navigation" aria-label="Block creation progress">

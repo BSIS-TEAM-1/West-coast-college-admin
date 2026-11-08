@@ -551,8 +551,6 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
   if (loading) {
     return (
       <div className="professor-section">
-        <h2 className="professor-section-title">Student Roster</h2>
-        <p className="professor-section-desc">View enrolled students for your assigned courses.</p>
         <p>Loading your assigned classes...</p>
       </div>
     )
@@ -561,8 +559,6 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
   if (error) {
     return (
       <div className="professor-section">
-        <h2 className="professor-section-title">Student Roster</h2>
-        <p className="professor-section-desc">View enrolled students for your assigned courses.</p>
         <p className="professor-data-error">{error}</p>
         <button className="professor-btn professor-btn-secondary" onClick={() => void onRefresh()}>Retry</button>
       </div>
@@ -572,8 +568,6 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
   if (classOptions.length === 0) {
     return (
       <div className="professor-section">
-        <h2 className="professor-section-title">Student Roster</h2>
-        <p className="professor-section-desc">View enrolled students for your assigned courses.</p>
         <div className="placeholder-card">
           <h3>No assigned class found</h3>
           <p>No classes are currently assigned to your account.</p>
@@ -584,9 +578,6 @@ function StudentManagement({ courses, loading, error, onRefresh, initialClassKey
 
   return (
     <div className="professor-section">
-      <h2 className="professor-section-title">Student Roster</h2>
-      <p className="professor-section-desc">View enrolled students for your assigned courses.</p>
-
       <div className="professor-roster-controls">
         <div className="professor-roster-class-select">
           <label htmlFor="professor-term-select">Term / Semester</label>

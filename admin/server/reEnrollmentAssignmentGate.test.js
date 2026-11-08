@@ -10,6 +10,7 @@ jest.mock('./models/Student', () => ({ findById: jest.fn() }));
 jest.mock('./services/schoolYearLockService', () => ({ assertSchoolYearWritable: jest.fn() }));
 jest.mock('./services/blockEligibilityService', () => ({
   findActiveEnrollment: jest.fn(),
+  hasPriorEnrollmentHistory: jest.fn(),
   evaluateStudentEligibility: jest.fn(),
 }));
 jest.mock('./services/reEnrollmentVerificationService', () => ({
@@ -328,5 +329,150 @@ describe('performAssignment re-enrollment gate', () => {
     expect(result.ok).toBe(false);
     expect(result.httpStatus).toBe(409);
     expect(result.checks?.reEnrollmentVerified).toBe(false);
+  });
+
+  test('does NOT require re-enrollment verification for a newly admitted student with no previous enrollment history', async () => {
+    const section = {
+      _id: 'section-1st',
+      status: 'OPEN',
+      blockGroupId: 'group-1st',
+      sectionCode: '101-1-A',
+      capacity: 40,
+      currentPopulation: 10,
+      toObject() { return this; },
+    };
+    const group = {
+      _id: 'group-1st',
+      schoolYear: '2026-2027',
+      semester: '1st',
+      year: '2026-2027',
+      courseId: 101,
+      yearLevel: 1,
+      name: '101-1-A',
+      toObject() { return this; },
+    };
+    const newStudent = {
+      _id: 'student-new',
+      studentNumber: '202610155906',
+      course: 101,
+      yearLevel: 1,
+      schoolYear: '2026-2027',
+      semester: '1st',
+      lifecycleStatus: 'Pending',
+      enrollmentStatus: 'Not Enrolled',
+      studentStatus: 'Regular',
+      classification: 'Regular',
+      lifecycleStatusHistory: [],
+      toObject() { return this; },
+    };
+
+    BlockSection.findById.mockReturnValue(chain(section));
+    BlockGroup.findById.mockReturnValue(chain(group));
+    Student.findById.mockReturnValue(chain(newStudent));
+    blockEligibilityService.findActiveEnrollment.mockResolvedValue(null);
+    blockEligibilityService.hasPriorEnrollmentHistory.mockResolvedValue(false);
+    blockEligibilityService.evaluateStudentEligibility.mockReturnValue({
+      eligible: false,
+      reasons: ['Stop after re-enrollment gate check.'],
+      checks: {},
+    });
+
+    const spyCreateEnrollment = jest
+      .spyOn(blockController, 'createEnrollmentForBlockAssignment')
+      .mockResolvedValueOnce({
+        _id: 'enrollment-new-1',
+        schoolYear: '2026-2027',
+        semester: '1st',
+        status: 'Pending',
+        subjects: [],
+      });
+
+    const result = await blockController.performAssignment({
+      studentId: 'student-new',
+      sectionId: 'section-1st',
+      semester: '1st',
+      year: '2026-2027',
+      actorId: 'registrar-1',
+      session: {},
+      enforceReEnrollmentVerification: true,
+      forceReEnrollmentVerification: false,
+    });
+
+    expect(verificationService.findVerifiedEnrollment).not.toHaveBeenCalled();
+    expect(spyCreateEnrollment).toHaveBeenCalledTimes(1);
+    expect(result.httpStatus).not.toBe(428);
+    spyCreateEnrollment.mockRestore();
+  });
+
+  test('requires re-enrollment verification for a readmitted student or student with prior enrollment history', async () => {
+    const section = {
+      _id: 'section-1st',
+      status: 'OPEN',
+      blockGroupId: 'group-1st',
+      sectionCode: '101-1-A',
+      capacity: 40,
+      currentPopulation: 10,
+      toObject() { return this; },
+    };
+    const group = {
+      _id: 'group-1st',
+      schoolYear: '2026-2027',
+      semester: '1st',
+      year: '2026-2027',
+      courseId: 101,
+      yearLevel: 1,
+      name: '101-1-A',
+      toObject() { return this; },
+    };
+    const readmittedStudent = {
+      _id: 'student-readmitted',
+      studentNumber: '202510100009',
+      course: 101,
+      yearLevel: 1,
+      schoolYear: '2026-2027',
+      semester: '1st',
+      lifecycleStatus: 'Pending',
+      lifecycleStatusReason: 'AUTHORIZED_READMISSION',
+      enrollmentStatus: 'Not Enrolled',
+      studentStatus: 'Regular',
+      classification: 'Regular',
+      lifecycleStatusHistory: [
+        {
+          status: 'Dropped',
+          reason: 'ACADEMIC_DEFICIENCY',
+          changedAt: new Date('2026-10-01T00:00:00Z'),
+        },
+        {
+          status: 'Pending',
+          reason: 'AUTHORIZED_READMISSION',
+          decision: 'READMITTED',
+          changedAt: new Date('2026-10-15T00:00:00Z'),
+        },
+      ],
+      toObject() { return this; },
+    };
+
+    BlockSection.findById.mockReturnValue(chain(section));
+    BlockGroup.findById.mockReturnValue(chain(group));
+    Student.findById.mockReturnValue(chain(readmittedStudent));
+    blockEligibilityService.findActiveEnrollment.mockResolvedValue(null);
+    blockEligibilityService.hasPriorEnrollmentHistory.mockResolvedValue(true);
+    verificationService.findVerifiedEnrollment.mockResolvedValue(null);
+
+    const result = await blockController.performAssignment({
+      studentId: 'student-readmitted',
+      sectionId: 'section-1st',
+      semester: '1st',
+      year: '2026-2027',
+      actorId: 'registrar-1',
+      session: {},
+      enforceReEnrollmentVerification: true,
+      forceReEnrollmentVerification: false,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.httpStatus).toBe(428);
+    expect(result.checks?.reEnrollmentVerified).toBe(false);
+    expect(verificationService.findVerifiedEnrollment).toHaveBeenCalled();
   });
 });

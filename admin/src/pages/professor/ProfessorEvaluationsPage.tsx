@@ -1,33 +1,84 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Award,
-  BarChart3,
   BookOpen,
-  Calendar,
-  CheckCircle2,
-  Clock,
+  ChevronDown,
+  ChevronRight,
   Filter,
+  Layers,
   MessageSquare,
-  RefreshCw,
-  ShieldCheck,
-  Users
+  User,
+  UserCheck
 } from 'lucide-react'
 import {
-  EMOJI_RATING_SCALE,
   EVALUATION_QUESTIONS,
   fetchProfessorEvaluations,
+  type ProfessorAnonymousFeedback,
   type ProfessorEvaluationsData
 } from '../../lib/evaluationApi'
+import type { ProfessorAssignedCourse } from './professorTypes'
+import { normalizeSemester } from './professorUtils'
 import './ProfessorEvaluationsPage.css'
 
-export default function ProfessorEvaluationsPage() {
+interface ProfessorEvaluationsPageProps {
+  professorName?: string
+  courses?: ProfessorAssignedCourse[]
+}
+
+interface EvaluationBlockGroup {
+  key: string
+  blockTitle: string
+  courseLabel: string
+  sectionCode: string
+  semester: string
+  schoolYear: string
+  subjects: Array<{ code: string; title: string }>
+  responses: ProfessorAnonymousFeedback[]
+}
+
+const formatCourseShortLabel = (value: string | number | undefined) => {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  const normalized = raw.toUpperCase().replace(/\s+/g, '').replace(/_/g, '-')
+  const map: Record<string, string> = {
+    '101': 'BEED',
+    '102': 'BSED-ENGLISH',
+    '103': 'BSED-MATH',
+    '201': 'BSBA-HRM'
+  }
+  if (map[normalized]) return map[normalized]
+  if (normalized.includes('BEED')) return 'BEED'
+  if (normalized.includes('BSED-ENGLISH') || normalized === 'ENGLISH') return 'BSED-ENGLISH'
+  if (normalized.includes('BSED-MATH') || normalized === 'MATH' || normalized === 'MATHEMATICS') return 'BSED-MATH'
+  if (normalized.includes('BSBA-HRM') || normalized === 'HRM') return 'BSBA-HRM'
+  return raw
+}
+
+const formatBlockTitle = (courseCode: string | number | undefined, sectionCode: string | undefined) => {
+  const courseLabel = formatCourseShortLabel(courseCode)
+  const cleanSection = String(sectionCode || '').trim()
+  if (!cleanSection) return courseLabel || 'Assigned Block'
+  if (!courseLabel) return cleanSection
+  if (cleanSection.toUpperCase().startsWith(courseLabel.toUpperCase())) {
+    return cleanSection
+  }
+  return `${courseLabel} ${cleanSection}`.trim()
+}
+
+export default function ProfessorEvaluationsPage({
+  professorName = '',
+  courses = []
+}: ProfessorEvaluationsPageProps) {
   const [data, setData] = useState<ProfessorEvaluationsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [subjectFilter, setSubjectFilter] = useState('ALL')
   const [semesterFilter, setSemesterFilter] = useState('ALL')
   const [schoolYearFilter, setSchoolYearFilter] = useState('ALL')
-  const [activeTab, setActiveTab] = useState<'questions' | 'subjects' | 'comments'>('questions')
+
+  // Progressive disclosure states: Professor -> Blocks -> Anon Students -> Rates/Comments
+  const [isProfessorOpen, setIsProfessorOpen] = useState(false)
+  const [openBlockKeys, setOpenBlockKeys] = useState<Record<string, boolean>>({})
+  const [openStudentIds, setOpenStudentIds] = useState<Record<string, boolean>>({})
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -50,28 +101,24 @@ export default function ProfessorEvaluationsPage() {
     void loadData()
   }, [loadData])
 
-  const questionList = data?.questionSummaries?.length
-    ? data.questionSummaries
-    : EVALUATION_QUESTIONS.map((q) => ({
-        questionNumber: q.number,
-        questionText: q.text,
-        averageScore: 0,
-        responseCount: 0,
-        emoji: '',
-        label: 'No Data',
-        distribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } as Record<number, number>
-      }))
-
-  const overallDistribution = useMemo(() => {
-    const totals: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
-    for (const q of questionList) {
-      for (const score of [1, 2, 3, 4, 5]) {
-        totals[score] += Number(q.distribution?.[score] || 0)
+  const allAvailableSubjects = useMemo(() => {
+    const map = new Map<string, { subjectCode: string; subjectTitle: string }>()
+    for (const item of data?.filters?.subjects || []) {
+      const code = String(item.subjectCode || '').trim().toUpperCase()
+      if (code) map.set(code, { subjectCode: code, subjectTitle: item.subjectTitle || code })
+    }
+    for (const course of courses) {
+      for (const block of course.blocks || []) {
+        for (const subject of block.subjects || []) {
+          const code = String(subject.code || '').trim().toUpperCase()
+          if (code && !map.has(code)) {
+            map.set(code, { subjectCode: code, subjectTitle: subject.title || code })
+          }
+        }
       }
     }
-    const sumAll = Object.values(totals).reduce((a, b) => a + b, 0)
-    return { totals, sumAll }
-  }, [questionList])
+    return Array.from(map.values())
+  }, [data?.filters?.subjects, courses])
 
   const termsWithFeedback = useMemo(
     () => new Set((data?.subjectSummaries || []).map((item) => `${item.semester}|${item.schoolYear}`)).size,
@@ -83,66 +130,168 @@ export default function ProfessorEvaluationsPage() {
       ? data.subjectsWithFeedbackCount
       : data?.subjectSummaries?.length || 0
 
+  // Group into Professor -> Blocks -> Anonymous Students
+  const blockGroups = useMemo<EvaluationBlockGroup[]>(() => {
+    const groupsMap = new Map<string, EvaluationBlockGroup>()
+
+    // 1. Seed blocks from professor's assigned courses/blocks
+    for (const course of courses) {
+      const courseLabel = formatCourseShortLabel(course.courseCode)
+      for (const block of course.blocks || []) {
+        const sem = normalizeSemester(block.semester) || block.semester || '1st'
+        const sy = String(block.schoolYear || '').trim()
+        if (semesterFilter !== 'ALL' && sem !== semesterFilter) continue
+        if (schoolYearFilter !== 'ALL' && sy && sy !== schoolYearFilter) continue
+
+        const blockSubjects = (block.subjects || [])
+          .map((s) => ({
+            code: String(s.code || '').trim().toUpperCase(),
+            title: String(s.title || s.code || '').trim()
+          }))
+          .filter((s) => Boolean(s.code))
+
+        if (
+          subjectFilter !== 'ALL' &&
+          !blockSubjects.some((s) => s.code === subjectFilter.toUpperCase())
+        ) {
+          continue
+        }
+
+        const sectionCode = String(block.sectionCode || '').trim()
+        const key = `${courseLabel}|${sectionCode.toUpperCase()}|${sem}|${sy}`
+        if (!groupsMap.has(key)) {
+          groupsMap.set(key, {
+            key,
+            blockTitle: formatBlockTitle(course.courseCode, sectionCode),
+            courseLabel,
+            sectionCode,
+            semester: sem,
+            schoolYear: sy,
+            subjects: blockSubjects,
+            responses: []
+          })
+        } else {
+          const existing = groupsMap.get(key)!
+          for (const subj of blockSubjects) {
+            if (!existing.subjects.some((s) => s.code === subj.code)) {
+              existing.subjects.push(subj)
+            }
+          }
+        }
+      }
+    }
+
+    // 2. Attach anonymous student responses to their matching block (or create a fallback block)
+    const responses = data?.responses || []
+    for (const resp of responses) {
+      const respSec = String(resp.sectionCode || '').trim().toUpperCase()
+      const respSem = normalizeSemester(resp.semester) || resp.semester || ''
+      const respSy = String(resp.schoolYear || '').trim()
+      const respSubjCode = String(resp.subjectCode || '').trim().toUpperCase()
+      const respSubjCodes = Array.isArray(resp.subjectCodes) && resp.subjectCodes.length > 0
+        ? resp.subjectCodes.map((c) => String(c || '').trim().toUpperCase())
+        : [respSubjCode]
+
+      let matchedGroup: EvaluationBlockGroup | undefined
+
+      // Match by sectionCode + term first
+      if (respSec) {
+        for (const group of groupsMap.values()) {
+          const groupSec = group.sectionCode.toUpperCase()
+          const groupTitle = group.blockTitle.toUpperCase()
+          const sameTerm =
+            (!group.semester || !respSem || group.semester === respSem) &&
+            (!group.schoolYear || !respSy || group.schoolYear === respSy)
+          if (
+            sameTerm &&
+            (groupSec === respSec ||
+              groupTitle === respSec ||
+              groupTitle.endsWith(` ${respSec}`) ||
+              groupTitle.endsWith(`-${respSec}`))
+          ) {
+            matchedGroup = group
+            break
+          }
+        }
+      }
+
+      // Otherwise match by subjectCode + term
+      if (!matchedGroup) {
+        for (const group of groupsMap.values()) {
+          const sameTerm =
+            (!group.semester || !respSem || group.semester === respSem) &&
+            (!group.schoolYear || !respSy || group.schoolYear === respSy)
+          if (
+            sameTerm &&
+            group.subjects.some((s) => respSubjCodes.includes(s.code))
+          ) {
+            matchedGroup = group
+            break
+          }
+        }
+      }
+
+      // Fallback block if response isn't in any pre-seeded block
+      if (!matchedGroup) {
+        const fallbackSection = String(resp.sectionCode || '').trim() || respSubjCode || 'General Block'
+        const fallbackCourse = formatCourseShortLabel(resp.course)
+        const fallbackKey = `resp|${fallbackCourse}|${fallbackSection.toUpperCase()}|${respSem}|${respSy}`
+        if (!groupsMap.has(fallbackKey)) {
+          groupsMap.set(fallbackKey, {
+            key: fallbackKey,
+            blockTitle: resp.sectionCode
+              ? formatBlockTitle(resp.course, resp.sectionCode)
+              : `${respSubjCode} — ${resp.subjectTitle || 'Course Block'}`,
+            courseLabel: fallbackCourse,
+            sectionCode: fallbackSection,
+            semester: respSem,
+            schoolYear: respSy,
+            subjects: respSubjCode
+              ? [{ code: respSubjCode, title: resp.subjectTitle || respSubjCode }]
+              : [],
+            responses: []
+          })
+        }
+        matchedGroup = groupsMap.get(fallbackKey)!
+      }
+
+      if (
+        respSubjCode &&
+        !matchedGroup.subjects.some((s) => s.code === respSubjCode)
+      ) {
+        matchedGroup.subjects.push({
+          code: respSubjCode,
+          title: resp.subjectTitle || respSubjCode
+        })
+      }
+
+      matchedGroup.responses.push(resp)
+    }
+
+    return Array.from(groupsMap.values())
+  }, [courses, data?.responses, subjectFilter, semesterFilter, schoolYearFilter])
+
+  const resolvedProfessorName =
+    data?.professorName || professorName || 'Professor'
+
+  const toggleBlock = (blockKey: string) => {
+    setOpenBlockKeys((prev) => ({ ...prev, [blockKey]: !prev[blockKey] }))
+  }
+
+  const toggleStudent = (studentId: string) => {
+    setOpenStudentIds((prev) => ({ ...prev, [studentId]: !prev[studentId] }))
+  }
+
+  const questionLookup = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const q of data?.questions || EVALUATION_QUESTIONS) {
+      map.set(q.number, q.text)
+    }
+    return map
+  }, [data?.questions])
+
   return (
     <div className="prof-eval-page">
-      {/* Page Header */}
-      <header className="prof-eval-header">
-        <div className="prof-eval-header-left">
-          <div className="prof-eval-eyebrow">
-            <ShieldCheck size={14} />
-            <span>Anonymous Faculty Feedback Portal</span>
-          </div>
-          <h1 className="prof-eval-title">Teaching Effectiveness Evaluations</h1>
-          <p className="prof-eval-subtitle">
-            Aggregated anonymous ratings, 10-question diagnostic summaries, and anonymized feedback for your assigned classes.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          className="prof-eval-refresh-btn"
-          onClick={() => void loadData()}
-          disabled={loading}
-        >
-          <RefreshCw size={15} className={loading ? 'prof-eval-spin' : ''} />
-          <span>{loading ? 'Refreshing...' : 'Refresh Results'}</span>
-        </button>
-      </header>
-
-      {/* Evaluation-Period & Anonymity Information Banner */}
-      <section className="prof-eval-period-bar" aria-label="Evaluation period and confidentiality details">
-        <div className="prof-eval-period-item">
-          <Calendar size={16} className="prof-eval-bar-icon" />
-          <div>
-            <span className="prof-eval-bar-label">Evaluation Period</span>
-            <strong>
-              {data?.evaluationPeriod
-                ? `${data.evaluationPeriod.semester} Semester • SY ${data.evaluationPeriod.schoolYear}`
-                : 'Current Academic Term'}
-            </strong>
-          </div>
-        </div>
-
-        <div className="prof-eval-period-item">
-          <Clock size={16} className="prof-eval-bar-icon" />
-          <div>
-            <span className="prof-eval-bar-label">Schedule &amp; Deadline</span>
-            <strong>
-              {data?.evaluationPeriod?.deadlineDisplay
-                ? `Closes ${data.evaluationPeriod.deadlineDisplay}`
-                : 'Managed by Office of the Registrar'}
-            </strong>
-          </div>
-        </div>
-
-        <div className="prof-eval-period-item prof-eval-period-privacy">
-          <ShieldCheck size={16} className="prof-eval-bar-icon" />
-          <span>
-            Student identities, student numbers, and account IDs are not collected or stored with evaluation responses.
-          </span>
-        </div>
-      </section>
-
       {/* Filter Controls */}
       <section className="prof-eval-filters-card" aria-label="Filter evaluations">
         <div className="prof-eval-filter-title">
@@ -159,7 +308,7 @@ export default function ProfessorEvaluationsPage() {
               onChange={(e) => setSubjectFilter(e.target.value)}
             >
               <option value="ALL">All Assigned Courses</option>
-              {(data?.filters?.subjects || []).map((subj) => (
+              {allAvailableSubjects.map((subj) => (
                 <option key={subj.subjectCode} value={subj.subjectCode}>
                   {subj.subjectCode} — {subj.subjectTitle}
                 </option>
@@ -207,7 +356,7 @@ export default function ProfessorEvaluationsPage() {
         </div>
       )}
 
-      {/* 4 Professional Summary Cards */}
+      {/* 4 Summary Cards */}
       {loading && !data ? (
         <div className="prof-eval-skeleton-grid" aria-busy="true">
           {[1, 2, 3, 4].map((item) => (
@@ -217,20 +366,13 @@ export default function ProfessorEvaluationsPage() {
       ) : (
         <section className="prof-eval-kpi-grid" aria-label="Evaluation summary metrics">
           <div className="prof-eval-kpi-card">
-            <div className="prof-eval-kpi-icon">
-              <Users size={20} />
-            </div>
             <div className="prof-eval-kpi-content">
               <span className="prof-eval-kpi-label">Total Evaluation Responses</span>
               <strong className="prof-eval-kpi-value">{data?.totalResponses || 0}</strong>
-              <span className="prof-eval-kpi-sub">Verified anonymous submissions</span>
             </div>
           </div>
 
           <div className="prof-eval-kpi-card">
-            <div className="prof-eval-kpi-icon">
-              <Award size={20} />
-            </div>
             <div className="prof-eval-kpi-content">
               <span className="prof-eval-kpi-label">Average Teaching Rating</span>
               <div className="prof-eval-kpi-rating-row">
@@ -239,274 +381,281 @@ export default function ProfessorEvaluationsPage() {
                 </strong>
                 <span className="prof-eval-kpi-scale">/ 5.00</span>
               </div>
-              <span className="prof-eval-kpi-sub">
-                {data && data.totalResponses > 0 ? data.overallLabel : 'No ratings recorded yet'}
-              </span>
             </div>
           </div>
 
           <div className="prof-eval-kpi-card">
-            <div className="prof-eval-kpi-icon">
-              <CheckCircle2 size={20} />
-            </div>
             <div className="prof-eval-kpi-content">
               <span className="prof-eval-kpi-label">Terms with Feedback</span>
               <strong className="prof-eval-kpi-value">{termsWithFeedback}</strong>
-              <span className="prof-eval-kpi-sub">Per-semester evaluation results</span>
             </div>
           </div>
 
           <div className="prof-eval-kpi-card">
-            <div className="prof-eval-kpi-icon">
-              <BookOpen size={20} />
-            </div>
             <div className="prof-eval-kpi-content">
               <span className="prof-eval-kpi-label">Subjects with Feedback</span>
               <strong className="prof-eval-kpi-value">{subjectsWithFeedback}</strong>
-              <span className="prof-eval-kpi-sub">
-                Out of {data?.filters?.subjects?.length || 0} assigned subject(s)
-              </span>
             </div>
           </div>
         </section>
       )}
 
-      {/* Overall Rating Distribution & Scale Reference */}
-      <section className="prof-eval-distribution-card" aria-label="Overall rating distribution">
-        <div className="prof-eval-card-head">
-          <div>
-            <h2>Rating Scale Distribution</h2>
-            <p>Aggregate distribution of student ratings across all 10 evaluation criteria.</p>
-          </div>
-          <div className="prof-eval-scale-chips">
-            {EMOJI_RATING_SCALE.map((item) => (
-              <span key={item.score} className="prof-eval-scale-chip">
-                <span aria-hidden="true">{item.emoji}</span>
-                <strong>{item.score}</strong>
-                <span>{item.label}</span>
-              </span>
-            ))}
-          </div>
-        </div>
-
-        <div className="prof-eval-dist-bars">
-          {[5, 4, 3, 2, 1].map((score) => {
-            const scaleItem = EMOJI_RATING_SCALE.find((s) => s.score === score)
-            const count = overallDistribution.totals[score] || 0
-            const pct =
-              overallDistribution.sumAll > 0
-                ? Math.round((count / overallDistribution.sumAll) * 100)
-                : 0
-            return (
-              <div key={score} className="prof-eval-dist-row">
-                <div className="prof-eval-dist-label">
-                  <span className="prof-eval-dist-emoji" aria-hidden="true">
-                    {scaleItem?.emoji}
-                  </span>
-                  <strong>{score}</strong>
-                  <span>{scaleItem?.label}</span>
-                </div>
-                <div className="prof-eval-dist-track">
-                  <div
-                    className={`prof-eval-dist-fill score-${score}`}
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-                <div className="prof-eval-dist-meta">
-                  <strong>{pct}%</strong>
-                  <span>({count})</span>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </section>
-
-      {/* Section Navigation Tabs */}
-      <div className="prof-eval-tabs" role="tablist" aria-label="Evaluation detail views">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'questions'}
-          className={`prof-eval-tab ${activeTab === 'questions' ? 'is-active' : ''}`}
-          onClick={() => setActiveTab('questions')}
-        >
-          <BarChart3 size={16} />
-          <span>10-Question Breakdown</span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'subjects'}
-          className={`prof-eval-tab ${activeTab === 'subjects' ? 'is-active' : ''}`}
-          onClick={() => setActiveTab('subjects')}
-        >
-          <BookOpen size={16} />
-          <span>Subject Summaries ({data?.subjectSummaries?.length || 0})</span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'comments'}
-          className={`prof-eval-tab ${activeTab === 'comments' ? 'is-active' : ''}`}
-          onClick={() => setActiveTab('comments')}
-        >
-          <MessageSquare size={16} />
-          <span>Anonymous Comments ({data?.comments?.length || 0})</span>
-        </button>
-      </div>
-
-      {/* Tab Content */}
-      {loading ? (
+      {/* Hierarchy: Professor -> Blocks -> Anonymous Students & their Rates/Comments */}
+      {loading && !data ? (
         <div className="prof-eval-skeleton-table" aria-busy="true">
-          {[1, 2, 3, 4, 5].map((r) => (
+          {[1, 2, 3].map((r) => (
             <div key={r} className="prof-eval-skeleton-row" />
           ))}
         </div>
-      ) : activeTab === 'questions' ? (
-        <section className="prof-eval-panel" aria-label="Ten question diagnostic breakdown">
-          <div className="prof-eval-table-wrap">
-            <table className="prof-eval-table">
-              <thead>
-                <tr>
-                  <th style={{ width: '64px' }}>No.</th>
-                  <th>Evaluation Criterion</th>
-                  <th style={{ width: '130px' }}>Average Score</th>
-                  <th style={{ width: '140px' }}>Qualitative Rating</th>
-                  <th style={{ width: '320px' }}>Rating Distribution (1–5)</th>
-                  <th style={{ width: '100px' }} className="text-right">Responses</th>
-                </tr>
-              </thead>
-              <tbody>
-                {questionList.map((q) => {
-                  const pct = Math.min(100, Math.max(0, (q.averageScore / 5) * 100))
-                  return (
-                    <tr key={q.questionNumber}>
-                      <td>
-                        <span className="prof-eval-qnum">Q{q.questionNumber}</span>
-                      </td>
-                      <td>
-                        <strong className="prof-eval-qtext">{q.questionText}</strong>
-                      </td>
-                      <td>
-                        <div className="prof-eval-score-cell">
-                          <strong>{q.responseCount > 0 ? q.averageScore.toFixed(2) : '—'}</strong>
-                          <span>/ 5.00</span>
-                        </div>
-                      </td>
-                      <td>
-                        <span className="prof-eval-label-badge">
-                          {q.responseCount > 0 ? q.label : 'No Ratings'}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="prof-eval-qbar-wrap">
-                          <div className="prof-eval-qbar-track">
-                            <div className="prof-eval-qbar-fill" style={{ width: `${pct}%` }} />
-                          </div>
-                          <div className="prof-eval-qdist-mini">
-                            {[1, 2, 3, 4, 5].map((score) => (
-                              <span key={score}>
-                                {score}: <strong>{q.distribution?.[score] || 0}</strong>
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="text-right">{q.responseCount}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : activeTab === 'subjects' ? (
-        <section className="prof-eval-panel" aria-label="Subject evaluation summaries">
-          {!data?.subjectSummaries?.length ? (
-            <div className="prof-eval-empty">
-              <BookOpen size={30} />
-              <h3>No Subject Evaluations Recorded</h3>
-              <p>Aggregated subject feedback will appear here once evaluations are submitted.</p>
-            </div>
-          ) : (
-            <div className="prof-eval-table-wrap">
-              <table className="prof-eval-table">
-                <thead>
-                  <tr>
-                    <th>Subject Code</th>
-                    <th>Subject Title</th>
-                    <th>Academic Term</th>
-                    <th>Responses</th>
-                    <th>Average Rating</th>
-                    <th>Qualitative Descriptor</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.subjectSummaries.map((item) => (
-                    <tr key={`${item.subjectCode}-${item.semester}-${item.schoolYear}`}>
-                      <td>
-                        <span className="prof-eval-code-badge">{item.subjectCode}</span>
-                      </td>
-                      <td>
-                        <strong>{item.subjectTitle}</strong>
-                      </td>
-                      <td>
-                        {item.semester} Semester • SY {item.schoolYear}
-                      </td>
-                      <td>{item.responseCount}</td>
-                      <td>
-                        <strong>{item.averageRating.toFixed(2)}</strong> / 5.00
-                      </td>
-                      <td>
-                        <span className="prof-eval-label-badge">{item.label}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
       ) : (
-        <section className="prof-eval-panel" aria-label="Anonymous comments">
-          {!data?.responses?.length ? (
-            <div className="prof-eval-empty">
-              <MessageSquare size={30} />
-              <h3>No Anonymous Feedback Submitted Yet</h3>
-              <p>Anonymous comments for your assigned classes will be listed here.</p>
-            </div>
-          ) : (
-            <div className="prof-eval-comments-list">
-              {data.responses.map((item) => (
-                <article key={item.id} className="prof-eval-comment-item">
-                  <div className="prof-eval-comment-top">
-                    <div className="prof-eval-comment-meta">
-                      <span className="prof-eval-anon-tag">{item.anonymousLabel}</span>
-                      <span className="prof-eval-code-badge">{item.subjectCode}</span>
-                      <span className="prof-eval-comment-subj">{item.subjectTitle}</span>
-                      <span className="prof-eval-comment-term">
-                        {item.semester} Sem • SY {item.schoolYear}
-                      </span>
-                    </div>
-                    <div className="prof-eval-comment-right">
-                      <span className="prof-eval-score-pill">
-                        Rating: <strong>{item.averageRating.toFixed(2)} / 5.00</strong> ({item.ratingLabel})
-                      </span>
-                      <time className="prof-eval-comment-date">
-                        {item.submittedAt ? new Date(item.submittedAt).toLocaleDateString() : ''}
-                      </time>
-                    </div>
+        <section
+          className="prof-eval-hierarchy"
+          aria-label="Professor blocks and anonymous student evaluations"
+        >
+          {/* Level 1: Professor */}
+          <div className={`prof-eval-prof-card ${isProfessorOpen ? 'is-open' : ''}`}>
+            <button
+              type="button"
+              className="prof-eval-prof-trigger"
+              onClick={() => setIsProfessorOpen((prev) => !prev)}
+              aria-expanded={isProfessorOpen}
+            >
+              <div className="prof-eval-prof-left">
+                <div className="prof-eval-prof-avatar">
+                  <User size={18} />
+                </div>
+                <div className="prof-eval-prof-info">
+                  <span className="prof-eval-step-tag">Professor</span>
+                  <strong className="prof-eval-prof-name">{resolvedProfessorName}</strong>
+                </div>
+              </div>
+
+              <div className="prof-eval-prof-right">
+                <span className="prof-eval-meta-pill">
+                  <Layers size={14} />
+                  <span>{blockGroups.length} Block(s)</span>
+                </span>
+                <span className="prof-eval-meta-pill">
+                  <UserCheck size={14} />
+                  <span>{data?.totalResponses || 0} Anonymous Student(s)</span>
+                </span>
+                <span className="prof-eval-expand-label">
+                  <span>{isProfessorOpen ? 'Hide Blocks' : 'View Blocks'}</span>
+                  {isProfessorOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                </span>
+              </div>
+            </button>
+
+            {/* Level 2: Blocks */}
+            {isProfessorOpen && (
+              <div className="prof-eval-blocks-container">
+                {blockGroups.length === 0 ? (
+                  <div className="prof-eval-empty">
+                    <BookOpen size={28} />
+                    <h3>No Blocks Found</h3>
+                    <p>No assigned blocks or evaluation responses match the current filters.</p>
                   </div>
-                  <p className="prof-eval-comment-body">
-                    {item.comment
-                      ? item.comment
-                      : 'No additional written comment provided (10-question rating completed).'}
-                  </p>
-                </article>
-              ))}
-            </div>
-          )}
+                ) : (
+                  <div className="prof-eval-blocks-list">
+                    {blockGroups.map((block) => {
+                      const isBlockOpen = Boolean(openBlockKeys[block.key])
+                      return (
+                        <div
+                          key={block.key}
+                          className={`prof-eval-block-card ${isBlockOpen ? 'is-open' : ''}`}
+                        >
+                          <button
+                            type="button"
+                            className="prof-eval-block-trigger"
+                            onClick={() => toggleBlock(block.key)}
+                            aria-expanded={isBlockOpen}
+                          >
+                            <div className="prof-eval-block-left">
+                              <div className="prof-eval-block-title-row">
+                                <span className="prof-eval-step-tag is-block">Block</span>
+                                <strong className="prof-eval-block-name">{block.blockTitle}</strong>
+                                {(block.semester || block.schoolYear) && (
+                                  <span className="prof-eval-block-term">
+                                    {block.semester ? `${block.semester} Semester` : ''}
+                                    {block.semester && block.schoolYear ? ' • ' : ''}
+                                    {block.schoolYear ? `SY ${block.schoolYear}` : ''}
+                                  </span>
+                                )}
+                              </div>
+
+                              {block.subjects.length > 0 && (
+                                <div className="prof-eval-block-subjects">
+                                  {block.subjects.map((subj) => (
+                                    <span key={subj.code} className="prof-eval-subj-chip">
+                                      <strong>{subj.code}</strong>
+                                      <span>{subj.title}</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="prof-eval-block-right">
+                              <span className="prof-eval-meta-pill">
+                                <MessageSquare size={14} />
+                                <span>{block.responses.length} Anonymous Student(s)</span>
+                              </span>
+                              <span className="prof-eval-expand-label">
+                                <span>{isBlockOpen ? 'Hide Students' : 'View Students'}</span>
+                                {isBlockOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                              </span>
+                            </div>
+                          </button>
+
+                          {/* Level 3: Anonymous Students in this Block */}
+                          {isBlockOpen && (
+                            <div className="prof-eval-students-container">
+                              {block.responses.length === 0 ? (
+                                <div className="prof-eval-empty is-compact">
+                                  <p>No anonymous student evaluations submitted for this block yet.</p>
+                                </div>
+                              ) : (
+                                <div className="prof-eval-students-list">
+                                  {block.responses.map((studentResp, idx) => {
+                                    const isStudentOpen = Boolean(openStudentIds[studentResp.id])
+                                    const studentLabel =
+                                      studentResp.anonymousLabel ||
+                                      `Anonymous Student #${idx + 1}`
+
+                                    return (
+                                      <div
+                                        key={studentResp.id}
+                                        className={`prof-eval-student-card ${isStudentOpen ? 'is-open' : ''}`}
+                                      >
+                                        <button
+                                          type="button"
+                                          className="prof-eval-student-trigger"
+                                          onClick={() => toggleStudent(studentResp.id)}
+                                          aria-expanded={isStudentOpen}
+                                        >
+                                          <div className="prof-eval-student-left">
+                                            <span className="prof-eval-anon-badge">
+                                              {studentLabel}
+                                            </span>
+                                            {studentResp.subjectCode && (
+                                              <span className="prof-eval-code-badge">
+                                                {studentResp.subjectCode}
+                                              </span>
+                                            )}
+                                            {studentResp.subjectTitle && (
+                                              <span className="prof-eval-student-subj">
+                                                {studentResp.subjectTitle}
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          <div className="prof-eval-student-right">
+                                            {studentResp.submittedAt && (
+                                              <time className="prof-eval-comment-date">
+                                                {new Date(studentResp.submittedAt).toLocaleDateString()}
+                                              </time>
+                                            )}
+                                            <span className="prof-eval-expand-label">
+                                              <span>
+                                                {isStudentOpen
+                                                  ? 'Hide Rates & Comment'
+                                                  : 'View Rates & Comment'}
+                                              </span>
+                                              {isStudentOpen ? (
+                                                <ChevronDown size={14} />
+                                              ) : (
+                                                <ChevronRight size={14} />
+                                              )}
+                                            </span>
+                                          </div>
+                                        </button>
+
+                                        {/* Revealed on click: Student's Rates & Comment */}
+                                        {isStudentOpen && (
+                                          <div className="prof-eval-student-details">
+                                            <div className="prof-eval-student-summary-bar">
+                                              <div className="prof-eval-student-overall">
+                                                <span className="prof-eval-student-detail-label">
+                                                  Overall Rating
+                                                </span>
+                                                <div className="prof-eval-student-score-badge">
+                                                  {studentResp.emoji && (
+                                                    <span aria-hidden="true">{studentResp.emoji}</span>
+                                                  )}
+                                                  <strong>
+                                                    {Number(studentResp.averageRating || 0).toFixed(2)} / 5.00
+                                                  </strong>
+                                                  <span>({studentResp.ratingLabel})</span>
+                                                </div>
+                                              </div>
+                                            </div>
+
+                                            <div className="prof-eval-student-comment-box">
+                                              <span className="prof-eval-student-detail-label">
+                                                Anonymous Comment
+                                              </span>
+                                              <p className="prof-eval-comment-body">
+                                                {studentResp.comment
+                                                  ? studentResp.comment
+                                                  : 'No additional written comment provided.'}
+                                              </p>
+                                            </div>
+
+                                            {Array.isArray(studentResp.ratings) &&
+                                              studentResp.ratings.length > 0 && (
+                                                <div className="prof-eval-student-ratings-wrap">
+                                                  <span className="prof-eval-student-detail-label">
+                                                    Submitted Question Ratings
+                                                  </span>
+                                                  <div className="prof-eval-student-ratings-grid">
+                                                    {studentResp.ratings.map((rt) => (
+                                                      <div
+                                                        key={rt.questionNumber}
+                                                        className="prof-eval-student-rating-item"
+                                                      >
+                                                        <div className="prof-eval-student-rating-q">
+                                                          <span className="prof-eval-qnum">
+                                                            Q{rt.questionNumber}
+                                                          </span>
+                                                          <span>
+                                                            {rt.questionText ||
+                                                              questionLookup.get(rt.questionNumber) ||
+                                                              `Question ${rt.questionNumber}`}
+                                                          </span>
+                                                        </div>
+                                                        <div className="prof-eval-student-rating-val">
+                                                          {rt.emoji && (
+                                                            <span aria-hidden="true">{rt.emoji}</span>
+                                                          )}
+                                                          <strong>{rt.score} / 5</strong>
+                                                          {rt.label && (
+                                                            <span className="prof-eval-label-badge">
+                                                              {rt.label}
+                                                            </span>
+                                                          )}
+                                                        </div>
+                                                      </div>
+                                                    ))}
+                                                  </div>
+                                                </div>
+                                              )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </section>
       )}
     </div>

@@ -24,6 +24,9 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
 
   // Dynamic scaling function to adjust maxValue when data approaches limits
   const getAdjustedMaxValue = (values: number[], baseMaxValue: number) => {
+    if (unit === '%' && baseMaxValue === 100) {
+      return 100
+    }
     if (values.length === 0) return baseMaxValue
 
     const maxDataValue = Math.max(...values)
@@ -103,7 +106,12 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
       const trendFontSize = small ? 11 : compact ? 12 : 14
       const axisFontSize = small ? 10 : 12
       const chartStartY = small ? 48 : compact ? 54 : 60
-      const chartBottomReserve = small ? 74 : compact ? 92 : 120
+      const chartBottomReserve = small ? 74 : compact ? 92 : 110
+      const axisLabelReserve = small ? 44 : 54
+      const chartWidth = Math.max(width - leftPadding - rightPadding - axisLabelReserve, 80)
+      const chartHeight = Math.max(height - chartStartY - chartBottomReserve, 80)
+      const startX = leftPadding
+      const startY = chartStartY
 
       const bgGradient = ctx.createLinearGradient(0, 0, 0, height)
       bgGradient.addColorStop(0, themeColors.surface)
@@ -115,20 +123,18 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
       ctx.lineWidth = 0.5
       ctx.setLineDash([5, 5])
 
-      for (let i = 1; i < 5; i++) {
-        const y = (height / 5) * i
+      for (let i = 0; i <= 5; i++) {
+        const y = startY + (chartHeight / 5) * i
         ctx.beginPath()
-        ctx.moveTo(leftPadding, y)
-        ctx.lineTo(width - rightPadding, y)
+        ctx.moveTo(startX, y)
+        ctx.lineTo(startX + chartWidth, y)
         ctx.stroke()
       }
       ctx.setLineDash([])
 
+      const clampPlotValue = (val: number) => Math.max(0, Math.min(adjustedMaxValue, Number(val) || 0))
+
       if (dataRef.current.length > 1) {
-        const chartWidth = Math.max(width - leftPadding - rightPadding - (small ? 16 : 18), 80)
-        const chartHeight = Math.max(height - chartStartY - chartBottomReserve, 80)
-        const startX = leftPadding
-        const startY = chartStartY
         const xStep = chartWidth / (dataRef.current.length - 1)
 
         const areaGradient = ctx.createLinearGradient(0, startY, 0, startY + chartHeight)
@@ -138,8 +144,9 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
         ctx.beginPath()
         ctx.moveTo(startX, startY + chartHeight)
         dataRef.current.forEach((value, index) => {
+          const clamped = clampPlotValue(value)
           const x = startX + index * xStep
-          const y = startY + chartHeight - (value / adjustedMaxValue) * chartHeight
+          const y = startY + chartHeight - (clamped / adjustedMaxValue) * chartHeight
           ctx.lineTo(x, y)
         })
         ctx.lineTo(startX + (dataRef.current.length - 1) * xStep, startY + chartHeight)
@@ -152,8 +159,9 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
         ctx.lineJoin = 'round'
         ctx.beginPath()
         dataRef.current.forEach((value, index) => {
+          const clamped = clampPlotValue(value)
           const x = startX + index * xStep
-          const y = startY + chartHeight - (value / adjustedMaxValue) * chartHeight
+          const y = startY + chartHeight - (clamped / adjustedMaxValue) * chartHeight
           if (index === 0) {
             ctx.moveTo(x, y)
           } else {
@@ -163,8 +171,9 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
         ctx.stroke()
 
         const lastIndex = dataRef.current.length - 1
+        const lastClamped = clampPlotValue(dataRef.current[lastIndex])
         const lastX = startX + lastIndex * xStep
-        const lastY = startY + chartHeight - (dataRef.current[lastIndex] / adjustedMaxValue) * chartHeight
+        const lastY = startY + chartHeight - (lastClamped / adjustedMaxValue) * chartHeight
 
         const pulseRadius = 12 + Math.sin(pulse) * 4
         const glowGradient = ctx.createRadialGradient(lastX, lastY, 0, lastX, lastY, pulseRadius)
@@ -213,12 +222,14 @@ export default function LiveGraph({ title, data, maxValue, unit, color }: LiveGr
       ctx.fillStyle = themeColors.muted
       ctx.font = `${axisFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
       ctx.textAlign = 'right'
+      ctx.textBaseline = 'middle'
 
       for (let i = 0; i <= 5; i++) {
         const value = (adjustedMaxValue / 5) * (5 - i)
-        const y = (height / 5) * i + 25
-        ctx.fillText(`${value.toFixed(1)}${unit}`, width - rightPadding, y + 5)
+        const y = startY + (chartHeight / 5) * i
+        ctx.fillText(`${value.toFixed(1)}${unit}`, width - rightPadding, y)
       }
+      ctx.textBaseline = 'alphabetic'
     }
 
     const animate = () => {

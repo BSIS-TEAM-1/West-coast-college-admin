@@ -119,7 +119,7 @@ function isSupersededByDismissal(enrollment, student) {
   // post-readmission timestamp is superseded.
   if (
     (!Number.isFinite(createdAt) || createdAt <= 0) &&
-    ['Pending', 'Not Enrolled'].includes(String(student?.lifecycleStatus || '').trim())
+    ['Pending', 'Not Enrolled', 'Irregular'].includes(String(student?.lifecycleStatus || '').trim())
   ) {
     return true;
   }

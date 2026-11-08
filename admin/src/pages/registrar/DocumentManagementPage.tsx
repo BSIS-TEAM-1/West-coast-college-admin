@@ -208,12 +208,7 @@ export default function DocumentManagementPage() {
   return (
     <div className="doc-mgmt-page">
       <header className="doc-mgmt-header">
-        <div>
-          <span className="doc-mgmt-eyebrow">Document Management</span>
-          <h1>Academic Documents</h1>
-          <p className="doc-mgmt-subtitle">Upload, organize, and manage institutional documents and policies.</p>
-        </div>
-        <div className="doc-mgmt-header-actions">
+        <div className="doc-mgmt-header-actions" style={{ marginLeft: 'auto' }}>
           <button className="doc-mgmt-btn doc-mgmt-btn--ghost" onClick={() => setShowFolderModal(true)}>
             <Plus size={16} /> New Folder
           </button>

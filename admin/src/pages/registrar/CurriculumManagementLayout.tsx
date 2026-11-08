@@ -130,7 +130,6 @@ function CurriculumOverview({ onNavigate, onOpenCurriculum }: { onNavigate: (v: 
   if (loading) {
     return (
       <div className="curriculum-overview-page">
-        <h2 className="registrar-section-title">Curriculum Overview</h2>
         <p className="registrar-section-desc">Loading...</p>
       </div>
     )
@@ -139,7 +138,6 @@ function CurriculumOverview({ onNavigate, onOpenCurriculum }: { onNavigate: (v: 
   if (error) {
     return (
       <div className="curriculum-overview-page">
-        <h2 className="registrar-section-title">Curriculum Overview</h2>
         <p className="registrar-alert registrar-alert-error">{error}</p>
       </div>
     )
@@ -149,11 +147,7 @@ function CurriculumOverview({ onNavigate, onOpenCurriculum }: { onNavigate: (v: 
     <div className="curriculum-overview-page">
       {/* Header */}
       <div className="curriculum-overview-header">
-        <div>
-          <h2 className="registrar-section-title">Curriculum Overview</h2>
-          <p className="registrar-section-desc">High-level summary of curriculum status and coverage across all programs.</p>
-        </div>
-        <button className="registrar-btn" type="button" onClick={() => onNavigate('create')}>
+        <button className="registrar-btn" type="button" onClick={() => onNavigate('create')} style={{ marginLeft: 'auto' }}>
           <Plus size={16} />
           Create Curriculum
         </button>
