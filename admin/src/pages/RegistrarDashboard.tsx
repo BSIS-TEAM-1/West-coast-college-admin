@@ -65,7 +65,7 @@ const REGISTRAR_NAV_SECTIONS: { label: string; items: RegistrarNavItem[] }[] = [
   {
     label: 'Academic',
     items: [
-      { id: 'block-overview', label: 'Block Overview', icon: Blocks },
+      { id: 'block-overview', label: 'Program Overview', icon: Blocks },
       { id: 'curriculum-management', label: 'Curriculums', icon: BookOpen },
       { id: 'subject-management', label: 'Course Catalog', icon: BookOpen },
       { id: 'courses', label: 'Professor Loads', icon: BookOpen },
@@ -98,7 +98,7 @@ const PAGE_TITLES: Record<RegistrarView, string> = {
   're-enrollment': 'Re-enrollment',
   courses: 'Professor Loads',
   'course-workspace': 'Professor Load',
-  'block-overview': 'Block Overview',
+  'block-overview': 'Program Overview',
   'block-management': 'Add Block',
   'assign-block': 'Assign Block',
   'view-blocks': 'View Blocks',

@@ -544,7 +544,7 @@ export default function BlockOverviewDashboard({
       {showSkeleton && (
         <>
           <p className="bo-visually-hidden" role="status">
-            Loading block overview
+            Loading program overview
           </p>
           <OverviewSkeleton />
         </>
