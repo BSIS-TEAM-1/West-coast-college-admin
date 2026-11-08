@@ -2333,12 +2333,6 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                                     <option value="FA">FA</option>
                                     <option value="NG">NG</option>
                                   </select>
-                                  {studentSignal !== 'none' && !gradeMarkDrafts[student._id] && (
-                                    <span
-                                      className={`gm-grade-signal-dot gm-grade-signal-dot--${studentSignal}`}
-                                      title={`Grade signal: ${studentSignal === 'pass' ? 'Passing' : studentSignal === 'conditional' ? 'Conditional' : 'Failing'}`}
-                                    />
-                                  )}
                                   {isSaving ? (
                                     <span className="gm-row-saving" title="Saving grade...">
                                       <Loader2 size={15} className="gm-spin" />
@@ -2587,9 +2581,6 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                           <td className="gm-muted">{getStudentCourseDisplay(student)} - Y{student.yearLevel ?? 1}</td>
                           <td className="gm-preview-grade-cell">
                             <span className={`gm-preview-grade-badge gm-preview-grade-badge--${gradeSignal}`}>
-                              {gradeSignal !== 'none' && (
-                                <span className={`gm-grade-signal-dot gm-grade-signal-dot--${gradeSignal}`} />
-                              )}
                               <strong>{gradeDisplay || '—'}</strong>
                             </span>
                           </td>
@@ -2852,9 +2843,6 @@ function GradesManagement({ courses, loading, error, onRefresh, initialClassKey 
                                           <td className="gm-student-name">{student.name}</td>
                                           <td className="gm-preview-grade-cell">
                                             <span className={`gm-preview-grade-badge gm-preview-grade-badge--${courseStudentSignal}`}>
-                                              {courseStudentSignal !== 'none' && (
-                                                <span className={`gm-grade-signal-dot gm-grade-signal-dot--${courseStudentSignal}`} />
-                                              )}
                                               <strong>{gradeVal}</strong>
                                             </span>
                                           </td>

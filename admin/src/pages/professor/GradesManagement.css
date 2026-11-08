@@ -1015,45 +1015,6 @@
   border-color: #cbd5e1;
 }
 
-/* Color Signal Dot */
-.gm-grade-signal-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
-  flex-shrink: 0;
-}
-
-.gm-grade-signal-dot--pass {
-  background-color: #22c55e;
-  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.3);
-}
-
-.gm-grade-signal-dot--conditional {
-  background-color: #f59e0b;
-  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.3);
-}
-
-.gm-grade-signal-dot--fail {
-  background-color: #ef4444;
-  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3);
-}
-
-.gm-grade-signal-dot--inc {
-  background-color: #f59e0b;
-  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.3);
-}
-
-.gm-grade-signal-dot--drp {
-  background-color: #a855f7;
-  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.3);
-}
-
-.gm-grade-signal-dot--neutral {
-  background-color: #64748b;
-  box-shadow: 0 0 0 2px rgba(100, 116, 139, 0.3);
-}
-
 .gm-remark-input {
   width: 100%;
   min-width: 8rem;

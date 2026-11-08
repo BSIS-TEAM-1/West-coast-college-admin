@@ -36,12 +36,19 @@ const SHARED_GE = (extra = []) => [
 const PLAN = {
   [BEED]: [
     {
+      yearLevel: 1, semester: '1st',
+      subjects: [
+        { code: 'ENG101', title: 'English Communication', units: 3, subjectType: 'Core', type: 'General' },
+        { code: 'MATH101', title: 'College Algebra', units: 3, subjectType: 'Core', type: 'General' },
+        { code: 'BEED101', title: 'Foundations of Education', units: 3, subjectType: 'Professional Education', type: 'Professional' },
+      ],
+    },
+    {
       yearLevel: 1, semester: '2nd',
       subjects: [
-        // Year 1, 1st semester has no prerequisites — these may chain onto it.
         { code: 'ENG102', title: 'English Communication 2', units: 3, subjectType: 'Core', type: 'General', prereq: 'ENG101' },
-        { code: 'BEED101', title: 'Foundations of Education', units: 3, subjectType: 'Professional Education', type: 'Professional', prereq: 'ENG101' },
-        ...SHARED_GE(),
+        { code: 'GE102', title: 'Mathematics in the Modern World', units: 3, subjectType: 'General Education', type: 'General' },
+        { code: 'PE102', title: 'Wellness and Outdoor Recreation', units: 2, subjectType: 'General Education', type: 'General', isRequired: false },
       ],
     },
     {
@@ -50,7 +57,6 @@ const PLAN = {
         { code: 'BEED201', title: 'Foundations of Early Childhood Education', units: 3, subjectType: 'Professional Education', type: 'Professional', prereq: 'BEED101' },
         { code: 'ENG201', title: 'Structure of English', units: 3, subjectType: 'Major', type: 'Major', prereq: 'ENG102' },
         { code: 'MATH201', title: 'College Algebra and Trigonometry', units: 3, subjectType: 'Major', type: 'Major', prereq: 'MATH101' },
-        { code: 'GE104', title: 'Readings in Philippine History', units: 3, subjectType: 'General Education', type: 'General' },
       ],
     },
     {
@@ -82,6 +88,7 @@ const PLAN = {
       subjects: [
         { code: 'BEED401', title: 'Practice Teaching', units: 6, subjectType: 'Professional Education', type: 'Professional', prereq: 'BEED301', labPeriods: 3 },
         { code: 'BEED402', title: 'The Teaching Profession', units: 3, subjectType: 'Professional Education', type: 'Professional', prereq: 'BEED305' },
+        { code: 'GE104', title: 'Readings in Philippine History', units: 3, subjectType: 'General Education', type: 'General' },
       ],
     },
     {
@@ -89,6 +96,7 @@ const PLAN = {
       subjects: [
         { code: 'BEED403', title: 'Action Research in Education', units: 3, subjectType: 'Professional Education', type: 'Professional', prereq: 'BEED401' },
         { code: 'BEED404', title: 'Career and Life Planning', units: 3, subjectType: 'Elective', type: 'Elective', isRequired: false },
+        { code: 'GE105', title: 'Science, Technology and Society', units: 3, subjectType: 'General Education', type: 'General' },
       ],
     },
   ],

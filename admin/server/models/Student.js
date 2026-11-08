@@ -486,6 +486,10 @@ studentSchema.pre('validate', async function(next) {
 
 // Pre-save hook to hash password if modified
 studentSchema.pre('save', async function(next) {
+  if (!this.password && this.studentNumber) {
+    const StudentPasswordService = require('../services/studentPasswordService');
+    this.password = StudentPasswordService.generateDefaultPassword(this);
+  }
   if (!this.isModified('password')) return next();
   
   try {
