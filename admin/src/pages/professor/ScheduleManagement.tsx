@@ -562,7 +562,7 @@ function ScheduleCalendar({
   timelineClasses,
   onSelectEvent,
   selectedTermLabel,
-  isCurrentTerm
+  isCurrentTerm: _isCurrentTerm
 }: ScheduleCalendarProps) {
   const [month, setMonth] = useState(() => {
     const now = new Date()

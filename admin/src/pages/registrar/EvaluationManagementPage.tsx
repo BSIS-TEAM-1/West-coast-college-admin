@@ -906,7 +906,7 @@ export default function EvaluationManagementPage() {
           </div>
         </div>
 
-        {activePeriod && (
+        {activePeriod ? (
           <div className="reg-eval-active-period-summary">
             <span className={`reg-eval-status-badge status-${activePeriod.status}`}>
               {activePeriod.status.toUpperCase()}
@@ -970,6 +970,15 @@ export default function EvaluationManagementPage() {
                 </button>
               )}
             </div>
+          </div>
+        ) : (
+          <div className="reg-eval-active-period-summary">
+            <span className="reg-eval-status-badge" style={{ background: '#f1f5f9', color: '#64748b', border: '1px solid #cbd5e1' }}>
+              NOT STARTED
+            </span>
+            <span className="reg-eval-period-dates" style={{ color: '#64748b' }}>
+              <span>No evaluation period started for this term.</span>
+            </span>
           </div>
         )}
       </section>
@@ -1313,7 +1322,14 @@ export default function EvaluationManagementPage() {
                 </tr>
               </thead>
               <tbody>
-                {periods.map((p) => (
+                {periods.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} style={{ textAlign: 'center', padding: '2.5rem 1rem', color: '#64748b' }}>
+                      No evaluation periods configured yet. Click "Start Evaluation" to configure and launch an evaluation period.
+                    </td>
+                  </tr>
+                ) : (
+                  periods.map((p) => (
                   <tr key={p.id}>
                     <td>
                       <div className="reg-eval-prof-subj">
@@ -1442,7 +1458,7 @@ export default function EvaluationManagementPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                )))}
               </tbody>
             </table>
           </div>

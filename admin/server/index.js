@@ -4168,11 +4168,11 @@ app.get('/api/student/dashboard', studentAuthMiddleware, async (req, res) => {
       // evaluation card per adviser and unlock that adviser's grades.
       const professorLookup = await loadProfessorLookup()
       const evaluationStatus = await getStudentTermEvaluationStatus(student, enrollment, professorLookup)
-      const evaluationAdvisers = groupEvaluationSubjectsByAdviser(
-        evaluationStatus.subjectsList,
-        evaluationStatus.period
-      )
       const isPeriodOpen = Boolean(evaluationStatus.period?.isOpen)
+      // No evaluation cards unless the registrar has started an open period.
+      const evaluationAdvisers = isPeriodOpen
+        ? groupEvaluationSubjectsByAdviser(evaluationStatus.subjectsList, evaluationStatus.period)
+        : []
       const completedAdvisers = evaluationAdvisers.filter((item) => item.evaluationCompleted).length
       const pendingAdvisers = Math.max(0, evaluationAdvisers.length - completedAdvisers)
       evaluation = {

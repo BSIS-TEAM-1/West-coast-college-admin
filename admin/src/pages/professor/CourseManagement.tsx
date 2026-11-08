@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Award, BookOpen, CalendarDays, ChevronRight, Clock, Eye, GraduationCap, Grid3X3, Info, List, MapPin, MoreHorizontal, Search } from 'lucide-react'
+import { Award, BookOpen, CalendarDays, ChevronRight, Clock, Eye, GraduationCap, Grid3X3, List, MapPin, MoreHorizontal, Search } from 'lucide-react'
 import type { ProfessorAssignedBlock, ProfessorAssignedCourse, ProfessorAssignedSubject, ProfessorSubjectDetailState } from './professorTypes'
 import { buildBlockMeta, formatSemesterLabel, isBlockInActiveTerm, normalizeSemester, toSchoolYear } from './professorUtils'
 import { formatScheduleDisplay } from '../../lib/scheduleFormatter'
@@ -19,7 +19,7 @@ interface CourseManagementProps {
 }
 
 function CourseManagement({
-  professorName,
+  professorName: _professorName,
   courses,
   loading,
   error,
@@ -191,19 +191,6 @@ function CourseManagement({
   }
 
   const formatStudentCountLabel = (count: number) => `${count} student${count === 1 ? '' : 's'}`
-
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours()
-    if (hour < 12) return 'Good morning'
-    if (hour < 18) return 'Good afternoon'
-    return 'Good evening'
-  }, [])
-
-  const professorFirstName = useMemo(() => {
-    const trimmed = String(professorName || '').trim()
-    if (!trimmed) return 'Professor'
-    return trimmed.split(/\s+/)[0]
-  }, [professorName])
 
   const schoolYearOptions = useMemo(() => {
     const years = new Set<string>()

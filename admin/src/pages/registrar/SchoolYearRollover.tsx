@@ -199,11 +199,6 @@ export default function SchoolYearRollover({ onBack }: { onBack?: () => void }) 
   const sameYearFields = /^\d{4}-\d{4}$/.test(fromSchoolYear) && /^\d{4}-\d{4}$/.test(toSchoolYear)
   const isSemesterRollover = sameYearFields && toSchoolYear === fromSchoolYear
   const isSemesterRolloverInvalid = isSemesterRollover && semester === '1st'
-  // Where in the year is the closing school year, per the system's active
-  // academic term? '1st' = we are mid-year and must only close SEMESTER.
-  const closingActiveSemester = activeTerm && activeTerm.schoolYear === fromSchoolYear
-    ? activeTerm.semester
-    : null
   const [exceptionSearch, setExceptionSearch] = useState('')
   const exceptionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 

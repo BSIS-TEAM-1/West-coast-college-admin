@@ -43,7 +43,9 @@ const PAGE_TITLES: Record<ProfessorView, string> = {
   schedule: 'My Schedule',
   evaluations: 'Evaluations',
   profile: 'My Profile',
-  settings: 'Settings'
+  settings: 'Settings',
+  'personal-details': 'Personal Details',
+  'subject-detail': 'Subject Details'
 }
 
 export default function ProfessorDashboard({ username, onLogout, onProfileUpdated, initialProfile = null }: ProfessorDashboardProps) {

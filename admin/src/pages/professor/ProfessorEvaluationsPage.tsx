@@ -290,6 +290,20 @@ export default function ProfessorEvaluationsPage({
     return map
   }, [data?.questions])
 
+  const evaluationNotStarted =
+    !loading && !error && Boolean(data) && !data?.evaluationPeriod && (data?.responses?.length ?? 0) === 0
+
+  if (evaluationNotStarted) {
+    return (
+      <div className="prof-eval-page">
+        <section className="prof-eval-filters-card" style={{ textAlign: 'center', padding: '3rem 1rem', color: '#64748b' }}>
+          <strong style={{ display: 'block', marginBottom: 6 }}>Evaluation not started</strong>
+          <span>No evaluation period is active yet. Results will appear here once the registrar starts one.</span>
+        </section>
+      </div>
+    )
+  }
+
   return (
     <div className="prof-eval-page">
       {/* Filter Controls */}

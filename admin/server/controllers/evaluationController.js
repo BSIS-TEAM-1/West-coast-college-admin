@@ -179,7 +179,8 @@ class EvaluationController {
 
       const professorLookup = await loadProfessorLookup();
       const evalStatus = await getStudentTermEvaluationStatus(student, enrollment, professorLookup, null, period);
-      const advisers = groupEvaluationSubjectsByAdviser(evalStatus.subjectsList, evalStatus.period);
+      const periodOpen = Boolean(evalStatus.period?.isOpen);
+      const advisers = periodOpen ? groupEvaluationSubjectsByAdviser(evalStatus.subjectsList, evalStatus.period) : [];
 
       return res.json({
         success: true,
@@ -190,17 +191,24 @@ class EvaluationController {
           period: evalStatus.period,
           semester: enrollment.semester,
           schoolYear: enrollment.schoolYear,
-          summary: {
+          summary: periodOpen ? {
             requiredCount: evalStatus.requiredCount,
             completedCount: evalStatus.completedCount,
             pendingCount: evalStatus.pendingCount,
             allCompleted: evalStatus.allCompleted,
             completionPercentage: evalStatus.completionPercentage,
             gradesLocked: evalStatus.gradesLocked
+          } : {
+            requiredCount: 0,
+            completedCount: 0,
+            pendingCount: 0,
+            allCompleted: true,
+            completionPercentage: 100,
+            gradesLocked: false
           },
-          evaluations: evalStatus.evaluationEntries,
+          evaluations: periodOpen ? evalStatus.evaluationEntries : [],
           advisers,
-          subjects: evalStatus.subjectsList
+          subjects: periodOpen ? evalStatus.subjectsList : []
         }
       });
     } catch (error) {
