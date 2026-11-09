@@ -629,6 +629,16 @@
 
 /* Edit Application Modal */
 .applicant-edit-backdrop {
+  --applicant-surface: var(--color-surface);
+  --applicant-surface-soft: var(--color-bg-soft);
+  --applicant-border: var(--color-border);
+  --applicant-text: var(--color-text);
+  --applicant-strong: var(--color-text-bold);
+  --applicant-muted: var(--color-text-muted);
+  --applicant-primary: #123b66;
+  --applicant-primary-hover: #0d2d4d;
+  --applicant-primary-subtle: #b8d0e8;
+  --applicant-on-primary: #ffffff;
   position: fixed;
   inset: 0;
   z-index: 1100;
@@ -948,6 +958,10 @@
 }
 
 [data-theme='dark'] .applicant-queue-page {
+  --applicant-primary-subtle: #1e3a5f;
+}
+
+[data-theme='dark'] .applicant-edit-backdrop {
   --applicant-primary-subtle: #1e3a5f;
 }
 
