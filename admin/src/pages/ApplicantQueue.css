@@ -589,6 +589,205 @@
   margin-bottom: 1.25rem;
 }
 
+.applicant-review-heading-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-shrink: 0;
+}
+
+.applicant-review-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--applicant-primary);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--applicant-primary);
+  padding: 0.42rem 0.7rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.applicant-review-edit-btn:hover:not(:disabled) {
+  border-color: var(--applicant-primary-hover);
+  background: var(--applicant-primary);
+  color: var(--applicant-on-primary);
+}
+
+.applicant-review-edit-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.applicant-review-edit-btn .material-symbols-outlined {
+  font-size: 1rem;
+}
+
+/* Edit Application Modal */
+.applicant-edit-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.applicant-edit-modal {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 940px;
+  max-height: 90vh;
+  border: 1px solid var(--applicant-border);
+  background: var(--applicant-surface);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.3);
+}
+
+.applicant-edit-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 1.4rem;
+  border-bottom: 1px solid var(--applicant-border);
+  background: var(--applicant-surface-soft);
+}
+
+.applicant-edit-header > div > span {
+  color: var(--applicant-muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.applicant-edit-header h2 {
+  margin: 0.2rem 0 0;
+  color: var(--applicant-strong);
+  font-size: 1.3rem;
+  font-weight: 800;
+}
+
+.applicant-edit-close {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--applicant-border);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--applicant-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.applicant-edit-close:hover {
+  border-color: var(--color-error);
+  background: color-mix(in srgb, var(--color-error) 12%, var(--applicant-surface));
+  color: var(--color-error);
+}
+
+.applicant-edit-error {
+  margin: 0;
+  padding: 0.7rem 1.4rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-error) 36%, transparent);
+  background: color-mix(in srgb, var(--color-error) 12%, var(--applicant-surface));
+  color: var(--color-error);
+  font-weight: 800;
+  font-size: 0.84rem;
+}
+
+.applicant-edit-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.1rem 1.4rem;
+  display: grid;
+  gap: 1.1rem;
+}
+
+.applicant-edit-section {
+  border: 1px solid var(--applicant-border);
+  background: var(--applicant-surface-soft);
+  padding: 0.95rem 1rem;
+  margin: 0;
+}
+
+.applicant-edit-section h3 {
+  margin: 0 0 0.75rem;
+  color: var(--applicant-strong);
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.applicant-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.applicant-edit-grid--single {
+  grid-template-columns: 1fr;
+}
+
+.applicant-edit-grid label,
+.applicant-edit-grid--single label {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+}
+
+.applicant-edit-grid label > span {
+  color: var(--applicant-muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.applicant-edit-grid input,
+.applicant-edit-grid select,
+.applicant-edit-grid textarea {
+  width: 100%;
+  min-height: 2.35rem;
+  border: 1px solid var(--applicant-border);
+  border-radius: 2px;
+  background: var(--applicant-surface);
+  color: var(--applicant-text);
+  padding: 0.45rem 0.65rem;
+  font: inherit;
+}
+
+.applicant-edit-grid textarea {
+  resize: vertical;
+}
+
+.applicant-edit-grid input:focus,
+.applicant-edit-grid select:focus,
+.applicant-edit-grid textarea:focus {
+  border-color: var(--applicant-primary);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--applicant-primary-subtle);
+}
+
+.applicant-edit-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  padding: 1rem 1.4rem;
+  border-top: 1px solid var(--applicant-border);
+  background: var(--applicant-surface-soft);
+}
+
 .applicant-review-heading > div > span {
   color: var(--applicant-muted);
   font-size: 0.76rem;
@@ -768,7 +967,8 @@
     min-height: 2.75rem;
   }
 
-  .applicant-detail-grid {
+  .applicant-detail-grid,
+  .applicant-edit-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -779,6 +979,25 @@
   .applicant-queue-pagination {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .applicant-review-heading-controls {
+    justify-content: flex-start;
+  }
+
+  .applicant-edit-backdrop {
+    padding: 0.75rem;
+  }
+
+  .applicant-edit-header,
+  .applicant-edit-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .applicant-edit-footer,
+  .applicant-edit-footer button {
+    width: 100%;
   }
 
   .applicant-queue-header-actions,
@@ -795,7 +1014,8 @@
   .applicant-queue-stats,
   .applicant-queue-filters,
   .applicant-review-actions,
-  .applicant-detail-grid {
+  .applicant-detail-grid,
+  .applicant-edit-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -239,6 +239,32 @@ function serializeApplicant(applicant) {
   };
 }
 
+function upsertApplicantSchoolRecord(level, incoming, existing) {
+  const incomingRecord = incoming && typeof incoming === 'object' ? incoming : {};
+  const existingRecord = existing && typeof existing.toObject === 'function' ? existing.toObject() : (existing || {});
+
+  const schoolName = cleanString(incomingRecord.schoolName);
+  const yearGraduated = cleanString(incomingRecord.yearGraduated) || cleanString(existingRecord.yearGraduated);
+  const generalAverage = cleanString(incomingRecord.generalAverage);
+  const strandOrTrack = typeof incomingRecord.strandOrTrack === 'string'
+    ? cleanString(incomingRecord.strandOrTrack)
+    : cleanString(existingRecord.strandOrTrack);
+
+  // Everything cleared — remove the record entirely (matches an unfilled level).
+  if (!schoolName && !yearGraduated && !generalAverage && !strandOrTrack && !cleanString(incomingRecord.schoolAddress)) {
+    return undefined;
+  }
+
+  return cleanSchoolRecord({
+    schoolName,
+    schoolAddress: cleanString(incomingRecord.schoolAddress) || cleanString(existingRecord.schoolAddress),
+    yearGraduated,
+    generalAverage,
+    gradesSummary: cleanString(incomingRecord.gradesSummary) || cleanString(existingRecord.gradesSummary),
+    strandOrTrack
+  });
+}
+
 class ApplicantController {
   static getCourses(req, res) {
     res.json({
@@ -611,6 +637,118 @@ class ApplicantController {
       res.status(500).json({
         success: false,
         message: 'Unable to save the status update. The record may have changed or the server is busy. Please refresh and try again.'
+      });
+    }
+  }
+
+  static async updateApplicantDetails(req, res) {
+    try {
+      const applicant = await Applicant.findById(req.params.id);
+      if (!applicant) {
+        return res.status(404).json({ success: false, message: 'Applicant not found.' });
+      }
+
+      const body = req.body || {};
+
+      for (const field of ['firstName', 'middleName', 'lastName', 'suffix', 'currentAddress', 'guardianName', 'guardianRelationship']) {
+        if (typeof body[field] === 'string') {
+          applicant[field] = cleanString(body[field]);
+        }
+      }
+
+      if (typeof body.email === 'string') {
+        const email = cleanString(body.email).toLowerCase();
+        if (email && !EMAIL_RE.test(email)) {
+          return res.status(400).json({ success: false, message: 'Email address is invalid.' });
+        }
+        applicant.email = email;
+      }
+
+      if (typeof body.phoneNumber === 'string') {
+        applicant.phoneNumber = cleanString(body.phoneNumber);
+      }
+
+      if (typeof body.guardianContactNumber === 'string') {
+        applicant.guardianContactNumber = cleanString(body.guardianContactNumber);
+      }
+
+      if (typeof body.applicantType === 'string' && ['New', 'Transferee', 'Returnee'].includes(body.applicantType)) {
+        applicant.applicantType = body.applicantType;
+      }
+
+      if (typeof body.schoolYear === 'string') {
+        const schoolYear = cleanString(body.schoolYear);
+        if (schoolYear && !/^\d{4}-\d{4}$/.test(schoolYear)) {
+          return res.status(400).json({ success: false, message: 'School year must use the YYYY-YYYY format (e.g. 2026-2027).' });
+        }
+        applicant.schoolYear = schoolYear;
+      }
+
+      if (body.selectedCourse !== undefined && body.selectedCourse !== null && `${body.selectedCourse}` !== '') {
+        const selectedCourse = Number(body.selectedCourse);
+        if (!courseMap().has(selectedCourse)) {
+          return res.status(400).json({ success: false, message: 'Please select a valid course.' });
+        }
+        applicant.selectedCourse = selectedCourse;
+      }
+
+      if (body.requestedYearLevel !== undefined && body.requestedYearLevel !== null && `${body.requestedYearLevel}` !== '') {
+        const requestedYearLevel = Number(body.requestedYearLevel);
+        if (!Number.isInteger(requestedYearLevel) || requestedYearLevel < 1 || requestedYearLevel > 5) {
+          return res.status(400).json({ success: false, message: 'Requested year level must be a number between 1 and 5.' });
+        }
+        applicant.requestedYearLevel = requestedYearLevel;
+      }
+
+      if (typeof body.semester === 'string' && ['1st', '2nd', 'Summer'].includes(body.semester)) {
+        applicant.semester = body.semester;
+      }
+
+      if (body.emergencyContact && typeof body.emergencyContact === 'object') {
+        const ec = body.emergencyContact;
+        const existingContact = applicant.emergencyContact || {};
+        applicant.emergencyContact = {
+          name: typeof ec.name === 'string' ? cleanString(ec.name) : cleanString(existingContact.name),
+          relationship: typeof ec.relationship === 'string' ? cleanString(ec.relationship) : cleanString(existingContact.relationship),
+          contactNumber: typeof ec.contactNumber === 'string' ? cleanString(ec.contactNumber) : cleanString(existingContact.contactNumber),
+          address: typeof ec.address === 'string' ? cleanString(ec.address) : cleanString(existingContact.address)
+        };
+      }
+
+      if (body.academicDetails && typeof body.academicDetails === 'object') {
+        const incomingAcademic = body.academicDetails;
+        for (const level of ['elementary', 'highSchool', 'seniorHighSchool', 'college']) {
+          if (!(incomingAcademic[level] && typeof incomingAcademic[level] === 'object')) continue;
+
+          const updatedRecord = upsertApplicantSchoolRecord(level, incomingAcademic[level], applicant.academicDetails?.[level]);
+          if (updatedRecord) {
+            applicant.academicDetails[level] = updatedRecord;
+          } else {
+            applicant.academicDetails[level] = undefined;
+          }
+        }
+      }
+
+      await applicant.save();
+
+      apiCache.invalidatePrefix('/api/registrar/applicants');
+
+      res.json({
+        success: true,
+        data: serializeApplicant(applicant),
+        message: 'Applicant details updated.'
+      });
+    } catch (error) {
+      console.error('Applicant details update error:', error);
+
+      if (error.name === 'ValidationError') {
+        const messages = Object.values(error.errors).map((e) => e.message);
+        return res.status(400).json({ success: false, message: `Unable to update details: ${messages.join(' ')}` });
+      }
+
+      res.status(500).json({
+        success: false,
+        message: 'Unable to save the detail changes. Please refresh and try again.'
       });
     }
   }

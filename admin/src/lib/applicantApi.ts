@@ -218,3 +218,20 @@ export async function updateApplicantStatus(
   const data = await readJson<{ success: boolean; data: ApplicantRecord; emailNotification: EmailNotification | null; studentNotification: StudentNotification | null }>(response)
   return { data: data.data, emailNotification: data.emailNotification ?? null, studentNotification: data.studentNotification ?? null }
 }
+
+export type UpdateApplicantDetailsResponse = {
+  data: ApplicantRecord
+}
+
+export async function updateApplicantDetails(
+  applicantId: string,
+  payload: Partial<ApplicantPayload>
+): Promise<UpdateApplicantDetailsResponse> {
+  const response = await fetch(`${API_URL}/api/registrar/applicants/${applicantId}`, {
+    method: 'PATCH',
+    headers: await authHeaders(),
+    body: JSON.stringify(payload)
+  })
+  const data = await readJson<{ success: boolean; data: ApplicantRecord }>(response)
+  return { data: data.data }
+}

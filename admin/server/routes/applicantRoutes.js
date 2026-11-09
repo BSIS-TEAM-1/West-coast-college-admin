@@ -24,6 +24,7 @@ router.post('/apply', publicApplicantLimiter, ApplicantController.submitApplican
 function registerProtectedApplicantRoutes(app, authMiddleware) {
   app.get('/api/registrar/applicants', authMiddleware, requireAnyRole('admin', 'registrar'), cacheMiddleware({ ttlMs: 15 * 1000 }), ApplicantController.getApplicants);
   app.get('/api/registrar/applicants/:id', authMiddleware, requireAnyRole('admin', 'registrar'), cacheMiddleware({ ttlMs: 15 * 1000 }), ApplicantController.getApplicantById);
+  app.patch('/api/registrar/applicants/:id', authMiddleware, requireAnyRole('admin', 'registrar'), ApplicantController.updateApplicantDetails);
   app.patch('/api/registrar/applicants/:id/status', authMiddleware, requireAnyRole('admin', 'registrar'), ApplicantController.updateApplicantStatus);
 }
 

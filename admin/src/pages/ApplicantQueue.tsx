@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  getApplicantCourses,
   getRegistrarApplicants,
+  updateApplicantDetails,
   updateApplicantStatus,
+  type ApplicantPayload,
   type ApplicantRecord,
-  type ApplicantStatus
+  type ApplicantStatus,
+  type CourseOption
 } from '../lib/applicantApi'
 import './ApplicantQueue.css'
 
@@ -93,6 +97,11 @@ export default function ApplicantQueue() {
   const [openMenuId, setOpenMenuId] = useState('')
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; placement: 'top' | 'bottom' } | null>(null)
   const [menuMounted, setMenuMounted] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editForm, setEditForm] = useState<ApplicantEditForm | null>(null)
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState('')
+  const [courseOptions, setCourseOptions] = useState<CourseOption[]>([])
   const buttonRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const menuRef = useRef<HTMLDivElement | null>(null)
   const [toasts, setToasts] = useState<Array<{ id: string; message: string; isError?: boolean }>>([])
@@ -384,6 +393,151 @@ export default function ApplicantQueue() {
     URL.revokeObjectURL(url)
   }
 
+  const openEditModal = async () => {
+    if (!selected) return
+    setEditForm(buildEditForm(selected))
+    setEditError('')
+    setEditOpen(true)
+
+    if (courseOptions.length === 0) {
+      try {
+        setCourseOptions(await getApplicantCourses())
+      } catch {
+        // Non-fatal — the program select falls back to the applicant's current course.
+      }
+    }
+  }
+
+  const closeEditModal = () => {
+    setEditOpen(false)
+    setEditForm(null)
+    setEditError('')
+  }
+
+  useEffect(() => {
+    if (!editOpen) return
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeEditModal()
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [editOpen])
+
+  const updateEditField = <K extends keyof ApplicantEditForm>(key: K, value: ApplicantEditForm[K]) => {
+    setEditForm((prev) => prev ? { ...prev, [key]: value } : prev)
+  }
+
+  const updateSchoolField = (
+    level: 'elementary' | 'highSchool' | 'seniorHighSchool' | 'college',
+    field: string,
+    value: string
+  ) => {
+    setEditForm((prev) => prev ? { ...prev, [level]: { ...prev[level], [field]: value } } : prev)
+  }
+
+  const handleEditSave = async () => {
+    if (!selected || !editForm) return
+
+    const errors: string[] = []
+    const schoolYearFormat = /^\d{4}-\d{4}$/
+    const yearFormat = /^\d{4}$/
+
+    if (!editForm.firstName.trim() || !editForm.lastName.trim()) {
+      errors.push('First and last name are required.')
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editForm.email.trim())) {
+      errors.push('Enter a valid email address.')
+    }
+    if (!isPhoneNumberValid(editForm.phoneNumber.trim())) {
+      errors.push('Phone number must be a valid Philippine mobile number (e.g. 09171234567 or +639171234567).')
+    }
+    if (!isPhoneNumberValid(editForm.guardianContactNumber.trim())) {
+      errors.push('Guardian contact number must be a valid Philippine mobile number.')
+    }
+    if (editForm.emergencyName.trim() && !isPhoneNumberValid(editForm.emergencyContactNumber.trim())) {
+      errors.push('Emergency contact number must be a valid Philippine mobile number.')
+    }
+    if (editForm.schoolYear.trim() && !schoolYearFormat.test(editForm.schoolYear.trim())) {
+      errors.push('School year must use the YYYY-YYYY format (e.g. 2026-2027).')
+    }
+
+    const schoolChecks: Array<{ level: 'elementary' | 'highSchool' | 'seniorHighSchool' | 'college'; label: string }> = [
+      { level: 'elementary', label: 'Elementary' },
+      { level: 'highSchool', label: 'High School' },
+      { level: 'seniorHighSchool', label: 'Senior High School' },
+      { level: 'college', label: 'College' }
+    ]
+    for (const { level, label } of schoolChecks) {
+      const record = editForm[level]
+      if (record.schoolName.trim() && !yearFormat.test(record.yearGraduated.trim())) {
+        errors.push(`${label} requires a 4-digit year graduated / year last attended.`)
+      }
+    }
+
+    if (errors.length > 0) {
+      setEditError(errors.join(' '))
+      return
+    }
+
+    setEditSaving(true)
+    setEditError('')
+
+    try {
+      const emergencyContact = {
+        name: editForm.emergencyName.trim(),
+        relationship: editForm.emergencyRelationship.trim(),
+        contactNumber: editForm.emergencyContactNumber.trim()
+      }
+      const toSchoolRecord = (record: SchoolEditFields) => ({
+        schoolName: record.schoolName.trim(),
+        yearGraduated: record.yearGraduated.trim(),
+        generalAverage: record.generalAverage.trim()
+      })
+
+      const academicDetails = editForm.applicantType === 'Transferee'
+        ? ({ college: toSchoolRecord(editForm.college) } as ApplicantPayload['academicDetails'])
+        : ({
+          elementary: toSchoolRecord(editForm.elementary),
+          highSchool: toSchoolRecord(editForm.highSchool),
+          seniorHighSchool: {
+            ...toSchoolRecord(editForm.seniorHighSchool),
+            strandOrTrack: editForm.seniorHighSchool.strandOrTrack.trim()
+          }
+        } as ApplicantPayload['academicDetails'])
+
+      const payload: Partial<ApplicantPayload> = {
+        firstName: editForm.firstName.trim(),
+        middleName: editForm.middleName.trim(),
+        lastName: editForm.lastName.trim(),
+        suffix: editForm.suffix.trim(),
+        email: editForm.email.trim(),
+        phoneNumber: editForm.phoneNumber.trim(),
+        applicantType: editForm.applicantType,
+        selectedCourse: Number(editForm.selectedCourse),
+        requestedYearLevel: Number(editForm.requestedYearLevel) || 1,
+        semester: editForm.semester,
+        schoolYear: editForm.schoolYear.trim(),
+        currentAddress: editForm.currentAddress.trim(),
+        guardianName: editForm.guardianName.trim(),
+        guardianContactNumber: editForm.guardianContactNumber.trim(),
+        emergencyContact,
+        academicDetails
+      }
+
+      const { data: updated } = await updateApplicantDetails(selected._id, payload)
+      setApplicants((current) => current.map((item) => item._id === updated._id ? updated : item))
+      setEditOpen(false)
+      setEditForm(null)
+      addToast(`Application details updated for ${getApplicantName(updated)}.`)
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Failed to save changes.')
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
   const activeTabConfig = QUEUE_TABS.find((t) => t.key === activeTab)
 
   return (
@@ -616,7 +770,13 @@ export default function ApplicantQueue() {
                 <span>{selected.applicantNumber}</span>
                 <h2>{getApplicantName(selected)}</h2>
               </div>
-              <span className={`applicant-status-badge ${getStatusClass(selected.status)}`}>{selected.status}</span>
+              <div className="applicant-review-heading-controls">
+                <span className={`applicant-status-badge ${getStatusClass(selected.status)}`}>{selected.status}</span>
+                <button type="button" className="applicant-review-edit-btn" onClick={() => void openEditModal()}>
+                  <span className="material-symbols-outlined" aria-hidden="true">edit</span>
+                  Edit
+                </button>
+              </div>
             </div>
 
             <div className="applicant-detail-grid">
@@ -752,6 +912,321 @@ export default function ApplicantQueue() {
         </>
       )}
 
+      {editOpen && editForm && selected && createPortal(
+        <div
+          className="applicant-edit-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeEditModal()
+          }}
+        >
+          <div className="applicant-edit-modal" role="dialog" aria-modal="true" aria-labelledby="applicant-edit-title">
+            <header className="applicant-edit-header">
+              <div>
+                <span>Edit Application</span>
+                <h2 id="applicant-edit-title">{selected.applicantNumber}</h2>
+              </div>
+              <button type="button" className="applicant-edit-close" onClick={closeEditModal} aria-label="Close editor">×</button>
+            </header>
+
+            {editError ? <div className="applicant-edit-error">{editError}</div> : null}
+
+            <div className="applicant-edit-body">
+              <section className="applicant-edit-section">
+                <h3>Applicant Information</h3>
+                <div className="applicant-edit-grid">
+                  <label>
+                    <span>First Name</span>
+                    <input
+                      value={editForm.firstName}
+                      onChange={(event) => updateEditField('firstName', event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>Middle Name</span>
+                    <input
+                      value={editForm.middleName}
+                      onChange={(event) => updateEditField('middleName', event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>Last Name</span>
+                    <input
+                      value={editForm.lastName}
+                      onChange={(event) => updateEditField('lastName', event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>Suffix</span>
+                    <input
+                      value={editForm.suffix}
+                      onChange={(event) => updateEditField('suffix', event.target.value)}
+                      placeholder="e.g. Jr., III"
+                    />
+                  </label>
+                  <label>
+                    <span>Email</span>
+                    <input
+                      type="email"
+                      value={editForm.email}
+                      onChange={(event) => updateEditField('email', event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>Phone</span>
+                    <input
+                      value={editForm.phoneNumber}
+                      onChange={(event) => updateEditField('phoneNumber', event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>Applicant Type</span>
+                    <select
+                      value={editForm.applicantType}
+                      onChange={(event) => updateEditField('applicantType', event.target.value as ApplicantEditForm['applicantType'])}
+                    >
+                      <option value="New">New</option>
+                      <option value="Transferee">Transferee</option>
+                      <option value="Returnee">Returnee</option>
+                    </select>
+                  </label>
+                </div>
+              </section>
+
+              <section className="applicant-edit-section">
+                <h3>Program &amp; Enrollment</h3>
+                <div className="applicant-edit-grid">
+                  <label>
+                    <span>Program</span>
+                    <select
+                      value={editForm.selectedCourse}
+                      onChange={(event) => updateEditField('selectedCourse', event.target.value)}
+                    >
+                      {String(selected.selectedCourse) !== editForm.selectedCourse && courseOptions.every((option) => String(option.id) !== editForm.selectedCourse) ? (
+                        <option value={editForm.selectedCourse}>{getCourseLabel(selected)}</option>
+                      ) : null}
+                      {courseOptions.length === 0 ? (
+                        <option value={editForm.selectedCourse}>{getCourseLabel(selected)}</option>
+                      ) : (
+                        courseOptions.map((course) => (
+                          <option key={course.id} value={String(course.id)}>{course.code} - {course.name}</option>
+                        ))
+                      )}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Requested Year</span>
+                    <select
+                      value={editForm.requestedYearLevel}
+                      onChange={(event) => updateEditField('requestedYearLevel', event.target.value)}
+                    >
+                      {[1, 2, 3, 4, 5].map((level) => (
+                        <option key={level} value={String(level)}>Year {level}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Semester</span>
+                    <select
+                      value={editForm.semester}
+                      onChange={(event) => updateEditField('semester', event.target.value)}
+                    >
+                      <option value="1st">1st</option>
+                      <option value="2nd">2nd</option>
+                      <option value="Summer">Summer</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>School Year</span>
+                    <input
+                      value={editForm.schoolYear}
+                      onChange={(event) => updateEditField('schoolYear', event.target.value)}
+                      placeholder="2026-2027"
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <section className="applicant-edit-section">
+                <h3>Address</h3>
+                <div className="applicant-edit-grid applicant-edit-grid--single">
+                  <label>
+                    <span>Current Address</span>
+                    <textarea
+                      value={editForm.currentAddress}
+                      onChange={(event) => updateEditField('currentAddress', event.target.value)}
+                      rows={2}
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <section className="applicant-edit-section">
+                <h3>Guardian &amp; Emergency Contact</h3>
+                <div className="applicant-edit-grid">
+                  <label>
+                    <span>Guardian</span>
+                    <input
+                      value={editForm.guardianName}
+                      onChange={(event) => updateEditField('guardianName', event.target.value)}
+                      placeholder="N/A if none"
+                    />
+                  </label>
+                  <label>
+                    <span>Guardian Contact</span>
+                    <input
+                      value={editForm.guardianContactNumber}
+                      onChange={(event) => updateEditField('guardianContactNumber', event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>Emergency Contact Name</span>
+                    <input
+                      value={editForm.emergencyName}
+                      onChange={(event) => updateEditField('emergencyName', event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>Emergency Contact Relationship</span>
+                    <input
+                      value={editForm.emergencyRelationship}
+                      onChange={(event) => updateEditField('emergencyRelationship', event.target.value)}
+                      placeholder="e.g. Mother"
+                    />
+                  </label>
+                  <label>
+                    <span>Emergency Contact Number</span>
+                    <input
+                      value={editForm.emergencyContactNumber}
+                      onChange={(event) => updateEditField('emergencyContactNumber', event.target.value)}
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <section className="applicant-edit-section">
+                <h3>Academic Background</h3>
+                {editForm.applicantType === 'Transferee' ? (
+                  <div className="applicant-edit-grid">
+                    <label>
+                      <span>Last College Attended</span>
+                      <input
+                        value={editForm.college.schoolName}
+                        onChange={(event) => updateSchoolField('college', 'schoolName', event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      <span>Year Last Attended</span>
+                      <input
+                        value={editForm.college.yearGraduated}
+                        onChange={(event) => updateSchoolField('college', 'yearGraduated', event.target.value)}
+                        placeholder="YYYY"
+                      />
+                    </label>
+                    <label>
+                      <span>College General Average</span>
+                      <input
+                        value={editForm.college.generalAverage}
+                        onChange={(event) => updateSchoolField('college', 'generalAverage', event.target.value)}
+                        placeholder="e.g. 1.75"
+                      />
+                    </label>
+                  </div>
+                ) : (
+                  <>
+                    <div className="applicant-edit-grid">
+                      <label>
+                        <span>Elementary</span>
+                        <input
+                          value={editForm.elementary.schoolName}
+                          onChange={(event) => updateSchoolField('elementary', 'schoolName', event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        <span>Elementary Year Graduated</span>
+                        <input
+                          value={editForm.elementary.yearGraduated}
+                          onChange={(event) => updateSchoolField('elementary', 'yearGraduated', event.target.value)}
+                          placeholder="YYYY"
+                        />
+                      </label>
+                      <label>
+                        <span>Elementary GPA</span>
+                        <input
+                          value={editForm.elementary.generalAverage}
+                          onChange={(event) => updateSchoolField('elementary', 'generalAverage', event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        <span>High School</span>
+                        <input
+                          value={editForm.highSchool.schoolName}
+                          onChange={(event) => updateSchoolField('highSchool', 'schoolName', event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        <span>High School Year Graduated</span>
+                        <input
+                          value={editForm.highSchool.yearGraduated}
+                          onChange={(event) => updateSchoolField('highSchool', 'yearGraduated', event.target.value)}
+                          placeholder="YYYY"
+                        />
+                      </label>
+                      <label>
+                        <span>High School GPA</span>
+                        <input
+                          value={editForm.highSchool.generalAverage}
+                          onChange={(event) => updateSchoolField('highSchool', 'generalAverage', event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        <span>Senior High School</span>
+                        <input
+                          value={editForm.seniorHighSchool.schoolName}
+                          onChange={(event) => updateSchoolField('seniorHighSchool', 'schoolName', event.target.value)}
+                          placeholder="N/A if none"
+                        />
+                      </label>
+                      <label>
+                        <span>SHS Year Graduated</span>
+                        <input
+                          value={editForm.seniorHighSchool.yearGraduated}
+                          onChange={(event) => updateSchoolField('seniorHighSchool', 'yearGraduated', event.target.value)}
+                          placeholder="YYYY"
+                        />
+                      </label>
+                      <label>
+                        <span>SHS GPA</span>
+                        <input
+                          value={editForm.seniorHighSchool.generalAverage}
+                          onChange={(event) => updateSchoolField('seniorHighSchool', 'generalAverage', event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        <span>Strand / Track</span>
+                        <input
+                          value={editForm.seniorHighSchool.strandOrTrack}
+                          onChange={(event) => updateSchoolField('seniorHighSchool', 'strandOrTrack', event.target.value)}
+                        />
+                      </label>
+                    </div>
+                  </>
+                )}
+              </section>
+            </div>
+
+            <footer className="applicant-edit-footer">
+              <button type="button" className="applicant-queue-outline-btn" onClick={closeEditModal} disabled={editSaving}>
+                Cancel
+              </button>
+              <button type="button" className="applicant-queue-primary-btn" onClick={() => void handleEditSave()} disabled={editSaving}>
+                {editSaving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </footer>
+          </div>
+        </div>,
+        document.body
+      )}
+
       {toasts.length > 0 && createPortal(
         <div className="applicant-toast-stack" role="status" aria-live="polite">
           {toasts.map((t) => (
@@ -765,6 +1240,85 @@ export default function ApplicantQueue() {
       )}
     </section>
   )
+}
+
+type SchoolEditFields = {
+  schoolName: string
+  yearGraduated: string
+  generalAverage: string
+}
+
+type ApplicantEditForm = {
+  firstName: string
+  middleName: string
+  lastName: string
+  suffix: string
+  email: string
+  phoneNumber: string
+  applicantType: 'New' | 'Transferee' | 'Returnee'
+  selectedCourse: string
+  requestedYearLevel: string
+  semester: string
+  schoolYear: string
+  currentAddress: string
+  guardianName: string
+  guardianContactNumber: string
+  emergencyName: string
+  emergencyRelationship: string
+  emergencyContactNumber: string
+  elementary: SchoolEditFields
+  highSchool: SchoolEditFields
+  seniorHighSchool: SchoolEditFields & { strandOrTrack: string }
+  college: SchoolEditFields
+}
+
+const buildEditForm = (applicant: ApplicantRecord): ApplicantEditForm => ({
+  firstName: applicant.firstName || '',
+  middleName: applicant.middleName || '',
+  lastName: applicant.lastName || '',
+  suffix: applicant.suffix || '',
+  email: applicant.email || '',
+  phoneNumber: applicant.phoneNumber || '',
+  applicantType: applicant.applicantType || 'New',
+  selectedCourse: String(applicant.selectedCourse ?? ''),
+  requestedYearLevel: String(applicant.requestedYearLevel || 1),
+  semester: applicant.semester || '1st',
+  schoolYear: applicant.schoolYear || '',
+  currentAddress: applicant.currentAddress || '',
+  guardianName: applicant.guardianName || '',
+  guardianContactNumber: applicant.guardianContactNumber || '',
+  emergencyName: applicant.emergencyContact?.name || '',
+  emergencyRelationship: applicant.emergencyContact?.relationship || '',
+  emergencyContactNumber: applicant.emergencyContact?.contactNumber || '',
+  elementary: {
+    schoolName: applicant.academicDetails?.elementary?.schoolName || '',
+    yearGraduated: applicant.academicDetails?.elementary?.yearGraduated || '',
+    generalAverage: applicant.academicDetails?.elementary?.generalAverage || ''
+  },
+  highSchool: {
+    schoolName: applicant.academicDetails?.highSchool?.schoolName || '',
+    yearGraduated: applicant.academicDetails?.highSchool?.yearGraduated || '',
+    generalAverage: applicant.academicDetails?.highSchool?.generalAverage || ''
+  },
+  seniorHighSchool: {
+    schoolName: applicant.academicDetails?.seniorHighSchool?.schoolName || '',
+    yearGraduated: applicant.academicDetails?.seniorHighSchool?.yearGraduated || '',
+    generalAverage: applicant.academicDetails?.seniorHighSchool?.generalAverage || '',
+    strandOrTrack: applicant.academicDetails?.seniorHighSchool?.strandOrTrack || ''
+  },
+  college: {
+    schoolName: applicant.academicDetails?.college?.schoolName || '',
+    yearGraduated: applicant.academicDetails?.college?.yearGraduated || '',
+    generalAverage: applicant.academicDetails?.college?.generalAverage || ''
+  }
+})
+
+const PHONE_REGEX = /^(09|\+639)\d{9}$/
+const isPhoneNumberValid = (value: string) => {
+  const digits = value.replace(/[^0-9]/g, '')
+  return PHONE_REGEX.test(value)
+    || (digits.length === 11 && digits.startsWith('09'))
+    || (digits.length === 13 && digits.startsWith('639'))
 }
 
 function Detail({ label, value }: { label: string; value: string }) {
